@@ -1,0 +1,995 @@
+{
+  "AccessoryFlags": {
+    "format": "uint32",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "000000A6-0000-1000-8000-0026BB765291"
+  },
+  "AccessoryIdentifier": {
+    "format": "string",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000057-0000-1000-8000-0026BB765291"
+  },
+  "AdministratorOnlyAccess": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000001-0000-1000-8000-0026BB765291"
+  },
+  "AirParticulateDensity": {
+    "format": "float",
+    "max_value": 1000,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000064-0000-1000-8000-0026BB765291"
+  },
+  "AirParticulateSize": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000065-0000-1000-8000-0026BB765291"
+  },
+  "AirQuality": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000095-0000-1000-8000-0026BB765291"
+  },
+  "AudioFeedback": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000005-0000-1000-8000-0026BB765291"
+  },
+  "BatteryLevel": {
+    "format": "uint8",
+    "max_value": 100,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000068-0000-1000-8000-0026BB765291",
+    "unit": "percentage"
+  },
+  "Brightness": {
+    "format": "int",
+    "max_value": 100,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000008-0000-1000-8000-0026BB765291",
+    "unit": "percentage"
+  },
+  "CarbonDioxideDetected": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000092-0000-1000-8000-0026BB765291"
+  },
+  "CarbonDioxideLevel": {
+    "format": "float",
+    "max_value": 100000,
+    "min_step": 100,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000093-0000-1000-8000-0026BB765291"
+  },
+  "CarbonDioxidePeakLevel": {
+    "format": "float",
+    "max_value": 100000,
+    "min_step": 100,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000094-0000-1000-8000-0026BB765291"
+  },
+  "CarbonMonoxideDetected": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000069-0000-1000-8000-0026BB765291"
+  },
+  "CarbonMonoxideLevel": {
+    "format": "float",
+    "max_value": 100,
+    "min_step": 0.1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000090-0000-1000-8000-0026BB765291"
+  },
+  "CarbonMonoxidePeakLevel": {
+    "format": "float",
+    "max_value": 100,
+    "min_step": 0.1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000091-0000-1000-8000-0026BB765291"
+  },
+  "Category": {
+    "format": "uint16",
+    "max_value": 16,
+    "min_step": 1,
+    "min_value": 1,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "000000A3-0000-1000-8000-0026BB765291"
+  },
+  "ChargingState": {
+    "format": "uint8",
+    "max_value": 2,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000008F-0000-1000-8000-0026BB765291"
+  },
+  "ConfigureBridgedAccessory": {
+    "format": "tlv8",
+    "perms": [
+      "pw"
+    ],
+    "type_id": "000000A0-0000-1000-8000-0026BB765291"
+  },
+  "ConfigureBridgedAccessoryStatus": {
+    "format": "tlv8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000009D-0000-1000-8000-0026BB765291"
+  },
+  "ContactSensorState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000006A-0000-1000-8000-0026BB765291"
+  },
+  "CoolingThresholdTemperature": {
+    "format": "float",
+    "max_value": 35,
+    "min_step": 0.1,
+    "min_value": 10,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000000D-0000-1000-8000-0026BB765291",
+    "unit": "celsius"
+  },
+  "CurrentAmbientLightLevel": {
+    "format": "float",
+    "max_value": 100000,
+    "min_step": 0.0001,
+    "min_value": 0.0001,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000006B-0000-1000-8000-0026BB765291",
+    "unit": "lux"
+  },
+  "CurrentDoorState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000000E-0000-1000-8000-0026BB765291"
+  },
+  "CurrentHeatingCoolingState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000000F-0000-1000-8000-0026BB765291"
+  },
+  "CurrentHorizontalTiltAngle": {
+    "format": "int",
+    "max_value": 90,
+    "min_step": 1,
+    "min_value": -90,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000006C-0000-1000-8000-0026BB765291",
+    "unit": "arcdegrees"
+  },
+  "CurrentPosition": {
+    "format": "uint8",
+    "max_value": 100,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000006D-0000-1000-8000-0026BB765291",
+    "unit": "percentage"
+  },
+  "CurrentRelativeHumidity": {
+    "format": "float",
+    "max_value": 100,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000010-0000-1000-8000-0026BB765291",
+    "unit": "percentage"
+  },
+  "CurrentTemperature": {
+    "format": "float",
+    "max_value": 100,
+    "min_step": 0.1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000011-0000-1000-8000-0026BB765291",
+    "unit": "celsius"
+  },
+  "CurrentTime": {
+    "format": "string",
+    "perms": [
+      "pr",
+      "pw"
+    ],
+    "type_id": "0000009B-0000-1000-8000-0026BB765291"
+  },
+  "CurrentVerticalTiltAngle": {
+    "format": "int",
+    "max_value": 90,
+    "min_step": 1,
+    "min_value": -90,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000006E-0000-1000-8000-0026BB765291",
+    "unit": "arcdegrees"
+  },
+  "DayoftheWeek": {
+    "format": "uint8",
+    "max_value": 7,
+    "min_step": 1,
+    "min_value": 1,
+    "perms": [
+      "pr",
+      "pw"
+    ],
+    "type_id": "00000098-0000-1000-8000-0026BB765291"
+  },
+  "DigitalZoom": {
+    "format": "float",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000011D-0000-1000-8000-0026BB765291"
+  },
+  "DiscoverBridgedAccessories": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000009E-0000-1000-8000-0026BB765291"
+  },
+  "DiscoveredBridgedAccessories": {
+    "format": "uint16",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000009F-0000-1000-8000-0026BB765291"
+  },
+  "FirmwareRevision": {
+    "format": "string",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000052-0000-1000-8000-0026BB765291"
+  },
+  "HardwareRevision": {
+    "format": "string",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000053-0000-1000-8000-0026BB765291"
+  },
+  "HeatingThresholdTemperature": {
+    "format": "float",
+    "max_value": 25,
+    "min_step": 0.1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000012-0000-1000-8000-0026BB765291",
+    "unit": "celsius"
+  },
+  "HoldPosition": {
+    "format": "bool",
+    "perms": [
+      "pw"
+    ],
+    "type_id": "0000006F-0000-1000-8000-0026BB765291"
+  },
+  "Hue": {
+    "format": "float",
+    "max_value": 360,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000013-0000-1000-8000-0026BB765291",
+    "unit": "arcdegrees"
+  },
+  "Identify": {
+    "format": "bool",
+    "perms": [
+      "pw"
+    ],
+    "type_id": "00000014-0000-1000-8000-0026BB765291"
+  },
+  "ImageMirroring": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000011F-0000-1000-8000-0026BB765291"
+  },
+  "ImageRotation": {
+    "format": "float",
+    "max_value": 270,
+    "min_step": 90,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000011E-0000-1000-8000-0026BB765291"
+  },
+  "LeakDetected": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000070-0000-1000-8000-0026BB765291"
+  },
+  "LinkQuality": {
+    "format": "uint8",
+    "max_value": 4,
+    "min_step": 1,
+    "min_value": 1,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000009C-0000-1000-8000-0026BB765291"
+  },
+  "LockControlPoint": {
+    "format": "tlv8",
+    "perms": [
+      "pw"
+    ],
+    "type_id": "00000019-0000-1000-8000-0026BB765291"
+  },
+  "LockCurrentState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000001D-0000-1000-8000-0026BB765291"
+  },
+  "LockLastKnownAction": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000001C-0000-1000-8000-0026BB765291"
+  },
+  "LockManagementAutoSecurityTimeout": {
+    "format": "uint32",
+    "max_value": 86400,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000001A-0000-1000-8000-0026BB765291",
+    "unit": "seconds"
+  },
+  "LockTargetState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000001E-0000-1000-8000-0026BB765291"
+  },
+  "Logs": {
+    "format": "tlv8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000001F-0000-1000-8000-0026BB765291"
+  },
+  "Manufacturer": {
+    "format": "string",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000020-0000-1000-8000-0026BB765291"
+  },
+  "Model": {
+    "format": "string",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000021-0000-1000-8000-0026BB765291"
+  },
+  "MotionDetected": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000022-0000-1000-8000-0026BB765291"
+  },
+  "Mute": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000011A-0000-1000-8000-0026BB765291"
+  },
+  "Name": {
+    "format": "string",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000023-0000-1000-8000-0026BB765291"
+  },
+  "NightVision": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000011B-0000-1000-8000-0026BB765291"
+  },
+  "ObstructionDetected": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000024-0000-1000-8000-0026BB765291"
+  },
+  "OccupancyDetected": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000071-0000-1000-8000-0026BB765291"
+  },
+  "On": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000025-0000-1000-8000-0026BB765291"
+  },
+  "OpticalZoom": {
+    "format": "float",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000011C-0000-1000-8000-0026BB765291"
+  },
+  "OutletInUse": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000026-0000-1000-8000-0026BB765291"
+  },
+  "PairSetup": {
+    "format": "tlv8",
+    "perms": [
+      "pr",
+      "pw"
+    ],
+    "type_id": "0000004C-0000-1000-8000-0026BB765291"
+  },
+  "PairVerify": {
+    "format": "tlv8",
+    "perms": [
+      "pr",
+      "pw"
+    ],
+    "type_id": "0000004E-0000-1000-8000-0026BB765291"
+  },
+  "PairingFeatures": {
+    "format": "uint8",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "0000004F-0000-1000-8000-0026BB765291"
+  },
+  "PairingPairings": {
+    "format": "tlv8",
+    "perms": [
+      "pr",
+      "pw"
+    ],
+    "type_id": "00000050-0000-1000-8000-0026BB765291"
+  },
+  "PositionState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000072-0000-1000-8000-0026BB765291"
+  },
+  "ProgrammableSwitchEvent": {
+    "format": "uint8",
+    "max_value": 1,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000073-0000-1000-8000-0026BB765291"
+  },
+  "ProgrammableSwitchOutputState": {
+    "format": "uint8",
+    "max_value": 1,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000074-0000-1000-8000-0026BB765291"
+  },
+  "Reachable": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000063-0000-1000-8000-0026BB765291"
+  },
+  "RelayControlPoint": {
+    "format": "tlv8",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000005E-0000-1000-8000-0026BB765291"
+  },
+  "RelayEnabled": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000005B-0000-1000-8000-0026BB765291"
+  },
+  "RelayState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000005C-0000-1000-8000-0026BB765291"
+  },
+  "RotationDirection": {
+    "format": "int",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000028-0000-1000-8000-0026BB765291"
+  },
+  "RotationSpeed": {
+    "format": "float",
+    "max_value": 100,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000029-0000-1000-8000-0026BB765291",
+    "unit": "percentage"
+  },
+  "Saturation": {
+    "format": "float",
+    "max_value": 100,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000002F-0000-1000-8000-0026BB765291",
+    "unit": "percentage"
+  },
+  "SecuritySystemAlarmType": {
+    "format": "uint8",
+    "max_value": 1,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000008E-0000-1000-8000-0026BB765291"
+  },
+  "SecuritySystemCurrentState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000066-0000-1000-8000-0026BB765291"
+  },
+  "SecuritySystemTargetState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000067-0000-1000-8000-0026BB765291"
+  },
+  "SelectedStreamConfiguration": {
+    "format": "tlv8",
+    "perms": [
+      "pr",
+      "pw"
+    ],
+    "type_id": "00000117-0000-1000-8000-0026BB765291"
+  },
+  "SerialNumber": {
+    "format": "string",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000030-0000-1000-8000-0026BB765291"
+  },
+  "SetupEndpoints": {
+    "format": "tlv8",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000118-0000-1000-8000-0026BB765291"
+  },
+  "SmokeDetected": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000076-0000-1000-8000-0026BB765291"
+  },
+  "SoftwareRevision": {
+    "format": "string",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000054-0000-1000-8000-0026BB765291"
+  },
+  "StatusActive": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000075-0000-1000-8000-0026BB765291"
+  },
+  "StatusFault": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000077-0000-1000-8000-0026BB765291"
+  },
+  "StatusJammed": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000078-0000-1000-8000-0026BB765291"
+  },
+  "StatusLowBattery": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000079-0000-1000-8000-0026BB765291"
+  },
+  "StatusTampered": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000007A-0000-1000-8000-0026BB765291"
+  },
+  "StreamingStatus": {
+    "format": "tlv8",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000120-0000-1000-8000-0026BB765291"
+  },
+  "SupportedAudioStreamConfiguration": {
+    "format": "tlv8",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000115-0000-1000-8000-0026BB765291"
+  },
+  "SupportedRTPConfiguration": {
+    "format": "tlv8",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000116-0000-1000-8000-0026BB765291"
+  },
+  "SupportedVideoStreamConfiguration": {
+    "format": "tlv8",
+    "perms": [
+      "pr"
+    ],
+    "type_id": "00000114-0000-1000-8000-0026BB765291"
+  },
+  "TargetDoorState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000032-0000-1000-8000-0026BB765291"
+  },
+  "TargetHeatingCoolingState": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000033-0000-1000-8000-0026BB765291"
+  },
+  "TargetHorizontalTiltAngle": {
+    "format": "int",
+    "max_value": 90,
+    "min_step": 1,
+    "min_value": -90,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000007B-0000-1000-8000-0026BB765291",
+    "unit": "arcdegrees"
+  },
+  "TargetPosition": {
+    "format": "uint8",
+    "max_value": 100,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000007C-0000-1000-8000-0026BB765291",
+    "unit": "percentage"
+  },
+  "TargetRelativeHumidity": {
+    "format": "float",
+    "max_value": 100,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000034-0000-1000-8000-0026BB765291",
+    "unit": "percentage"
+  },
+  "TargetTemperature": {
+    "format": "float",
+    "max_value": 38,
+    "min_step": 0.1,
+    "min_value": 10,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000035-0000-1000-8000-0026BB765291",
+    "unit": "celsius"
+  },
+  "TargetVerticalTiltAngle": {
+    "format": "int",
+    "max_value": 90,
+    "min_step": 1,
+    "min_value": -90,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "0000007D-0000-1000-8000-0026BB765291",
+    "unit": "arcdegrees"
+  },
+  "TemperatureDisplayUnits": {
+    "format": "uint8",
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000036-0000-1000-8000-0026BB765291"
+  },
+  "TimeUpdate": {
+    "format": "bool",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "0000009A-0000-1000-8000-0026BB765291"
+  },
+  "TunnelConnectionTimeout": {
+    "format": "uint32",
+    "perms": [
+      "pw",
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000061-0000-1000-8000-0026BB765291"
+  },
+  "TunneledAccessoryAdvertising": {
+    "format": "bool",
+    "perms": [
+      "pw",
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000060-0000-1000-8000-0026BB765291"
+  },
+  "TunneledAccessoryConnected": {
+    "format": "bool",
+    "perms": [
+      "pw",
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000059-0000-1000-8000-0026BB765291"
+  },
+  "TunneledAccessoryStateNumber": {
+    "format": "float",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000058-0000-1000-8000-0026BB765291"
+  },
+  "Version": {
+    "format": "string",
+    "perms": [
+      "pr",
+      "ev"
+    ],
+    "type_id": "00000037-0000-1000-8000-0026BB765291"
+  },
+  "Volume": {
+    "format": "float",
+    "max_value": 100,
+    "min_step": 1,
+    "min_value": 0,
+    "perms": [
+      "pr",
+      "pw",
+      "ev"
+    ],
+    "type_id": "00000119-0000-1000-8000-0026BB765291",
+    "unit": "percentage"
+  }
+}
