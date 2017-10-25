@@ -22,6 +22,5 @@ class TemperatureSensorAccessory(Accessory):
          loader.get_serv_loader().get("TemperatureSensor"))
 
    def run(self):
-      while True:
+      while not self.run_sentinel.wait(3):
          self.temp_char.set_value(random.randint(18, 26))
-         time.sleep(3)
