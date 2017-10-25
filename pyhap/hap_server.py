@@ -730,11 +730,11 @@ class HAPServer(socketserver.ThreadingMixIn,
 
    def server_close(self):
       """Close all connections."""
-      logger.info("Stopping server.")
+      logger.info("Stopping HAP server")
       super(HAPServer, self).server_close()
-      for sock in self.connections.itervalues():
+      for sock in self.connections.values():
          try:
-            sock.shutdown(socket.SHUT_WR)
+            sock.shutdown(socket.SHUT_RDWR)
          except socket.error:
             pass
          sock.close()

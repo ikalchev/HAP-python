@@ -61,6 +61,8 @@ class Accessory(object):
       self.reachable = True
       self.pincode = pincode
       self.broker = None
+      # threading.Event that gets set when the Accessory should stop.
+      self.run_sentinel = None
 
       sk, vk = ed25519.create_keypair()
       self.private_key = sk
@@ -77,6 +79,7 @@ class Accessory(object):
    def __getstate__(self):
       state = self.__dict__.copy()
       state["broker"] = None
+      state["run_sentinel"] = None
       return state
 
    def _set_services(self):
@@ -97,8 +100,22 @@ class Accessory(object):
                   .set_value("Default-SerialNumber", False)
       self.add_service(info_service)
 
+   def set_sentinel(self, run_sentinel):
+      """Assign a run sentinel that can signal stopping.
+
+      The run sentinel is a threading.Event object that can be used to manage
+      continuous running of the Accessory, e.g. a loop reading from a sensor every 3
+      seconds. The sentinel is "set" typically by the AccessoryDriver just before
+      Accessory.stop is called.
+
+      Example usage in the run method:
+      >>> while not self.run_sentinel.wait(3): # If not set, every 3 seconds
+      ...    sensor.readTemperature()
+      """
+      self.run_sentinel = run_sentinel
+
    def add_service(self, *servs):
-      # TODO: There could be more than one services with the same UUID in the same
+      # TODO: There could be more than one service with the same UUID in the same
       # accessory. We need to distinguish them e.g. with an "artificial" subtype.
       for s in servs:
          self.services.append(s)
@@ -174,6 +191,15 @@ class Accessory(object):
       return hap_rep
 
    def run(self):
+      """Called when the Accessory should start doing its thing.
+
+      Called when HAP server is running, advertising is set, etc.
+      """
+      pass
+
+   def stop(self):
+      """Called when the Accessory should stop what is doing and clean up any resources.
+      """
       pass
 
    ### Broker
@@ -196,9 +222,8 @@ class Accessory(object):
       self.broker.publish(acc_data)
 
 class Bridge(Accessory):
-   """
-   A representation of a HAP bridge.
-   
+   """A representation of a HAP bridge.
+
    A bridge can have multiple accessories.
    """
 
@@ -207,6 +232,12 @@ class Bridge(Accessory):
    def __init__(self, display_name, **kwargs):
       super(Bridge, self).__init__(display_name, aid=STANDALONE_AID, **kwargs)
       self.accessories = {} # aid -> acc
+
+   def set_sentinel(self, run_sentinel):
+      """Sets the same sentinel to all contained accessories."""
+      super(Bridge, self).set_sentinel(run_sentinel)
+      for acc in self.accessories.values():
+         acc.set_sentinel(run_sentinel)
 
    def add_accessory(self, acc):
       """Adds an accessory to this bridge.
@@ -270,8 +301,14 @@ class Bridge(Accessory):
       """Creates and starts a new thread for each of the contained accessories' run
          method.
       """
-      for _, acc in self.accessories.items():
-         threading.Thread(target=acc.run, daemon=True).start()
+      for acc in self.accessories.values():
+         threading.Thread(target=acc.run).start()
+
+   def stop(self):
+      """Calls stop() on all contained accessories."""
+      super(Bridge, self).stop()
+      for acc in self.accessories.values():
+         acc.stop()
 
 def get_topic(aid, iid):
    return str(aid) + "." + str(iid)

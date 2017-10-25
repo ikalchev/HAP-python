@@ -1,8 +1,5 @@
 # An Accessory for a LED attached to pin 11.
-
 import logging
-import time
-import atexit
 
 import RPi.GPIO as GPIO
 
@@ -17,7 +14,6 @@ class LightBulb(Accessory):
    def _gpio_setup(_cls, pin):
       if GPIO.getmode() is None:
          GPIO.setmode(GPIO.BOARD)
-         atexit.register(GPIO.cleanup)
       GPIO.setup(pin, GPIO.OUT)
 
    def __init__(self, *args, pin=11, **kwargs):
@@ -41,3 +37,7 @@ class LightBulb(Accessory):
       bulb_service = loader.get_serv_loader().get("Lightbulb")
       self.add_service(bulb_service)
       bulb_service.get_characteristic("On").setter_callback = self.set_bulb
+
+   def stop(self):
+      super(LightBulb, self).stop()
+      GPIO.cleanup()

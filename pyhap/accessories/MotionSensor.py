@@ -1,7 +1,5 @@
 # An Accessory for a MotionSensor
 import random
-import time
-import atexit
 
 import RPi.GPIO as GPIO
 
@@ -20,7 +18,6 @@ class MotionSensor(Accessory):
       GPIO.setmode(GPIO.BCM)
       GPIO.setup(7, GPIO.IN)
       GPIO.add_event_detect(7, GPIO.RISING, callback=self._detected)
-      atexit.register(GPIO.cleanup)
 
    def _set_services(self):
       super(MotionSensor, self)._set_services()
@@ -30,6 +27,6 @@ class MotionSensor(Accessory):
    def _detected(self, _pin):
       self.detected_char.set_value(True)
 
-   def run(self):
-      while True:
-         time.sleep(15)
+   def stop(self):
+      super(MotionSensor, self).stop()
+      GPIO.cleanup()

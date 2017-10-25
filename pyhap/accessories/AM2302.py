@@ -44,11 +44,10 @@ class AM2302(Accessory):
       self.sensor = DHT22.sensor(pigpio.pi(), self.pin)
 
    def run(self):
-      while True:
+      while not self.run_sentinel.wait(10):
          self.sensor.trigger()
          time.sleep(0.2)
          t = self.sensor.temperature()
          h = self.sensor.humidity()
          self.temp_char.set_value(t)
          self.humidity_char.set_value(h)
-         time.sleep(10)

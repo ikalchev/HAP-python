@@ -1,16 +1,14 @@
 import logging
 import os
-import binascii
 import pickle
+import signal
 
-from zeroconf import Zeroconf
-
+import pyhap.util as util
 from pyhap.accessories.TemperatureSensor import TemperatureSensorAccessory
 from pyhap.accessory import Bridge
 from pyhap.accessory_driver import AccessoryDriver
 
 logging.basicConfig(level=logging.INFO)
-
 
 def get_accessory():
    # Example of a Bridged accessories.
@@ -25,24 +23,21 @@ def get_accessory():
    #return bridge
 
    # Standalone accessory
-   acc =TemperatureSensorAccessory.create(display_name="pyhap", pincode=b"203-23-999")
+   # Displayed name will be "test"
+   acc = TemperatureSensorAccessory.create("test", pincode=b"203-23-999")
    return acc
 
+# The AccessoryDriver preserves the state of the accessory
+# (by default, in the below file), so that you can restart it without pairing again.
 if os.path.exists("accessory.pickle"):
    with open("accessory.pickle", "rb") as f:
       acc = pickle.load(f)
 else:
    acc = get_accessory()
 
-advertiser = Zeroconf()
-driver = AccessoryDriver(acc, advertiser, 51826)
-
+# Start the accessory on port 51826
+driver = AccessoryDriver(acc, 51826)
+# We want KeyboardInterrupts to be handled by the driver itself, for convenience.
+signal.signal(signal.SIGINT, driver.signal_handler)
+# Start it!
 driver.start()
-
-while True:
-   try:
-      pass
-   except KeyboardInterrupt:
-      driver.stop()
-      advertiser.unregister_all_services()
-      break

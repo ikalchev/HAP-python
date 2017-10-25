@@ -1,8 +1,6 @@
 # An Accessory for the BMP180 sensor.
 # This assumes the bmp180 module is in a package called sensors.
-
-import time
-
+# Assume you have a bmp module with BMP180 class with read() method.
 from sensors.bmp180 import BMP180
 
 from pyhap.accessory import Accessory, Category
@@ -35,7 +33,6 @@ class BMP180_Accessory(Accessory):
       self.sensor = BMP180()
 
    def run(self):
-      while True:
+      while not self.run_sentinel.wait(30):
          temp, _pressure = self.sensor.read()
          self.temp_char.set_value(temp)
-         time.sleep(30)
