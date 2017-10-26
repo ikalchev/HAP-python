@@ -61,7 +61,9 @@ class HapHttpHandler(BaseHTTPRequestHandler):
         """
         length = int(self.headers["Content-Length"])
         try:
-            content = self.rfile.read(length)
+            # The below decode is necessary only for python <3.6, because loads prior 3.6
+            # doesn't know bytes/bytearray.
+            content = self.rfile.read(length).decode("utf-8")
             data = json.loads(content)
         except Exception as e:
             logger.error("Bad POST request; Error was: %s", str(e))
@@ -112,6 +114,7 @@ class Http(Accessory):
                 charObj.set_value(value)
 
     def stop(self):
+        super(Http, self).stop()
         self.server.shutdown()
         self.server.server_close()
 
