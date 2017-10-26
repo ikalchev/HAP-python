@@ -4,7 +4,8 @@ HomeKit Accessory Protocol implementation in python.
 
 With this project, you can create HomeKit accessories in python and add them to your iOS Home app.
 
-The project was developed for a Raspberry Pi, but it should work on other platforms.
+The project was developed for a Raspberry Pi, but it should work on other platforms. You
+can even integrate with HAP-python remotely using HTTP (see below).
 
 To kick-start things, you can open `main.py`, where you can find out how to launch a mock temperature sensor. To start, run
 
@@ -67,6 +68,38 @@ In some cases the run method can suitable be skipped, e.g. see [LightBulb](pyhap
 When the accessory is stopped by the accessory driver, it first sets the `run_sentinel`
 and then calls `Accessory.stop()`. This is your chance to clean up any resources you like,
 e.g. files, sockets, gpios, etc.
+
+## Integrating non-compatible devices
+HAP-python and its dependencies (not to mention python itself) may not be available for
+many IoT devices. However, HAP-python allows such devices to be bridged by means of
+communicating with an HTTP server - the [Http Accessory](pyhap/accessories/Http.py).
+
+For example, the bellow snippet creates an Http Accessory that listens on port 51800
+for updates on the TemperatureSensor service:
+```python
+import pyhap.util as util
+from pyhap.accessories.Http import Http
+from pyhap.accessory import STANDALONE_AID
+from pyhap.accessory_driver import AccessoryDriver
+listenAddr = ("", 51800) # localhost
+name = "HTTP bridge" # display name
+services = ["TemperatureSensor"]
+http = Http(listenAddr, services, name,
+            aid=STANDALONE_AID, mac=util.generate_mac(), pincode=b"203-23-999")
+driver = AccessoryDriver(http, 51826)
+driver.start()
+```
+Now, remote accessories can do an HTTP POST to the address of the device where the
+accessory is running (port 51800) with the following content:
+```json
+{ "TemperatureSensor" : {
+     "CurrentTemperature" : 20 }
+}
+```
+This will update the value of the characteristic "CurrentTemperature" to 20 degrees C.
+
+Needless to say the communication to the Http Accessory could pose some security risk, so
+keep that in mind.
 
 ## Installation
 
