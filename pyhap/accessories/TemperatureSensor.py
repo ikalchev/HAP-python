@@ -6,18 +6,18 @@ import time
 from pyhap.accessory import Accessory, Category
 import pyhap.loader as loader
 
-class TemperatureSensorAccessory(Accessory):
+class TemperatureSensor(Accessory):
 
    category = Category.SENSOR
 
    def __init__(self, *args, **kwargs):
-      super(TemperatureSensorAccessory, self).__init__(*args, **kwargs)
+      super(TemperatureSensor, self).__init__(*args, **kwargs)
 
       self.temp_char = self.get_service("TemperatureSensor")\
                            .get_characteristic("CurrentTemperature")
 
    def _set_services(self):
-      super(TemperatureSensorAccessory, self)._set_services()
+      super(TemperatureSensor, self)._set_services()
       self.add_service(
          loader.get_serv_loader().get("TemperatureSensor"))
 
