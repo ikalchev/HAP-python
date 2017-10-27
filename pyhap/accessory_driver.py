@@ -338,22 +338,18 @@ class AccessoryDriver(object):
         logger.debug("AccessoryDriver stopped successfully")
 
     def signal_handler(self, _signal, _frame):
-        '''Stops the AccessoryDriver for a given signal.
+        """Stops the AccessoryDriver for a given signal.
 
-        An Accessoryriver can be registered as a signal handler with this method. For
+        An AccessoryDriver can be registered as a signal handler with this method. For
         example, you can register it for a KeyboardInterrupt as follows:
         >>> import signal
         >>> signal.signal(signal.SIGINT, anAccDriver.signal_handler)
 
         Now, when the user hits Ctrl+C, the driver will stop its accessory, the HAP server
         and everything else that needs stopping and will exit gracefully.
-        '''
+        """
         try:
             self.stop()
-            sys.exit(0) # raises SystemExit per design
-        except SystemExit as e:
-            if e.code == 0:
-                pass
         except Exception as e:
             logger.error("Could not stop AccessoryDriver because of error: %s", e)
-            sys.exit(-1)
+            raise
