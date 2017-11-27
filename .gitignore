@@ -1,0 +1,16 @@
+.DS_Store
+.env
+*.pyc
+*.pyo
+env
+env*
+dist
+build
+*.egg
+*.egg-info
+_mailinglist
+.cache/
+
+# HAP-python-generated files
+accessory.pickle
+

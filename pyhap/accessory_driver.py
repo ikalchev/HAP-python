@@ -5,7 +5,6 @@ import time
 import threading
 import json
 import pickle
-import sys
 
 from zeroconf import ServiceInfo, Zeroconf
 
@@ -18,14 +17,14 @@ import pyhap.util as util
 
 logger = logging.getLogger(__name__)
 
+
 class AccessoryMDNSServiceInfo(ServiceInfo):
     """A mDNS service info representation of an accessory."""
 
     def __init__(self, accessory, address, port):
         self.accessory = accessory
         hname = socket.gethostname()
-        pubname = hname + "." if hname.endswith(".local") \
-                              else hname + ".local."
+        pubname = hname + "." if hname.endswith(".local") else hname + ".local."
 
         adv_data = self._get_advert_data()
         super(AccessoryMDNSServiceInfo, self).__init__(
@@ -48,7 +47,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
             # Increasing this "version number" signals iOS devices to
             # re-fetch accessories data.
             "c#": str(self.accessory.config_version),
-            "s#": "1", # "accessory state"
+            "s#": "1",  # "accessory state"
             "ff": "0",
             "ci": str(self.accessory.category),
             # "sf == 1" means "discoverable by HomeKit iOS clients"
@@ -57,9 +56,11 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
 
         return adv_data
 
+
 class HAP_CONSTANTS:
     CHAR_STAT_OK = 0
     SERVICE_COMMUNICATION_FAILURE = -70402
+
 
 class AccessoryDriver(object):
     """
@@ -106,14 +107,15 @@ class AccessoryDriver(object):
     def publish(self, data):
         """Publishes an event to the client.
 
-        The publishing occurs only if the current client is subscribed to the topic for the
-        aid and iid contained in the data.
+        The publishing occurs only if the current client is subscribed to the topic for
+        the aid and iid contained in the data.
 
-        @param data: The data to publish. It must at least contain the keys "aid" and "iid".
+        @param data: The data to publish. It must at least contain the keys "aid" and
+            "iid".
         @type data: dict
         """
         if not get_topic(data["aid"], data["iid"]) in self.topics:
-         return
+            return
 
         data = {
             "characteristics": [data]
@@ -130,7 +132,7 @@ class AccessoryDriver(object):
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory,
                                                           self.address,
                                                           self.port)
-        time.sleep(0.1) # Doing it right away can cause crashes.
+        time.sleep(0.1)  # Doing it right away can cause crashes.
         self.advertiser.register_service(self.mdns_service_info)
 
     def persist(self):
@@ -162,8 +164,8 @@ class AccessoryDriver(object):
     def unpair(self, client_uuid):
         """Removes the paired client from the accessory.
 
-        Updates the accessory and updates the mDNS service. Persist the new accessory state
-        and clear the subscription topics.
+        Updates the accessory and updates the mDNS service. Persist the new accessory
+        state and clear the subscription topics.
 
         @param client_uuid: The client uuid.
         @type client_uuid: uuid.UUID
@@ -176,7 +178,7 @@ class AccessoryDriver(object):
 
     def setup_srp_verifier(self):
         """Create an SRP verifier for the accessory's info."""
-        #TODO: Move the below hard-coded values somewhere nice.
+        # TODO: Move the below hard-coded values somewhere nice.
         ctx = get_srp_context(3072, hashlib.sha512, 16)
         verifier = SrpServer(ctx, b"Pair-Setup", self.accessory.pincode)
         self.srp_verifier = verifier
@@ -204,7 +206,7 @@ class AccessoryDriver(object):
         """
         hap_rep = self.accessory.to_HAP()
         if not isinstance(hap_rep, list):
-            hap_rep = [hap_rep,]
+            hap_rep = [hap_rep, ]
         return {"accessories": hap_rep}
 
     def get_characteristics(self, char_ids):
@@ -273,7 +275,7 @@ class AccessoryDriver(object):
                 if cq["ev"]:
                     self.topics.add(char_topic)
                 else:
-                   self.topics.discard(char_topic)
+                    self.topics.discard(char_topic)
 
             response = {
                 "aid": aid,
@@ -281,14 +283,14 @@ class AccessoryDriver(object):
                 "status": HAP_CONSTANTS.CHAR_STAT_OK,
             }
             if "value" in cq:
-                #TODO: status needs to be based on success of set_value
+                # TODO: status needs to be based on success of set_value
                 char.set_value(cq["value"], should_notify=False)
                 if "r" in cq:
                     response["value"] = char.value
 
         chars_response.append(response)
         return {"characteristics": chars_response}
- 
+
     def start(self):
         """Starts the accessory.
 
