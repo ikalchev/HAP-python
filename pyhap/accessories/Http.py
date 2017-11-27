@@ -17,6 +17,7 @@ import pyhap.loader as loader
 
 logger = logging.getLogger(__name__)
 
+
 class HapHttpHandler(BaseHTTPRequestHandler):
     """
     Handles POST requests and passes characteristic value updates to an HttpAccessory.
@@ -72,10 +73,14 @@ class HapHttpHandler(BaseHTTPRequestHandler):
             self.httpAccessory.update_state(data)
             self.respond_ok()
 
-#TODO: should make it possible to init with {"aid" : [services]}
-# or {"addr": [services]} etc., so that this accessory can bridge several
-# other. In this way remote devices can use a simple interface and this module will do
-# the hap magic.
+
+'''TODO: should make it possible to init with {"aid" : [services]}
+or {"addr": [services]} etc., so that this accessory can bridge several
+other. In this way remote devices can use a simple interface and this module will do
+the hap magic.
+'''
+
+
 class Http(Accessory):
 
     category = Category.OTHER
