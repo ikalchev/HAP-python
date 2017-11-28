@@ -10,6 +10,7 @@ build
 *.egg-info
 _mailinglist
 .cache/
+.idea
 
 # HAP-python-generated files
 accessory.pickle
