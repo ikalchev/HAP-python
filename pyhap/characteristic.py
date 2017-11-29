@@ -52,6 +52,13 @@ class CharacteristicError(Exception):
     pass
 
 
+"""Fields that should be included in the HAP representation of the characteristic.
+
+That is, if they are present in the specification of a numeric-value characteristic.
+"""
+_HAP_NUMERIC_FIELDS = {"maxValue", "minValue", "minStep", "unit"}
+
+
 class Characteristic(object):
 
     def __init__(self, display_name, type_id, properties, value=None, broker=None):
@@ -62,6 +69,7 @@ class Characteristic(object):
         self.value = value or HAP_FORMAT.DEFAULT[properties["format"]]
         self.broker = broker
         self.setter_callback = None
+        self.hap_value_template = self._create_value_HAP_template()
 
     def set_value(self, value, should_notify=True):
         self.value = value
@@ -80,23 +88,26 @@ class Characteristic(object):
         }
         self.broker.publish(data)
 
+    def _create_value_HAP_template(self):
+        template = dict()
+        if self.properties["format"] in HAP_FORMAT.NUMERIC:
+            template = {k: self.properties[k]
+                        for k in self.properties.keys() & _HAP_NUMERIC_FIELDS}
+        return template
+
     def _value_to_HAP(self):
-        hap_rep = {}
+        hap_rep = self.hap_value_template.copy()
 
         if self.properties["format"] == HAP_FORMAT.STRING:
             val = self.value[:256]
             if len(self.value) > 64:
                 hap_rep["maxLen"] = min(len(self.value), 256)
         elif self.properties["format"] in HAP_FORMAT.NUMERIC:
-            if self.value > self.properties["max_value"]:
-                val = self.properties["max_value"]
-            else:
-                val = max(self.value, self.properties["min_value"])
-            hap_rep["maxValue"] = self.properties["max_value"]
-            hap_rep["minValue"] = self.properties["min_value"]
-            hap_rep["minStep"] = self.properties["min_step"]
-            if "unit" in self.properties:
-                hap_rep["unit"] = self.properties["unit"]
+            val = self.value
+            if "maxValue" in hap_rep:
+                val = min(self.properties["maxValue"], self.value)
+            if "minValue" in hap_rep:
+                val = max(self.properties["minValue"], self.value)
         else:
             val = self.value
 

@@ -25,9 +25,9 @@
   },
   "AirParticulateDensity": {
     "format": "float",
-    "max_value": 1000,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 1000,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -61,9 +61,9 @@
   },
   "BatteryLevel": {
     "format": "uint8",
-    "max_value": 100,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -73,9 +73,9 @@
   },
   "Brightness": {
     "format": "int",
-    "max_value": 100,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
@@ -94,9 +94,9 @@
   },
   "CarbonDioxideLevel": {
     "format": "float",
-    "max_value": 100000,
-    "min_step": 100,
-    "min_value": 0,
+    "maxValue": 100000,
+    "minStep": 100,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -105,9 +105,9 @@
   },
   "CarbonDioxidePeakLevel": {
     "format": "float",
-    "max_value": 100000,
-    "min_step": 100,
-    "min_value": 0,
+    "maxValue": 100000,
+    "minStep": 100,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -124,9 +124,9 @@
   },
   "CarbonMonoxideLevel": {
     "format": "float",
-    "max_value": 100,
-    "min_step": 0.1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 0.1,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -135,9 +135,9 @@
   },
   "CarbonMonoxidePeakLevel": {
     "format": "float",
-    "max_value": 100,
-    "min_step": 0.1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 0.1,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -146,9 +146,9 @@
   },
   "Category": {
     "format": "uint16",
-    "max_value": 16,
-    "min_step": 1,
-    "min_value": 1,
+    "maxValue": 16,
+    "minStep": 1,
+    "minValue": 1,
     "perms": [
       "pr",
       "ev"
@@ -157,7 +157,7 @@
   },
   "ChargingState": {
     "format": "uint8",
-    "max_value": 2,
+    "maxValue": 2,
     "perms": [
       "pr",
       "ev"
@@ -189,9 +189,9 @@
   },
   "CoolingThresholdTemperature": {
     "format": "float",
-    "max_value": 35,
-    "min_step": 0.1,
-    "min_value": 10,
+    "maxValue": 35,
+    "minStep": 0.1,
+    "minValue": 10,
     "perms": [
       "pr",
       "pw",
@@ -202,9 +202,9 @@
   },
   "CurrentAmbientLightLevel": {
     "format": "float",
-    "max_value": 100000,
-    "min_step": 0.0001,
-    "min_value": 0.0001,
+    "maxValue": 100000,
+    "minStep": 0.0001,
+    "minValue": 0.0001,
     "perms": [
       "pr",
       "ev"
@@ -230,9 +230,9 @@
   },
   "CurrentHorizontalTiltAngle": {
     "format": "int",
-    "max_value": 90,
-    "min_step": 1,
-    "min_value": -90,
+    "maxValue": 90,
+    "minStep": 1,
+    "minValue": -90,
     "perms": [
       "pr",
       "ev"
@@ -242,9 +242,9 @@
   },
   "CurrentPosition": {
     "format": "uint8",
-    "max_value": 100,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -254,9 +254,9 @@
   },
   "CurrentRelativeHumidity": {
     "format": "float",
-    "max_value": 100,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -266,9 +266,9 @@
   },
   "CurrentTemperature": {
     "format": "float",
-    "max_value": 100,
-    "min_step": 0.1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 0.1,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -286,9 +286,9 @@
   },
   "CurrentVerticalTiltAngle": {
     "format": "int",
-    "max_value": 90,
-    "min_step": 1,
-    "min_value": -90,
+    "maxValue": 90,
+    "minStep": 1,
+    "minValue": -90,
     "perms": [
       "pr",
       "ev"
@@ -298,9 +298,9 @@
   },
   "DayoftheWeek": {
     "format": "uint8",
-    "max_value": 7,
-    "min_step": 1,
-    "min_value": 1,
+    "maxValue": 7,
+    "minStep": 1,
+    "minValue": 1,
     "perms": [
       "pr",
       "pw"
@@ -349,9 +349,9 @@
   },
   "HeatingThresholdTemperature": {
     "format": "float",
-    "max_value": 25,
-    "min_step": 0.1,
-    "min_value": 0,
+    "maxValue": 25,
+    "minStep": 0.1,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
@@ -369,9 +369,9 @@
   },
   "Hue": {
     "format": "float",
-    "max_value": 360,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 360,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
@@ -398,9 +398,9 @@
   },
   "ImageRotation": {
     "format": "float",
-    "max_value": 270,
-    "min_step": 90,
-    "min_value": 0,
+    "maxValue": 270,
+    "minStep": 90,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
@@ -418,9 +418,9 @@
   },
   "LinkQuality": {
     "format": "uint8",
-    "max_value": 4,
-    "min_step": 1,
-    "min_value": 1,
+    "maxValue": 4,
+    "minStep": 1,
+    "minValue": 1,
     "perms": [
       "pr",
       "ev"
@@ -452,9 +452,9 @@
   },
   "LockManagementAutoSecurityTimeout": {
     "format": "uint32",
-    "max_value": 86400,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 86400,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
@@ -610,9 +610,9 @@
   },
   "ProgrammableSwitchEvent": {
     "format": "uint8",
-    "max_value": 1,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 1,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -621,9 +621,9 @@
   },
   "ProgrammableSwitchOutputState": {
     "format": "uint8",
-    "max_value": 1,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 1,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
@@ -676,9 +676,9 @@
   },
   "RotationSpeed": {
     "format": "float",
-    "max_value": 100,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
@@ -689,9 +689,9 @@
   },
   "Saturation": {
     "format": "float",
-    "max_value": 100,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
@@ -702,9 +702,9 @@
   },
   "SecuritySystemAlarmType": {
     "format": "uint8",
-    "max_value": 1,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 1,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "ev"
@@ -856,9 +856,9 @@
   },
   "TargetHorizontalTiltAngle": {
     "format": "int",
-    "max_value": 90,
-    "min_step": 1,
-    "min_value": -90,
+    "maxValue": 90,
+    "minStep": 1,
+    "minValue": -90,
     "perms": [
       "pr",
       "pw",
@@ -869,9 +869,9 @@
   },
   "TargetPosition": {
     "format": "uint8",
-    "max_value": 100,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
@@ -882,9 +882,9 @@
   },
   "TargetRelativeHumidity": {
     "format": "float",
-    "max_value": 100,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
@@ -895,9 +895,9 @@
   },
   "TargetTemperature": {
     "format": "float",
-    "max_value": 38,
-    "min_step": 0.1,
-    "min_value": 10,
+    "maxValue": 38,
+    "minStep": 0.1,
+    "minValue": 10,
     "perms": [
       "pr",
       "pw",
@@ -908,9 +908,9 @@
   },
   "TargetVerticalTiltAngle": {
     "format": "int",
-    "max_value": 90,
-    "min_step": 1,
-    "min_value": -90,
+    "maxValue": 90,
+    "minStep": 1,
+    "minValue": -90,
     "perms": [
       "pr",
       "pw",
@@ -981,9 +981,9 @@
   },
   "Volume": {
     "format": "float",
-    "max_value": 100,
-    "min_step": 1,
-    "min_value": 0,
+    "maxValue": 100,
+    "minStep": 1,
+    "minValue": 0,
     "perms": [
       "pr",
       "pw",
