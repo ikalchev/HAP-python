@@ -288,7 +288,7 @@ class AccessoryDriver(object):
                 if "r" in cq:
                     response["value"] = char.value
 
-        chars_response.append(response)
+            chars_response.append(response)
         return {"characteristics": chars_response}
 
     def start(self):
