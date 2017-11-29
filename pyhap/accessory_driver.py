@@ -96,7 +96,7 @@ class AccessoryDriver(object):
         self.advertiser = Zeroconf()
         self.port = port
         self.persist_file = persist_file
-        self.topics = set()
+        self.topics = {}  # topic: set of (address, port) of subscribed clients
 
         self.accessory.set_broker(self)
         self.mdns_service_info = None
@@ -114,17 +114,25 @@ class AccessoryDriver(object):
             "iid".
         @type data: dict
         """
-        if not get_topic(data["aid"], data["iid"]) in self.topics:
+        topic = get_topic(data["aid"], data["iid"])
+        subscribed_clients = self.topics.get(topic)
+        if subscribed_clients is None:
             return
 
-        data = {
-            "characteristics": [data]
-        }
+        data = {"characteristics": [data]}
         bytedata = json.dumps(data).encode("utf-8")
-        pushed = self.http_server.push_event(bytedata)
-        if not pushed:
-            logger.debug("Could not send event, probably stale socket.")
-            self.topics.clear()
+
+        # TODO: Maybe send to each client from a different thread?
+        stale_clients = []
+        for client_addr in subscribed_clients:
+            pushed = self.http_server.push_event(bytedata, client_addr)
+            if not pushed:
+                logger.debug("Could not send event to %s, probably stale socket.",
+                             client_addr)
+                stale_clients.append(client_addr)
+
+        for client_addr in stale_clients:
+            subscribed_clients.discard(client_addr)
 
     def update_advertisment(self):
         """Updates the mDNS service info for the accessory."""
@@ -165,7 +173,7 @@ class AccessoryDriver(object):
         """Removes the paired client from the accessory.
 
         Updates the accessory and updates the mDNS service. Persist the new accessory
-        state and clear the subscription topics.
+        state.
 
         @param client_uuid: The client uuid.
         @type client_uuid: uuid.UUID
@@ -174,7 +182,6 @@ class AccessoryDriver(object):
         self.accessory.remove_paired_client(client_uuid)
         self.persist()
         self.update_advertisment()
-        self.topics.clear()
 
     def setup_srp_verifier(self):
         """Create an SRP verifier for the accessory's info."""
@@ -240,7 +247,7 @@ class AccessoryDriver(object):
             chars.append(rep)
         return {"characteristics": chars}
 
-    def set_characteristics(self, chars_query):
+    def set_characteristics(self, chars_query, client_addr):
         """Configures the given characteristics.
 
         @param chars_query: A configuration query. For example:
@@ -272,10 +279,14 @@ class AccessoryDriver(object):
 
             if "ev" in cq:
                 char_topic = get_topic(aid, iid)
+                client_set = self.topics.get(char_topic)
+                if client_set is None:
+                    client_set = set()
+                    self.topics[char_topic] = client_set
                 if cq["ev"]:
-                    self.topics.add(char_topic)
+                    client_set.add(client_addr)
                 else:
-                    self.topics.discard(char_topic)
+                    client_set.discard(client_addr)
 
             response = {
                 "aid": aid,
