@@ -436,7 +436,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         encrypted_data = tlv_objects[HAP_TLV_TAGS.ENCRYPTED_DATA]
         cipher = CHACHA20_POLY1305(self.enc_context["pre_session_key"], "python")
         decrypted_data = cipher.open(self.PVERIFY_2_NONCE, bytearray(encrypted_data), b"")
-        assert decrypted_data is not None  # TODO
+        assert decrypted_data is not None  # TODO:
 
         dec_tlv_objects = tlv.decode(bytes(decrypted_data))
         client_username = dec_tlv_objects[HAP_TLV_TAGS.USERNAME]
@@ -444,15 +444,28 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             + client_username \
             + self.enc_context["public_key"].serialize()
 
-        # TODO: verify we have a client_public
         client_uuid = uuid.UUID(str(client_username, "ascii"))
-        perm_client_public = self.accessory.paired_clients[client_uuid]
+        perm_client_public = self.accessory.paired_clients.get(client_uuid)
+        if perm_client_public is None:
+            logger.debug("Client %s attempted pair verify without being paired first.",
+                         client_uuid)
+            self.send_response(200)
+            self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
+            data = tlv.encode(HAP_TLV_TAGS.ERROR_CODE, HAP_OPERATION_CODE.INVALID_REQUEST)
+            self.end_response(data)
+            return
+
         verifying_key = ed25519.VerifyingKey(perm_client_public)
         try:
             verifying_key.verify(dec_tlv_objects[HAP_TLV_TAGS.PROOF], material)
         except ed25519.BadSignatureError:
             logger.error("Bad signature, abort.")
-            raise  # TODO:
+            self.send_response(200)
+            self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
+            data = tlv.encode(HAP_TLV_TAGS.ERROR_CODE, HAP_OPERATION_CODE.INVALID_REQUEST)
+            self.end_response(data)
+            return
+
         logger.debug("Pair verify with client '%s' completed. Switching to "
                      "encrypted transport.", self.client_address)
 
@@ -500,7 +513,8 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         requested_chars = json.loads(
                               self.rfile.read(data_len).decode("utf-8"))
 
-        chars = self.accessory_handler.set_characteristics(requested_chars)
+        chars = self.accessory_handler.set_characteristics(requested_chars,
+                                                           self.client_address)
 
         data = json.dumps(chars).encode("utf-8")
         self.send_response(207)
@@ -524,7 +538,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
     def _handle_add_pairing(self, tlv_objects):
         """Update client information."""
-        logger.debug("Renewing client information")
+        logger.debug("Adding client pairing.")
         client_username = tlv_objects[HAP_TLV_TAGS.USERNAME]
         client_public = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
@@ -541,6 +555,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
     def _handle_remove_pairing(self, tlv_objects):
         """Remove pairing with the client."""
+        logger.debug("Removing client pairing.")
         client_username = tlv_objects[HAP_TLV_TAGS.USERNAME]
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
         self.accessory_handler.unpair(client_uuid)
@@ -548,7 +563,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, b"\x02")
         self.send_response(200)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-        self.end_response(data, True)
+        self.end_response(data)
 
 
 class HAPSocket(socket.socket):
@@ -712,9 +727,7 @@ class HAPServer(socketserver.ThreadingMixIn,
                  accessory_handler,
                  handler_type=HAPServerHandler):
         super(HAPServer, self).__init__(addr_port, handler_type)
-        self.connections = {}
-        # TODO: can we have more than one connection?
-        self.current_conn = None
+        self.connections = {}  # (address, port): socket
         self.accessory_handler = accessory_handler
 
     def get_request(self):
@@ -728,6 +741,7 @@ class HAPServer(socketserver.ThreadingMixIn,
         try:
             self.RequestHandlerClass(sock, client_addr, self, self.accessory_handler)
         except OSError as e:
+            self.connections.pop(client_addr, None)
             if e.errno not in (errno.ECONNRESET, errno.EHOSTUNREACH):
                 raise e
             logger.debug("Connection reset")
@@ -742,8 +756,9 @@ class HAPServer(socketserver.ThreadingMixIn,
             except socket.error:
                 pass
             sock.close()
+        self.connections.clear()
 
-    def push_event(self, bytesdata):
+    def push_event(self, bytesdata, client_addr):
         """Sends an event to the current connection with the provided data.
 
         @param data: The data to send.
@@ -753,10 +768,13 @@ class HAPServer(socketserver.ThreadingMixIn,
         @rtype: bool
         """
         try:
-            self.current_conn.sendall(
-                self.create_hap_event(bytesdata))
-            return True
+            client_socket = self.connections.get(client_addr)
+            if client_socket is not None:
+                client_socket.sendall(
+                    self.create_hap_event(bytesdata))
+            return client_socket is not None
         except OSError as e:
+            self.connections.pop(client_addr, None)
             if e.errno not in (errno.EPIPE, errno.EHOSTUNREACH):
                 raise e
             return False
@@ -773,5 +791,4 @@ class HAPServer(socketserver.ThreadingMixIn,
         client_socket = self.connections[client_address]
         hap_socket = HAPSocket(client_socket, shared_key)
         self.connections[client_address] = hap_socket
-        self.current_conn = hap_socket
         return hap_socket
