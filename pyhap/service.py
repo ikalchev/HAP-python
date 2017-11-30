@@ -16,10 +16,9 @@ class Service(object):
     yourself. This is because once a charateristic is present, iOS will want values for
     it and we need to know how to set these.
     """
-    def __init__(self, type_id, display_name=None, subtype=None):
+    def __init__(self, type_id, display_name=None):
         self.display_name = display_name
         self.type_id = type_id
-        self.subtype = subtype
         self.characteristics = []
         self.opt_characteristics = []
         # TODO: name characteristic
@@ -60,11 +59,21 @@ class Service(object):
         assert char is not None
         return char
 
-    def to_HAP(self, uuids):
-        characteristics = [c.to_HAP(uuids)
+    def to_HAP(self, iid_manager=None):
+        """Create a HAP representation of this Service.
+
+        @param base_iid: The IID for this Service, as assigned from the Accessory.
+        @type base_iid: int
+
+        @return: A HAP representation.
+        @rtype: dict.
+        """
+        assert iid_manager is not None
+        characteristics = [c.to_HAP(iid_manager)
                            for c in self.characteristics + self.opt_characteristics]
+
         hap_rep = {
-            "iid": uuids[self.type_id],
+            "iid": iid_manager.get_iid(self),
             "type": str(self.type_id).upper(),
             "characteristics": characteristics,
         }

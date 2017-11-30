@@ -86,7 +86,7 @@ class Characteristic(object):
           "type_id": self.type_id,
           "value": self.value,
         }
-        self.broker.publish(data)
+        self.broker.publish(data, self)
 
     def _create_value_HAP_template(self):
         template = dict()
@@ -116,10 +116,18 @@ class Characteristic(object):
 
         return hap_rep
 
-    def to_HAP(self, uuids):
+    def to_HAP(self, iid_manager=None):
+        """Create a HAP representation of this Characteristic.
 
+        @param base_iid: The IID for this characteristic.
+        @type base_iid: int
+
+        @return: A HAP representation.
+        @rtype: dict
+        """
+        assert iid_manager is not None
         hap_rep = {
-            "iid": uuids[self.type_id],
+            "iid": iid_manager.get_iid(self),
             "type": str(self.type_id).upper(),
             "description": self.display_name,
             "perms": self.properties["perms"],
