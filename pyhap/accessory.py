@@ -1,6 +1,3 @@
-import json
-import os
-import binascii
 import uuid
 import threading
 import logging
@@ -303,7 +300,13 @@ class Bridge(Accessory):
 
     def __init__(self, display_name, **kwargs):
         super(Bridge, self).__init__(display_name, aid=STANDALONE_AID, **kwargs)
-        self.accessories = {}  # aid -> acc
+        self.accessories = {}  # aid: acc
+
+    def _set_services(self):
+        """Call the base method and add the BridgingState Service."""
+        super(Bridge, self)._set_services()
+        self.add_service(
+            get_serv_loader().get("BridgingState"))
 
     def set_sentinel(self, run_sentinel):
         """Sets the same sentinel to all contained accessories."""
@@ -331,9 +334,9 @@ class Bridge(Accessory):
         # The bridge has AID 1, start from 2 onwards
         acc.aid = len(self.accessories) + 2
 
-        bridge_state_serv = get_serv_loader().get("BridgingState")
+        bridge_state_serv = self.get_service("BridgingState")
         bridge_state_serv.get_characteristic("AccessoryIdentifier")\
-                         .set_value(acc_uuid, False)
+                         .set_value(str(acc_uuid), False)
         bridge_state_serv.get_characteristic("Reachable")\
                          .set_value(acc.reachable, False)
         bridge_state_serv.get_characteristic("Category")\
@@ -361,7 +364,7 @@ class Bridge(Accessory):
     def get_characteristic(self, aid, iid):
         """@see: Accessory.to_HAP"""
         if self.aid == aid:
-            return self.iid_manager.get_iid(iid)
+            return self.iid_manager.get_obj(iid)
 
         acc = self.accessories.get(aid)
         if acc is None:
