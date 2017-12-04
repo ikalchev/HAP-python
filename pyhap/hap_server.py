@@ -706,6 +706,8 @@ class HAPSocket(socket.socket):
 class HAPServer(socketserver.ThreadingMixIn,
                 HTTPServer):
 
+    PUSH_EVENT_TIMEOUT = 3
+
     EVENT_MSG_STUB = b"EVENT/1.0 200 OK\r\n" \
                      b"Content-Type: application/hap+json\r\n" \
                      b"Content-Length: "
@@ -746,36 +748,56 @@ class HAPServer(socketserver.ThreadingMixIn,
                 raise e
             logger.debug("Connection reset")
 
+    def _close_socket(self, sock):
+        """Shutdown and close the given socket."""
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except socket.error:
+            pass
+        sock.close()
+
     def server_close(self):
         """Close all connections."""
         logger.info("Stopping HAP server")
         super(HAPServer, self).server_close()
         for sock in self.connections.values():
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-            except socket.error:
-                pass
-            sock.close()
+            self._close_socket(sock)
         self.connections.clear()
 
     def push_event(self, bytesdata, client_addr):
         """Sends an event to the current connection with the provided data.
 
-        @param data: The data to send.
-        @type data: bytes
+        @note: Sets a timeout of PUSH_EVENT_TIMEOUT for socket.sendall.
+
+        @param bytesdata: The data to send.
+        @type bytesdata: bytes
+
+        @param client_addr: A client (address, port) tuple to which to send the data.
+        @type client_addr: tuple <str, int>
 
         @return: True if sending was successful, False otherwise.
         @rtype: bool
         """
+        # TODO: There is a race condition with the HAPServerHandler responding to a
+        # request.
         try:
             client_socket = self.connections.get(client_addr)
-            if client_socket is not None:
-                client_socket.sendall(
-                    self.create_hap_event(bytesdata))
-            return client_socket is not None
-        except OSError as e:
-            self.connections.pop(client_addr, None)
-            if e.errno not in (errno.EPIPE, errno.EHOSTUNREACH):
+            if client_socket is None:
+                return False
+            data = self.create_hap_event(bytesdata)
+            client_socket.settimeout(self.PUSH_EVENT_TIMEOUT)
+            client_socket.sendall(data)
+            client_socket.settimeout(None)
+            return True
+        except (OSError, socket.timeout) as e:
+            # NOTE: In python <3.3 socket.timeout is not OSError, hence the above.
+            # Also, when it is actually an OSError, it MAY not have an errno equal to
+            # ETIMEDOUT.
+            sock = self.connections.pop(client_addr, None)
+            if sock is not None:
+                self._close_socket(sock)
+            if not isinstance(e, socket.timeout) \
+                    and e.errno not in (errno.EPIPE, errno.EHOSTUNREACH, errno.ETIMEDOUT):
                 raise e
             return False
 

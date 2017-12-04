@@ -1,3 +1,25 @@
+"""AccessoryDriver - glues together the HAP Server, accessories and mDNS advertising.
+
+Sending updates to clients
+
+The process of sending value changes to clients happens in two parts - on one hand, the
+value change is indicated by a Characteristic and, on the other, that change is sent to a
+client. To begin, typically, something in the Accessory's run method will do
+set_value(foo, notify=True) on one of its contained Characteristic. This in turn will
+create a HAP representation of the change and publish it to the Accessory. This will
+then add some more information and eventually the value change will reach the
+AccessoryDriver (all this happens through the publish() interface). The AccessoryDriver
+will then check if there is a client that subscribed for events from this exact
+Characteristic from this exact Accessory (remember, it could be a Bridge with more than
+one Accessory in it). If so, the event is put in a FIFO queue - the event queue. This
+terminates the call chain and concludes the publishing process from the Characteristic.
+
+When the AccessoryDriver is started, it spawns an event dispatch thread. The purpose of
+this thread is to get events from the event queue and send them to subscribed clients.
+Whenever a send fails, the client is unsubscribed, as it is assumed that the client left
+or went to sleep before telling us. This concludes the publishing process from the
+AccessoryDriver.
+"""
 import logging
 import socket
 import hashlib
@@ -5,6 +27,7 @@ import time
 import threading
 import json
 import pickle
+import queue
 
 from zeroconf import ServiceInfo, Zeroconf
 
@@ -71,6 +94,8 @@ class AccessoryDriver(object):
     to events from the HAPServer.
     """
 
+    NUM_EVENTS_BEFORE_STATS = 100
+
     def __init__(self, accessory, port, address=None, persist_file="accessory.pickle"):
         """
         @param accessory: The Accessory to be managed by this driver.
@@ -97,12 +122,46 @@ class AccessoryDriver(object):
         self.port = port
         self.persist_file = persist_file
         self.topics = {}  # topic: set of (address, port) of subscribed clients
+        self.topic_lock = threading.Lock()  # for exclusive access to the topics
+        self.event_queue = queue.Queue()  # (topic, bytes)
+        self.send_event_thread = None  # the event dispatch thread
+        self.sent_events = 0
+        self.accumulated_qsize = 0
 
         self.accessory.set_broker(self)
         self.mdns_service_info = None
         self.srp_verifier = None
         self.run_sentinel = None
         self.accessory_thread = None
+
+    def subscribe_client_topic(self, client, topic, subscribe=True):
+        """(Un)Subscribe the given client from the given topic, thread-safe.
+
+        @param client: A client (address, port) tuple that should be subscribed.
+        @type client: tuple <str, int>
+
+        @param topic: The topic to which to subscribe.
+        @type topic: str
+
+        @param subscribe: Whether to subscribe or unsubscribe the client. Both subscribing
+            an already subscribed client and unsubscribing a client that is not subscribed
+            do nothing.
+        @type subscribe: bool
+        """
+        with self.topic_lock:
+            if subscribe:
+                subscribed_clients = self.topics.get(topic)
+                if subscribed_clients is None:
+                    subscribed_clients = set()
+                    self.topics[topic] = subscribed_clients
+                subscribed_clients.add(client)
+            else:
+                if topic not in self.topics:
+                    return
+                subscribed_clients = self.topics[topic]
+                subscribed_clients.discard(client)
+                if not subscribed_clients:
+                    del self.topics[topic]
 
     def publish(self, data):
         """Publishes an event to the client.
@@ -115,24 +174,48 @@ class AccessoryDriver(object):
         @type data: dict
         """
         topic = get_topic(data["aid"], data["iid"])
-        subscribed_clients = self.topics.get(topic)
-        if subscribed_clients is None:
+        if topic not in self.topics:
             return
 
         data = {"characteristics": [data]}
-        bytedata = json.dumps(data).encode("utf-8")
+        bytedata = json.dumps(data).encode()
+        self.event_queue.put((topic, bytedata))
 
-        # TODO: Maybe send to each client from a different thread?
-        stale_clients = []
-        for client_addr in subscribed_clients:
-            pushed = self.http_server.push_event(bytedata, client_addr)
-            if not pushed:
-                logger.debug("Could not send event to %s, probably stale socket.",
-                             client_addr)
-                stale_clients.append(client_addr)
+    def send_events(self):
+        """Start sending events from the queue to clients.
 
-        for client_addr in stale_clients:
-            subscribed_clients.discard(client_addr)
+        This continues until self.run_sentinel is set. The method logs the average
+        queue size for the past NUM_EVENTS_BEFORE_STATS. Enable debug logging to see this
+        information.
+
+        Whenever sending an event fails (i.e. HAPServer.push_event returns False), the
+        intended client is removed from the set of subscribed clients for the topic.
+
+        @note: This method blocks on Queue.get, waiting for something to come. Thus, if
+        this is not run in a daemon thread or it is run on the main thread, the app will
+        hang.
+        """
+        while not self.run_sentinel.is_set():
+            # Maybe consider having a pool of worker threads, each performing a send in
+            # order to increase throughput.
+            topic, bytedata = self.event_queue.get()
+            subscribed_clients = self.topics.get(topic, [])
+            for client_addr in subscribed_clients.copy():
+                pushed = self.http_server.push_event(bytedata, client_addr)
+                self.event_queue.task_done()
+                if not pushed:
+                    logger.debug("Could not send event to %s, probably stale socket.",
+                                 client_addr)
+                    # Maybe consider removing the client_addr from every topic?
+                    self.subscribe_client_topic(client_addr, topic, False)
+            self.sent_events += 1
+            self.accumulated_qsize += self.event_queue.qsize()
+
+            if self.sent_events > self.NUM_EVENTS_BEFORE_STATS:
+                logger.debug("Average queue size for the past %s events: %.2f",
+                             self.sent_events, self.accumulated_qsize / self.sent_events)
+                self.sent_events = 0
+                self.accumulated_qsize = 0
 
     def update_advertisment(self):
         """Updates the mDNS service info for the accessory."""
@@ -279,14 +362,7 @@ class AccessoryDriver(object):
 
             if "ev" in cq:
                 char_topic = get_topic(aid, iid)
-                client_set = self.topics.get(char_topic)
-                if client_set is None:
-                    client_set = set()
-                    self.topics[char_topic] = client_set
-                if cq["ev"]:
-                    client_set.add(client_addr)
-                else:
-                    client_set.discard(client_addr)
+                self.subscribe_client_topic(client_addr, char_topic, cq["ev"])
 
             response = {
                 "aid": aid,
@@ -321,6 +397,16 @@ class AccessoryDriver(object):
         self.accessory_thread = threading.Thread(target=self.accessory.run)
         self.accessory_thread.start()
 
+        # Start sending events to clients. This is done in a daemon thread, because:
+        # - if the queue is blocked waiting on an empty queue, then there is nothing left
+        #   for clean up.
+        # - if the queue is currently sending an event to the client, then, when it has
+        #   finished, it will check the run sentinel, see that it is set and break the
+        #   loop. Alternatively, the server's server_close method will shutdown and close
+        #   the socket, while sending is in progress, which will result abort the sending.
+        self.send_event_thread = threading.Thread(daemon=True, target=self.send_events)
+        self.send_event_thread.start()
+
         # Start listening for requests
         self.http_server_thread = threading.Thread(target=self.http_server.serve_forever)
         self.http_server_thread.start()
@@ -335,7 +421,7 @@ class AccessoryDriver(object):
         """Stop the accessory."""
         logger.info("Stoping accessory '%s' on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
-        logger.debug("Setting run sentinel, stopping accessory")
+        logger.debug("Setting run sentinel, stopping accessory and event sending")
         self.run_sentinel.set()
         self.accessory.stop()
         self.accessory_thread.join()
