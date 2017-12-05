@@ -31,9 +31,9 @@ class CharLoader(TypeLoader):
 
     def get(self, name, char_class=Characteristic):
         char_info = super(CharLoader, self).get(name)
-        type_id = uuid.UUID(char_info["type_id"])
+        type_id = uuid.UUID(char_info["UUID"])
         props = char_info
-        props.pop("type_id")
+        props.pop("UUID")
 
         return char_class(name, type_id, props)
 
@@ -46,9 +46,9 @@ class ServiceLoader(TypeLoader):
 
     def get(self, name):
         serv_info = super(ServiceLoader, self).get(name)
-        type_id = uuid.UUID(serv_info["type_id"])
+        type_id = uuid.UUID(serv_info["UUID"])
         s = Service(type_id, name)
-        chars = [self.char_loader.get(c) for c in serv_info["characteristics"]]
+        chars = [self.char_loader.get(c) for c in serv_info["RequiredCharacteristics"]]
         s.add_characteristic(*chars)
         return s
 

@@ -64,14 +64,28 @@ class Characteristic(object):
     def __init__(self, display_name, type_id, properties, value=None, broker=None):
         self.display_name = display_name
         self.type_id = type_id
-        assert "format" in properties and "perms" in properties
+        assert "Format" in properties and "Permissions" in properties
         self.properties = properties
-        self.value = value or HAP_FORMAT.DEFAULT[properties["format"]]
+        self.allowed_values = self.properties.get("ValidValues")
+        self.value = value or HAP_FORMAT.DEFAULT[properties["Format"]]
         self.broker = broker
         self.setter_callback = None
         self.hap_value_template = self._create_value_HAP_template()
 
     def set_value(self, value, should_notify=True):
+        """Set the given value.
+
+        @param value: The value to assign as this Characteristic's value.
+        @type value: Depends on properties["Format"]
+
+        @param should_notify: Whether a the change should be sent to subscribed clients.
+        @type should_notify: bool
+
+        @raise ValueError: When the value being assigned is not one of the allowed values
+            for this Characteristic.
+        """
+        if self.allowed_values is not None and value not in self.allowed_values.values():
+            raise ValueError
         self.value = value
         if self.setter_callback is not None:
             self.setter_callback(value)
@@ -90,7 +104,7 @@ class Characteristic(object):
 
     def _create_value_HAP_template(self):
         template = dict()
-        if self.properties["format"] in HAP_FORMAT.NUMERIC:
+        if self.properties["Format"] in HAP_FORMAT.NUMERIC:
             template = {k: self.properties[k]
                         for k in self.properties.keys() & _HAP_NUMERIC_FIELDS}
         return template
@@ -98,11 +112,11 @@ class Characteristic(object):
     def _value_to_HAP(self):
         hap_rep = self.hap_value_template.copy()
 
-        if self.properties["format"] == HAP_FORMAT.STRING:
+        if self.properties["Format"] == HAP_FORMAT.STRING:
             val = self.value[:256]
             if len(self.value) > 64:
                 hap_rep["maxLen"] = min(len(self.value), 256)
-        elif self.properties["format"] in HAP_FORMAT.NUMERIC:
+        elif self.properties["Format"] in HAP_FORMAT.NUMERIC:
             val = self.value
             if "maxValue" in hap_rep:
                 val = min(self.properties["maxValue"], self.value)
@@ -111,7 +125,7 @@ class Characteristic(object):
         else:
             val = self.value
 
-        if HAP_PERMISSIONS.READ in self.properties["perms"]:
+        if HAP_PERMISSIONS.READ in self.properties["Permissions"]:
             hap_rep["value"] = val
 
         return hap_rep
@@ -130,9 +144,8 @@ class Characteristic(object):
             "iid": iid_manager.get_iid(self),
             "type": str(self.type_id).upper(),
             "description": self.display_name,
-            "perms": self.properties["perms"],
-            "format": self.properties["format"],
+            "perms": self.properties["Permissions"],
+            "format": self.properties["Format"],
         }
         hap_rep.update(self._value_to_HAP())
-
         return hap_rep
