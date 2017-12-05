@@ -1,995 +1,986 @@
 {
-  "AccessoryFlags": {
-    "format": "uint32",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "000000A6-0000-1000-8000-0026BB765291"
-  },
-  "AccessoryIdentifier": {
-    "format": "string",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000057-0000-1000-8000-0026BB765291"
-  },
-  "AdministratorOnlyAccess": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000001-0000-1000-8000-0026BB765291"
-  },
-  "AirParticulateDensity": {
-    "format": "float",
-    "maxValue": 1000,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000064-0000-1000-8000-0026BB765291"
-  },
-  "AirParticulateSize": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000065-0000-1000-8000-0026BB765291"
-  },
-  "AirQuality": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000095-0000-1000-8000-0026BB765291"
-  },
-  "AudioFeedback": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000005-0000-1000-8000-0026BB765291"
-  },
-  "BatteryLevel": {
-    "format": "uint8",
-    "maxValue": 100,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000068-0000-1000-8000-0026BB765291",
-    "unit": "percentage"
-  },
-  "Brightness": {
-    "format": "int",
-    "maxValue": 100,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000008-0000-1000-8000-0026BB765291",
-    "unit": "percentage"
-  },
-  "CarbonDioxideDetected": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000092-0000-1000-8000-0026BB765291"
-  },
-  "CarbonDioxideLevel": {
-    "format": "float",
-    "maxValue": 100000,
-    "minStep": 100,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000093-0000-1000-8000-0026BB765291"
-  },
-  "CarbonDioxidePeakLevel": {
-    "format": "float",
-    "maxValue": 100000,
-    "minStep": 100,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000094-0000-1000-8000-0026BB765291"
-  },
-  "CarbonMonoxideDetected": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000069-0000-1000-8000-0026BB765291"
-  },
-  "CarbonMonoxideLevel": {
-    "format": "float",
-    "maxValue": 100,
-    "minStep": 0.1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000090-0000-1000-8000-0026BB765291"
-  },
-  "CarbonMonoxidePeakLevel": {
-    "format": "float",
-    "maxValue": 100,
-    "minStep": 0.1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000091-0000-1000-8000-0026BB765291"
-  },
-  "Category": {
-    "format": "uint16",
-    "maxValue": 16,
-    "minStep": 1,
-    "minValue": 1,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "000000A3-0000-1000-8000-0026BB765291"
-  },
-  "ChargingState": {
-    "format": "uint8",
-    "maxValue": 2,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000008F-0000-1000-8000-0026BB765291"
-  },
-  "ConfigureBridgedAccessory": {
-    "format": "tlv8",
-    "perms": [
-      "pw"
-    ],
-    "type_id": "000000A0-0000-1000-8000-0026BB765291"
-  },
-  "ConfigureBridgedAccessoryStatus": {
-    "format": "tlv8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000009D-0000-1000-8000-0026BB765291"
-  },
-  "ContactSensorState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000006A-0000-1000-8000-0026BB765291"
-  },
-  "CoolingThresholdTemperature": {
-    "format": "float",
-    "maxValue": 35,
-    "minStep": 0.1,
-    "minValue": 10,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000000D-0000-1000-8000-0026BB765291",
-    "unit": "celsius"
-  },
-  "CurrentAmbientLightLevel": {
-    "format": "float",
-    "maxValue": 100000,
-    "minStep": 0.0001,
-    "minValue": 0.0001,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000006B-0000-1000-8000-0026BB765291",
-    "unit": "lux"
-  },
-  "CurrentDoorState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000000E-0000-1000-8000-0026BB765291"
-  },
-  "CurrentHeatingCoolingState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000000F-0000-1000-8000-0026BB765291"
-  },
-  "CurrentHorizontalTiltAngle": {
-    "format": "int",
-    "maxValue": 90,
-    "minStep": 1,
-    "minValue": -90,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000006C-0000-1000-8000-0026BB765291",
-    "unit": "arcdegrees"
-  },
-  "CurrentPosition": {
-    "format": "uint8",
-    "maxValue": 100,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000006D-0000-1000-8000-0026BB765291",
-    "unit": "percentage"
-  },
-  "CurrentRelativeHumidity": {
-    "format": "float",
-    "maxValue": 100,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000010-0000-1000-8000-0026BB765291",
-    "unit": "percentage"
-  },
-  "CurrentTemperature": {
-    "format": "float",
-    "maxValue": 100,
-    "minStep": 0.1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000011-0000-1000-8000-0026BB765291",
-    "unit": "celsius"
-  },
-  "CurrentTime": {
-    "format": "string",
-    "perms": [
-      "pr",
-      "pw"
-    ],
-    "type_id": "0000009B-0000-1000-8000-0026BB765291"
-  },
-  "CurrentVerticalTiltAngle": {
-    "format": "int",
-    "maxValue": 90,
-    "minStep": 1,
-    "minValue": -90,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000006E-0000-1000-8000-0026BB765291",
-    "unit": "arcdegrees"
-  },
-  "DayoftheWeek": {
-    "format": "uint8",
-    "maxValue": 7,
-    "minStep": 1,
-    "minValue": 1,
-    "perms": [
-      "pr",
-      "pw"
-    ],
-    "type_id": "00000098-0000-1000-8000-0026BB765291"
-  },
-  "DigitalZoom": {
-    "format": "float",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000011D-0000-1000-8000-0026BB765291"
-  },
-  "DiscoverBridgedAccessories": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000009E-0000-1000-8000-0026BB765291"
-  },
-  "DiscoveredBridgedAccessories": {
-    "format": "uint16",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000009F-0000-1000-8000-0026BB765291"
-  },
-  "FirmwareRevision": {
-    "format": "string",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000052-0000-1000-8000-0026BB765291"
-  },
-  "HardwareRevision": {
-    "format": "string",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000053-0000-1000-8000-0026BB765291"
-  },
-  "HeatingThresholdTemperature": {
-    "format": "float",
-    "maxValue": 25,
-    "minStep": 0.1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000012-0000-1000-8000-0026BB765291",
-    "unit": "celsius"
-  },
-  "HoldPosition": {
-    "format": "bool",
-    "perms": [
-      "pw"
-    ],
-    "type_id": "0000006F-0000-1000-8000-0026BB765291"
-  },
-  "Hue": {
-    "format": "float",
-    "maxValue": 360,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000013-0000-1000-8000-0026BB765291",
-    "unit": "arcdegrees"
-  },
-  "Identify": {
-    "format": "bool",
-    "perms": [
-      "pw"
-    ],
-    "type_id": "00000014-0000-1000-8000-0026BB765291"
-  },
-  "ImageMirroring": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000011F-0000-1000-8000-0026BB765291"
-  },
-  "ImageRotation": {
-    "format": "float",
-    "maxValue": 270,
-    "minStep": 90,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000011E-0000-1000-8000-0026BB765291"
-  },
-  "LeakDetected": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000070-0000-1000-8000-0026BB765291"
-  },
-  "LinkQuality": {
-    "format": "uint8",
-    "maxValue": 4,
-    "minStep": 1,
-    "minValue": 1,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000009C-0000-1000-8000-0026BB765291"
-  },
-  "LockControlPoint": {
-    "format": "tlv8",
-    "perms": [
-      "pw"
-    ],
-    "type_id": "00000019-0000-1000-8000-0026BB765291"
-  },
-  "LockCurrentState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000001D-0000-1000-8000-0026BB765291"
-  },
-  "LockLastKnownAction": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000001C-0000-1000-8000-0026BB765291"
-  },
-  "LockManagementAutoSecurityTimeout": {
-    "format": "uint32",
-    "maxValue": 86400,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000001A-0000-1000-8000-0026BB765291",
-    "unit": "seconds"
-  },
-  "LockTargetState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000001E-0000-1000-8000-0026BB765291"
-  },
-  "Logs": {
-    "format": "tlv8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000001F-0000-1000-8000-0026BB765291"
-  },
-  "Manufacturer": {
-    "format": "string",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000020-0000-1000-8000-0026BB765291"
-  },
-  "Model": {
-    "format": "string",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000021-0000-1000-8000-0026BB765291"
-  },
-  "MotionDetected": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000022-0000-1000-8000-0026BB765291"
-  },
-  "Mute": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000011A-0000-1000-8000-0026BB765291"
-  },
-  "Name": {
-    "format": "string",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000023-0000-1000-8000-0026BB765291"
-  },
-  "NightVision": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000011B-0000-1000-8000-0026BB765291"
-  },
-  "ObstructionDetected": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000024-0000-1000-8000-0026BB765291"
-  },
-  "OccupancyDetected": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000071-0000-1000-8000-0026BB765291"
-  },
-  "On": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000025-0000-1000-8000-0026BB765291"
-  },
-  "OpticalZoom": {
-    "format": "float",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000011C-0000-1000-8000-0026BB765291"
-  },
-  "OutletInUse": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000026-0000-1000-8000-0026BB765291"
-  },
-  "PairSetup": {
-    "format": "tlv8",
-    "perms": [
-      "pr",
-      "pw"
-    ],
-    "type_id": "0000004C-0000-1000-8000-0026BB765291"
-  },
-  "PairVerify": {
-    "format": "tlv8",
-    "perms": [
-      "pr",
-      "pw"
-    ],
-    "type_id": "0000004E-0000-1000-8000-0026BB765291"
-  },
-  "PairingFeatures": {
-    "format": "uint8",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "0000004F-0000-1000-8000-0026BB765291"
-  },
-  "PairingPairings": {
-    "format": "tlv8",
-    "perms": [
-      "pr",
-      "pw"
-    ],
-    "type_id": "00000050-0000-1000-8000-0026BB765291"
-  },
-  "PositionState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000072-0000-1000-8000-0026BB765291"
-  },
-  "ProgrammableSwitchEvent": {
-    "format": "uint8",
-    "maxValue": 1,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000073-0000-1000-8000-0026BB765291"
-  },
-  "ProgrammableSwitchOutputState": {
-    "format": "uint8",
-    "maxValue": 1,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000074-0000-1000-8000-0026BB765291"
-  },
-  "Reachable": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000063-0000-1000-8000-0026BB765291"
-  },
-  "RelayControlPoint": {
-    "format": "tlv8",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000005E-0000-1000-8000-0026BB765291"
-  },
-  "RelayEnabled": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000005B-0000-1000-8000-0026BB765291"
-  },
-  "RelayState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000005C-0000-1000-8000-0026BB765291"
-  },
-  "RotationDirection": {
-    "format": "int",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000028-0000-1000-8000-0026BB765291"
-  },
-  "RotationSpeed": {
-    "format": "float",
-    "maxValue": 100,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000029-0000-1000-8000-0026BB765291",
-    "unit": "percentage"
-  },
-  "Saturation": {
-    "format": "float",
-    "maxValue": 100,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000002F-0000-1000-8000-0026BB765291",
-    "unit": "percentage"
-  },
-  "SecuritySystemAlarmType": {
-    "format": "uint8",
-    "maxValue": 1,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000008E-0000-1000-8000-0026BB765291"
-  },
-  "SecuritySystemCurrentState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000066-0000-1000-8000-0026BB765291"
-  },
-  "SecuritySystemTargetState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000067-0000-1000-8000-0026BB765291"
-  },
-  "SelectedStreamConfiguration": {
-    "format": "tlv8",
-    "perms": [
-      "pr",
-      "pw"
-    ],
-    "type_id": "00000117-0000-1000-8000-0026BB765291"
-  },
-  "SerialNumber": {
-    "format": "string",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000030-0000-1000-8000-0026BB765291"
-  },
-  "SetupEndpoints": {
-    "format": "tlv8",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000118-0000-1000-8000-0026BB765291"
-  },
-  "SmokeDetected": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000076-0000-1000-8000-0026BB765291"
-  },
-  "SoftwareRevision": {
-    "format": "string",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000054-0000-1000-8000-0026BB765291"
-  },
-  "StatusActive": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000075-0000-1000-8000-0026BB765291"
-  },
-  "StatusFault": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000077-0000-1000-8000-0026BB765291"
-  },
-  "StatusJammed": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000078-0000-1000-8000-0026BB765291"
-  },
-  "StatusLowBattery": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000079-0000-1000-8000-0026BB765291"
-  },
-  "StatusTampered": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000007A-0000-1000-8000-0026BB765291"
-  },
-  "StreamingStatus": {
-    "format": "tlv8",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000120-0000-1000-8000-0026BB765291"
-  },
-  "SupportedAudioStreamConfiguration": {
-    "format": "tlv8",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000115-0000-1000-8000-0026BB765291"
-  },
-  "SupportedRTPConfiguration": {
-    "format": "tlv8",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000116-0000-1000-8000-0026BB765291"
-  },
-  "SupportedVideoStreamConfiguration": {
-    "format": "tlv8",
-    "perms": [
-      "pr"
-    ],
-    "type_id": "00000114-0000-1000-8000-0026BB765291"
-  },
-  "TargetDoorState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000032-0000-1000-8000-0026BB765291"
-  },
-  "TargetHeatingCoolingState": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000033-0000-1000-8000-0026BB765291"
-  },
-  "TargetHorizontalTiltAngle": {
-    "format": "int",
-    "maxValue": 90,
-    "minStep": 1,
-    "minValue": -90,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000007B-0000-1000-8000-0026BB765291",
-    "unit": "arcdegrees"
-  },
-  "TargetPosition": {
-    "format": "uint8",
-    "maxValue": 100,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000007C-0000-1000-8000-0026BB765291",
-    "unit": "percentage"
-  },
-  "TargetRelativeHumidity": {
-    "format": "float",
-    "maxValue": 100,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000034-0000-1000-8000-0026BB765291",
-    "unit": "percentage"
-  },
-  "TargetTemperature": {
-    "format": "float",
-    "maxValue": 38,
-    "minStep": 0.1,
-    "minValue": 10,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000035-0000-1000-8000-0026BB765291",
-    "unit": "celsius"
-  },
-  "TargetVerticalTiltAngle": {
-    "format": "int",
-    "maxValue": 90,
-    "minStep": 1,
-    "minValue": -90,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "0000007D-0000-1000-8000-0026BB765291",
-    "unit": "arcdegrees"
-  },
-  "TemperatureDisplayUnits": {
-    "format": "uint8",
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000036-0000-1000-8000-0026BB765291"
-  },
-  "TimeUpdate": {
-    "format": "bool",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "0000009A-0000-1000-8000-0026BB765291"
-  },
-  "TunnelConnectionTimeout": {
-    "format": "uint32",
-    "perms": [
-      "pw",
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000061-0000-1000-8000-0026BB765291"
-  },
-  "TunneledAccessoryAdvertising": {
-    "format": "bool",
-    "perms": [
-      "pw",
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000060-0000-1000-8000-0026BB765291"
-  },
-  "TunneledAccessoryConnected": {
-    "format": "bool",
-    "perms": [
-      "pw",
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000059-0000-1000-8000-0026BB765291"
-  },
-  "TunneledAccessoryStateNumber": {
-    "format": "float",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000058-0000-1000-8000-0026BB765291"
-  },
-  "Version": {
-    "format": "string",
-    "perms": [
-      "pr",
-      "ev"
-    ],
-    "type_id": "00000037-0000-1000-8000-0026BB765291"
-  },
-  "Volume": {
-    "format": "float",
-    "maxValue": 100,
-    "minStep": 1,
-    "minValue": 0,
-    "perms": [
-      "pr",
-      "pw",
-      "ev"
-    ],
-    "type_id": "00000119-0000-1000-8000-0026BB765291",
-    "unit": "percentage"
-  }
+   "AccessoryIdentifier": {
+      "Format": "string",
+      "UUID": "00000057-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr"
+      ]
+   },
+   "AdministratorOnlyAccess": {
+      "Format": "bool",
+      "UUID": "00000001-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ]
+   },
+   "AirParticulateDensity": {
+      "Format": "float",
+      "UUID": "00000064-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 1000
+   },
+   "AirParticulateSize": {
+      "Format": "uint8",
+      "UUID": "00000065-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "ValidValues": {
+         "2.5 \u03bcm": 0,
+         "10 \u03bcm": 1
+      }
+   },
+   "AirQuality": {
+      "Format": "uint8",
+      "UUID": "00000095-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Fair": 3,
+         "Inferior": 4,
+         "Unknown": 0,
+         "Poor": 5,
+         "Excellent": 1,
+         "Good": 2
+      }
+   },
+   "AudioFeedback": {
+      "Format": "bool",
+      "UUID": "00000005-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ]
+   },
+   "BatteryLevel": {
+      "Format": "uint8",
+      "UUID": "00000068-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "unit": "percentage",
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 100
+   },
+   "Brightness": {
+      "Format": "int",
+      "UUID": "00000008-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "percentage",
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 100
+   },
+   "CarbonDioxideDetected": {
+      "Format": "uint8",
+      "UUID": "00000092-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "CO2 Levels Normal": 0,
+         "CO2 Levels Abnormal": 1
+      }
+   },
+   "CarbonDioxideLevel": {
+      "Format": "float",
+      "UUID": "00000093-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "minValue": 0,
+      "minStep": 100,
+      "maxValue": 100000
+   },
+   "CarbonDioxidePeakLevel": {
+      "Format": "float",
+      "UUID": "00000094-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "minValue": 0,
+      "minStep": 100,
+      "maxValue": 100000
+   },
+   "CarbonMonoxideDetected": {
+      "Format": "uint8",
+      "UUID": "00000069-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "CO Levels Normal": 0,
+         "CO Levels Abnormal": 1
+      }
+   },
+   "CarbonMonoxideLevel": {
+      "Format": "float",
+      "UUID": "00000090-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "minValue": 0,
+      "minStep": 0.1,
+      "maxValue": 100
+   },
+   "CarbonMonoxidePeakLevel": {
+      "Format": "float",
+      "UUID": "00000091-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "minValue": 0,
+      "minStep": 0.1,
+      "maxValue": 100
+   },
+   "Category": {
+      "Format": "uint16",
+      "UUID": "000000A3-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "minValue": 1,
+      "minStep": 1,
+      "maxValue": 16
+   },
+   "ChargingState": {
+      "Format": "uint8",
+      "UUID": "0000008F-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "ValidValues": {
+         "Not Charging": 0,
+         "Charging": 1
+      }
+   },
+   "ConfigureBridgedAccessory": {
+      "Format": "tlv8",
+      "UUID": "000000A0-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pw"
+      ]
+   },
+   "ConfigureBridgedAccessoryStatus": {
+      "Format": "tlv8",
+      "UUID": "0000009D-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ]
+   },
+   "ContactSensorState": {
+      "Format": "uint8",
+      "UUID": "0000006A-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Contact Detected": 0,
+         "Contact Not Detected": 1
+      }
+   },
+   "CoolingThresholdTemperature": {
+      "Format": "float",
+      "UUID": "0000000D-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "celsius",
+      "minValue": 10,
+      "minStep": 0.1,
+      "maxValue": 35
+   },
+   "CurrentAmbientLightLevel": {
+      "Format": "float",
+      "UUID": "0000006B-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "unit": "lux",
+      "minValue": 0.0001,
+      "minStep": 0.0001,
+      "maxValue": 100000
+   },
+   "CurrentDoorState": {
+      "Format": "uint8",
+      "UUID": "0000000E-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Closing": 3,
+         "Stopped": 4,
+         "Open": 0,
+         "Closed": 1,
+         "Opening": 2
+      }
+   },
+   "CurrentHeatingCoolingState": {
+      "Format": "uint8",
+      "UUID": "0000000F-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Off": 0,
+         "Heat": 1,
+         "Cool": 2
+      }
+   },
+   "CurrentHorizontalTiltAngle": {
+      "Format": "int",
+      "UUID": "0000006C-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "unit": "arcdegrees",
+      "minValue": -90,
+      "minStep": 1,
+      "maxValue": 90
+   },
+   "CurrentPosition": {
+      "Format": "uint8",
+      "UUID": "0000006D-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "unit": "percentage",
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 100
+   },
+   "CurrentRelativeHumidity": {
+      "Format": "float",
+      "UUID": "00000010-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "unit": "percentage",
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 100
+   },
+   "CurrentTemperature": {
+      "Format": "float",
+      "UUID": "00000011-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "unit": "celsius",
+      "minValue": 0,
+      "minStep": 0.1,
+      "maxValue": 100
+   },
+   "CurrentTime": {
+      "Format": "string",
+      "UUID": "0000009B-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw"
+      ]
+   },
+   "CurrentVerticalTiltAngle": {
+      "Format": "int",
+      "UUID": "0000006E-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "unit": "arcdegrees",
+      "minValue": -90,
+      "minStep": 1,
+      "maxValue": 90
+   },
+   "DayoftheWeek": {
+      "Format": "uint8",
+      "UUID": "00000098-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw"
+      ],
+      "minValue": 1,
+      "minStep": 1,
+      "maxValue": 7
+   },
+   "DiscoverBridgedAccessories": {
+      "Format": "uint8",
+      "UUID": "0000009E-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "ValidValues": {
+         "Start Discovery": 0,
+         "Stop Discovery": 1
+      }
+   },
+   "DiscoveredBridgedAccessories": {
+      "Format": "uint16",
+      "UUID": "0000009F-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ]
+   },
+   "FirmwareRevision": {
+      "Format": "string",
+      "UUID": "00000052-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr"
+      ]
+   },
+   "HardwareRevision": {
+      "Format": "string",
+      "UUID": "00000053-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr"
+      ]
+   },
+   "HeatingThresholdTemperature": {
+      "Format": "float",
+      "UUID": "00000012-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "celsius",
+      "minValue": 0,
+      "minStep": 0.1,
+      "maxValue": 25
+   },
+   "HoldPosition": {
+      "Format": "bool",
+      "UUID": "0000006F-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pw"
+      ]
+   },
+   "Hue": {
+      "Format": "float",
+      "UUID": "00000013-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "arcdegrees",
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 360
+   },
+   "Identify": {
+      "Format": "bool",
+      "UUID": "00000014-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pw"
+      ]
+   },
+   "LeakDetected": {
+      "Format": "uint8",
+      "UUID": "00000070-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Leak Not Detected": 0,
+         "Leak Detected": 1
+      }
+   },
+   "LinkQuality": {
+      "Format": "uint8",
+      "UUID": "0000009C-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "minValue": 1,
+      "minStep": 1,
+      "maxValue": 4
+   },
+   "LockControlPoint": {
+      "Format": "tlv8",
+      "UUID": "00000019-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pw"
+      ]
+   },
+   "LockCurrentState": {
+      "Format": "uint8",
+      "UUID": "0000001D-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Unknown": 3,
+         "Unsecured": 0,
+         "Secured": 1,
+         "Jammed": 2
+      }
+   },
+   "LockLastKnownAction": {
+      "Format": "uint8",
+      "UUID": "0000001C-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "ValidValues": {
+         "Unsecured remotely": 7,
+         "Unsecured physically, exterior": 3,
+         "Secured by Auto Secure timeout": 8,
+         "Secured by keypad": 4,
+         "Secured physically, interior": 0,
+         "Unsecured by keypad": 5,
+         "Unsecured physically, interior": 1,
+         "Secured remotely": 6,
+         "Secured physically, exterior": 2
+      }
+   },
+   "LockManagementAutoSecurityTimeout": {
+      "Format": "uint32",
+      "UUID": "0000001A-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "seconds",
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 86400
+   },
+   "LockTargetState": {
+      "Format": "uint8",
+      "UUID": "0000001E-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "ValidValues": {
+         "Unsecured": 0,
+         "Secured": 1
+      }
+   },
+   "Logs": {
+      "Format": "tlv8",
+      "UUID": "0000001F-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ]
+   },
+   "Manufacturer": {
+      "Format": "string",
+      "UUID": "00000020-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr"
+      ]
+   },
+   "Model": {
+      "Format": "string",
+      "UUID": "00000021-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr"
+      ]
+   },
+   "MotionDetected": {
+      "Format": "bool",
+      "UUID": "00000022-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ]
+   },
+   "Name": {
+      "Format": "string",
+      "UUID": "00000023-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr"
+      ]
+   },
+   "ObstructionDetected": {
+      "Format": "bool",
+      "UUID": "00000024-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ]
+   },
+   "OccupancyDetected": {
+      "Format": "uint8",
+      "UUID": "00000071-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Occupancy Not Detected": 0,
+         "Occupancy Detected": 1
+      }
+   },
+   "On": {
+      "Format": "bool",
+      "UUID": "00000025-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ]
+   },
+   "OutletInUse": {
+      "Format": "bool",
+      "UUID": "00000026-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ]
+   },
+   "PairSetup": {
+      "Format": "tlv8",
+      "UUID": "0000004C-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw"
+      ]
+   },
+   "PairVerify": {
+      "Format": "tlv8",
+      "UUID": "0000004E-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw"
+      ]
+   },
+   "PairingFeatures": {
+      "Format": "uint8",
+      "UUID": "0000004F-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr"
+      ]
+   },
+   "PairingPairings": {
+      "Format": "tlv8",
+      "UUID": "00000050-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw"
+      ]
+   },
+   "PositionState": {
+      "Format": "uint8",
+      "UUID": "00000072-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "ValidValues": {
+         "Decreasing": 0,
+         "Increasing": 1,
+         "Stopped": 2
+      }
+   },
+   "ProgrammableSwitchEvent": {
+      "Format": "uint8",
+      "UUID": "00000073-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 1
+   },
+   "ProgrammableSwitchOutputState": {
+      "Format": "uint8",
+      "UUID": "00000074-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 1
+   },
+   "Reachable": {
+      "Format": "bool",
+      "UUID": "00000063-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ]
+   },
+   "RotationDirection": {
+      "Format": "int",
+      "UUID": "00000028-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "ValidValues": {
+         "Clockwise": 0,
+         "Counter-clockwise": 1
+      }
+   },
+   "RotationSpeed": {
+      "Format": "float",
+      "UUID": "00000029-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "percentage",
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 100
+   },
+   "Saturation": {
+      "Format": "float",
+      "UUID": "0000002F-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "percentage",
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 100
+   },
+   "SecuritySystemAlarmType": {
+      "Format": "uint8",
+      "UUID": "0000008E-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 1
+   },
+   "SecuritySystemCurrentState": {
+      "Format": "uint8",
+      "UUID": "00000066-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Disarmed": 3,
+         "Alarm Triggered": 4,
+         "Stay Arm": 0,
+         "Away Arm": 1,
+         "Night Arm": 2
+      }
+   },
+   "SecuritySystemTargetState": {
+      "Format": "uint8",
+      "UUID": "00000067-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "ValidValues": {
+         "Disarm": 3,
+         "Stay Arm": 0,
+         "Away Arm": 1,
+         "Night Arm": 2
+      }
+   },
+   "SerialNumber": {
+      "Format": "string",
+      "UUID": "00000030-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr"
+      ]
+   },
+   "SmokeDetected": {
+      "Format": "uint8",
+      "UUID": "00000076-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Smoke Not Detected": 0,
+         "Smoke Detected": 1
+      }
+   },
+   "SoftwareRevision": {
+      "Format": "string",
+      "UUID": "00000054-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr"
+      ]
+   },
+   "StatusActive": {
+      "Format": "bool",
+      "UUID": "00000075-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ]
+   },
+   "StatusFault": {
+      "Format": "uint8",
+      "UUID": "00000077-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ]
+   },
+   "StatusJammed": {
+      "Format": "uint8",
+      "UUID": "00000078-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Not Jammed": 0,
+         "Jammed": 1
+      }
+   },
+   "StatusLowBattery": {
+      "Format": "uint8",
+      "UUID": "00000079-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Battery Level Normal": 0,
+         "Battery Level Low": 1
+      }
+   },
+   "StatusTampered": {
+      "Format": "uint8",
+      "UUID": "0000007A-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev",
+         null
+      ],
+      "ValidValues": {
+         "Not Tampered": 0,
+         "Tampered": 1
+      }
+   },
+   "TargetDoorState": {
+      "Format": "uint8",
+      "UUID": "00000032-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "ValidValues": {
+         "Open": 0,
+         "Closed": 1
+      }
+   },
+   "TargetHeatingCoolingState": {
+      "Format": "uint8",
+      "UUID": "00000033-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "ValidValues": {
+         "Auto": 3,
+         "Off": 0,
+         "Heat": 1,
+         "Cool": 2
+      }
+   },
+   "TargetHorizontalTiltAngle": {
+      "Format": "int",
+      "UUID": "0000007B-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "arcdegrees",
+      "minValue": -90,
+      "minStep": 1,
+      "maxValue": 90
+   },
+   "TargetPosition": {
+      "Format": "uint8",
+      "UUID": "0000007C-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "percentage",
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 100
+   },
+   "TargetRelativeHumidity": {
+      "Format": "float",
+      "UUID": "00000034-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "percentage",
+      "minValue": 0,
+      "minStep": 1,
+      "maxValue": 100
+   },
+   "TargetTemperature": {
+      "Format": "float",
+      "UUID": "00000035-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "celsius",
+      "minValue": 10,
+      "minStep": 0.1,
+      "maxValue": 38
+   },
+   "TargetVerticalTiltAngle": {
+      "Format": "int",
+      "UUID": "0000007D-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "unit": "arcdegrees",
+      "minValue": -90,
+      "minStep": 1,
+      "maxValue": 90
+   },
+   "TemperatureDisplayUnits": {
+      "Format": "uint8",
+      "UUID": "00000036-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "ValidValues": {
+         "Celsius": 0,
+         "Fahrenheit": 1
+      }
+   },
+   "TimeUpdate": {
+      "Format": "bool",
+      "UUID": "0000009A-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ]
+   },
+   "TunnelConnectionTimeout": {
+      "Format": "uint32",
+      "UUID": "00000061-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pw",
+         "pr",
+         "ev"
+      ]
+   },
+   "TunneledAccessoryAdvertising": {
+      "Format": "bool",
+      "UUID": "00000060-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pw",
+         "pr",
+         "ev"
+      ]
+   },
+   "TunneledAccessoryConnected": {
+      "Format": "bool",
+      "UUID": "00000059-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pw",
+         "pr",
+         "ev"
+      ]
+   },
+   "TunneledAccessoryStateNumber": {
+      "Format": "float",
+      "UUID": "00000058-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ]
+   },
+   "Version": {
+      "Format": "string",
+      "UUID": "00000037-0000-1000-8000-0026BB765291",
+      "Permissions": [
+         "pr",
+         "ev"
+      ]
+   }
 }
