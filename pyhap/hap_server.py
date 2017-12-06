@@ -1,10 +1,9 @@
-# This module implements the communication of HAP.
-#
-# The HAPServer is the point of contact to and from the world.
-# The HAPServerHandler manages the state of the connection and handles
-# incoming requests.
-# The HAPSocket is a socket implementation that manages the "TLS"
-# of the connection.
+"""This module implements the communication of HAP.
+
+The HAPServer is the point of contact to and from the world.
+The HAPServerHandler manages the state of the connection and handles incoming requests.
+The HAPSocket is a socket implementation that manages the "TLS" of the connection.
+"""
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import logging
 import socket
@@ -14,6 +13,7 @@ import errno
 import uuid
 from urllib.parse import urlparse, parse_qs
 import socketserver
+import threading
 
 from tlslite.utils.chacha20_poly1305 import CHACHA20_POLY1305
 from Crypto.Protocol.KDF import HKDF
@@ -567,8 +567,12 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
 
 class HAPSocket(socket.socket):
-    """
-    A socket implementing the HAP crypto. Just feed it as if it is a normal socket.
+    """A socket implementing the HAP crypto. Just feed it as if it is a normal socket.
+
+    @note: HAP requires something like HTTP push. This implies we can have regular HTTP
+    response and an outbound HTTP push at the same time on the same socket - a race
+    condition. Thus, HAPSocket implements exclusive access to send and sendall to deal
+    with this situation.
     """
 
     MAX_BLOCK_LENGTH = 0x400
@@ -580,8 +584,7 @@ class HAPSocket(socket.socket):
 
     def __init__(self, sock, shared_key):
         """Initialises this socket from the given socket."""
-        socket.socket.__init__(self, sock.family, sock.type, sock.proto,
-                               sock.fileno())
+        socket.socket.__init__(self, sock.family, sock.type, sock.proto, sock.fileno())
         sock.detach()
         # See if we are connected
         try:
@@ -600,16 +603,19 @@ class HAPSocket(socket.socket):
         self.in_count = 0
         self.out_cipher = None
         self.in_cipher = None
+        self.out_lock = threading.RLock()  # for locking send operations
+        # NOTE: Some future python implementation of HTTP Server or Server Handler can use
+        # methods different than the ones we lock now (send, sendall).
+        # This will break the encryption/decryption before introducing a race condition,
+        # but don't forget locking these other methods after fixing the crypto.
 
-        self._makefile_refs = 0
         self._set_ciphers()
-
         self.curr_in_total = None  # Length of the current incoming block
         self.num_in_recv = None  # Number of bytes received from the incoming block
         self.curr_in_block = None  # Bytes of the current incoming block
 
     def _set_ciphers(self):
-
+        """Generate out/inbound encryption keys and initialise respective ciphers."""
         outgoing_key = hap_hkdf(self.shared_key, self.CIPHER_SALT, self.OUT_CIPHER_INFO)
         self.out_cipher = CHACHA20_POLY1305(outgoing_key, "python")
 
@@ -618,13 +624,26 @@ class HAPSocket(socket.socket):
 
     # socket.socket interface
 
+    def _with_out_lock(func):
+        """Return a function that acquires the outbound lock and executes func."""
+        def _wrapper(self, *args, **kwargs):
+            with self.out_lock:
+                return func(self, *args, **kwargs)
+        return _wrapper
+
     def recv_into(self, buffer, nbytes=1042, flags=0):
+        """Receive and decrypt up to nbytes in the given buffer."""
         data = self.recv(nbytes, flags)
         for i, b in enumerate(data):
             buffer[i] = b
         return len(data)
 
     def recv(self, buflen=1042, flags=0):
+        """Receive up to buflen bytes.
+
+        The received full cipher blocks are decrypted and returned and partial cipher
+        blocks are buffered locally.
+        """
         assert not flags and buflen > self.LENGTH_LENGTH
 
         result = b""
@@ -638,7 +657,7 @@ class HAPSocket(socket.socket):
                     # 1 byte left, return whatever we have.
                     return result
                 block_length_bytes = socket.socket.recv(self, self.LENGTH_LENGTH)
-                if len(block_length_bytes) == 0:
+                if not block_length_bytes:
                     return result
                 # TODO: handle this
                 assert len(block_length_bytes) == self.LENGTH_LENGTH
@@ -676,13 +695,17 @@ class HAPSocket(socket.socket):
 
         return result
 
+    @_with_out_lock
     def send(self, data, flags=0):
+        """Encrypt and send the given data."""
         # TODO: the two methods need to be handled differently, but...
         # The reason for the below hack is that SocketIO calls this method instead of
         # sendall.
         return self.sendall(data, flags)
 
+    @_with_out_lock
     def sendall(self, data, flags=0):
+        """Encrypt and send the given data."""
         assert not flags
         result = b""
         offset = 0
@@ -705,6 +728,18 @@ class HAPSocket(socket.socket):
 
 class HAPServer(socketserver.ThreadingMixIn,
                 HTTPServer):
+    """Point of contact for HAP clients.
+
+    The HAPServer handles all incoming client requests (e.g. pair) and also handles
+    communication from Accessories to clients (value changes). The outbound communication
+    is something like HTTP push.
+
+    @note: Client requests responses as well as outgoing event notifications happen through
+    the same socket for the same client. This introduces a race condition - an Accessory
+    decides to push a change in current temperature, while in the same time the HAP client
+    decides to query the state of the Accessory. To overcome this the HAPSocket class
+    implements exclusive access to the send methods.
+    """
 
     PUSH_EVENT_TIMEOUT = 3
 
@@ -765,9 +800,9 @@ class HAPServer(socketserver.ThreadingMixIn,
         self.connections.clear()
 
     def push_event(self, bytesdata, client_addr):
-        """Sends an event to the current connection with the provided data.
+        """Send an event to the current connection with the provided data.
 
-        @note: Sets a timeout of PUSH_EVENT_TIMEOUT for socket.sendall.
+        @note: Sets a timeout of PUSH_EVENT_TIMEOUT for the duration of socket.sendall.
 
         @param bytesdata: The data to send.
         @type bytesdata: bytes
@@ -778,8 +813,6 @@ class HAPServer(socketserver.ThreadingMixIn,
         @return: True if sending was successful, False otherwise.
         @rtype: bool
         """
-        # TODO: There is a race condition with the HAPServerHandler responding to a
-        # request.
         try:
             client_socket = self.connections.get(client_addr)
             if client_socket is None:
