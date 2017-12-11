@@ -1,3 +1,10 @@
+"""An example of how to setup and start an Accessory.
+
+This is:
+1. Create the Accessory object you want.
+2. Add it to an AccessoryDriver, which will advertise it on the local network,
+    setup a server to answer client querries, etc.
+"""
 import logging
 import os
 import pickle
@@ -11,22 +18,21 @@ from pyhap.accessory_driver import AccessoryDriver
 logging.basicConfig(level=logging.INFO)
 
 
-def get_accessory():
-    '''
-    Example of a Bridged accessories.
-    bridge = Bridge(display_name="Bridge",
-                    mac=util.generate_mac(),
-                    pincode=b"203-23-999")
-    temp_sensor = BMP180("BMP180")
-    bulb = LightBulb("Desk LED", pin=16)
-
+def get_bridge():
+    """Call this method to get a Bridge instead of a standalone accessory."""
+    bridge = Bridge(display_name="Bridge", mac=util.generate_mac(), pincode=b"203-23-999")
+    temp_sensor = TemperatureSensor("Termometer")
     bridge.add_accessory(temp_sensor)
-    bridge.add_accessory(bulb)
+
+    # Uncomment if you have RPi module and want a LED LightBulb service on pin 16.
+    # from pyhap.accessories.LightBulb import LightBulb
+    # bulb = LightBulb("Desk LED", pin=16)
+    # bridge.add_accessory(bulb)
     return bridge
-    '''
-    # Standalone accessory
-    # Displayed name will be "test"
-    acc = TemperatureSensor.create("test", pincode=b"203-23-999")
+
+def get_accessory():
+    """Call this method to get a standalone Accessory."""
+    acc = TemperatureSensor.create("MyTempSensor", pincode=b"203-23-999")
     return acc
 
 
@@ -36,12 +42,12 @@ if os.path.exists("accessory.pickle"):
     with open("accessory.pickle", "rb") as f:
         acc = pickle.load(f)
 else:
-    acc = get_accessory()
+    acc = get_accessory()  # Change to get_bridge() if you want to run a Bridge.
 
 # Start the accessory on port 51826
 driver = AccessoryDriver(acc, 51826)
 # We want KeyboardInterrupts and SIGTERM (kill) to be handled by the driver itself,
-# so that it can gracefully stop all threads and release resources.
+# so that it can gracefully stop the accessory, server and advertising.
 signal.signal(signal.SIGINT, driver.signal_handler)
 signal.signal(signal.SIGTERM, driver.signal_handler)
 # Start it!
