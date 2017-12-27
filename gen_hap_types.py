@@ -11,7 +11,7 @@ PERMS_MAP = {
     "read": "pr",
     "write": "pw",
     "cnotify": "ev",
-    "uncnotify": None,
+   # TODO: find the 'symbol' for this one - "uncnotify": None,
 }
 
 CONSTRAINTS_MAP = {
@@ -42,6 +42,7 @@ def fix_valid_values(char_info):
                 value = float(value)
             else:
                 raise ValueError
+            state = state.replace(" ", "")  # To camel case.
             valid_values[state] = value
         char["ValidValues"] = valid_values
 
@@ -54,6 +55,8 @@ def tidy_char(char_info):
         if "Properties" in char:
             permissions = []
             for perm in char.pop("Properties"):
+                if perm == "uncnotify":
+                    continue
                 permissions.append(PERMS_MAP[perm])
             char["Permissions"] = permissions
         if char["Format"] == "int32":

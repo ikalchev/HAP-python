@@ -34,8 +34,8 @@
          "ev"
       ],
       "ValidValues": {
-         "2.5 \u03bcm": 0,
-         "10 \u03bcm": 1
+         "2.5\u03bcm": 0,
+         "10\u03bcm": 1
       }
    },
    "AirQuality": {
@@ -43,8 +43,7 @@
       "UUID": "00000095-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
          "Fair": 3,
@@ -94,12 +93,11 @@
       "UUID": "00000092-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
-         "CO2 Levels Normal": 0,
-         "CO2 Levels Abnormal": 1
+         "CO2LevelsNormal": 0,
+         "CO2LevelsAbnormal": 1
       }
    },
    "CarbonDioxideLevel": {
@@ -129,12 +127,11 @@
       "UUID": "00000069-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
-         "CO Levels Normal": 0,
-         "CO Levels Abnormal": 1
+         "COLevelsNormal": 0,
+         "COLevelsAbnormal": 1
       }
    },
    "CarbonMonoxideLevel": {
@@ -178,7 +175,7 @@
          "ev"
       ],
       "ValidValues": {
-         "Not Charging": 0,
+         "NotCharging": 0,
          "Charging": 1
       }
    },
@@ -202,12 +199,11 @@
       "UUID": "0000006A-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
-         "Contact Detected": 0,
-         "Contact Not Detected": 1
+         "ContactDetected": 0,
+         "ContactNotDetected": 1
       }
    },
    "CoolingThresholdTemperature": {
@@ -240,8 +236,7 @@
       "UUID": "0000000E-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
          "Closing": 3,
@@ -256,8 +251,7 @@
       "UUID": "0000000F-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
          "Off": 0,
@@ -353,8 +347,8 @@
          "ev"
       ],
       "ValidValues": {
-         "Start Discovery": 0,
-         "Stop Discovery": 1
+         "StartDiscovery": 0,
+         "StopDiscovery": 1
       }
    },
    "DiscoveredBridgedAccessories": {
@@ -424,12 +418,11 @@
       "UUID": "00000070-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
-         "Leak Not Detected": 0,
-         "Leak Detected": 1
+         "LeakNotDetected": 0,
+         "LeakDetected": 1
       }
    },
    "LinkQuality": {
@@ -455,8 +448,7 @@
       "UUID": "0000001D-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
          "Unknown": 3,
@@ -473,15 +465,15 @@
          "ev"
       ],
       "ValidValues": {
-         "Unsecured remotely": 7,
-         "Unsecured physically, exterior": 3,
-         "Secured by Auto Secure timeout": 8,
-         "Secured by keypad": 4,
-         "Secured physically, interior": 0,
-         "Unsecured by keypad": 5,
-         "Unsecured physically, interior": 1,
-         "Secured remotely": 6,
-         "Secured physically, exterior": 2
+         "Unsecuredremotely": 7,
+         "Unsecuredphysically,exterior": 3,
+         "SecuredbyAutoSecuretimeout": 8,
+         "Securedbykeypad": 4,
+         "Securedphysically,interior": 0,
+         "Unsecuredbykeypad": 5,
+         "Unsecuredphysically,interior": 1,
+         "Securedremotely": 6,
+         "Securedphysically,exterior": 2
       }
    },
    "LockManagementAutoSecurityTimeout": {
@@ -537,8 +529,7 @@
       "UUID": "00000022-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ]
    },
    "Name": {
@@ -553,8 +544,7 @@
       "UUID": "00000024-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ]
    },
    "OccupancyDetected": {
@@ -562,12 +552,11 @@
       "UUID": "00000071-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
-         "Occupancy Not Detected": 0,
-         "Occupancy Detected": 1
+         "OccupancyNotDetected": 0,
+         "OccupancyDetected": 1
       }
    },
    "On": {
@@ -717,15 +706,14 @@
       "UUID": "00000066-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
          "Disarmed": 3,
-         "Alarm Triggered": 4,
-         "Stay Arm": 0,
-         "Away Arm": 1,
-         "Night Arm": 2
+         "AlarmTriggered": 4,
+         "StayArm": 0,
+         "AwayArm": 1,
+         "NightArm": 2
       }
    },
    "SecuritySystemTargetState": {
@@ -738,9 +726,9 @@
       ],
       "ValidValues": {
          "Disarm": 3,
-         "Stay Arm": 0,
-         "Away Arm": 1,
-         "Night Arm": 2
+         "StayArm": 0,
+         "AwayArm": 1,
+         "NightArm": 2
       }
    },
    "SerialNumber": {
@@ -755,12 +743,11 @@
       "UUID": "00000076-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
-         "Smoke Not Detected": 0,
-         "Smoke Detected": 1
+         "SmokeNotDetected": 0,
+         "SmokeDetected": 1
       }
    },
    "SoftwareRevision": {
@@ -783,8 +770,7 @@
       "UUID": "00000077-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ]
    },
    "StatusJammed": {
@@ -792,11 +778,10 @@
       "UUID": "00000078-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
-         "Not Jammed": 0,
+         "NotJammed": 0,
          "Jammed": 1
       }
    },
@@ -805,12 +790,11 @@
       "UUID": "00000079-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
-         "Battery Level Normal": 0,
-         "Battery Level Low": 1
+         "BatteryLevelNormal": 0,
+         "BatteryLevelLow": 1
       }
    },
    "StatusTampered": {
@@ -818,11 +802,10 @@
       "UUID": "0000007A-0000-1000-8000-0026BB765291",
       "Permissions": [
          "pr",
-         "ev",
-         null
+         "ev"
       ],
       "ValidValues": {
-         "Not Tampered": 0,
+         "NotTampered": 0,
          "Tampered": 1
       }
    },
