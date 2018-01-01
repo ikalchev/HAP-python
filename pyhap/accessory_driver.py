@@ -202,12 +202,12 @@ class AccessoryDriver(object):
             subscribed_clients = self.topics.get(topic, [])
             for client_addr in subscribed_clients.copy():
                 pushed = self.http_server.push_event(bytedata, client_addr)
-                self.event_queue.task_done()
                 if not pushed:
                     logger.debug("Could not send event to %s, probably stale socket.",
                                  client_addr)
                     # Maybe consider removing the client_addr from every topic?
                     self.subscribe_client_topic(client_addr, topic, False)
+            self.event_queue.task_done()
             self.sent_events += 1
             self.accumulated_qsize += self.event_queue.qsize()
 
