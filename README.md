@@ -18,7 +18,7 @@ There are example accessories in [the accessories folder](pyhap/accessories) (e.
 1. [API](#API)
 2. [Integrating non-compatible devices](#HttpAcc)
 3. [Installation](#Installation)
-4. [Run at boot](#AtBoot)
+4. [Run at boot (and a Switch to shutdown your device)](#AtBoot)
 5. [Notice](#Notice)
 
 ## API <a name="API"></a>
@@ -176,6 +176,19 @@ To enable or disable at boot, do:
 ```sh
 > sudo systemctl enable HAP-python
 > sudo systemctl disable HAP-python
+```
+
+### Shutdown switch
+
+If you are running `HAP-python` on a Raspberry Pi, you may want to add a
+[Shutdown Switch](pyhap/accessories/ShutdownSwitch.py) to your Home. This is a
+Switch Accessory, which, when triggered, executes `sudo shutdown -h now`, i.e.
+it shutdowns and halts the Pi. This allows you to safely unplug it.
+
+For the above to work, you need to enable passwordless `/sbin/shutdown` to whichever
+user is running `HAP-python`. For example, do:
+```sh
+$ sudo visudo # and add the line: "<hap-user> ALL=NOPASSWD: /sbin/shutdown".
 ```
 
 ## Notice <a name="Notice"></a>
