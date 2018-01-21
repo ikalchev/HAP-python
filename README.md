@@ -16,10 +16,38 @@ There are example accessories in [the accessories folder](pyhap/accessories) (e.
 
 ## Table of Contents
 1. [API](#API)
-2. [Integrating non-compatible devices](#HttpAcc)
-3. [Installation](#Installation)
+2. [Installation](#Installation)
+3. [Integrating non-compatible devices](#HttpAcc)
 4. [Run at boot (and a Switch to shutdown your device)](#AtBoot)
 5. [Notice](#Notice)
+
+## Installation <a name="Installation"></a>
+
+As a prerequisite, you will need Avahi/Bonjour installed (due to zeroconf package).
+On a Raspberry Pi, you can get it with:
+```
+sudo apt-get install libavahi-compat-libdnssd-dev
+```
+`avahi-utils` may also fit the bill. Then, to install HAP-python, you will need `setuptools` or `pip3`.
+Just git clone this project and install it like (you will need `sudo` or `--user` for the install):
+
+```sh
+git clone https://github.com/ikalchev/HAP-python.git && cd HAP-python
+python3 setup.py install
+```
+or
+```
+pip3 install .
+```
+
+This will install HAP-python in your python packages, so that you can import it as `pyhap`.
+Alternatively, you can install only the dependencies and run with the root directory of this project in your `PYTHONPATH`.
+
+To uninstall, just do:
+
+```
+pip3 uninstall HAP-python
+```
 
 ## API <a name="API"></a>
 
@@ -122,23 +150,6 @@ accessory is running (port 51800) with the following content:
 This will update the value of the characteristic "CurrentTemperature" to 20 degrees C.
 Needless to say the communication to the Http Accessory poses a security risk, so
 keep that in mind.
-
-## Installation <a name="Installation"></a>
-
-To install HAP-python, you will need `setuptools`. Just git clone this project and do:
-
-```
-python3 setup.py install
-```
-
-This will install HAP-python in your python packages, so that you can import it as `pyhap`.
-Alternatively, you can install only the dependencies and run with the root directory of this project in your `PYTHONPATH`.
-
-To uninstall with pip, just do:
-
-```
-pip3 uninstall HAP-python
-```
 
 ## Run at boot <a name="AtBoot"></a>
 This is a quick way to get `HAP-python` to run at boot on a Raspberry Pi. It is recommended
