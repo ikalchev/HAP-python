@@ -50,6 +50,8 @@ class ServiceLoader(TypeLoader):
         s = Service(type_id, name)
         chars = [self.char_loader.get(c) for c in serv_info["RequiredCharacteristics"]]
         s.add_characteristic(*chars)
+        opt_chars = [self.char_loader.get(c) for c in serv_info["OptionalCharacteristics"]]
+        s.add_opt_characteristic(*opt_chars)
         return s
 
 
