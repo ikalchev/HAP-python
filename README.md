@@ -28,23 +28,12 @@ On a Raspberry Pi, you can get it with:
 ```
 sudo apt-get install libavahi-compat-libdnssd-dev
 ```
-`avahi-utils` may also fit the bill. Then, to install HAP-python, you will need `setuptools` or `pip3`.
-Just git clone this project and install it like (you will need `sudo` or `--user` for the install):
-
+`avahi-utils` may also fit the bill. Then, you can install with `pip3` (you will need `sudo` or `--user` for the install):
 ```sh
-git clone https://github.com/ikalchev/HAP-python.git && cd HAP-python
-python3 setup.py install
-```
-or
-```
-pip3 install .
+pip3 install HAP-python
 ```
 
-This will install HAP-python in your python packages, so that you can import it as `pyhap`.
-Alternatively, you can install only the dependencies and run with the root directory of this project in your `PYTHONPATH`.
-
-To uninstall, just do:
-
+This will install HAP-python in your python packages, so that you can import it as `pyhap`. To uninstall, just do:
 ```
 pip3 uninstall HAP-python
 ```
