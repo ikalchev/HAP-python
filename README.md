@@ -114,30 +114,56 @@ class TemperatureSensor(Accessory):
 
 ## Integrating non-compatible devices <a name="HttpAcc"></a>
 HAP-python may not be available for many IoT devices. For them, HAP-python allows devices
-to be bridged by means of communicating with an HTTP server - the [Http Accessory](pyhap/accessories/Http.py).
+to be bridged by means of communicating with an HTTP server - the [HttpBridge](pyhap/accessories/Http.py). You can add as many remote accessories as you like.
 
 For example, the bellow snippet creates an Http Accessory that listens on port 51800
 for updates on the TemperatureSensor service:
 ```python
 import pyhap.util as util
-from pyhap.accessories.Http import Http
-from pyhap.accessory import STANDALONE_AID
+import pyhap.loader as loader
+from pyhap.accessories.Http import HttpBridge
+from pyhap.accessory import Accessory
 from pyhap.accessory_driver import AccessoryDriver
 
-http = Http(("", 51800), ["TemperatureSensor"], "HTTP bridge",
-            aid=STANDALONE_AID, mac=util.generate_mac(), pincode=b"203-23-999")
-driver = AccessoryDriver(http, 51826)
+# get loaders
+service_loader = loader.get_serv_loader()
+char_loader = loader.get_char_loader()
+
+# Create an accessory with the temperature sensor service.
+# Also, add an optional characteristic StatusLowBattery to that service.
+remote_accessory = Accessory("foo", aid=2)  # aids must be unique for each accessory.
+tservice = service_loader.get("TemperatureSensor")
+tservice.add_opt_characteristic(
+    char_loader.get("StatusLowBattery"))
+remote_accessory.add_service(tservice)
+
+# Create the HTTP Bridge and add the accessory to it.
+address = ("", 51111)
+http_bridge = HttpBridge(address=address,
+                         display_name="HTTP Bridge",
+                         pincode=b"203-23-999")
+http_bridge.add_accessory(remote_accessory)
+
+# Add to driver and run.
+driver = AccessoryDriver(http_bridge, 51826)
 driver.start()
 ```
 Now, remote accessories can do an HTTP POST to the address of the device where the
-accessory is running (port 51800) with the following content:
+accessory is running (port 51111) with the following content:
 ```json
-{ "TemperatureSensor" : {
-     "CurrentTemperature" : 20 }
+{
+    "aid": 2,
+    "services": {
+        "TemperatureSensor": {
+            "CurrentTemperature" : 20,
+            "StatusLowBattery": true,
+        }
+    }
 }
 ```
-This will update the value of the characteristic "CurrentTemperature" to 20 degrees C.
-Needless to say the communication to the Http Accessory poses a security risk, so
+This will update the value of the characteristic "CurrentTemperature" to 20 degrees C
+and "StatusLowBattery" to `true`.
+Needless to say the communication to the Http Bridge poses a security risk, so
 keep that in mind.
 
 ## Run at boot <a name="AtBoot"></a>

@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 
 def get_bridge():
     """Call this method to get a Bridge instead of a standalone accessory."""
-    bridge = Bridge(display_name="Bridge", mac=util.generate_mac(), pincode=b"203-23-999")
+    bridge = Bridge(display_name="Bridge", pincode=b"203-23-999")
     temp_sensor = TemperatureSensor("Termometer")
     bridge.add_accessory(temp_sensor)
 

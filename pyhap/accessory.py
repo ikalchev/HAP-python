@@ -112,7 +112,8 @@ class Accessory(object):
         mac = util.generate_mac()
         return cls(display_name, aid=aid, mac=mac, pincode=pincode)
 
-    def __init__(self, display_name, aid=None, mac=None, pincode=None, iid_manager=None):
+    def __init__(self, display_name, aid=STANDALONE_AID, mac=None, pincode=None,
+                 iid_manager=None):
 
         self.display_name = display_name
         self.aid = aid
@@ -298,8 +299,13 @@ class Bridge(Accessory):
 
     category = Category.BRIDGE
 
-    def __init__(self, display_name, **kwargs):
-        super(Bridge, self).__init__(display_name, aid=STANDALONE_AID, **kwargs)
+    def __init__(self, display_name, mac=None, pincode=None, iid_manager=None):
+        aid = STANDALONE_AID
+        # A Bridge cannot be Bridge, hence talks directly to HAP clients.
+        # Thus, we need a mac.
+        mac = mac or util.generate_mac()
+        super(Bridge, self).__init__(display_name, aid=aid, mac=mac,
+                                     pincode=pincode, iid_manager=iid_manager)
         self.accessories = {}  # aid: acc
 
     def _set_services(self):
