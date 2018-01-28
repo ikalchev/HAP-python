@@ -12,7 +12,8 @@ AccessoryDriver (all this happens through the publish() interface). The Accessor
 will then check if there is a client that subscribed for events from this exact
 Characteristic from this exact Accessory (remember, it could be a Bridge with more than
 one Accessory in it). If so, the event is put in a FIFO queue - the event queue. This
-terminates the call chain and concludes the publishing process from the Characteristic.
+terminates the call chain and concludes the publishing process from the Characteristic,
+the Characteristic does not block waiting for the actual send to happen.
 
 When the AccessoryDriver is started, it spawns an event dispatch thread. The purpose of
 this thread is to get events from the event queue and send them to subscribed clients.
@@ -216,6 +217,16 @@ class AccessoryDriver(object):
                              self.sent_events, self.accumulated_qsize / self.sent_events)
                 self.sent_events = 0
                 self.accumulated_qsize = 0
+
+    def config_changed(self):
+        """Notify the driver that the accessory's configuration has changed.
+
+        Updates the mDNS advertisment, so that iOS clients know they need to new data.
+        Also, persists the accessory, so that the new configuration is available on
+        restart.
+        """
+        self.update_advertisment()
+        self.persist()
 
     def update_advertisment(self):
         """Updates the mDNS service info for the accessory."""
@@ -434,6 +445,10 @@ class AccessoryDriver(object):
         self.http_server.shutdown()
         self.http_server.server_close()
         self.http_server_thread.join()
+
+        logger.debug("Persisting accessory state")
+        self.persist()
+
         logger.debug("AccessoryDriver stopped successfully")
 
     def signal_handler(self, _signal, _frame):

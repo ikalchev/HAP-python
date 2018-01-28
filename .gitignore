@@ -11,6 +11,7 @@ build
 _mailinglist
 .cache/
 .idea
+__pycache__
 
 # HAP-python-generated files
 accessory.pickle
