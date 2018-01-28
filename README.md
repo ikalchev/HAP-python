@@ -1,3 +1,4 @@
+[![PyPI version](https://badge.fury.io/py/HAP-python.svg)](https://badge.fury.io/py/HAP-python)
 # HAP-python
 
 HomeKit Accessory Protocol implementation in python 3 (tested with 3.4, 3.5 and 3.6).
