@@ -146,7 +146,6 @@ class Accessory(object):
         The default implementation adds only the AccessoryInformation services
         and sets its Name characteristic to the Accessory's display name.
         """
-        # Info service
         info_service = get_serv_loader().get("AccessoryInformation")
         info_service.get_characteristic("Name")\
                     .set_value(self.display_name, False)
@@ -171,6 +170,22 @@ class Accessory(object):
         ...    sensor.readTemperature()
         """
         self.run_sentinel = run_sentinel
+
+    def config_changed(self):
+        """Notify the accessory about configuration changes.
+
+        These include new services or updated characteristic values, e.g.
+        the Name of a service changed.
+
+        This method also notifies the broker about the change, so that it can
+        publish the changes to the world.
+
+        @note: If you are changing the configuration of a bridged accessory
+        (i.e. an Accessory that is contained in a Bridge),
+        you should call the `config_changed` method on the Bridge.
+        """
+        self.config_version += 1
+        self.broker.config_changed()
 
     def add_service(self, *servs):
         """Add the given services to this Accessory.
