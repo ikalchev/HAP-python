@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 def get_bridge():
     """Call this method to get a Bridge instead of a standalone accessory."""
     bridge = Bridge(display_name="Bridge", pincode=b"203-23-999")
-    temp_sensor = TemperatureSensor("Termometer")
+    temp_sensor = TemperatureSensor("Termometer", aid=2)
     bridge.add_accessory(temp_sensor)
 
     # Uncomment if you have RPi module and want a LED LightBulb service on pin 16.
@@ -42,7 +42,7 @@ if os.path.exists("accessory.pickle"):
     with open("accessory.pickle", "rb") as f:
         acc = pickle.load(f)
 else:
-    acc = get_accessory()  # Change to get_bridge() if you want to run a Bridge.
+    acc = get_bridge()  # Change to get_bridge() if you want to run a Bridge.
 
 # Start the accessory on port 51826
 driver = AccessoryDriver(acc, 51826)
