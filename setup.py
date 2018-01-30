@@ -27,6 +27,11 @@ setup(
         "zeroconf",
         "curve25519-donna"
     ],
+    extras_require={
+        "dev": [
+            "pytest",
+        ],
+    },
     package_data={
         "pyhap": ["resources/*"],
     }
