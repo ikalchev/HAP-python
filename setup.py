@@ -30,6 +30,7 @@ setup(
     extras_require={
         "dev": [
             "pytest",
+            "tox",
         ],
     },
     package_data={
