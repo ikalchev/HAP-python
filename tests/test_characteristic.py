@@ -29,18 +29,29 @@ def get_char(props, valid=None, min_value=None, max_value=None):
 def test_default_value():
     char = get_char(PROPERTIES.copy())
     assert (characteristic.HAP_FORMAT.DEFAULT[PROPERTIES["Format"]]
-            == char.get_value())
+            == char.value)
 
 def test_set_value():
     char = get_char(PROPERTIES.copy())
     char.broker = mock.Mock()
     new_value = 3
-    char.set_value(new_value, should_notify=False)
-    assert char.get_value() == new_value
-    new_value = 4
     char.set_value(new_value, should_notify=True)
-    assert char.get_value() == new_value
+    assert char.value == new_value
     assert char.broker.publish.called
+
+def test_set_value_valid_values():
+    valid_values = {"foo": 2, "bar": 3, }
+    char = get_char(PROPERTIES.copy(), valid=valid_values)
+    with pytest.raises(ValueError):
+        char.set_value(4)
+
+def test_get_hap_value():
+    max_value = 5
+    raw_value = 6
+    char = get_char(PROPERTIES.copy(), max_value=max_value)
+    char.set_value(raw_value, should_notify=False)
+    assert char.value == raw_value
+    assert char.get_hap_value() == max_value
 
 def test_notify():
     char = get_char(PROPERTIES.copy())
@@ -55,6 +66,3 @@ def test_notify():
     char.notify()
     assert broker_mock.publish.called
     broker_mock.publish.assert_called_with(expected, char)
-
-def test_to_HAP():
-    pass # TODO

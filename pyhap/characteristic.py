@@ -1,5 +1,9 @@
-# All things for a HAP characteristic.
+"""
+All things for a HAP characteristic.
 
+A Characteristic is the smallest unit of the smart home, e.g.
+a temperature measuring or a device status.
+"""
 
 class HAP_FORMAT:
     BOOL = 'bool'
@@ -52,39 +56,59 @@ class CharacteristicError(Exception):
     pass
 
 
+_HAP_NUMERIC_FIELDS = {"maxValue", "minValue", "minStep", "unit"}
 """Fields that should be included in the HAP representation of the characteristic.
 
 That is, if they are present in the specification of a numeric-value characteristic.
 """
-_HAP_NUMERIC_FIELDS = {"maxValue", "minValue", "minStep", "unit"}
 
 
 class Characteristic(object):
+    """Represents a HAP characteristic, the smallest unit of the smart home.
+
+    A HAP characteristic is some measurement or state, like battery status or
+    the current temperature. Characteristics are contained in services.
+    Each charactaristic has a unique type UUID and a set of properties,
+    like format, min and max values, valid values and others.
+    """
 
     def __init__(self, display_name, type_id, properties, value=None, broker=None):
+        assert "Format" in properties and "Permissions" in properties
         self.display_name = display_name
         self.type_id = type_id
-        assert "Format" in properties and "Permissions" in properties
         self.properties = properties
-        self.allowed_values = self.properties.get("ValidValues")
+        self.has_valid_values = "ValidValues" in self.properties
         self.value = value or HAP_FORMAT.DEFAULT[properties["Format"]]
         self.broker = broker
         self.setter_callback = None
-        self.hap_value_template = self._create_value_HAP_template()
+        self.hap_template = self._create_hap_template()
+
+    def _create_hap_template(self):
+        """Create a HAP template for describing this Characteristic.
+
+        Contains properties that do not change or change rarely, e.g. the type.
+        """
+        template = dict()
+        if self.properties["Format"] in HAP_FORMAT.NUMERIC:
+            template = {k: self.properties[k]
+                        for k in self.properties.keys() & _HAP_NUMERIC_FIELDS}
+        return template
 
     def set_value(self, value, should_notify=True):
-        """Set the given value.
+        """Set the given raw value. It is checked if it is a valid value.
 
         @param value: The value to assign as this Characteristic's value.
         @type value: Depends on properties["Format"]
 
         @param should_notify: Whether a the change should be sent to subscribed clients.
+            The notification is called _after_ the setter callback.
         @type should_notify: bool
 
-        @raise ValueError: When the value being assigned is not one of the allowed values
+        @raise ValueError: When the value being assigned is not one of the valid values
             for this Characteristic.
         """
-        if self.allowed_values is not None and value not in self.allowed_values.values():
+        if (self.has_valid_values
+                and value not in self.properties["ValidValues"].values()):
             raise ValueError
         self.value = value
         if self.setter_callback is not None:
@@ -93,53 +117,49 @@ class Characteristic(object):
             self.notify()
 
     def get_value(self):
+        """Get the raw value of this Characteristic.
+
+        @deprecated: Use self.value instead.
+        """
         return self.value
 
+    def get_hap_value(self):
+        """Get the value of the characteristic, constrained with the HAP properties.
+        """
+        val = self.value
+        if self.properties["Format"] == HAP_FORMAT.STRING:
+            val = val[:256]
+        elif self.properties["Format"] in HAP_FORMAT.NUMERIC:
+            if "maxValue" in self.properties:
+                val = min(self.properties["maxValue"], val)
+            if "minValue" in self.properties:
+                val = max(self.properties["minValue"], val)
+        return val
+
     def notify(self):
+        """Notify clients about a value change.
+
+        @note: Non-blocking, i.e. does not wait for the update to be sent.
+        @note: Uses the `get_hap_value`, i.e. sends the HAP value.
+        @see: accessory_driver.publish
+        """
         data = {
-          "type_id": self.type_id,
-          "value": self.value,
+            "type_id": self.type_id,
+            "value": self.get_hap_value(),
         }
         self.broker.publish(data, self)
 
-    def _create_value_HAP_template(self):
-        template = dict()
-        if self.properties["Format"] in HAP_FORMAT.NUMERIC:
-            template = {k: self.properties[k]
-                        for k in self.properties.keys() & _HAP_NUMERIC_FIELDS}
-        return template
-
-    def _value_to_HAP(self):
-        hap_rep = self.hap_value_template.copy()
-
-        if self.properties["Format"] == HAP_FORMAT.STRING:
-            val = self.value[:256]
-            if len(self.value) > 64:
-                hap_rep["maxLen"] = min(len(self.value), 256)
-        elif self.properties["Format"] in HAP_FORMAT.NUMERIC:
-            val = self.value
-            if "maxValue" in hap_rep:
-                val = min(self.properties["maxValue"], self.value)
-            if "minValue" in hap_rep:
-                val = max(self.properties["minValue"], self.value)
-        else:
-            val = self.value
-
-        if HAP_PERMISSIONS.READ in self.properties["Permissions"]:
-            hap_rep["value"] = val
-
-        return hap_rep
-
-    def to_HAP(self, iid_manager=None):
+    def to_HAP(self, iid_manager):
         """Create a HAP representation of this Characteristic.
 
-        @param base_iid: The IID for this characteristic.
-        @type base_iid: int
+        @note: Uses the `get_hap_value`, i.e. sends the HAP value.
+
+        @param iid_manager: IID manager to query for this object's IID.
+        @type iid_manager: IIDManager
 
         @return: A HAP representation.
         @rtype: dict
         """
-        assert iid_manager is not None
         hap_rep = {
             "iid": iid_manager.get_iid(self),
             "type": str(self.type_id).upper(),
@@ -147,5 +167,14 @@ class Characteristic(object):
             "perms": self.properties["Permissions"],
             "format": self.properties["Format"],
         }
-        hap_rep.update(self._value_to_HAP())
+
+        value_info = self.hap_template.copy()
+        val = self.get_hap_value()
+        if self.properties["Format"] == HAP_FORMAT.STRING:
+            if len(val) > 64:
+                value_info["maxLen"] = min(len(val), 256)
+        if HAP_PERMISSIONS.READ in self.properties["Permissions"]:
+            value_info["value"] = val
+
+        hap_rep.update(value_info)
         return hap_rep
