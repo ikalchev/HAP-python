@@ -100,18 +100,18 @@ class HttpBridge(Bridge):
     >>> char_loader = loader.get_char_loader()
     >>>
     >>> # Create an accessory with the temperature sensor service.
-    >>> temperature_acc_1 = Accessory("temp1", 2)
+    >>> temperature_acc_1 = Accessory("temp1")
     >>> temperature_acc_1.add_service(service_loader.get("TemperatureSensor"))
     >>>
     >>> # Create an accessory with the temperature sensor service.
     >>> # Also, add an optional characteristic Name to the service.
-    >>> temperature_acc_2 = Accessory("temp2", 3)
+    >>> temperature_acc_2 = Accessory("temp2")
     >>> temp_service = service_loader.get("TemperatureSensor")
     >>> temp_service.add_opt_characteristic(char_loader.get("StatusLowBattery"))
     >>> temperature_acc_2.add_service(temp_service)
     >>>
     >>> # Create a lightbulb accessory.
-    >>> light_bulb_acc = Accessory("bulb", 4)
+    >>> light_bulb_acc = Accessory("bulb")
     >>> light_bulb_acc.add_service(service_loader.get("Lightbulb"))
     >>>
     >>> # Finally, create the HTTP Bridge and add all accessories to it.
@@ -120,6 +120,7 @@ class HttpBridge(Bridge):
     ...     http_bridge.add_accessory(accessory)
     >>>
     >>> # add to an accessory driver and start as usual
+    >>> # get AID with accessory.aid
     """
 
     category = Category.OTHER

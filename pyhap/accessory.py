@@ -338,8 +338,7 @@ class Bridge(Accessory):
     def add_accessory(self, acc):
         """Adds an accessory to this bridge.
 
-        Bridge accessories cannot be bridged. All accessories in this bridge must have
-        unique AIDs and none of them must have the STANDALONE_AID.
+        AIDs _are_ assigned to accessories in this method. Do not change them.
 
         @param acc: The Accessory to be bridged.
         @type acc: Accessory
@@ -347,14 +346,13 @@ class Bridge(Accessory):
         if acc.category == Category.BRIDGE:
             raise ValueError("Bridges cannot be bridged")
 
-        if acc.aid and (acc.aid == self.aid or acc.aid in self.accessories):
-            raise ValueError("Duplicate AID found when attempting to add accessory")
-
-        acc_uuid = uuid.uuid4()
-
         # The bridge has AID 1, start from 2 onwards
         acc.aid = len(self.accessories) + 2
 
+        if (acc.aid == self.aid or acc.aid in self.accessories):
+            raise ValueError("Duplicate AID found when attempting to add accessory")
+
+        acc_uuid = uuid.uuid4()
         bridge_state_serv = self.get_service("BridgingState")
         bridge_state_serv.get_characteristic("AccessoryIdentifier")\
                          .set_value(str(acc_uuid), False)

@@ -132,7 +132,7 @@ char_loader = loader.get_char_loader()
 
 # Create an accessory with the temperature sensor service.
 # Also, add an optional characteristic StatusLowBattery to that service.
-remote_accessory = Accessory("foo", aid=2)  # aids must be unique for each accessory.
+remote_accessory = Accessory("foo")
 tservice = service_loader.get("TemperatureSensor")
 tservice.add_opt_characteristic(
     char_loader.get("StatusLowBattery"))
@@ -144,6 +144,8 @@ http_bridge = HttpBridge(address=address,
                          display_name="HTTP Bridge",
                          pincode=b"203-23-999")
 http_bridge.add_accessory(remote_accessory)
+print(remote_accessory)
+# Gives you the AID. These are assigned from 2 onwards, in order of addition.
 
 # Add to driver and run.
 driver = AccessoryDriver(http_bridge, 51826)
