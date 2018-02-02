@@ -25,7 +25,7 @@ class SDS011(Accessory):
     SORTED_PM_QUALITY_MAP = ((200, 5), (150, 4), (100, 3), (50, 2), (0, 1))
     """
     Threshold-to-state tuples. These show the state for which the threshold is
-    lower boundry.
+    lower boundry. Uses something like Air Quality Index (AQI).
 
     The UI shows:
         1 - Excellent
@@ -33,8 +33,6 @@ class SDS011(Accessory):
         3 - Fair
         4 - Inferior
         5 - Poor
-
-    @see: get_quality_thershold
     """
 
     def __init__(self, serial_port, *args, sleep_duration_s=15*60, calib_duration_s=15,
@@ -114,6 +112,8 @@ class SDS011(Accessory):
 
         Uses Air Quality Index (AQI), without averaging for an hour.
 
+        @see: SDS011.SORTED_PM_QUALITY_MAP
+
         @rtype: int
         """
         assert pm >= 0
@@ -125,8 +125,8 @@ class SDS011(Accessory):
 
         Initially, we read from the sensor and update the values. Then we put
         it in sleep mode and while the sentinel is not set:
-            - Sleep for 30 minutes.
-            - Wake up and wait 15 seconds.
+            - Sleep for `self.sleep_duration_s`.
+            - Wake up and wait `self.calib_duration_s` seconds.
             - Get the sensor's readings and update.
         """
         pm25, pm10 = self.sensor.query()
