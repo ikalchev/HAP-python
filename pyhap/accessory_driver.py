@@ -32,7 +32,7 @@ import queue
 
 from zeroconf import ServiceInfo, Zeroconf
 
-from pyhap.accessory import get_topic
+from pyhap.accessory import get_topic, STANDALONE_AID
 from pyhap.characteristic import CharacteristicError
 from pyhap.params import get_srp_context
 from pyhap.hsrp import Server as SrpServer
@@ -99,7 +99,11 @@ class AccessoryDriver(object):
 
     def __init__(self, accessory, port, address=None, persist_file="accessory.pickle"):
         """
-        @param accessory: The Accessory to be managed by this driver.
+        @param accessory: The `Accessory` to be managed by this driver. The `Accessory`
+            must have the standalone AID (`pyhap.accessory.STANDALONE_AID`). If the
+            AID of the `Accessory` is None, the standalone AID will be assigned to it.
+            Also, if the mac of the `Accessory` is None, a randomly-generated one
+            will be assigned to it.
         @type accessory: Accessory
 
         @param port: The local port on which the accessory will be accessible.
@@ -115,10 +119,16 @@ class AccessoryDriver(object):
             will be persisted.
         @type persist_file: str
         """
+        if accessory.aid is None:
+            accessory.aid = STANDALONE_AID
+        elif accessory.aid != STANDALONE_AID:
+            raise ValueError("Top-level accessory must have the standalone AID.")
+        if accessory.mac is None:
+            accessory.mac = util.generate_mac()
+        self.accessory = accessory
         self.address = address or util.get_local_address()
         self.http_server = HAPServer((self.address, port), self)
         self.http_server_thread = None
-        self.accessory = accessory
         self.advertiser = Zeroconf()
         self.port = port
         self.persist_file = persist_file

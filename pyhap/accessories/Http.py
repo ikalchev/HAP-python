@@ -93,7 +93,8 @@ class HttpBridge(Bridge):
 
     Then this accessory takes care of communicating this update to any HAP clients.
 
-    The way you configure a HttpBridge is by adding Accessory objects. In the
+    The way you configure a HttpBridge is by adding Accessory objects. You can specify
+    the Accessory AIDs, which will be needed when making POST requests. In the
     example below, we add three accessories to a HTTP Bridge:
     >>> # get loaders
     >>> service_loader = loader.get_serv_loader()
@@ -120,7 +121,8 @@ class HttpBridge(Bridge):
     ...     http_bridge.add_accessory(accessory)
     >>>
     >>> # add to an accessory driver and start as usual
-    >>> # get AID with accessory.aid
+
+    After the above you can HTTP POST updates to the local address at port 51111.
     """
 
     category = Category.OTHER

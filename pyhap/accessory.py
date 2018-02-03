@@ -1,6 +1,7 @@
 import uuid
 import threading
 import logging
+import itertools
 
 import ed25519
 
@@ -112,9 +113,30 @@ class Accessory(object):
         mac = util.generate_mac()
         return cls(display_name, aid=aid, mac=mac, pincode=pincode)
 
-    def __init__(self, display_name, aid=STANDALONE_AID, mac=None, pincode=None,
+    def __init__(self, display_name, aid=None, mac=None, pincode=None,
                  iid_manager=None):
+        """Initialise with the given properties.
 
+        @param display_name: Name to be displayed in the Home app.
+        @type display_name: str
+
+        @param aid: The accessory ID, uniquely identifying this accessory.
+            `Accessories` that advertised on the network must have the
+            standalone AID. Defaults to None, in which case the `AccessoryDriver`
+            will assign the standalone AID to this `Accessory`.
+        @type aid: int
+
+        @param mac: The MAC address of this `Accessory`, needed by HAP clients.
+            Defaults to None, in which case the `AccessoryDriver`
+            will assign a random MAC address to this `Accessory`.
+        @type mac: str
+
+        @param pincode: The pincode that HAP clients must prove they know in order
+            to pair with this `Accessory`. Defaults to None. Top-level Accessories
+            managed by an `AccessoryDriver` must have a pincode. The pincode has the
+            format "xxx-xx-xxx", where x is a digit.
+        @type pincode: bytearray
+        """
         self.display_name = display_name
         self.aid = aid
         self.mac = mac
@@ -309,7 +331,7 @@ class Accessory(object):
 class Bridge(Accessory):
     """A representation of a HAP bridge.
 
-    A bridge can have multiple accessories.
+    A `Bridge` can have multiple `Accessories`.
     """
 
     category = Category.BRIDGE
@@ -330,26 +352,35 @@ class Bridge(Accessory):
             get_serv_loader().get("BridgingState"))
 
     def set_sentinel(self, run_sentinel):
-        """Sets the same sentinel to all contained accessories."""
+        """Set the same sentinel to all contained accessories."""
         super(Bridge, self).set_sentinel(run_sentinel)
         for acc in self.accessories.values():
             acc.set_sentinel(run_sentinel)
 
     def add_accessory(self, acc):
-        """Adds an accessory to this bridge.
+        """Add the given `Accessory` to this `Bridge`.
 
-        AIDs _are_ assigned to accessories in this method. Do not change them.
+        Every `Accessory` in a `Bridge` must have an AID and this AID must be
+        unique among all the `Accessories` in the same `Bridge`. If the given
+        `Accessory`'s AID is None, a unique AID will be assigned to it. Otherwise,
+        it will be verified that the AID is not the standalone aid (`STANDALONE_AID`)
+        and that there is no other `Accessory` already in this `Bridge` with that AID.
 
-        @param acc: The Accessory to be bridged.
+        Note that a `Bridge` cannot be added to another `Bridge`.
+
+        @param acc: The `Accessory` to be bridged.
         @type acc: Accessory
+
+        @raise ValueError: When the given `Accessory` is of category `Category.BRIDGE`
+            or if the AID of the `Accessory` clashes with another `Accessory` already in this
+            `Bridge`.
         """
         if acc.category == Category.BRIDGE:
             raise ValueError("Bridges cannot be bridged")
 
-        # The bridge has AID 1, start from 2 onwards
-        acc.aid = len(self.accessories) + 2
-
-        if (acc.aid == self.aid or acc.aid in self.accessories):
+        if acc.aid is None:
+            acc.aid = next(aid for aid in itertools.count(2) if aid not in self.accessories)
+        elif acc.aid == self.aid or acc.aid in self.accessories:
             raise ValueError("Duplicate AID found when attempting to add accessory")
 
         acc_uuid = uuid.uuid4()

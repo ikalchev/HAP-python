@@ -19,6 +19,10 @@ class TestBridge(TestAccessory):
         bridge = accessory.Bridge("Test Bridge")
         acc = accessory.Accessory("Test Accessory", aid=2)
         bridge.add_accessory(acc)
+        acc2 = accessory.Accessory("Test Accessory 2")
+        bridge.add_accessory(acc2)
+        assert (acc2.aid != accessory.STANDALONE_AID
+                and acc2.aid != acc.aid)
 
     def test_n_add_accessory_bridge_aid(self):
         bridge = accessory.Bridge("Test Bridge")
