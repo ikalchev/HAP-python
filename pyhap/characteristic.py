@@ -73,12 +73,36 @@ class Characteristic(object):
     """
 
     def __init__(self, display_name, type_id, properties, value=None, broker=None):
+        """Initialise with the given properties.
+
+        @param display_name: Name that will be displayed for this characteristic, i.e.
+            the `description` in the HAP representation.
+        @type display_name: str
+
+        @param type_id: UUID unique to this type of characteristic.
+        @type type_id: uuid.UUID
+
+        @param properties: A dict of properties, such as Format, ValidValues, etc.
+        @type properties: dict
+
+        @param value: The initial value to set to this characteristic. If no value is given,
+            the assigned value happens as:
+            - if there is a ValidValue property, use some value from it.
+            - else use `HAP_FORMAT.DEFAULT` for the format of this characteristic.
+        @type value: Depends on `properties["Format"]`
+        """
         assert "Format" in properties and "Permissions" in properties
         self.display_name = display_name
         self.type_id = type_id
         self.properties = properties
         self.has_valid_values = "ValidValues" in self.properties
-        self.value = value or HAP_FORMAT.DEFAULT[properties["Format"]]
+        if value is None:
+            if self.has_valid_values:
+                self.value = next(iter(self.properties["ValidValues"].values()))
+            else:
+                self.value = HAP_FORMAT.DEFAULT[properties["Format"]]
+        else:
+            self.value = value
         self.broker = broker
         self.setter_callback = None
         self.hap_template = self._create_hap_template()

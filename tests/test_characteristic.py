@@ -31,6 +31,11 @@ def test_default_value():
     assert (characteristic.HAP_FORMAT.DEFAULT[PROPERTIES["Format"]]
             == char.value)
 
+def test_default_valid_value():
+    valid_values = {"foo": 2, "bar": 3}
+    char = get_char(PROPERTIES.copy(), valid=valid_values)
+    assert char.value in valid_values.values()
+
 def test_set_value():
     char = get_char(PROPERTIES.copy())
     char.broker = mock.Mock()
