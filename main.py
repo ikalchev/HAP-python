@@ -3,14 +3,11 @@
 This is:
 1. Create the Accessory object you want.
 2. Add it to an AccessoryDriver, which will advertise it on the local network,
-    setup a server to answer client querries, etc.
+    setup a server to answer client queries, etc.
 """
 import logging
-import os
-import pickle
 import signal
 
-import pyhap.util as util
 from pyhap.accessories.TemperatureSensor import TemperatureSensor
 from pyhap.accessory import Bridge
 from pyhap.accessory_driver import AccessoryDriver
@@ -35,21 +32,14 @@ def get_bridge():
 def get_accessory():
     """Call this method to get a standalone Accessory."""
     acc = TemperatureSensor("MyTempSensor",
-                            pincode=b"203-23-999",
-                            mac=util.generate_mac())
+                            pincode=b"203-23-999")
     return acc
 
 
-# The AccessoryDriver preserves the state of the accessory
-# (by default, in the below file), so that you can restart it without pairing again.
-if os.path.exists("accessory.pickle"):
-    with open("accessory.pickle", "rb") as f:
-        acc = pickle.load(f)
-else:
-    acc = get_accessory()  # Change to get_bridge() if you want to run a Bridge.
+acc = get_accessory()  # Change to get_bridge() if you want to run a Bridge.
 
 # Start the accessory on port 51826
-driver = AccessoryDriver(acc, 51826)
+driver = AccessoryDriver(acc, port=51826)
 # We want KeyboardInterrupts and SIGTERM (kill) to be handled by the driver itself,
 # so that it can gracefully stop the accessory, server and advertising.
 signal.signal(signal.SIGINT, driver.signal_handler)

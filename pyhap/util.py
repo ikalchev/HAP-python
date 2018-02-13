@@ -1,6 +1,7 @@
 import socket
 import os
 import binascii
+import sys
 
 
 def get_local_address():
@@ -30,3 +31,28 @@ def long_to_bytes(n):
 def generate_mac():
     return "{}{}:{}{}:{}{}:{}{}:{}{}:{}{}".format(
                *str(binascii.hexlify(os.urandom(6)), "utf-8").upper())
+
+
+def b2hex(bts):
+    """Produce a hex string representation of the given bytes.
+
+    @type bts: bytes
+    @rtype: string
+    """
+    return binascii.hexlify(bts).decode("ascii")
+
+def hex2b(hex):
+    """Produce bytes from the given hex string representation.
+
+    @type hex: string
+    @rtype: bytes
+    """
+    return binascii.unhexlify(hex.encode("ascii"))
+
+tohex = bytes.hex if sys.version_info >= (3, 5) else b2hex
+"""Python-version-agnostic tohex function. Equivalent to bytes.hex in python 3.5+.
+"""
+
+fromhex = bytes.fromhex if sys.version_info >= (3, 5) else hex2b
+"""Python-version-agnostic fromhex function. Equivalent to bytes.fromhex in python 3.5+.
+"""

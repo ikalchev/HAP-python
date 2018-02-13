@@ -21,6 +21,7 @@ Whenever a send fails, the client is unsubscribed, as it is assumed that the cli
 or went to sleep before telling us. This concludes the publishing process from the
 AccessoryDriver.
 """
+import os
 import logging
 import socket
 import hashlib
@@ -38,6 +39,7 @@ from pyhap.params import get_srp_context
 from pyhap.hsrp import Server as SrpServer
 from pyhap.hap_server import HAPServer
 import pyhap.util as util
+from pyhap.encoder import AccessoryEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +99,8 @@ class AccessoryDriver(object):
 
     NUM_EVENTS_BEFORE_STATS = 100
 
-    def __init__(self, accessory, port, address=None, persist_file="accessory.pickle"):
+    def __init__(self, accessory, port, address=None, persist_file="accessory.state",
+                 encoder=None):
         """
         @param accessory: The `Accessory` to be managed by this driver. The `Accessory`
             must have the standalone AID (`pyhap.accessory.STANDALONE_AID`). If the
@@ -118,6 +121,9 @@ class AccessoryDriver(object):
         @param persist_file: The file name in which the state of the accessory
             will be persisted.
         @type persist_file: str
+
+        @param encoder: The encoder to use when persisting/loading the Accessory state.
+        @type encoder: AccessoryEncoder
         """
         if accessory.aid is None:
             accessory.aid = STANDALONE_AID
@@ -132,6 +138,13 @@ class AccessoryDriver(object):
         self.advertiser = Zeroconf()
         self.port = port
         self.persist_file = persist_file
+        self.encoder = encoder or AccessoryEncoder()
+        if os.path.exists(self.persist_file):
+            logger.info("Loading Accessory state from `%s`", self.persist_file)
+            self.load()
+        else:
+            logger.info("Storing Accessory state in `%s`", self.persist_file)
+            self.persist()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
         self.event_queue = queue.Queue()  # (topic, bytes)
@@ -231,12 +244,12 @@ class AccessoryDriver(object):
     def config_changed(self):
         """Notify the driver that the accessory's configuration has changed.
 
-        Updates the mDNS advertisment, so that iOS clients know they need to new data.
-        Also, persists the accessory, so that the new configuration is available on
-        restart.
+        Persists the accessory, so that the new configuration is available on
+        restart. Also, updates the mDNS advertisment, so that iOS clients know they need
+        to fetch new data.
         """
-        self.update_advertisment()
         self.persist()
+        self.update_advertisment()
 
     def update_advertisment(self):
         """Updates the mDNS service info for the accessory."""
@@ -248,9 +261,16 @@ class AccessoryDriver(object):
         self.advertiser.register_service(self.mdns_service_info)
 
     def persist(self):
-        """Saves the state of the accessory."""
-        with open(self.persist_file, "wb") as f:
-            pickle.dump(self.accessory, f)
+        """Saves the state of the accessory.
+        """
+        with open(self.persist_file, "w") as fp:
+            self.encoder.persist(fp, self.accessory)
+
+    def load(self):
+        """
+        """
+        with open(self.persist_file, "r") as fp:
+            self.encoder.load_into(fp, self.accessory)
 
     def pair(self, client_uuid, client_public):
         """Called when a client has paired with the accessory.
@@ -267,6 +287,9 @@ class AccessoryDriver(object):
         @return: Whether the pairing is successful.
         @rtype: bool
         """
+        # TODO: Adding a client is a change in the acc. configuration. Then, should we
+        # let the accessory call config_changed, which will persist and update mDNS?
+        # See also unpair.
         logger.info("Paired with %s.", client_uuid)
         self.accessory.add_paired_client(client_uuid, client_public)
         self.persist()
@@ -439,7 +462,15 @@ class AccessoryDriver(object):
         self.advertiser.register_service(self.mdns_service_info)
 
     def stop(self):
-        """Stop the accessory."""
+        """Stop the accessory.
+
+        1. Set the run sentinel.
+        2. Call the stop method of the Accessory and wait for its thread to finish.
+        3. Stop mDNS advertising.
+        4. Stop HAP server.
+        """
+        # TODO: This should happen in a different order - mDNS, server, accessory. Need
+        # to ensure that sending with a closed server will not crash the app.
         logger.info("Stoping accessory '%s' on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
         logger.debug("Setting run sentinel, stopping accessory and event sending")
@@ -455,9 +486,6 @@ class AccessoryDriver(object):
         self.http_server.shutdown()
         self.http_server.server_close()
         self.http_server_thread.join()
-
-        logger.debug("Persisting accessory state")
-        self.persist()
 
         logger.debug("AccessoryDriver stopped successfully")
 

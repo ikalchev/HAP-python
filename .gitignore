@@ -17,4 +17,5 @@ __pycache__
 
 # HAP-python-generated files
 accessory.pickle
+accessory.state
 

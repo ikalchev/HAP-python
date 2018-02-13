@@ -167,6 +167,10 @@ class Accessory(object):
 
         The default implementation adds only the AccessoryInformation services
         and sets its Name characteristic to the Accessory's display name.
+
+        @note: When inheriting from Accessory and overriding this method,
+            always call the base implementation first, as it reserves IID of
+            1 for the Accessory Information service (HAP requirement).
         """
         info_service = get_serv_loader().get("AccessoryInformation")
         info_service.get_characteristic("Name")\
@@ -177,6 +181,7 @@ class Accessory(object):
                     .set_value("Default-Model", False)
         info_service.get_characteristic("SerialNumber")\
                     .set_value("Default-SerialNumber", False)
+        #FIXME: Need to ensure AccessoryInformation is with IID 1.
         self.add_service(info_service)
 
     def set_sentinel(self, run_sentinel):
@@ -379,18 +384,10 @@ class Bridge(Accessory):
             raise ValueError("Bridges cannot be bridged")
 
         if acc.aid is None:
-            acc.aid = next(aid for aid in itertools.count(2) if aid not in self.accessories)
+            acc.aid = next(aid for aid in itertools.count(2)
+                           if aid not in self.accessories)
         elif acc.aid == self.aid or acc.aid in self.accessories:
             raise ValueError("Duplicate AID found when attempting to add accessory")
-
-        acc_uuid = uuid.uuid4()
-        bridge_state_serv = self.get_service("BridgingState")
-        bridge_state_serv.get_characteristic("AccessoryIdentifier")\
-                         .set_value(str(acc_uuid), False)
-        bridge_state_serv.get_characteristic("Reachable")\
-                         .set_value(acc.reachable, False)
-        bridge_state_serv.get_characteristic("Category")\
-                         .set_value(acc.category, False)
 
         self.accessories[acc.aid] = acc
 

@@ -1,4 +1,18 @@
 [![PyPI version](https://badge.fury.io/py/HAP-python.svg)](https://badge.fury.io/py/HAP-python)
+# Breaking change: 1.1.1 to 1.1.2+
+Since version 1.1.2 you no longer need to unpickle the accessory to retain its state!
+Have a look at [main.py](main.py) to see the new, simpler workflow. (the state is also
+1/10 the size and is python and HAP-python forward-compatible)
+
+If you want to convert the pickle state to the new format, run the `pickle_to_state.py`
+script, passing your .pickle file and the name of the new state file, e.g.:
+```sh
+$ python3 pickle_to_state.py accessory.pickle accessory.state
+```
+After that, you can just change your code to pass the `.state` file
+as the `persist_file` to the driver. Alternatively, just delete the state and re-pair with the Home app.
+
+Aplogies for any inconvenience!
 # HAP-python
 
 HomeKit Accessory Protocol implementation in python 3 (tested with 3.4, 3.5 and 3.6).
@@ -13,7 +27,13 @@ you can open `main.py`, where you can find out how to launch a mock temperature 
 Just run `python3 main.py` and you should see it in the Home app (be sure to be in the same network).
 Stop it by hitting Ctrl+C.
 
-There are example accessories in [the accessories folder](pyhap/accessories) (e.g. AM2302 temperature and humidity sensor).
+There are example accessories in [the accessories folder](pyhap/accessories):
+
+- AM2302 (DHT22) temperature and humidity sensor.
+- SDS011 air particulate density sensor.
+- TSL2591 light sensor.
+
+It's very easy to add your own.
 
 ## Table of Contents
 1. [API](#API)
