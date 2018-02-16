@@ -25,7 +25,9 @@ setup(
         "tlslite-ng",
         "ed25519",
         "zeroconf",
-        "curve25519-donna"
+        "curve25519-donna",
+        "pyqrcode",
+        "base36"
     ],
     extras_require={
         "dev": [

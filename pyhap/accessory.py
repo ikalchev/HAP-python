@@ -2,6 +2,8 @@ import uuid
 import threading
 import logging
 import itertools
+import base36
+from pyqrcode import QRCode
 
 import ed25519
 
@@ -143,6 +145,7 @@ class Accessory(object):
         self.config_version = 2
         self.reachable = True
         self.pincode = pincode
+        self.setup_id = 'ABCD'
         self.broker = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
@@ -272,6 +275,30 @@ class Accessory(object):
     @property
     def paired(self):
         return len(self.paired_clients) > 0
+
+    @property
+    def xhm_uri(self):
+        """Generates the X-HM:// uri (Setup Code URI)
+        @rtype: str
+        """
+        bit_code = self.category << 31
+        bit_code = bit_code | 1 << 30  # Guessing, not sure what IP_WAC, BLE, and IP are
+        bit_code = bit_code | 1 << 28  # Guessing, not sure what IP_WAC, BLE, and IP are
+        bit_code = bit_code | int(self.pincode.replace(b'-', b''))
+        return 'X-HM://00' + base36.dumps(bit_code).upper() + self.setup_id
+
+    @property
+    def qr_code(self):
+        """Generates a pyqrcode object which can be used to store SVG, or print to
+        Linux terminal.
+        @rtype: QRCode
+        """
+        return QRCode(self.xhm_uri)
+
+    def print_qr(self):
+        """Prints the setup code in QR format to console.
+        """
+        print(self.qr_code.terminal(), flush=True)
 
     def get_characteristic(self, aid, iid):
         """Get's the characteristic for the given IID.
