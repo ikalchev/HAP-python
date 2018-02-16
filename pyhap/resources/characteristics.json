@@ -303,9 +303,9 @@
          "ev"
       ],
       "unit": "celsius",
-      "minValue": 0,
+      "minValue": -273.1,
       "minStep": 0.1,
-      "maxValue": 100
+      "maxValue": 1000
    },
    "CurrentTime": {
       "Format": "string",
