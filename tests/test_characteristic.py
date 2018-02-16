@@ -38,11 +38,9 @@ def test_default_valid_value():
 
 def test_set_value():
     char = get_char(PROPERTIES.copy())
-    char.broker = mock.Mock()
     new_value = 3
-    char.set_value(new_value, should_notify=True)
+    char.set_value(new_value)
     assert char.value == new_value
-    assert char.broker.publish.called
 
 def test_set_value_valid_values():
     valid_values = {"foo": 2, "bar": 3, }
@@ -71,3 +69,8 @@ def test_notify():
     char.notify()
     assert broker_mock.publish.called
     broker_mock.publish.assert_called_with(expected, char)
+
+def test_notify_except_no_broker():
+    char = get_char(PROPERTIES.copy())
+    with pytest.raises(characteristic.NotConfiguredError):
+        char.notify()

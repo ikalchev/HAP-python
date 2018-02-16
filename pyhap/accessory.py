@@ -319,12 +319,17 @@ class Accessory(object):
 
         Characteristics call this method to send updates.
 
+        @note: The method will not fail if the broker is not set - it will do nothing.
+
         @param data: Data to publish, usually from a Characteristic.
         @type data: dict
 
         @param sender: The Service or Characteristic from which the call originated.
         @type: Service or Characteristic
         """
+        if self.broker is None:
+            return
+
         acc_data = {
             "aid": self.aid,
             "iid": self.iid_manager.get_iid(sender),

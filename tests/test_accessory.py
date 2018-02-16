@@ -4,11 +4,19 @@ Tests for pyhap.accessory
 import pytest
 
 import pyhap.accessory as accessory
+import pyhap.loader as loader
 
 class TestAccessory(object):
 
     def test_init(self):
         acc = accessory.Accessory("Test Accessory")
+
+    def test_publish_no_broker(self):
+        acc = accessory.Accessory("Test Accessory")
+        service = loader.get_serv_loader().get("TemperatureSensor")
+        char = service.get_characteristic("CurrentTemperature")
+        acc.add_service(service)
+        char.set_value(25, should_notify=True)
 
 class TestBridge(TestAccessory):
 

@@ -56,6 +56,13 @@ class CharacteristicError(Exception):
     pass
 
 
+class NotConfiguredError(Exception):
+    """Raised when an operation is attempted on a characteristic that has not been
+    fully configured.
+    """
+    pass
+
+
 _HAP_NUMERIC_FIELDS = {"maxValue", "minValue", "minStep", "unit"}
 """Fields that should be included in the HAP representation of the characteristic.
 
@@ -125,7 +132,8 @@ class Characteristic(object):
         @type value: Depends on properties["Format"]
 
         @param should_notify: Whether a the change should be sent to subscribed clients.
-            The notification is called _after_ the setter callback.
+            The notification is called _after_ the setter callback. Notify will be
+            performed if and only if the broker is set, i.e. not None.
         @type should_notify: bool
 
         @raise ValueError: When the value being assigned is not one of the valid values
@@ -137,7 +145,7 @@ class Characteristic(object):
         self.value = value
         if self.setter_callback is not None:
             self.setter_callback(value)
-        if should_notify:
+        if should_notify and self.broker is not None:
             self.notify()
 
     def get_value(self):
@@ -166,7 +174,14 @@ class Characteristic(object):
         @note: Non-blocking, i.e. does not wait for the update to be sent.
         @note: Uses the `get_hap_value`, i.e. sends the HAP value.
         @see: accessory_driver.publish
+
+        @raise NotConfiguredError: When the broker is not set.
         """
+        if self.broker is None:
+            raise NotConfiguredError("Attempted to notify when `broker` is None. "
+                                     "Consider adding the characteristic to a "
+                                     "Service and then to an Accessory.")
+
         data = {
             "type_id": self.type_id,
             "value": self.get_hap_value(),
