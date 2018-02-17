@@ -1,4 +1,3 @@
-import uuid
 import threading
 import logging
 import itertools
@@ -114,7 +113,7 @@ class Accessory(object):
         return cls(display_name, aid=aid, mac=mac, pincode=pincode)
 
     def __init__(self, display_name, aid=None, mac=None, pincode=None,
-                 iid_manager=None):
+                 iid_manager=None, setup_id=None):
         """Initialise with the given properties.
 
         @param display_name: Name to be displayed in the Home app.
@@ -142,7 +141,8 @@ class Accessory(object):
         self.mac = mac
         self.config_version = 2
         self.reachable = True
-        self.pincode = pincode
+        self._pincode = pincode
+        self._setup_id = setup_id
         self.broker = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
@@ -161,6 +161,18 @@ class Accessory(object):
         state["broker"] = None
         state["run_sentinel"] = None
         return state
+
+    @property
+    def setup_id(self):
+        if not getattr(self, '_setup_id', None):
+            self._setup_id = util.generate_setup_id()
+        return self._setup_id
+
+    @property
+    def pincode(self):
+        if not getattr(self, '_pincode', None):
+            self._pincode = util.generate_pincode()
+        return self._pincode
 
     def _set_services(self):
         """Sets the services for this accessory.
@@ -181,7 +193,7 @@ class Accessory(object):
                     .set_value("Default-Model", False)
         info_service.get_characteristic("SerialNumber")\
                     .set_value("Default-SerialNumber", False)
-        #FIXME: Need to ensure AccessoryInformation is with IID 1.
+        # FIXME: Need to ensure AccessoryInformation is with IID 1.
         self.add_service(info_service)
 
     def set_sentinel(self, run_sentinel):
@@ -346,13 +358,13 @@ class Bridge(Accessory):
 
     category = Category.BRIDGE
 
-    def __init__(self, display_name, mac=None, pincode=None, iid_manager=None):
+    def __init__(self, display_name, mac=None, pincode=None, iid_manager=None, setup_id=None):
         aid = STANDALONE_AID
         # A Bridge cannot be Bridge, hence talks directly to HAP clients.
         # Thus, we need a mac.
         mac = mac or util.generate_mac()
         super(Bridge, self).__init__(display_name, aid=aid, mac=mac,
-                                     pincode=pincode, iid_manager=iid_manager)
+                                     pincode=pincode, iid_manager=iid_manager, setup_id=setup_id)
         self.accessories = {}  # aid: acc
 
     def _set_services(self):

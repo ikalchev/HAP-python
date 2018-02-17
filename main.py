@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 
 def get_bridge():
     """Call this method to get a Bridge instead of a standalone accessory."""
-    bridge = Bridge(display_name="Bridge", pincode=b"203-23-999")
+    bridge = Bridge(display_name="Bridge")
     temp_sensor = TemperatureSensor("Termometer")
     temp_sensor2 = TemperatureSensor("Termometer2")
     bridge.add_accessory(temp_sensor)
@@ -29,10 +29,11 @@ def get_bridge():
     # bridge.add_accessory(bulb)
     return bridge
 
+
 def get_accessory():
     """Call this method to get a standalone Accessory."""
-    acc = TemperatureSensor("MyTempSensor",
-                            pincode=b"203-23-999")
+    acc = TemperatureSensor("MyTempSensor")
+    print(acc.pincode)  # Until we get QR code merged.
     return acc
 
 
