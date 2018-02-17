@@ -412,7 +412,6 @@ class Bridge(Accessory):
 
     def __init__(self, display_name, mac=None, pincode=None,
                  iid_manager=None, setup_id=None):
-
         aid = STANDALONE_AID
         # A Bridge cannot be Bridge, hence talks directly to HAP clients.
         # Thus, we need a mac.
