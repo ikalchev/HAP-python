@@ -135,9 +135,9 @@ class Accessory(object):
         @type mac: str
 
         @param pincode: The pincode that HAP clients must prove they know in order
-            to pair with this `Accessory`. Defaults to None. Top-level Accessories
-            managed by an `AccessoryDriver` must have a pincode. The pincode has the
-            format "xxx-xx-xxx", where x is a digit.
+            to pair with this `Accessory`. Defaults to None, in which case a random
+            pincode is generated. The pincode has the format "xxx-xx-xxx", where x is
+            a digit.
         @type pincode: bytearray
 
         @param setup_id: Setup ID can be provided, although, per spec, should be random
@@ -319,14 +319,14 @@ class Accessory(object):
 
     @property
     def qr_code(self):
-        """Generates a QR code for paring with this accessory.
-        Linux terminal.
+        """Generate a QR code for paring with this accessory.
+
         @rtype: QRCode
         """
         return QRCode(self.xhm_uri)
 
     def print_qr(self):
-        """Prints the setup code in QR format to console.
+        """Print the setup code in QR format to console.
         """
         print(self.qr_code.terminal(), flush=True)
 

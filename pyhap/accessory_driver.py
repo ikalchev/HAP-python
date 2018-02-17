@@ -433,9 +433,11 @@ class AccessoryDriver(object):
     def start(self):
         """Starts the accessory.
 
+        - Call the accessory's run method.
+        - Start handling accessory events.
         - Start the HAP server.
         - Publish a mDNS advertisment.
-        - Call the accessory's run method.
+        - Print the setup QR code if the accessory is not paired.
 
         All of the above are started in separate threads. Accessory thread is set as
         daemon.
@@ -448,9 +450,6 @@ class AccessoryDriver(object):
         self.accessory.set_sentinel(self.run_sentinel)
         self.accessory_thread = threading.Thread(target=self.accessory.run)
         self.accessory_thread.start()
-
-        # Print accessory setup message
-        self.accessory.setup_message()
 
         # Start sending events to clients. This is done in a daemon thread, because:
         # - if the queue is blocked waiting on an empty queue, then there is nothing left
@@ -471,6 +470,10 @@ class AccessoryDriver(object):
                                                           self.address,
                                                           self.port)
         self.advertiser.register_service(self.mdns_service_info)
+
+        # Print accessory setup message
+        if not self.accessory.paired:
+            self.accessory.setup_message()
 
     def stop(self):
         """Stop the accessory.

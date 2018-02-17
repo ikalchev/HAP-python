@@ -33,7 +33,6 @@ def get_bridge():
 def get_accessory():
     """Call this method to get a standalone Accessory."""
     acc = TemperatureSensor("MyTempSensor")
-    print(acc.pincode)  # Until we get QR code merged.
     return acc
 
 
