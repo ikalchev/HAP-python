@@ -150,7 +150,6 @@ class Accessory(object):
         self.mac = mac
         self.config_version = 2
         self.reachable = True
-        self.pincode = pincode
         self._pincode = pincode
         self._setup_id = setup_id
         self.broker = None
