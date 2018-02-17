@@ -1,7 +1,13 @@
 import socket
-import os
+import random
 import binascii
 import sys
+
+
+ALPHANUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+HEX_DIGITS = '0123456789ABCDEF'
+
+rand = random.SystemRandom()
 
 
 def get_local_address():
@@ -30,7 +36,20 @@ def long_to_bytes(n):
 
 def generate_mac():
     return "{}{}:{}{}:{}{}:{}{}:{}{}:{}{}".format(
-               *str(binascii.hexlify(os.urandom(6)), "utf-8").upper())
+        *(rand.choice(HEX_DIGITS) for _ in range(12)))
+
+
+def generate_setup_id():
+    return ''.join([
+        rand.choice(ALPHANUM)
+        for i in range(4)
+    ])
+
+
+def generate_pincode():
+    return '{}{}{}-{}{}-{}{}{}'.format(
+        *(rand.randint(0, 9) for i in range(8))
+    ).encode('ascii')
 
 
 def b2hex(bts):
@@ -40,6 +59,7 @@ def b2hex(bts):
     @rtype: string
     """
     return binascii.hexlify(bts).decode("ascii")
+
 
 def hex2b(hex):
     """Produce bytes from the given hex string representation.

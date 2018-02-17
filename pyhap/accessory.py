@@ -1,4 +1,3 @@
-import uuid
 import threading
 import logging
 import itertools
@@ -152,7 +151,8 @@ class Accessory(object):
         self.config_version = 2
         self.reachable = True
         self.pincode = pincode
-        self.setup_id = setup_id or self._generate_setup_id()
+        self._pincode = pincode
+        self._setup_id = setup_id
         self.broker = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
@@ -172,14 +172,17 @@ class Accessory(object):
         state["run_sentinel"] = None
         return state
 
-    @staticmethod
-    def _generate_setup_id():
-        chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-        rand_bytes = urandom(8)
-        setup_id = ''
-        for x in range(4):
-            setup_id += chars[struct.unpack_from('i', rand_bytes, x)[0] % 36]
-        return setup_id
+    @property
+    def setup_id(self):
+        if not getattr(self, '_setup_id', None):
+            self._setup_id = util.generate_setup_id()
+        return self._setup_id
+
+    @property
+    def pincode(self):
+        if not getattr(self, '_pincode', None):
+            self._pincode = util.generate_pincode()
+        return self._pincode
 
     def _set_services(self):
         """Sets the services for this accessory.
@@ -200,7 +203,7 @@ class Accessory(object):
                     .set_value("Default-Model", False)
         info_service.get_characteristic("SerialNumber")\
                     .set_value("Default-SerialNumber", False)
-        #FIXME: Need to ensure AccessoryInformation is with IID 1.
+        # FIXME: Need to ensure AccessoryInformation is with IID 1.
         self.add_service(info_service)
 
     def set_sentinel(self, run_sentinel):
@@ -409,6 +412,7 @@ class Bridge(Accessory):
 
     def __init__(self, display_name, mac=None, pincode=None,
                  iid_manager=None, setup_id=None):
+
         aid = STANDALONE_AID
         # A Bridge cannot be Bridge, hence talks directly to HAP clients.
         # Thus, we need a mac.
