@@ -184,6 +184,14 @@ class Accessory(object):
         return self._pincode
 
     def get_accessory_information(self):
+        """Hook for supplying custom accessory information values.
+
+        This allows custom subclasses to configure the AccessoryInformation fields
+        in an easy manner.
+
+        @note: Subclasses should return valid values for `Manufacturer` and
+            `Model`, and `SerialNumber` if it is possible.
+        """
         return {}
 
     def _set_services(self):
@@ -206,19 +214,8 @@ class Accessory(object):
 
         info_service = get_serv_loader().get("AccessoryInformation")
         for name, value in info_data.items():
-            try:
-                info_service.get_characteristic(name).set_value(value, False)
-            except KeyError:
-                pass
+            info_service.get_characteristic(name).set_value(value)
 
-        # info_service.get_characteristic("Name")\
-        #             .set_value(self.display_name, False)
-        # info_service.get_characteristic("Manufacturer")\
-        #             .set_value("Default-Manufacturer", False)
-        # info_service.get_characteristic("Model")\
-        #             .set_value("Default-Model", False)
-        # info_service.get_characteristic("SerialNumber")\
-        #             .set_value("Default-SerialNumber", False)
         # FIXME: Need to ensure AccessoryInformation is with IID 1.
         self.add_service(info_service)
 
