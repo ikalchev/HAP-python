@@ -310,7 +310,7 @@ class Accessory(object):
         struct.pack_into('>L', buffer, 0, value_high)
 
         encoded_payload = base36.dumps(struct.unpack_from('>L', buffer, 4)[0]
-                                       + (struct.unpack_from('>L', buffer, 0)[0] * (2**32))).upper()
+                                       + (struct.unpack_from('>L', buffer, 0)[0] * (1 << 32))).upper()
         encoded_payload.rjust(9, '0')
 
         return 'X-HM://' + encoded_payload + self.setup_id
@@ -407,13 +407,15 @@ class Bridge(Accessory):
 
     category = Category.BRIDGE
 
-    def __init__(self, display_name, mac=None, pincode=None, iid_manager=None):
+    def __init__(self, display_name, mac=None, pincode=None,
+                 iid_manager=None, setup_id=None):
         aid = STANDALONE_AID
         # A Bridge cannot be Bridge, hence talks directly to HAP clients.
         # Thus, we need a mac.
         mac = mac or util.generate_mac()
         super(Bridge, self).__init__(display_name, aid=aid, mac=mac,
-                                     pincode=pincode, iid_manager=iid_manager)
+                                     pincode=pincode, iid_manager=iid_manager,
+                                     setup_id=setup_id)
         self.accessories = {}  # aid: acc
 
     def _set_services(self):
