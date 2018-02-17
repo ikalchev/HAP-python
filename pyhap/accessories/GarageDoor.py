@@ -24,6 +24,7 @@ class GarageDoor(Accessory):
     category = Category.GARAGE_DOOR_OPENER
 
     def __init__(self, *args, **kwargs):
+        gpio_pins = kwargs.pop('gpio_pins', {})
         super().__init__(*args, **kwargs)
 
         garage_door = self.get_service("GarageDoorOpener")
@@ -31,7 +32,7 @@ class GarageDoor(Accessory):
         self.target_state = garage_door.get_characteristic("TargetDoorState")
         self.target_state.setter_callback = self.set_target
 
-        self.setup_gpio(**kwargs)
+        self.setup_gpio(**gpio_pins)
 
     def _set_services(self):
         super()._set_services()
@@ -49,7 +50,7 @@ class GarageDoor(Accessory):
         """
         pass
 
-    def setup_gpio(self, **kwargs):
+    def setup_gpio(self, **pins):
         """
         Override the things that need to happen when the system starts up, and
         pins need configuring.
@@ -105,13 +106,13 @@ class TwoSwitchGarageDoor(GarageDoor):
         self.bottom_limit.when_pressed = self.door_is_closed
         self.bottom_limit.when_released = self.door_is_opening
 
-    def setup_gpio(self, **kwargs):
+    def setup_gpio(self, **pins):
         """
         """
         from gpiozero import Button, LED
-        self.relay = LED(kwargs.get('relay_pin'))  # 4
-        self.top_limit = Button(kwargs.get('top_limit_pin'))  # 2
-        self.bottom_limit = Button(kwargs.get('bottom_limit_pin'))  # 3
+        self.relay = LED(pins['relay'])  # 4
+        self.top_limit = Button(pins['top_limit'])
+        self.bottom_limit = Button(pins['bottom_limit'])
 
     def set_target(self, value):
         """
