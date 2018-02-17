@@ -1,8 +1,12 @@
 import threading
 import logging
 import itertools
+import struct
+from os import urandom
 
 import ed25519
+import base36
+from pyqrcode import QRCode
 
 import pyhap.util as util
 from pyhap.loader import get_serv_loader
@@ -135,6 +139,11 @@ class Accessory(object):
             managed by an `AccessoryDriver` must have a pincode. The pincode has the
             format "xxx-xx-xxx", where x is a digit.
         @type pincode: bytearray
+
+        @param setup_id: Setup ID can be provided, although, per spec, should be random
+            every time the instance is started. If not provided on init, will be random.
+            4 digit string 0-9 A-Z
+        @type setup_id: str
         """
         self.display_name = display_name
         self.aid = aid
@@ -285,6 +294,42 @@ class Accessory(object):
     def paired(self):
         return len(self.paired_clients) > 0
 
+    @property
+    def xhm_uri(self):
+        """Generates the X-HM:// uri (Setup Code URI)
+        @rtype: str
+        """
+        buffer = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00')
+
+        value_low = int(self.pincode.replace(b'-', b''), 10)
+        value_low |= 1 << 28
+        struct.pack_into('>L', buffer, 4, value_low)
+
+        if self.category == Category.OTHER:
+            buffer[4] = buffer[4] | 1 << 7
+
+        value_high = self.category >> 1
+        struct.pack_into('>L', buffer, 0, value_high)
+
+        encoded_payload = base36.dumps(struct.unpack_from('>L', buffer, 4)[0]
+                                       + (struct.unpack_from('>L', buffer, 0)[0] * (1 << 32))).upper()
+        encoded_payload.rjust(9, '0')
+
+        return 'X-HM://' + encoded_payload + self.setup_id
+
+    @property
+    def qr_code(self):
+        """Generates a QR code for paring with this accessory.
+        Linux terminal.
+        @rtype: QRCode
+        """
+        return QRCode(self.xhm_uri)
+
+    def print_qr(self):
+        """Prints the setup code in QR format to console.
+        """
+        print(self.qr_code.terminal(), flush=True)
+
     def get_characteristic(self, aid, iid):
         """Get's the characteristic for the given IID.
 
@@ -311,6 +356,12 @@ class Accessory(object):
         services_HAP = [s.to_HAP(iid_manager) for s in self.services]
         hap_rep = {"aid": self.aid, "services": services_HAP, }
         return hap_rep
+
+    def setup_message(self):
+        print('Setup payload: %s' % self.xhm_uri, flush=True)
+        print('Scan this code with your HomeKit app on your iOS device:', flush=True)
+        self.print_qr()
+        print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
 
     def run(self):
         """Called when the Accessory should start doing its thing.
@@ -358,13 +409,15 @@ class Bridge(Accessory):
 
     category = Category.BRIDGE
 
-    def __init__(self, display_name, mac=None, pincode=None, iid_manager=None, setup_id=None):
+    def __init__(self, display_name, mac=None, pincode=None,
+                 iid_manager=None, setup_id=None):
         aid = STANDALONE_AID
         # A Bridge cannot be Bridge, hence talks directly to HAP clients.
         # Thus, we need a mac.
         mac = mac or util.generate_mac()
         super(Bridge, self).__init__(display_name, aid=aid, mac=mac,
-                                     pincode=pincode, iid_manager=iid_manager, setup_id=setup_id)
+                                     pincode=pincode, iid_manager=iid_manager,
+                                     setup_id=setup_id)
         self.accessories = {}  # aid: acc
 
     def _set_services(self):
