@@ -3,11 +3,11 @@ import threading
 import logging
 import itertools
 import struct
-import base36
-from pyqrcode import QRCode
 from os import urandom
 
 import ed25519
+import base36
+from pyqrcode import QRCode
 
 import pyhap.util as util
 from pyhap.loader import get_serv_loader
@@ -140,6 +140,11 @@ class Accessory(object):
             managed by an `AccessoryDriver` must have a pincode. The pincode has the
             format "xxx-xx-xxx", where x is a digit.
         @type pincode: bytearray
+
+        @param setup_id: Setup ID can be provided, although, per spec, should be random
+            every time the instance is started. If not provided on init, will be random.
+            4 digit string 0-9 A-Z
+        @type setup_id: str
         """
         self.display_name = display_name
         self.aid = aid
@@ -147,10 +152,7 @@ class Accessory(object):
         self.config_version = 2
         self.reachable = True
         self.pincode = pincode
-        if setup_id is None:
-            self.setup_id = self._generate_setup_id()
-        else:
-            self.setup_id = setup_id
+        self.setup_id = setup_id or self._generate_setup_id()
         self.broker = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
@@ -176,7 +178,7 @@ class Accessory(object):
         rand_bytes = urandom(8)
         setup_id = ''
         for x in range(4):
-            setup_id += chars[struct.unpack_from('i', rand_bytes, x)[0] % 26]
+            setup_id += chars[struct.unpack_from('i', rand_bytes, x)[0] % 36]
         return setup_id
 
     def _set_services(self):
@@ -301,7 +303,7 @@ class Accessory(object):
         value_low |= 1 << 28
         struct.pack_into('>L', buffer, 4, value_low)
 
-        if self.category & 1:
+        if self.category == Category.OTHER:
             buffer[4] = buffer[4] | 1 << 7
 
         value_high = self.category >> 1
@@ -309,14 +311,13 @@ class Accessory(object):
 
         encoded_payload = base36.dumps(struct.unpack_from('>L', buffer, 4)[0]
                                        + (struct.unpack_from('>L', buffer, 0)[0] * (2**32))).upper()
-        while len(encoded_payload) < 9:
-            encoded_payload = '0' + encoded_payload
+        encoded_payload.rjust(9, '0')
 
         return 'X-HM://' + encoded_payload + self.setup_id
 
     @property
     def qr_code(self):
-        """Generates a pyqrcode object which can be used to store SVG, or print to
+        """Generates a QR code for paring with this accessory.
         Linux terminal.
         @rtype: QRCode
         """
@@ -353,6 +354,12 @@ class Accessory(object):
         services_HAP = [s.to_HAP(iid_manager) for s in self.services]
         hap_rep = {"aid": self.aid, "services": services_HAP, }
         return hap_rep
+
+    def setup_message(self):
+        print('Setup payload: %s' % self.xhm_uri, flush=True)
+        print('Scan this code with your HomeKit app on your iOS device:', flush=True)
+        self.print_qr()
+        print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
 
     def run(self):
         """Called when the Accessory should start doing its thing.

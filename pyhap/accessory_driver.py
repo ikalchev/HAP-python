@@ -64,7 +64,6 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
              adv_data,
              pubname)
 
-    @property
     def _setup_hash(self):
         setup_hash_material = self.accessory.setup_id + self.accessory.mac
         temp_hash = hashlib.sha512()
@@ -86,7 +85,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
             "ci": str(self.accessory.category),
             # "sf == 1" means "discoverable by HomeKit iOS clients"
             "sf": "0" if self.accessory.paired else "1",
-            "sh": self._setup_hash
+            "sh": self._setup_hash()
         }
 
         return adv_data
@@ -449,6 +448,9 @@ class AccessoryDriver(object):
         self.accessory.set_sentinel(self.run_sentinel)
         self.accessory_thread = threading.Thread(target=self.accessory.run)
         self.accessory_thread.start()
+
+        # Print accessory setup message
+        self.accessory.setup_message()
 
         # Start sending events to clients. This is done in a daemon thread, because:
         # - if the queue is blocked waiting on an empty queue, then there is nothing left
