@@ -68,7 +68,7 @@ class GarageDoor(Accessory):
         self.current_state.set_value(OPENING)
         self.target_state.value = OPEN
         self.target_state.notify()
-        self.start_stopped_timer()
+        # self.start_stopped_timer()
 
     def door_is_closed(self):
         logger.info("Closed")
@@ -81,7 +81,7 @@ class GarageDoor(Accessory):
         self.current_state.set_value(CLOSING)
         self.target_state.value = CLOSED
         self.target_state.notify()
-        self.start_stopped_timer()
+        # self.start_stopped_timer()
 
 
 class TwoSwitchGarageDoor(GarageDoor):
@@ -105,6 +105,11 @@ class TwoSwitchGarageDoor(GarageDoor):
         self.top_limit.when_released = self.door_is_closing
         self.bottom_limit.when_pressed = self.door_is_closed
         self.bottom_limit.when_released = self.door_is_opening
+
+        if self.top_limit.is_pressed:
+            self.door_is_open()
+        elif self.bottom_limit.is_pressed:
+            self.door_is_closed()
 
     def setup_gpio(self, **pins):
         """

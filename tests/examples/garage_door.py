@@ -17,8 +17,8 @@ logging.basicConfig(level=logging.INFO)
 def get_accessory():
     """Call this method to get a standalone Accessory."""
     acc = TwoSwitchGarageDoor("GarageDoor", gpio_pins={
-        'relay': 4,
-        'top_limit': 2,
+        'relay': 17,
+        'top_limit': 4,
         'bottom_limit': 3,
     })
     return acc
