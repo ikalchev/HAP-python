@@ -1,11 +1,9 @@
 import socket
-import os
 import random
 import binascii
 import sys
 
 
-DIGITS = '0123456789'
 ALPHANUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 HEX_DIGITS = '0123456789ABCDEF'
 
@@ -38,8 +36,7 @@ def long_to_bytes(n):
 
 def generate_mac():
     return "{}{}:{}{}:{}{}:{}{}:{}{}:{}{}".format(
-        *str(binascii.hexlify(os.urandom(6)), "utf-8").upper())
-        # *(rand.choice(HEX_DIGITS) for _ in range(12)))
+        *(rand.choice(HEX_DIGITS) for _ in range(12)))
 
 
 def generate_setup_id():
