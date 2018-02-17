@@ -282,7 +282,7 @@ class Accessory(object):
         """Generates the X-HM:// uri (Setup Code URI)
         @rtype: str
         """
-        buffer = bytearray('\x00\x00\x00\x00\x00\x00\x00\x00')
+        buffer = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00')
 
         value_low = int(self.pincode.replace(b'-', b''), 10)
         value_low |= 1 << 28
