@@ -23,7 +23,7 @@ class DoorSwitch(object):
 
         @param bounce_time: amount of time (in milliseconds) to delay before another
         callback event is valid after a valid event is called.
-        @type bounce_time: integer
+        @type bounce_time: int
 
         @param edge: GPIO edge to detect.
         @type edge: GPIO.RISING, GPIO.FALLING, or GPIO.BOTH
@@ -139,7 +139,7 @@ class GarageDoor(Accessory):
     def door_state_changed(self):
         """This is the method to override to handle switch callback logic, for instance, hooking to a REST API
         Generally, in a one door switch setup, you would only use this to set Open and Closed states.
-        It is best advised to call super after your logic.
+        It is best advised to call super before your logic, so you read the state after the bounce time.
         """
         time.sleep(self.switch.bounce_time * 0.001)  # Read switch after bounce time elapses.
         state = self.switch.state  # Read state once from GPIO
