@@ -313,7 +313,7 @@ class Accessory(object):
 
         encoded_payload = base36.dumps(struct.unpack_from('>L', buffer, 4)[0]
                                        + (struct.unpack_from('>L', buffer, 0)[0] * (1 << 32))).upper()
-        encoded_payload.rjust(9, '0')
+        encoded_payload = encoded_payload.rjust(9, '0')
 
         return 'X-HM://' + encoded_payload + self.setup_id
 
