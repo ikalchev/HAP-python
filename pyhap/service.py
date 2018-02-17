@@ -56,7 +56,8 @@ class Service(object):
         if char is None and check_optional:
             char = next((c for c in self.opt_characteristics if c.display_name == name),
                         None)
-        assert char is not None
+        if char is None:
+            raise KeyError(name)
         return char
 
     def to_HAP(self, iid_manager=None):

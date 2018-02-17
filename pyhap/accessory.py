@@ -183,6 +183,9 @@ class Accessory(object):
             self._pincode = util.generate_pincode()
         return self._pincode
 
+    def get_accessory_information(self):
+        return {}
+
     def _set_services(self):
         """Sets the services for this accessory.
 
@@ -193,15 +196,29 @@ class Accessory(object):
             always call the base implementation first, as it reserves IID of
             1 for the Accessory Information service (HAP requirement).
         """
+        info_data = {
+            'Name': self.display_name,
+            'Manufacturer': 'Default Manufacturer',
+            'Model': 'Default Model',
+            'SerialNumber': 'Default SerialNumber'
+        }
+        info_data.update(**self.get_accessory_information())
+
         info_service = get_serv_loader().get("AccessoryInformation")
-        info_service.get_characteristic("Name")\
-                    .set_value(self.display_name, False)
-        info_service.get_characteristic("Manufacturer")\
-                    .set_value("Default-Manufacturer", False)
-        info_service.get_characteristic("Model")\
-                    .set_value("Default-Model", False)
-        info_service.get_characteristic("SerialNumber")\
-                    .set_value("Default-SerialNumber", False)
+        for name, value in info_data.items():
+            try:
+                info_service.get_characteristic(name).set_value(value, False)
+            except KeyError:
+                pass
+
+        # info_service.get_characteristic("Name")\
+        #             .set_value(self.display_name, False)
+        # info_service.get_characteristic("Manufacturer")\
+        #             .set_value("Default-Manufacturer", False)
+        # info_service.get_characteristic("Model")\
+        #             .set_value("Default-Model", False)
+        # info_service.get_characteristic("SerialNumber")\
+        #             .set_value("Default-SerialNumber", False)
         # FIXME: Need to ensure AccessoryInformation is with IID 1.
         self.add_service(info_service)
 
