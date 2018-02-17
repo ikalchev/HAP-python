@@ -306,8 +306,8 @@ class Accessory(object):
         value_high = self.category >> 1
         struct.pack_into('>L', buffer, 0, value_high)
 
-        encoded_payload = base36.dumps(struct.unpack_from('>L', buffer, 4)
-                                       + (struct.unpack_from('>L', buffer, 0) * (2**32))).upper()
+        encoded_payload = base36.dumps(struct.unpack_from('>L', buffer, 4)[0]
+                                       + (struct.unpack_from('>L', buffer, 0)[0] * (2**32))).upper()
         while len(encoded_payload) < 9:
             encoded_payload = '0' + encoded_payload
 
