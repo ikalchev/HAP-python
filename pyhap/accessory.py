@@ -2,6 +2,7 @@ import uuid
 import threading
 import logging
 import itertools
+import struct
 import base36
 from pyqrcode import QRCode
 
@@ -281,11 +282,24 @@ class Accessory(object):
         """Generates the X-HM:// uri (Setup Code URI)
         @rtype: str
         """
-        bit_code = self.category << 31
-        bit_code = bit_code | 1 << 30  # Guessing, not sure what IP_WAC, BLE, and IP are
-        bit_code = bit_code | 1 << 28  # Guessing, not sure what IP_WAC, BLE, and IP are
-        bit_code = bit_code | int(self.pincode.replace(b'-', b''))
-        return 'X-HM://00' + base36.dumps(bit_code).upper() + self.setup_id
+        buffer = bytearray('\x00\x00\x00\x00\x00\x00\x00\x00')
+
+        value_low = int(self.pincode.replace(b'-', b''), 10)
+        value_low |= 1 << 28
+        struct.pack_into('>L', buffer, 4, value_low)
+
+        if self.category & 1:
+            buffer[4] = buffer[4] | 1 << 7
+
+        value_high = self.category >> 1
+        struct.pack_into('>L', buffer, 0, value_high)
+
+        encoded_payload = base36.dumps(struct.unpack_from('>L', buffer, 4)
+                                       + (struct.unpack_from('>L', buffer, 0) * (2**32))).upper()
+        while len(encoded_payload) < 9:
+            encoded_payload = '0' + encoded_payload
+
+        return 'X-HM://' + encoded_payload + self.setup_id
 
     @property
     def qr_code(self):
