@@ -25,6 +25,7 @@ import os
 import logging
 import socket
 import hashlib
+import base64
 import time
 import threading
 import json
@@ -63,6 +64,13 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
              adv_data,
              pubname)
 
+    @property
+    def _setup_hash(self):
+        setup_hash_material = self.accessory.setup_id + self.accessory.mac
+        temp_hash = hashlib.sha512()
+        temp_hash.update(setup_hash_material.encode())
+        return base64.b64encode(temp_hash.digest()[:4])
+
     def _get_advert_data(self):
         """Generate advertisment data from the accessory."""
         adv_data = {
@@ -77,7 +85,8 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
             "ff": "0",
             "ci": str(self.accessory.category),
             # "sf == 1" means "discoverable by HomeKit iOS clients"
-            "sf": "0" if self.accessory.paired else "1"
+            "sf": "0" if self.accessory.paired else "1",
+            "sh": self._setup_hash
         }
 
         return adv_data

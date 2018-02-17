@@ -5,6 +5,7 @@ import itertools
 import struct
 import base36
 from pyqrcode import QRCode
+from os import urandom
 
 import ed25519
 
@@ -117,7 +118,7 @@ class Accessory(object):
         return cls(display_name, aid=aid, mac=mac, pincode=pincode)
 
     def __init__(self, display_name, aid=None, mac=None, pincode=None,
-                 iid_manager=None):
+                 iid_manager=None, setup_id=None):
         """Initialise with the given properties.
 
         @param display_name: Name to be displayed in the Home app.
@@ -146,7 +147,10 @@ class Accessory(object):
         self.config_version = 2
         self.reachable = True
         self.pincode = pincode
-        self.setup_id = 'ABCD'
+        if setup_id is None:
+            self.setup_id = self._generate_setup_id()
+        else:
+            self.setup_id = setup_id
         self.broker = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
@@ -165,6 +169,14 @@ class Accessory(object):
         state["broker"] = None
         state["run_sentinel"] = None
         return state
+
+    def _generate_setup_id(self):
+        chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        rand_bytes = urandom(4)
+        setup_id = ''
+        for x in range(0,4):
+            setup_id += chars[struct.unpack_from('i', rand_bytes, x)[0] % 26]
+        return setup_id
 
     def _set_services(self):
         """Sets the services for this accessory.
