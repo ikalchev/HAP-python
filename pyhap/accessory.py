@@ -170,11 +170,12 @@ class Accessory(object):
         state["run_sentinel"] = None
         return state
 
-    def _generate_setup_id(self):
+    @staticmethod
+    def _generate_setup_id():
         chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-        rand_bytes = urandom(4)
+        rand_bytes = urandom(8)
         setup_id = ''
-        for x in range(0,4):
+        for x in range(4):
             setup_id += chars[struct.unpack_from('i', rand_bytes, x)[0] % 26]
         return setup_id
 
