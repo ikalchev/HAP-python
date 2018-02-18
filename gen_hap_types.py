@@ -3,7 +3,7 @@ import plistlib
 import json
 
 # This path could be different.
-HOMEKIT_TYPES_PLIST = "/Users/ivankalchev/Dev/HomeKit Accessory Simulator.app/Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"
+HOMEKIT_TYPES_PLIST = "/Applications/Xcode.app/Contents/Applications/HomeKit Accessory Simulator.app/Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"
 CHAR_OUT_FILE = "./pyhap/resources/characteristics.json"
 SERVICE_OUT_FILE = "./pyhap/resources/services.json"
 
