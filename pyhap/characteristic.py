@@ -125,7 +125,7 @@ class Characteristic(object):
                         for k in self.properties.keys() & _HAP_NUMERIC_FIELDS}
         return template
 
-    def set_value(self, value, should_notify=True):
+    def set_value(self, value, should_notify=True, should_callback=True):
         """Set the given raw value. It is checked if it is a valid value.
 
         @param value: The value to assign as this Characteristic's value.
@@ -136,6 +136,12 @@ class Characteristic(object):
             performed if and only if the broker is set, i.e. not None.
         @type should_notify: bool
 
+        @param should_callback: Whether to invoke the callback, if such is set. This
+            is useful in cases where you and HAP clients can both update the value and
+            you don't want your callback called when you set the value, but want it
+            called when clients do. Defaults to True.
+        @type should_callback: bool
+
         @raise ValueError: When the value being assigned is not one of the valid values
             for this Characteristic.
         """
@@ -143,7 +149,7 @@ class Characteristic(object):
                 and value not in self.properties["ValidValues"].values()):
             raise ValueError
         self.value = value
-        if self.setter_callback is not None:
+        if self.setter_callback is not None and should_callback:
             self.setter_callback(value)
         if should_notify and self.broker is not None:
             self.notify()
