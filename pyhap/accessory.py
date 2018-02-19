@@ -453,7 +453,7 @@ class Bridge(Accessory):
         :param acc: The ``Accessory`` to be bridged.
         :type acc: Accessory
 
-        :raise: ValueError: When the given ``Accessory`` is of category ``Category.BRIDGE``
+        :raise ValueError: When the given ``Accessory`` is of category ``Category.BRIDGE``
             or if the AID of the ``Accessory`` clashes with another ``Accessory`` already in this
             ``Bridge``.
         """

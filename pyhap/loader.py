@@ -27,15 +27,15 @@ class TypeLoader(object):
     def __init__(self, fp):
         """Initialise with the type descriptions in the given file.
 
-        @param fp: File-like object to read from.
-        @type fp: input stream
+        :param fp: File-like object to read from.
+        :type fp: input stream
         """
         self.types = json.load(fp)
 
     def get(self, name):
         """Get type description with the given name.
 
-        @rtype: dict
+        :rtype: dict
         """
         return self.types[name].copy()
 
@@ -43,18 +43,18 @@ class TypeLoader(object):
 class CharLoader(TypeLoader):
     """Creates Characteristic objects based on a description.
 
-    @see: pyhap/resources/characteristics.json
+    .. seealso:: pyhap/resources/characteristics.json
     """
 
     def __init__(self, fp, char_class=Characteristic):
         """Initialise to look into the given file for characteristics.
 
-        @param fp: File-like object to read from.
-        @type fp: input stream
+        :param fp: File-like object to read from.
+        :type fp: input stream
 
-        @param char_class: The class which to instantiate when creating Characteristics.
+        :param char_class: The class which to instantiate when creating Characteristics.
             Defaults to `Characteristic`.
-        @type char_class: type
+        :type char_class: type
         """
         super(CharLoader, self).__init__(fp)
         self.char_class = char_class
@@ -67,17 +67,17 @@ class CharLoader(TypeLoader):
         If successful, uses the description to instantiate `char_class` or, if not given,
         `self.char_class`.
 
-        @param name: Name of the characteristic to look for.
-        @type name: str
+        :param name: Name of the characteristic to look for.
+        :type name: str
 
-        @param char_class: The class which to instantiate when creating `Characteristics`.
+        :param char_class: The class which to instantiate when creating `Characteristics`.
             Defaults to `None`, in which case `self.char_class`.
-        @type char_class: type
+        :type char_class: type
 
-        @return: Instantiated Characteristic.
-        @rtype: char_class or self.char_class
+        :return: Instantiated Characteristic.
+        :rtype: char_class or self.char_class
 
-        @raise: KeyError when no characteristic description can be found with the
+        :raise: KeyError when no characteristic description can be found with the
             given name.
         """
         char_info = super(CharLoader, self).get(name)
@@ -91,22 +91,22 @@ class CharLoader(TypeLoader):
 class ServiceLoader(TypeLoader):
     """Creates Service objects based on a description.
 
-    @see: pyhap/resources/services.json
+    .. seealso:: pyhap/resources/services.json
     """
 
     def __init__(self, fp, char_loader=None, service_class=Service):
         """Initialise to look into the given file for services.
 
-        @param fp: File-like object to read from.
-        @type fp: input stream
+        :param fp: File-like object to read from.
+        :type fp: input stream
 
-        @param char_loader: `TypeLoader` object to use when creating the
+        :param char_loader: `TypeLoader` object to use when creating the
             characteristics for adding to instantiated services.
-        @type char_loader: TypeLoader
+        :type char_loader: TypeLoader
 
-        @param service_class: The class which to instantiate when creating services.
+        :param service_class: The class which to instantiate when creating services.
             Defaults to `Service`.
-        @type char_class: type
+        :type char_class: type
         """
         super(ServiceLoader, self).__init__(fp)
         self.char_loader = char_loader or get_char_loader()
@@ -121,17 +121,17 @@ class ServiceLoader(TypeLoader):
         `self.service_class`. It then adds all required characteristics to the service, as
         specified in the description for this `Service`.
 
-        @param name: Name of the service to look for.
-        @type name: str
+        :param name: Name of the service to look for.
+        :type name: str
 
-        @param char_class: The class which to instantiate when creating `Service`.
+        :param char_class: The class which to instantiate when creating `Service`.
             Defaults to `None`, in which case `self.service_class`.
-        @type char_class: type
+        :type char_class: type
 
-        @return: Instantiated Service.
-        @rtype: service_class or self.service_class
+        :return: Instantiated Service.
+        :rtype: service_class or self.service_class
 
-        @raise: KeyError when no service description can be found with the
+        :raise KeyError: when no service description can be found with the
             given name.
         """
         serv_info = super(ServiceLoader, self).get(name)
