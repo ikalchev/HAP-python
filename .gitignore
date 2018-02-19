@@ -5,7 +5,6 @@
 env
 env*
 dist
-build
 *.egg
 *.egg-info
 _mailinglist
