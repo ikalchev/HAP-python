@@ -146,7 +146,7 @@ class AccessoryDriver(object):
         self.http_server_thread = None
         self.advertiser = Zeroconf()
         self.port = port
-        self.persist_file = persist_file
+        self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         if os.path.exists(self.persist_file):
             logger.info("Loading Accessory state from `%s`", self.persist_file)
