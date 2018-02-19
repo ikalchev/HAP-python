@@ -1,4 +1,4 @@
-.. _intro-install
+.. _intro-install:
 
 ==================
 Installation Guide
