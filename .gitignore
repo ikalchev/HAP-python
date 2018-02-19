@@ -17,6 +17,8 @@ __pycache__
 venv/
 docs/build/doctrees
 docs/build/html
+.coverage
+.coverage.*
 
 # HAP-python-generated files
 accessory.pickle
