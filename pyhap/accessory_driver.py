@@ -126,9 +126,10 @@ class AccessoryDriver(object):
             driver will try to select an address.
         :type address: str
 
-        :param persist_file: The file name in which the state of the accessory
-            will be persisted.
-        :type persist_file: str
+        @param persist_file: The file name in which the state of the accessory
+            will be persisted. This uses `expandvars`, so may contain `~` to
+            refer to the user's home directory.
+        @type persist_file: str
 
         :param encoder: The encoder to use when persisting/loading the Accessory state.
         :type encoder: AccessoryEncoder
@@ -145,7 +146,7 @@ class AccessoryDriver(object):
         self.http_server_thread = None
         self.advertiser = Zeroconf()
         self.port = port
-        self.persist_file = persist_file
+        self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         if os.path.exists(self.persist_file):
             logger.info("Loading Accessory state from `%s`", self.persist_file)
