@@ -56,8 +56,8 @@ class IIDManager(object):
 
         If the object already has an assigned ID, log a warning and do nothing.
 
-        @param obj: The object that will be assigned an IID.
-        @type obj: Service or Characteristic
+        :param obj: The object that will be assigned an IID.
+        :type obj: Service or Characteristic
         """
         if obj in self.reverse_iids:
             logger.warning("The given Service or Characteristic with UUID %s "
@@ -86,16 +86,16 @@ class IIDManager(object):
     def get_iid(self, obj):
         """Get the IID assigned to the given object.
 
-        @return: IID assigned to the given object or None if the object is not found.
-        @rtype: int
+        :return: IID assigned to the given object or None if the object is not found.
+        :rtype: int
         """
         return self.reverse_iids.get(obj)
 
     def get_obj(self, iid):
         """Get the object that is assigned the given IID.
 
-        @return: The object with the given IID or None if no object has that IID.
-        @rtype: Service or Characteristic
+        :return: The object with the given IID or None if no object has that IID.
+        :rtype: Service or Characteristic
         """
         return self.iids.get(iid)
 
@@ -120,30 +120,30 @@ class Accessory(object):
                  iid_manager=None, setup_id=None):
         """Initialise with the given properties.
 
-        @param display_name: Name to be displayed in the Home app.
-        @type display_name: str
+        :param display_name: Name to be displayed in the Home app.
+        :type display_name: str
 
-        @param aid: The accessory ID, uniquely identifying this accessory.
+        :param aid: The accessory ID, uniquely identifying this accessory.
             `Accessories` that advertised on the network must have the
             standalone AID. Defaults to None, in which case the `AccessoryDriver`
             will assign the standalone AID to this `Accessory`.
-        @type aid: int
+        :type aid: int
 
-        @param mac: The MAC address of this `Accessory`, needed by HAP clients.
+        :param mac: The MAC address of this `Accessory`, needed by HAP clients.
             Defaults to None, in which case the `AccessoryDriver`
             will assign a random MAC address to this `Accessory`.
-        @type mac: str
+        :type mac: str
 
-        @param pincode: The pincode that HAP clients must prove they know in order
+        :param pincode: The pincode that HAP clients must prove they know in order
             to pair with this `Accessory`. Defaults to None, in which case a random
             pincode is generated. The pincode has the format "xxx-xx-xxx", where x is
             a digit.
-        @type pincode: bytearray
+        :type pincode: bytearray
 
-        @param setup_id: Setup ID can be provided, although, per spec, should be random
+        :param setup_id: Setup ID can be provided, although, per spec, should be random
             every time the instance is started. If not provided on init, will be random.
             4 digit string 0-9 A-Z
-        @type setup_id: str
+        :type setup_id: str
         """
         self.display_name = display_name
         self.aid = aid
@@ -189,7 +189,7 @@ class Accessory(object):
         The default implementation adds only the AccessoryInformation services
         and sets its Name characteristic to the Accessory's display name.
 
-        @note: When inheriting from Accessory and overriding this method,
+        .. note:: When inheriting from Accessory and overriding this method,
             always call the base implementation first, as it reserves IID of
             1 for the Accessory Information service (HAP requirement).
         """
@@ -228,9 +228,10 @@ class Accessory(object):
         This method also notifies the broker about the change, so that it can
         publish the changes to the world.
 
-        @note: If you are changing the configuration of a bridged accessory
-        (i.e. an Accessory that is contained in a Bridge),
-        you should call the `config_changed` method on the Bridge.
+        .. note:: If you are changing the configuration of a bridged accessory
+           (i.e. an Accessory that is contained in a Bridge),
+           you should call the `config_changed` method on the Bridge.
+
         """
         self.config_version += 1
         self.broker.config_changed()
@@ -240,11 +241,11 @@ class Accessory(object):
 
         This also assigns unique IIDS to the services and their Characteristics.
 
-        @note: Do not add or remove characteristics from services that have been added
+        .. note:: Do not add or remove characteristics from services that have been added
             to an Accessory, as this will lead to inconsistent IIDs.
 
-        @param servs: Variable number of services to add to this Accessory.
-        @type: Service
+        :param servs: Variable number of services to add to this Accessory.
+        :type: Service
         """
         for s in servs:
             self.services.append(s)
@@ -259,12 +260,12 @@ class Accessory(object):
         A single Service is returned even if more than one Service with the same name
         are present.
 
-        @param name: The display_name of the Service to search for.
-        @type name: str
+        :param name: The display_name of the Service to search for.
+        :type name: str
 
-        @return: A Service with the given name or None if no such service exists in this
+        :return: A Service with the given name or None if no such service exists in this
             Accessory.
-        @rtype: Service
+        :rtype: Service
         """
         return next((s for s in self.services if s.display_name == name), None)
 
@@ -274,19 +275,19 @@ class Accessory(object):
     def add_paired_client(self, client_uuid, client_public):
         """Adds the given client to the set of paired clients.
 
-        @param client_uuid: The client's UUID.
-        @type client_uuid: uuid.UUID
+        :param client_uuid: The client's UUID.
+        :type client_uuid: uuid.UUID
 
-        @param client_public: The client's public key (not the session public key).
-        @type client_public: bytes
+        :param client_public: The client's public key (not the session public key).
+        :type client_public: bytes
         """
         self.paired_clients[client_uuid] = client_public
 
     def remove_paired_client(self, client_uuid):
         """Deletes the given client from the set of paired clients.
 
-        @param client_uuid: The client's UUID.
-        @type client_uuid: uuid.UUID
+        :param client_uuid: The client's UUID.
+        :type client_uuid: uuid.UUID
         """
         self.paired_clients.pop(client_uuid)
 
@@ -297,7 +298,8 @@ class Accessory(object):
     @property
     def xhm_uri(self):
         """Generates the X-HM:// uri (Setup Code URI)
-        @rtype: str
+
+        :rtype: str
         """
         buffer = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00')
 
@@ -321,7 +323,7 @@ class Accessory(object):
     def qr_code(self):
         """Generate a QR code for paring with this accessory.
 
-        @rtype: QRCode
+        :rtype: QRCode
         """
         return QRCode(self.xhm_uri)
 
@@ -343,14 +345,19 @@ class Accessory(object):
     def to_HAP(self, iid_manager=None):
         """A HAP representation of this Accessory.
 
-        @return: A HAP representation of this accessory. For example:
-         { "aid": 1,
-           "services": [{
-               "iid" 2,
-               "type": ...,
-               ...
-          }]}
-        @rtype: dict
+        :return: A HAP representation of this accessory. For example:
+
+        .. code-block:: python
+
+           { "aid": 1,
+               "services": [{
+                   "iid" 2,
+                   "type": ...,
+                   ...
+               }]
+           }
+
+        :rtype: dict
         """
         iid_manager = iid_manager or self.iid_manager
         services_HAP = [s.to_HAP(iid_manager) for s in self.services]
@@ -382,13 +389,13 @@ class Accessory(object):
 
         Characteristics call this method to send updates.
 
-        @note: The method will not fail if the broker is not set - it will do nothing.
+        .. note:: The method will not fail if the broker is not set - it will do nothing.
 
-        @param data: Data to publish, usually from a Characteristic.
-        @type data: dict
+        :param data: Data to publish, usually from a Characteristic.
+        :type data: dict
 
-        @param sender: The Service or Characteristic from which the call originated.
-        @type: Service or Characteristic
+        :param sender: The Service or Characteristic from which the call originated.
+        :type: Service or Characteristic
         """
         if self.broker is None:
             return
@@ -433,22 +440,22 @@ class Bridge(Accessory):
             acc.set_sentinel(run_sentinel)
 
     def add_accessory(self, acc):
-        """Add the given `Accessory` to this `Bridge`.
+        """Add the given ``Accessory`` to this ``Bridge``.
 
-        Every `Accessory` in a `Bridge` must have an AID and this AID must be
-        unique among all the `Accessories` in the same `Bridge`. If the given
-        `Accessory`'s AID is None, a unique AID will be assigned to it. Otherwise,
-        it will be verified that the AID is not the standalone aid (`STANDALONE_AID`)
-        and that there is no other `Accessory` already in this `Bridge` with that AID.
+        Every ``Accessory`` in a ``Bridge`` must have an AID and this AID must be
+        unique among all the ``Accessories`` in the same `Bridge`. If the given
+        ``Accessory``'s AID is None, a unique AID will be assigned to it. Otherwise,
+        it will be verified that the AID is not the standalone aid (``STANDALONE_AID``)
+        and that there is no other ``Accessory`` already in this ``Bridge`` with that AID.
 
-        Note that a `Bridge` cannot be added to another `Bridge`.
+        .. note:: A ``Bridge`` cannot be added to another ``Bridge``.
 
-        @param acc: The `Accessory` to be bridged.
-        @type acc: Accessory
+        :param acc: The ``Accessory`` to be bridged.
+        :type acc: Accessory
 
-        @raise ValueError: When the given `Accessory` is of category `Category.BRIDGE`
-            or if the AID of the `Accessory` clashes with another `Accessory` already in this
-            `Bridge`.
+        :raise: ValueError: When the given ``Accessory`` is of category ``Category.BRIDGE``
+            or if the AID of the ``Accessory`` clashes with another ``Accessory`` already in this
+            ``Bridge``.
         """
         if acc.category == Category.BRIDGE:
             raise ValueError("Bridges cannot be bridged")
@@ -469,7 +476,7 @@ class Bridge(Accessory):
     def to_HAP(self, iid_manager=None):
         """Returns a HAP representation of itself and all contained accessories.
 
-        @see: Accessory.to_HAP
+        .. seealso:: Accessory.to_HAP
         """
         hap_rep = [super(Bridge, self).to_HAP(iid_manager), ]
 
@@ -479,7 +486,8 @@ class Bridge(Accessory):
         return hap_rep
 
     def get_characteristic(self, aid, iid):
-        """@see: Accessory.to_HAP"""
+        """.. seealso:: Accessory.to_HAP
+        """
         if self.aid == aid:
             return self.iid_manager.get_obj(iid)
 
