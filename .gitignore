@@ -5,7 +5,6 @@
 env
 env*
 dist
-build
 *.egg
 *.egg-info
 _mailinglist
@@ -14,6 +13,7 @@ _mailinglist
 __pycache__
 .pytest_cache/
 .tox/
+venv/
 
 # HAP-python-generated files
 accessory.pickle

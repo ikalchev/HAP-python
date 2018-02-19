@@ -110,29 +110,29 @@ class AccessoryDriver(object):
     def __init__(self, accessory, port, address=None, persist_file="accessory.state",
                  encoder=None):
         """
-        @param accessory: The `Accessory` to be managed by this driver. The `Accessory`
+        :param accessory: The `Accessory` to be managed by this driver. The `Accessory`
             must have the standalone AID (`pyhap.accessory.STANDALONE_AID`). If the
             AID of the `Accessory` is None, the standalone AID will be assigned to it.
             Also, if the mac of the `Accessory` is None, a randomly-generated one
             will be assigned to it.
-        @type accessory: Accessory
+        :type accessory: Accessory
 
-        @param port: The local port on which the accessory will be accessible.
+        :param port: The local port on which the accessory will be accessible.
             In other words, this is the port of the HAPServer.
-        @type port: int
+        :type port: int
 
-        @param address: The local address on which the accessory will be accessible.
+        :param address: The local address on which the accessory will be accessible.
             In other words, this is the address of the HAPServer. If not given, the
             driver will try to select an address.
-        @type address: str
+        :type address: str
 
         @param persist_file: The file name in which the state of the accessory
             will be persisted. This uses `expandvars`, so may contain `~` to
             refer to the user's home directory.
         @type persist_file: str
 
-        @param encoder: The encoder to use when persisting/loading the Accessory state.
-        @type encoder: AccessoryEncoder
+        :param encoder: The encoder to use when persisting/loading the Accessory state.
+        :type encoder: AccessoryEncoder
         """
         if accessory.aid is None:
             accessory.aid = STANDALONE_AID
@@ -170,16 +170,16 @@ class AccessoryDriver(object):
     def subscribe_client_topic(self, client, topic, subscribe=True):
         """(Un)Subscribe the given client from the given topic, thread-safe.
 
-        @param client: A client (address, port) tuple that should be subscribed.
-        @type client: tuple <str, int>
+        :param client: A client (address, port) tuple that should be subscribed.
+        :type client: tuple <str, int>
 
-        @param topic: The topic to which to subscribe.
-        @type topic: str
+        :param topic: The topic to which to subscribe.
+        :type topic: str
 
-        @param subscribe: Whether to subscribe or unsubscribe the client. Both subscribing
+        :param subscribe: Whether to subscribe or unsubscribe the client. Both subscribing
             an already subscribed client and unsubscribing a client that is not subscribed
             do nothing.
-        @type subscribe: bool
+        :type subscribe: bool
         """
         with self.topic_lock:
             if subscribe:
@@ -202,9 +202,9 @@ class AccessoryDriver(object):
         The publishing occurs only if the current client is subscribed to the topic for
         the aid and iid contained in the data.
 
-        @param data: The data to publish. It must at least contain the keys "aid" and
+        :param data: The data to publish. It must at least contain the keys "aid" and
             "iid".
-        @type data: dict
+        :type data: dict
         """
         topic = get_topic(data["aid"], data["iid"])
         if topic not in self.topics:
@@ -287,14 +287,14 @@ class AccessoryDriver(object):
         Updates the accessory with the paired client and updates the mDNS service. Also,
         persist the new state.
 
-        @param client_uuid: The client uuid.
-        @type client_uuid: uuid.UUID
+        :param client_uuid: The client uuid.
+        :type client_uuid: uuid.UUID
 
-        @param client_public: The client's public key.
-        @type client_public: bytes
+        :param client_public: The client's public key.
+        :type client_public: bytes
 
-        @return: Whether the pairing is successful.
-        @rtype: bool
+        :return: Whether the pairing is successful.
+        :rtype: bool
         """
         # TODO: Adding a client is a change in the acc. configuration. Then, should we
         # let the accessory call config_changed, which will persist and update mDNS?
@@ -311,8 +311,8 @@ class AccessoryDriver(object):
         Updates the accessory and updates the mDNS service. Persist the new accessory
         state.
 
-        @param client_uuid: The client uuid.
-        @type client_uuid: uuid.UUID
+        :param client_uuid: The client uuid.
+        :type client_uuid: uuid.UUID
         """
         logger.info("Unpairing client '%s'.", client_uuid)
         self.accessory.remove_paired_client(client_uuid)
@@ -329,23 +329,27 @@ class AccessoryDriver(object):
     def get_accessories(self):
         """Returns the accessory in HAP format.
 
-        @return: An example HAP representation is:
-         {
-            "accessories": [
-               "aid": 1,
-               "services": [
-                  "iid": 1,
-                  "type": ...,
-                  "characteristics": [{
-                     "iid": 2,
-                     "type": ...,
-                     "description": "CurrentTemperature",
-                     ...
-                  }]
-               ]
-            ]
-         }
-        @rtype: data
+        :return: An example HAP representation is:
+
+        .. code-block:: python
+
+           {
+              "accessories": [
+                 "aid": 1,
+                 "services": [
+                    "iid": 1,
+                    "type": ...,
+                    "characteristics": [{
+                       "iid": 2,
+                       "type": ...,
+                       "description": "CurrentTemperature",
+                       ...
+                    }]
+                 ]
+              ]
+           }
+
+        :rtype: dict
         """
         hap_rep = self.accessory.to_HAP()
         if not isinstance(hap_rep, list):
@@ -355,18 +359,22 @@ class AccessoryDriver(object):
     def get_characteristics(self, char_ids):
         """Returns values for the required characteristics.
 
-        @param char_ids: A list of characteristic "paths", e.g. "1.2" is aid 1, iid 2.
-        @type char_ids: list<str>
+        :param char_ids: A list of characteristic "paths", e.g. "1.2" is aid 1, iid 2.
+        :type char_ids: list<str>
 
-        @return: Status success for each required characteristic. For example:
-         {
-            "characteristics: [{
-               "aid": 1,
-               "iid": 2,
-               "status" 0
-            }]
-         }
-        @rtype: dict
+        :return: Status success for each required characteristic. For example:
+
+        .. code-block:: python
+
+           {
+              "characteristics: [{
+                 "aid": 1,
+                 "iid": 2,
+                 "status" 0
+              }]
+           }
+
+        :rtype: dict
         """
         chars = []
         for id in char_ids:
@@ -386,26 +394,34 @@ class AccessoryDriver(object):
     def set_characteristics(self, chars_query, client_addr):
         """Configures the given characteristics.
 
-        @param chars_query: A configuration query. For example:
-         {
-            "characteristics": [{
-               "aid": 1,
-               "iid": 2,
-               "value": False, # Value to set
-               "ev": True # (Un)subscribe for events from this charactertics.
-            }]
-         }
-        @type chars_query: dict
+        :param chars_query: A configuration query. For example:
 
-        @return: Response status for each characteristic. For example:
-         {
-            "characteristics": [{
-               "aid": 1,
-               "iid": 2,
-               "status": 0,
-            }]
-         }
-        @rtype: dict
+        .. code-block:: python
+
+           {
+              "characteristics": [{
+                 "aid": 1,
+                 "iid": 2,
+                 "value": False, # Value to set
+                 "ev": True # (Un)subscribe for events from this charactertics.
+              }]
+           }
+
+        :type chars_query: dict
+
+        :return: Response status for each characteristic. For example:
+
+        .. code-block:: python
+
+           {
+              "characteristics": [{
+                 "aid": 1,
+                 "iid": 2,
+                 "status": 0,
+              }]
+           }
+
+        :rtype: dict
         """
         chars_query = chars_query["characteristics"]
         chars_response = []
@@ -434,9 +450,11 @@ class AccessoryDriver(object):
     def start(self):
         """Starts the accessory.
 
+        - Call the accessory's run method.
+        - Start handling accessory events.
         - Start the HAP server.
         - Publish a mDNS advertisment.
-        - Call the accessory's run method.
+        - Print the setup QR code if the accessory is not paired.
 
         All of the above are started in separate threads. Accessory thread is set as
         daemon.
@@ -449,9 +467,6 @@ class AccessoryDriver(object):
         self.accessory.set_sentinel(self.run_sentinel)
         self.accessory_thread = threading.Thread(target=self.accessory.run)
         self.accessory_thread.start()
-
-        # Print accessory setup message
-        self.accessory.setup_message()
 
         # Start sending events to clients. This is done in a daemon thread, because:
         # - if the queue is blocked waiting on an empty queue, then there is nothing left
@@ -472,6 +487,10 @@ class AccessoryDriver(object):
                                                           self.address,
                                                           self.port)
         self.advertiser.register_service(self.mdns_service_info)
+
+        # Print accessory setup message
+        if not self.accessory.paired:
+            self.accessory.setup_message()
 
     def stop(self):
         """Stop the accessory.
