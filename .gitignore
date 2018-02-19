@@ -14,6 +14,8 @@ _mailinglist
 __pycache__
 .pytest_cache/
 .tox/
+venv/
+docs/build/
 
 # HAP-python-generated files
 accessory.pickle
