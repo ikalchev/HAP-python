@@ -3,3 +3,4 @@ branch = True
 include = pyhap/*
 omit =
   tests/*
+  pyhap/accessories/*
