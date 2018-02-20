@@ -105,6 +105,7 @@ def hex2b(hex):
     """
     return binascii.unhexlify(hex.encode("ascii"))
 
+
 tohex = bytes.hex if sys.version_info >= (3, 5) else b2hex
 """Python-version-agnostic tohex function. Equivalent to bytes.hex in python 3.5+.
 """
