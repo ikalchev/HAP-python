@@ -392,7 +392,7 @@ class AccessoryDriver(object):
         return {"characteristics": chars}
 
     def set_characteristics(self, chars_query, client_addr):
-        """Configures the given characteristics.
+        """Called from ``HAPServerHandler`` when iOS configures the characteristics.
 
         :param chars_query: A configuration query. For example:
 
