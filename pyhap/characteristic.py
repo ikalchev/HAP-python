@@ -82,21 +82,21 @@ class Characteristic(object):
     def __init__(self, display_name, type_id, properties, value=None, broker=None):
         """Initialise with the given properties.
 
-        @param display_name: Name that will be displayed for this characteristic, i.e.
+        :param display_name: Name that will be displayed for this characteristic, i.e.
             the `description` in the HAP representation.
-        @type display_name: str
+        :type display_name: str
 
-        @param type_id: UUID unique to this type of characteristic.
-        @type type_id: uuid.UUID
+        :param type_id: UUID unique to this type of characteristic.
+        :type type_id: uuid.UUID
 
-        @param properties: A dict of properties, such as Format, ValidValues, etc.
-        @type properties: dict
+        :param properties: A dict of properties, such as Format, ValidValues, etc.
+        :type properties: dict
 
-        @param value: The initial value to set to this characteristic. If no value is given,
+        :param value: The initial value to set to this characteristic. If no value is given,
             the assigned value happens as:
             - if there is a ValidValue property, use some value from it.
             - else use `HAP_FORMAT.DEFAULT` for the format of this characteristic.
-        @type value: Depends on `properties["Format"]`
+        :type value: Depends on `properties["Format"]`
         """
         assert "Format" in properties and "Permissions" in properties
         self.display_name = display_name
@@ -128,21 +128,21 @@ class Characteristic(object):
     def set_value(self, value, should_notify=True, should_callback=True):
         """Set the given raw value. It is checked if it is a valid value.
 
-        @param value: The value to assign as this Characteristic's value.
-        @type value: Depends on properties["Format"]
+        :param value: The value to assign as this Characteristic's value.
+        :type value: Depends on properties["Format"]
 
-        @param should_notify: Whether a the change should be sent to subscribed clients.
+        :param should_notify: Whether a the change should be sent to subscribed clients.
             The notification is called _after_ the setter callback. Notify will be
             performed if and only if the broker is set, i.e. not None.
-        @type should_notify: bool
+        :type should_notify: bool
 
-        @param should_callback: Whether to invoke the callback, if such is set. This
+        :param should_callback: Whether to invoke the callback, if such is set. This
             is useful in cases where you and HAP clients can both update the value and
             you don't want your callback called when you set the value, but want it
             called when clients do. Defaults to True.
-        @type should_callback: bool
+        :type should_callback: bool
 
-        @raise ValueError: When the value being assigned is not one of the valid values
+        :raise ValueError: When the value being assigned is not one of the valid values
             for this Characteristic.
         """
         if (self.has_valid_values
@@ -157,7 +157,7 @@ class Characteristic(object):
     def get_value(self):
         """Get the raw value of this Characteristic.
 
-        @deprecated: Use self.value instead.
+        .. deprecated:: v1.1.0 Use self.value instead.
         """
         return self.value
 
@@ -177,11 +177,11 @@ class Characteristic(object):
     def notify(self):
         """Notify clients about a value change.
 
-        @note: Non-blocking, i.e. does not wait for the update to be sent.
-        @note: Uses the `get_hap_value`, i.e. sends the HAP value.
-        @see: accessory_driver.publish
+        .. note:: Non-blocking, i.e. does not wait for the update to be sent.
+        .. note:: Uses the `get_hap_value`, i.e. sends the HAP value.
+        .. seealso:: accessory_driver.publish
 
-        @raise NotConfiguredError: When the broker is not set.
+        :raise NotConfiguredError: When the broker is not set.
         """
         if self.broker is None:
             raise NotConfiguredError("Attempted to notify when `broker` is None. "
@@ -197,13 +197,13 @@ class Characteristic(object):
     def to_HAP(self, iid_manager):
         """Create a HAP representation of this Characteristic.
 
-        @note: Uses the `get_hap_value`, i.e. sends the HAP value.
+        .. note:: Uses the `get_hap_value`, i.e. sends the HAP value.
 
-        @param iid_manager: IID manager to query for this object's IID.
-        @type iid_manager: IIDManager
+        :param iid_manager: IID manager to query for this object's IID.
+        :type iid_manager: IIDManager
 
-        @return: A HAP representation.
-        @rtype: dict
+        :return: A HAP representation.
+        :rtype: dict
         """
         hap_rep = {
             "iid": iid_manager.get_iid(self),

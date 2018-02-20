@@ -42,14 +42,14 @@ class Service(object):
 
         Checks only the mandatory characteristics by default.
 
-        @param name: The name of the characteristic to search for.
-        @type name: str
+        :param name: The name of the characteristic to search for.
+        :type name: str
 
-        @param check_optional: Whether to search in the optional characteristics as well.
-        @type check_optional: bool
+        :param check_optional: Whether to search in the optional characteristics as well.
+        :type check_optional: bool
 
-        @return: A characteristic with the given name or None if not found.
-        @rtype: Characteristic
+        :return: A characteristic with the given name or None if not found.
+        :rtype: Characteristic
         """
         char = next((c for c in self.characteristics if c.display_name == name),
                     None)
@@ -62,11 +62,11 @@ class Service(object):
     def to_HAP(self, iid_manager=None):
         """Create a HAP representation of this Service.
 
-        @param base_iid: The IID for this Service, as assigned from the Accessory.
-        @type base_iid: int
+        :param base_iid: The IID for this Service, as assigned from the Accessory.
+        :type base_iid: int
 
-        @return: A HAP representation.
-        @rtype: dict.
+        :return: A HAP representation.
+        :rtype: dict.
         """
         assert iid_manager is not None
         characteristics = [c.to_HAP(iid_manager)
