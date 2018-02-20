@@ -126,10 +126,10 @@ class AccessoryDriver(object):
             driver will try to select an address.
         :type address: str
 
-        @param persist_file: The file name in which the state of the accessory
+        :param persist_file: The file name in which the state of the accessory
             will be persisted. This uses `expandvars`, so may contain `~` to
             refer to the user's home directory.
-        @type persist_file: str
+        :type persist_file: str
 
         :param encoder: The encoder to use when persisting/loading the Accessory state.
         :type encoder: AccessoryEncoder

@@ -11,6 +11,12 @@ rand = random.SystemRandom()
 
 
 def get_local_address():
+    """
+    Grabs the local IP address using a socket.
+
+    :return: Local IP Address in IPv4 format.
+    :rtype: str
+    """
     # TODO: try not to talk 8888 for this
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -22,6 +28,15 @@ def get_local_address():
 
 
 def long_to_bytes(n):
+    """
+    Convert a ``long int`` to ``bytes``
+
+    :param n: Long Integer
+    :type n: int
+
+    :return: ``long int`` in ``bytes`` format.
+    :rtype: bytes
+    """
     byteList = list()
     x = 0
     off = 0
@@ -35,11 +50,24 @@ def long_to_bytes(n):
 
 
 def generate_mac():
+    """
+    Generates a fake mac address used in broadcast.
+
+    :return: MAC address in format XX:XX:XX:XX:XX:XX
+    :rtype: str
+    """
     return "{}{}:{}{}:{}{}:{}{}:{}{}:{}{}".format(
         *(rand.choice(HEX_DIGITS) for _ in range(12)))
 
 
 def generate_setup_id():
+    """
+    Generates a random Setup ID for an ``Accessory`` or ``Bridge``.
+    Used in QR codes and the setup hash.
+
+    :return: 4 digit alphanumeric code.
+    :rtype: str
+    """
     return ''.join([
         rand.choice(ALPHANUM)
         for i in range(4)
@@ -47,6 +75,12 @@ def generate_setup_id():
 
 
 def generate_pincode():
+    """
+    Generates a random pincode.
+
+    :return: pincode in format ``xxx-xx-xxx``
+    :rtype: bytearray
+    """
     return '{}{}{}-{}{}-{}{}{}'.format(
         *(rand.randint(0, 9) for i in range(8))
     ).encode('ascii')
@@ -55,8 +89,9 @@ def generate_pincode():
 def b2hex(bts):
     """Produce a hex string representation of the given bytes.
 
-    @type bts: bytes
-    @rtype: string
+    :param bts: bytes to convert to hex.
+    :type bts: bytes
+    :rtype: str
     """
     return binascii.hexlify(bts).decode("ascii")
 
@@ -64,10 +99,12 @@ def b2hex(bts):
 def hex2b(hex):
     """Produce bytes from the given hex string representation.
 
-    @type hex: string
-    @rtype: bytes
+    :param hex: hex string
+    :type hex: str
+    :rtype: bytes
     """
     return binascii.unhexlify(hex.encode("ascii"))
+
 
 tohex = bytes.hex if sys.version_info >= (3, 5) else b2hex
 """Python-version-agnostic tohex function. Equivalent to bytes.hex in python 3.5+.
