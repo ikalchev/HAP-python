@@ -13,9 +13,13 @@ _mailinglist
 __pycache__
 .pytest_cache/
 .tox/
+.venv
 venv/
+docs/build/doctrees
+docs/build/html
+.coverage
+.coverage.*
 
 # HAP-python-generated files
 accessory.pickle
 accessory.state
-

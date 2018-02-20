@@ -1,4 +1,4 @@
-.. intro-overview:
+.. _intro-overview:
 
 ======================
 HAP-python at a glance
