@@ -100,7 +100,7 @@ def hex2b(hex):
     """Produce bytes from the given hex string representation.
 
     :param hex: hex string
-    :type hex: string
+    :type hex: str
     :rtype: bytes
     """
     return binascii.unhexlify(hex.encode("ascii"))
