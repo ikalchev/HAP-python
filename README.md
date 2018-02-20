@@ -1,4 +1,4 @@
-[![PyPI version](https://badge.fury.io/py/HAP-python.svg)](https://badge.fury.io/py/HAP-python)
+[![PyPI version](https://badge.fury.io/py/HAP-python.svg)](https://badge.fury.io/py/HAP-python) [![Build Status](https://travis-ci.org/ikalchev/HAP-python.svg?branch=master)](https://travis-ci.org/ikalchev/HAP-python)
 # Breaking change: 1.1.1 to 1.1.2+
 Since version 1.1.2 you no longer need to unpickle the accessory to retain its state!
 Have a look at [main.py](main.py) to see the new, simpler workflow. (the state is also
