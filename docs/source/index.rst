@@ -49,7 +49,7 @@ API Reference
    :maxdepth: 2
    :hidden:
 
-   api
+   api/index
 
-:doc:`api`
+:doc:`api/index`
     API documentation for HAP-python.
