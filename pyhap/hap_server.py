@@ -741,11 +741,12 @@ class HAPServer(socketserver.ThreadingMixIn,
     implements exclusive access to the send methods.
     """
 
-    PUSH_EVENT_TIMEOUT = 3
-
     EVENT_MSG_STUB = b"EVENT/1.0 200 OK\r\n" \
                      b"Content-Type: application/hap+json\r\n" \
                      b"Content-Length: "
+
+    TIMEOUT_ERRNO_CODES = (errno.ECONNRESET, errno.EPIPE, errno.EHOSTUNREACH,
+                           errno.ETIMEDOUT)
 
     @classmethod
     def create_hap_event(cls, bytesdata):
@@ -767,6 +768,31 @@ class HAPServer(socketserver.ThreadingMixIn,
         self.connections = {}  # (address, port): socket
         self.accessory_handler = accessory_handler
 
+    def _close_socket(self, sock):
+        """Shutdown and close the given socket."""
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except socket.error:
+            pass
+        sock.close()
+
+    def _handle_sock_timeout(self, client_addr, exception):
+        """Handle a socket timeout.
+
+        Closes the socket for ``client_addr``.
+
+        :raise exception: if it is not a timeout.
+        """
+        # NOTE: In python <3.3 socket.timeout is not OSError, hence the above.
+        # Also, when it is actually an OSError, it MAY not have an errno equal to
+        # ETIMEDOUT.
+        sock = self.connections.pop(client_addr, None)
+        if sock is not None:
+            self._close_socket(sock)
+        if not isinstance(exception, socket.timeout) \
+                and exception.errno not in self.TIMEOUT_ERRNO_CODES:
+            raise exception
+
     def get_request(self):
         """Calls the super's method, caches the connection and returns."""
         client_socket, client_addr = super(HAPServer, self).get_request()
@@ -777,19 +803,9 @@ class HAPServer(socketserver.ThreadingMixIn,
     def finish_request(self, sock, client_addr):
         try:
             self.RequestHandlerClass(sock, client_addr, self, self.accessory_handler)
-        except OSError as e:
-            self.connections.pop(client_addr, None)
-            if e.errno not in (errno.ECONNRESET, errno.EHOSTUNREACH):
-                raise e
-            logger.debug("Connection reset")
-
-    def _close_socket(self, sock):
-        """Shutdown and close the given socket."""
-        try:
-            sock.shutdown(socket.SHUT_RDWR)
-        except socket.error:
-            pass
-        sock.close()
+        except (OSError, socket.timeout) as e:
+            self._handle_sock_timeout(client_addr, e)
+            logger.debug("Connection timeout")
 
     def server_close(self):
         """Close all connections."""
@@ -802,36 +818,26 @@ class HAPServer(socketserver.ThreadingMixIn,
     def push_event(self, bytesdata, client_addr):
         """Send an event to the current connection with the provided data.
 
-        @note: Sets a timeout of PUSH_EVENT_TIMEOUT for the duration of socket.sendall.
+        .. note: Sets a timeout of PUSH_EVENT_TIMEOUT for the duration of socket.sendall.
 
-        @param bytesdata: The data to send.
-        @type bytesdata: bytes
+        :param bytesdata: The data to send.
+        :type bytesdata: bytes
 
-        @param client_addr: A client (address, port) tuple to which to send the data.
-        @type client_addr: tuple <str, int>
+        :param client_addr: A client (address, port) tuple to which to send the data.
+        :type client_addr: tuple <str, int>
 
-        @return: True if sending was successful, False otherwise.
-        @rtype: bool
+        :return: True if sending was successful, False otherwise.
+        :rtype: bool
         """
+        client_socket = self.connections.get(client_addr)
+        if client_socket is None:
+            return False
+        data = self.create_hap_event(bytesdata)
         try:
-            client_socket = self.connections.get(client_addr)
-            if client_socket is None:
-                return False
-            data = self.create_hap_event(bytesdata)
-            client_socket.settimeout(self.PUSH_EVENT_TIMEOUT)
             client_socket.sendall(data)
-            client_socket.settimeout(None)
             return True
         except (OSError, socket.timeout) as e:
-            # NOTE: In python <3.3 socket.timeout is not OSError, hence the above.
-            # Also, when it is actually an OSError, it MAY not have an errno equal to
-            # ETIMEDOUT.
-            sock = self.connections.pop(client_addr, None)
-            if sock is not None:
-                self._close_socket(sock)
-            if not isinstance(e, socket.timeout) \
-                    and e.errno not in (errno.EPIPE, errno.EHOSTUNREACH, errno.ETIMEDOUT):
-                raise e
+            self._handle_sock_timeout(client_addr, e)
             return False
 
     def upgrade_to_encrypted(self, client_address, shared_key):
