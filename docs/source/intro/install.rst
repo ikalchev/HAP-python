@@ -16,7 +16,7 @@ will work.
 Installing Pre-Requisites
 =========================
 
-Raspbian Strecth
+Raspbian Stretch
 ----------------
 
 As a prerequisite, you will need Avahi/Bonjour installed (due to zeroconf package)::
