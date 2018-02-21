@@ -12,9 +12,10 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-# import os
-# import sys
-# sys.path.insert(0, os.path.abspath('.'))
+import os
+import sys
+sys.path.insert(0, os.path.abspath('../../'))
+from pyhap import HAP_PYTHON_VERSION
 
 
 # -- Project information -----------------------------------------------------
@@ -26,7 +27,7 @@ author = 'Ivan Kalchev'
 # The short X.Y version
 version = ''
 # The full version, including alpha/beta/rc tags
-release = '1.1.5'
+release = '.'.join(map(str, HAP_PYTHON_VERSION))
 
 
 # -- General configuration ---------------------------------------------------

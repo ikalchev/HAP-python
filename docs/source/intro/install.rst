@@ -16,10 +16,10 @@ will work.
 Installing Pre-Requisites
 =========================
 
-Raspbian Strecth
+Raspbian Stretch
 ----------------
 
-As a prerequisite, you will need Avahi/Bonjour installed (due to zeroconf package)::
+As a prerequisite, you will need Avahi/Bonjour installed (due to ``zeroconf`` package)::
 
     sudo apt install libavahi-compat-libdnssd-dev
 
@@ -27,7 +27,10 @@ As a prerequisite, you will need Avahi/Bonjour installed (due to zeroconf packag
 Ubuntu 16.04 LTS
 ----------------
 
-Need to fill in.
+Same with Raspbian, we will need to install Avahi/Bonjour, but a fresh 16.04 install will
+require the ``python3-dev`` package as well::
+
+    sudo apt install libavahi-compat-libdnssd-dev python3-dev
 
 
 Installing HAP-python

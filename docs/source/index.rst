@@ -25,14 +25,13 @@ First Steps
    intro/install
    intro/tutorial
    intro/examples
-   api
 
 :doc:`intro/overview`
     Brief explanation of HAP-python, and the possible use cases.
 
 :doc:`intro/install`
     How to install HAP-python on a Debian based system, such as
-    a Raspberry Pi, or Ubuntu
+    a Raspberry Pi, or Ubuntu.
 
 :doc:`intro/tutorial`
     Get started building your first HomeKit Accessory.
@@ -42,5 +41,15 @@ First Steps
     around, or to use as a starting point into your own custom
     Accessory class.
 
-:doc:`api`
+
+API Reference
+=============
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+
+   api/index
+
+:doc:`api/index`
     API documentation for HAP-python.
