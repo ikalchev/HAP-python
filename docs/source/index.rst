@@ -32,7 +32,7 @@ First Steps
 
 :doc:`intro/install`
     How to install HAP-python on a Debian based system, such as
-    a Raspberry Pi, or Ubuntu
+    a Raspberry Pi, or Ubuntu.
 
 :doc:`intro/tutorial`
     Get started building your first HomeKit Accessory.
