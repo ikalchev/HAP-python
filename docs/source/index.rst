@@ -25,7 +25,6 @@ First Steps
    intro/install
    intro/tutorial
    intro/examples
-   api
 
 :doc:`intro/overview`
     Brief explanation of HAP-python, and the possible use cases.
@@ -41,6 +40,16 @@ First Steps
     A set of prebuilt accessories to either build your own class
     around, or to use as a starting point into your own custom
     Accessory class.
+
+
+API Reference
+=============
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+
+   api
 
 :doc:`api`
     API documentation for HAP-python.
