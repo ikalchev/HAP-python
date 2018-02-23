@@ -25,8 +25,12 @@ class Service(object):
 
     def __repr__(self):
         """Return the representation of the service."""
-        chars = [c.display_name for c in self.characteristics]
-        opt_chars = [c.display_name for c in self.opt_characteristics]
+        chars = {}
+        opt_chars = {}
+        for c in self.characteristics:
+            chars[c.display_name] = c.value
+        for c in self.opt_characteristics:
+            opt_chars[c.display_name] = c.value
         return "<service display_name='{}' chars={} opt_chars={}>" \
             .format(self.display_name, chars, opt_chars)
 
