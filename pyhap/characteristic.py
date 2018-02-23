@@ -114,6 +114,11 @@ class Characteristic(object):
         self.setter_callback = None
         self.hap_template = self._create_hap_template()
 
+    def __repr__(self):
+        """Return the representation of the characteristic."""
+        return "<characteristic display_name='{}' value={} properties={}>" \
+            .format(self.display_name, self.display_name, self.properties)
+
     def _create_hap_template(self):
         """Create a HAP template for describing this Characteristic.
 

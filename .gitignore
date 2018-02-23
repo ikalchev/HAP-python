@@ -20,6 +20,13 @@ docs/build/html
 .coverage
 .coverage.*
 
+# python venv
+bin
+lib
+lib64
+pyvenv.cfg
+share
+
 # HAP-python-generated files
 accessory.pickle
 accessory.state

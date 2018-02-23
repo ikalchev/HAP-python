@@ -23,6 +23,13 @@ class Service(object):
         self.opt_characteristics = []
         # TODO: name characteristic
 
+    def __repr__(self):
+        """Return the representation of the service."""
+        chars = [c.display_name for c in self.characteristics]
+        opt_chars = [c.display_name for c in self.opt_characteristics]
+        return "<service display_name='{}' chars={} opt_chars={}>" \
+            .format(self.display_name, chars, opt_chars)
+
     def _add_chars(self, container, *chars):
         """Helper method to add the given characteristics to the given container."""
         for c in chars:

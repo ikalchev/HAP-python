@@ -165,6 +165,12 @@ class Accessory(object):
 
         self._set_services()
 
+    def __repr__(self):
+        """Return the representation of the accessory."""
+        services = [s.display_name for s in self.services]
+        return "<accessory display_name='{}' services={}>" \
+            .format(self.display_name, services)
+
     def __getstate__(self):
         state = self.__dict__.copy()
         state["broker"] = None
