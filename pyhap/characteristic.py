@@ -117,7 +117,7 @@ class Characteristic(object):
     def __repr__(self):
         """Return the representation of the characteristic."""
         return "<characteristic display_name='{}' value={} properties={}>" \
-            .format(self.display_name, self.display_name, self.properties)
+            .format(self.display_name, self.value, self.properties)
 
     def _create_hap_template(self):
         """Create a HAP template for describing this Characteristic.
