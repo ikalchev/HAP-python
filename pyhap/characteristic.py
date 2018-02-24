@@ -75,7 +75,7 @@ class Characteristic(object):
 
     A HAP characteristic is some measurement or state, like battery status or
     the current temperature. Characteristics are contained in services.
-    Each charactaristic has a unique type UUID and a set of properties,
+    Each characteristic has a unique type UUID and a set of properties,
     like format, min and max values, valid values and others.
     """
 
@@ -113,6 +113,11 @@ class Characteristic(object):
         self.broker = broker
         self.setter_callback = None
         self.hap_template = self._create_hap_template()
+
+    def __repr__(self):
+        """Return the representation of the characteristic."""
+        return "<characteristic display_name='{}' value={} properties={}>" \
+            .format(self.display_name, self.value, self.properties)
 
     def _create_hap_template(self):
         """Create a HAP template for describing this Characteristic.
