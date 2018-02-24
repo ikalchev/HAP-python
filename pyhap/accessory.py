@@ -339,9 +339,9 @@ class Accessory(object):
         print(self.qr_code.terminal(), flush=True)
 
     def get_characteristic(self, aid, iid):
-        """Get's the characteristic for the given IID.
+        """Get the characteristic for the given IID.
 
-        The AID isused to verify if the search is in the correct accessory.
+        The AID is used to verify if the search is in the correct accessory.
         """
         if aid != self.aid:
             return None

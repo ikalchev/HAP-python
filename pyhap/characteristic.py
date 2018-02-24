@@ -75,7 +75,7 @@ class Characteristic(object):
 
     A HAP characteristic is some measurement or state, like battery status or
     the current temperature. Characteristics are contained in services.
-    Each charactaristic has a unique type UUID and a set of properties,
+    Each characteristic has a unique type UUID and a set of properties,
     like format, min and max values, valid values and others.
     """
 

@@ -8,12 +8,12 @@ class Service(object):
     has the characteristic CurrentTemperature.
 
     For the services that iOS natively supports, we distinguish two types of
-    characteristics - (1) "mandatory", which must be present when communciating with an
+    characteristics - (1) "mandatory", which must be present when communicating with an
     iOS client, and (2) optional, which may or may not be present. All mandatory and
     optional characteristics for iOS-supported services are defined in the
     resources/services.json file. When you load a service using the loader module, only
-    the mandatory characteristics are aded - you need to add any optional characteristics
-    yourself. This is because once a charateristic is present, iOS will want values for
+    the mandatory characteristics are added - you need to add any optional characteristics
+    yourself. This is because once a characteristic is present, iOS will want values for
     it and we need to know how to set these.
     """
     def __init__(self, type_id, display_name=None):
