@@ -34,6 +34,7 @@ class HAP_FORMAT:
         UINT64: 0,
         DATA: "",
         TLV8: "",
+        'VALID_VALUES': 0,
     }
 
 
