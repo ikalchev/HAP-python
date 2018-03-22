@@ -153,9 +153,10 @@ class Characteristic(object):
         if (self.has_valid_values
                 and value not in self.properties["ValidValues"].values()):
             raise ValueError
-        self.value = value
-        if self.setter_callback is not None and should_callback:
+        if self.setter_callback is not None and should_callback and \
+                value != self.value:
             self.setter_callback(value)
+        self.value = value
         if should_notify and self.broker is not None:
             self.notify()
 
