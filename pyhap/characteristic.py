@@ -102,14 +102,13 @@ class Characteristic(object):
         self.display_name = display_name
         self.type_id = type_id
         self.properties = properties
-        self.has_valid_values = "ValidValues" in self.properties
-        if value is None:
-            if self.has_valid_values:
+        if value:
+            self.value = value
+        else:
+            if self.properties.get('ValidValues'):
                 self.value = next(iter(self.properties["ValidValues"].values()))
             else:
                 self.value = HAP_FORMAT.DEFAULT[properties["Format"]]
-        else:
-            self.value = value
         self.broker = broker
         self.setter_callback = None
 
@@ -138,8 +137,8 @@ class Characteristic(object):
         :raise ValueError: When the value being assigned is not one of the valid values
             for this Characteristic.
         """
-        if (self.has_valid_values
-                and value not in self.properties["ValidValues"].values()):
+        if self.properties.get('ValidValues') and \
+                value not in self.properties['ValidValues'].values():
             raise ValueError
         self.value = value
         if self.setter_callback is not None and should_callback:
