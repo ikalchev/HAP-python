@@ -112,23 +112,11 @@ class Characteristic(object):
             self.value = value
         self.broker = broker
         self.setter_callback = None
-        self.hap_template = self._create_hap_template()
 
     def __repr__(self):
         """Return the representation of the characteristic."""
         return "<characteristic display_name='{}' value={} properties={}>" \
             .format(self.display_name, self.value, self.properties)
-
-    def _create_hap_template(self):
-        """Create a HAP template for describing this Characteristic.
-
-        Contains properties that do not change or change rarely, e.g. the type.
-        """
-        template = dict()
-        if self.properties["Format"] in HAP_FORMAT.NUMERIC:
-            template = {k: self.properties[k]
-                        for k in self.properties.keys() & _HAP_NUMERIC_FIELDS}
-        return template
 
     def set_value(self, value, should_notify=True, should_callback=True):
         """Set the given raw value. It is checked if it is a valid value.
@@ -218,7 +206,12 @@ class Characteristic(object):
             "format": self.properties["Format"],
         }
 
-        value_info = self.hap_template.copy()
+        if self.properties["Format"] in HAP_FORMAT.NUMERIC:
+            value_info = {k: self.properties[k] for k in
+                          self.properties.keys() & _HAP_NUMERIC_FIELDS}
+        else:
+            value_info = dict()
+
         val = self.get_hap_value()
         if self.properties["Format"] == HAP_FORMAT.STRING:
             if len(val) > 64:
