@@ -154,6 +154,23 @@ class Characteristic(object):
         """
         return self.value
 
+    def override_properties(self, properties=None, valid_values=None):
+        """Override characteristic property values and valid values.
+
+        :param properties: Dictionary with values to override the existing
+            properties. Only changed values are required.
+        :type properties: dict
+
+        :param valid_values: Dictionary with values to override the existing
+            valid_values. Valid values will be set to new dictionary.
+        :type valid_values: dict
+        """
+        if properties:
+            self.properties.update(properties)
+
+        if valid_values:
+            self.properties['ValidValues'] = valid_values
+
     def get_hap_value(self):
         """Get the value of the characteristic, constrained with the HAP properties.
         """
