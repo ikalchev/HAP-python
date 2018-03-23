@@ -1,0 +1,7 @@
+pycryptodome
+tlslite-ng
+ed25519
+zeroconf
+curve25519-donna
+pyqrcode
+base36
