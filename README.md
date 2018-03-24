@@ -51,7 +51,6 @@ $ sudo apt-get install libavahi-compat-libdnssd-dev
 ```
 `avahi-utils` may also fit the bill. Then, you can install with `pip3` (you will need `sudo` or `--user` for the install):
 ```sh
-$ pip3 install -r requirements_all.txt
 $ pip3 install HAP-python
 ```
 
