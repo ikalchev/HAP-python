@@ -47,16 +47,16 @@ It's very easy to add your own.
 As a prerequisite, you will need Avahi/Bonjour installed (due to zeroconf package).
 On a Raspberry Pi, you can get it with:
 ```
-sudo apt-get install libavahi-compat-libdnssd-dev
+$ sudo apt-get install libavahi-compat-libdnssd-dev
 ```
 `avahi-utils` may also fit the bill. Then, you can install with `pip3` (you will need `sudo` or `--user` for the install):
 ```sh
-pip3 install HAP-python
+$ pip3 install HAP-python
 ```
 
 This will install HAP-python in your python packages, so that you can import it as `pyhap`. To uninstall, just do:
 ```
-pip3 uninstall HAP-python
+$ pip3 uninstall HAP-python
 ```
 
 ## API <a name="API"></a>
