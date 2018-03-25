@@ -78,7 +78,7 @@ class SDS011(Accessory):
         pm25_name = char_loader.get("Name")
         pm25_name.set_value("PM2.5", should_notify=False)
         self.pm25_quality = air_quality_pm25.get_characteristic("AirQuality")
-        air_quality_pm25.add_opt_characteristic(pm25_name, pm25_size, self.pm25_density)
+        air_quality_pm25.add_characteristic(pm25_name, pm25_size, self.pm25_density)
 
         # PM10
         air_quality_pm10 = loader.get_serv_loader().get("AirQualitySensor")
@@ -88,7 +88,7 @@ class SDS011(Accessory):
         pm10_name = char_loader.get("Name")
         pm10_name.set_value("PM10", should_notify=False)
         self.pm10_quality = air_quality_pm10.get_characteristic("AirQuality")
-        air_quality_pm10.add_opt_characteristic(pm10_name, pm10_size, self.pm10_density)
+        air_quality_pm10.add_characteristic(pm10_name, pm10_size, self.pm10_density)
 
         self.add_service(air_quality_pm25)
         self.add_service(air_quality_pm10)
