@@ -468,7 +468,7 @@ class Bridge(Accessory):
 
         if acc.aid is None:
             acc.aid = next(aid for aid in itertools.count(2)
-                           if aid not in self.accessories)
+                           if aid != 7 and aid not in self.accessories)
         elif acc.aid == self.aid or acc.aid in self.accessories:
             raise ValueError("Duplicate AID found when attempting to add accessory")
 
