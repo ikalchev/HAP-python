@@ -40,13 +40,15 @@ class Service(object):
         :param name: The name of the characteristic to search for.
         :type name: str
 
-        :return: A characteristic with the given name or None if not found.
+        :raise ValueError if characteristic is not found.
+
+        :return: A characteristic with the given name.
         :rtype: Characteristic
         """
-        char = next((c for c in self.characteristics if c.display_name == name),
-                    None)
-        assert char is not None
-        return char
+        for char in self.characteristics:
+            if char.display_name == name:
+                return char
+        raise ValueError('Characteristic not found')
 
     def to_HAP(self, iid_manager=None):
         """Create a HAP representation of this Service.
