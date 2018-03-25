@@ -467,6 +467,7 @@ class Bridge(Accessory):
             raise ValueError("Bridges cannot be bridged")
 
         if acc.aid is None:
+            # For some reason AID=7 gets unsupported. See issue #61
             acc.aid = next(aid for aid in itertools.count(2)
                            if aid != 7 and aid not in self.accessories)
         elif acc.aid == self.aid or acc.aid in self.accessories:
