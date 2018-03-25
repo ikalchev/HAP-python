@@ -106,7 +106,7 @@ class Characteristic(object):
             self.value = value
         else:
             if self.properties.get('ValidValues'):
-                self.value = next(iter(self.properties["ValidValues"].values()))
+                self.value = min(self.properties['ValidValues'].values())
             else:
                 self.value = HAP_FORMAT.DEFAULT[properties["Format"]]
         self.broker = broker
