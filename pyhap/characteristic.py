@@ -146,13 +146,6 @@ class Characteristic(object):
         if should_notify and self.broker is not None:
             self.notify()
 
-    def get_value(self):
-        """Get the raw value of this Characteristic.
-
-        .. deprecated:: v1.1.0 Use self.value instead.
-        """
-        return self.value
-
     def override_properties(self, properties=None, valid_values=None):
         """Override characteristic property values and valid values.
 
