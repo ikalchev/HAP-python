@@ -256,7 +256,7 @@ class Accessory(object):
         for s in servs:
             self.services.append(s)
             self.iid_manager.assign(s)
-            for c in s.characteristics + s.opt_characteristics:
+            for c in s.characteristics:
                 self.iid_manager.assign(c)
                 c.broker = self
 
