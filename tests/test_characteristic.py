@@ -56,6 +56,20 @@ def test_set_value_callback_toggle():
     char.set_value(3, should_callback=True)
     assert char.setter_callback.called
 
+def test_override_properties_properties():
+    new_properties = {'minValue': 10, 'maxValue': 20, 'step': 1}
+    char = get_char(PROPERTIES.copy(), min_value=0, max_value=1)
+    char.override_properties(properties=new_properties)
+    assert char.properties['minValue'] == new_properties['minValue']
+    assert char.properties['maxValue'] == new_properties['maxValue']
+    assert char.properties['step'] == new_properties['step']
+
+def test_override_properties_valid_values():
+    new_valid_values = {'foo2': 2, 'bar2': 3}
+    char = get_char(PROPERTIES.copy(), valid={'foo': 1, 'bar': 2})
+    char.override_properties(valid_values=new_valid_values)
+    assert char.properties['ValidValues'] == new_valid_values
+
 def test_get_hap_value():
     max_value = 5
     raw_value = 6

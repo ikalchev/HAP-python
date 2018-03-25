@@ -102,33 +102,20 @@ class Characteristic(object):
         self.display_name = display_name
         self.type_id = type_id
         self.properties = properties
-        self.has_valid_values = "ValidValues" in self.properties
-        if value is None:
-            if self.has_valid_values:
+        if value:
+            self.value = value
+        else:
+            if self.properties.get('ValidValues'):
                 self.value = next(iter(self.properties["ValidValues"].values()))
             else:
                 self.value = HAP_FORMAT.DEFAULT[properties["Format"]]
-        else:
-            self.value = value
         self.broker = broker
         self.setter_callback = None
-        self.hap_template = self._create_hap_template()
 
     def __repr__(self):
         """Return the representation of the characteristic."""
         return "<characteristic display_name='{}' value={} properties={}>" \
             .format(self.display_name, self.value, self.properties)
-
-    def _create_hap_template(self):
-        """Create a HAP template for describing this Characteristic.
-
-        Contains properties that do not change or change rarely, e.g. the type.
-        """
-        template = dict()
-        if self.properties["Format"] in HAP_FORMAT.NUMERIC:
-            template = {k: self.properties[k]
-                        for k in self.properties.keys() & _HAP_NUMERIC_FIELDS}
-        return template
 
     def set_value(self, value, should_notify=True, should_callback=True):
         """Set the given raw value. It is checked if it is a valid value.
@@ -150,8 +137,8 @@ class Characteristic(object):
         :raise ValueError: When the value being assigned is not one of the valid values
             for this Characteristic.
         """
-        if (self.has_valid_values
-                and value not in self.properties["ValidValues"].values()):
+        if self.properties.get('ValidValues') and \
+                value not in self.properties['ValidValues'].values():
             raise ValueError
         self.value = value
         if self.setter_callback is not None and should_callback:
@@ -165,6 +152,23 @@ class Characteristic(object):
         .. deprecated:: v1.1.0 Use self.value instead.
         """
         return self.value
+
+    def override_properties(self, properties=None, valid_values=None):
+        """Override characteristic property values and valid values.
+
+        :param properties: Dictionary with values to override the existing
+            properties. Only changed values are required.
+        :type properties: dict
+
+        :param valid_values: Dictionary with values to override the existing
+            valid_values. Valid values will be set to new dictionary.
+        :type valid_values: dict
+        """
+        if properties:
+            self.properties.update(properties)
+
+        if valid_values:
+            self.properties['ValidValues'] = valid_values
 
     def get_hap_value(self):
         """Get the value of the characteristic, constrained with the HAP properties.
@@ -218,7 +222,12 @@ class Characteristic(object):
             "format": self.properties["Format"],
         }
 
-        value_info = self.hap_template.copy()
+        if self.properties["Format"] in HAP_FORMAT.NUMERIC:
+            value_info = {k: self.properties[k] for k in
+                          self.properties.keys() & _HAP_NUMERIC_FIELDS}
+        else:
+            value_info = dict()
+
         val = self.get_hap_value()
         if self.properties["Format"] == HAP_FORMAT.STRING:
             if len(val) > 64:
