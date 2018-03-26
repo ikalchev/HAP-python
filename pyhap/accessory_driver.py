@@ -382,7 +382,7 @@ class AccessoryDriver(object):
             rep = {"aid": aid, "iid": iid}
             char = self.accessory.get_characteristic(aid, iid)
             try:
-                rep["value"] = char.get_value()
+                rep["value"] = char.value
                 rep["status"] = HAP_CONSTANTS.CHAR_STAT_OK
             except CharacteristicError:
                 logger.error("Error getting value for characteristic %s.", id)

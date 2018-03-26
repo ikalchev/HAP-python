@@ -108,7 +108,7 @@ class HttpBridge(Bridge):
     >>> # Also, add an optional characteristic Name to the service.
     >>> temperature_acc_2 = Accessory("temp2")
     >>> temp_service = service_loader.get("TemperatureSensor")
-    >>> temp_service.add_opt_characteristic(char_loader.get("StatusLowBattery"))
+    >>> temp_service.add_characteristic(char_loader.get("StatusLowBattery"))
     >>> temperature_acc_2.add_service(temp_service)
     >>>
     >>> # Create a lightbulb accessory.

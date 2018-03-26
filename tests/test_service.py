@@ -23,14 +23,7 @@ def test_add_characteristic():
     chars = get_chars()
     serv.add_characteristic(*chars)
     for c in chars:
-        assert serv.get_characteristic(c.display_name, check_optional=False) == c
-
-def test_add_opt_characteristic():
-    serv = service.Service(uuid.uuid1(), "Test Service")
-    chars = get_chars()
-    serv.add_opt_characteristic(*chars)
-    for c in chars:
-        assert serv.get_characteristic(c.display_name, check_optional=True) == c
+        assert serv.get_characteristic(c.display_name) == c
 
 def test_to_HAP():
     pass # TODO:

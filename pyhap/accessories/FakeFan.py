@@ -28,12 +28,12 @@ class FakeFan(Accessory):
 
         # Add the optional RotationSpeed characteristic to the Fan
         rotation_speed_char = loader.get_char_loader().get("RotationSpeed")
-        fan_service.add_opt_characteristic(rotation_speed_char)
+        fan_service.add_characteristic(rotation_speed_char)
         rotation_speed_char.setter_callback = self.set_rotation_speed
 
         # Add the optional RotationSpeed characteristic to the Fan
         rotation_dir_char = loader.get_char_loader().get("RotationDirection")
-        fan_service.add_opt_characteristic(rotation_dir_char)
+        fan_service.add_characteristic(rotation_dir_char)
         rotation_dir_char.setter_callback = self.set_rotation_direction
 
         self.add_service(fan_service)
