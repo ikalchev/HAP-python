@@ -433,12 +433,6 @@ class Bridge(Accessory):
                                      setup_id=setup_id)
         self.accessories = {}  # aid: acc
 
-    def _set_services(self):
-        """Call the base method and add the BridgingState Service."""
-        super(Bridge, self)._set_services()
-        self.add_service(
-            get_serv_loader().get("BridgingState"))
-
     def set_sentinel(self, run_sentinel):
         """Set the same sentinel to all contained accessories."""
         super(Bridge, self).set_sentinel(run_sentinel)

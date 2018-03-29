@@ -7,15 +7,8 @@
       ],
       "UUID": "000000A6-0000-1000-8000-0026BB765291",
       "ValidBits": {
-         "0": "Additional Setup Required"
+         "0": "Requires Additional Setup"
       }
-   },
-   "AccessoryIdentifier": {
-      "Format": "string",
-      "Permissions": [
-         "pr"
-      ],
-      "UUID": "00000057-0000-1000-8000-0026BB765291"
    },
    "Active": {
       "Format": "uint8",
@@ -78,13 +71,6 @@
          "Unknown": 0
       }
    },
-   "AppMatchingIdentifier": {
-      "Format": "tlv8",
-      "Permissions": [
-         "pr"
-      ],
-      "UUID": "000000A4-0000-1000-8000-0026BB765291"
-   },
    "AudioFeedback": {
       "Format": "bool",
       "Permissions": [
@@ -139,7 +125,6 @@
       ],
       "UUID": "00000093-0000-1000-8000-0026BB765291",
       "maxValue": 100000,
-      "minStep": 100,
       "minValue": 0
    },
    "CarbonDioxidePeakLevel": {
@@ -150,7 +135,6 @@
       ],
       "UUID": "00000094-0000-1000-8000-0026BB765291",
       "maxValue": 100000,
-      "minStep": 100,
       "minValue": 0
    },
    "CarbonMonoxideDetected": {
@@ -173,7 +157,6 @@
       ],
       "UUID": "00000090-0000-1000-8000-0026BB765291",
       "maxValue": 100,
-      "minStep": 0.1,
       "minValue": 0
    },
    "CarbonMonoxidePeakLevel": {
@@ -184,19 +167,7 @@
       ],
       "UUID": "00000091-0000-1000-8000-0026BB765291",
       "maxValue": 100,
-      "minStep": 0.1,
       "minValue": 0
-   },
-   "Category": {
-      "Format": "uint16",
-      "Permissions": [
-         "pr",
-         "ev"
-      ],
-      "UUID": "000000A3-0000-1000-8000-0026BB765291",
-      "maxValue": 16,
-      "minStep": 1,
-      "minValue": 1
    },
    "ChargingState": {
       "Format": "uint8",
@@ -207,23 +178,21 @@
       "UUID": "0000008F-0000-1000-8000-0026BB765291",
       "ValidValues": {
          "Charging": 1,
+         "NotChargeable": 2,
          "NotCharging": 0
       }
    },
-   "ConfigureBridgedAccessory": {
-      "Format": "tlv8",
-      "Permissions": [
-         "pw"
-      ],
-      "UUID": "000000A0-0000-1000-8000-0026BB765291"
-   },
-   "ConfigureBridgedAccessoryStatus": {
-      "Format": "tlv8",
+   "ColorTemperature": {
+      "Format": "uint32",
       "Permissions": [
          "pr",
+         "pw",
          "ev"
       ],
-      "UUID": "0000009D-0000-1000-8000-0026BB765291"
+      "UUID": "000000CE-0000-1000-8000-0026BB765291",
+      "maxValue": 500,
+      "minStep": 1,
+      "minValue": 140
    },
    "ContactSensorState": {
       "Format": "uint8",
@@ -271,7 +240,6 @@
       ],
       "UUID": "0000006B-0000-1000-8000-0026BB765291",
       "maxValue": 100000,
-      "minStep": 0.0001,
       "minValue": 0.0001,
       "unit": "lux"
    },
@@ -417,14 +385,6 @@
       "minValue": -90,
       "unit": "arcdegrees"
    },
-   "CurrentTime": {
-      "Format": "string",
-      "Permissions": [
-         "pr",
-         "pw"
-      ],
-      "UUID": "0000009B-0000-1000-8000-0026BB765291"
-   },
    "CurrentVerticalTiltAngle": {
       "Format": "int",
       "Permissions": [
@@ -437,17 +397,6 @@
       "minValue": -90,
       "unit": "arcdegrees"
    },
-   "DayoftheWeek": {
-      "Format": "uint8",
-      "Permissions": [
-         "pr",
-         "pw"
-      ],
-      "UUID": "00000098-0000-1000-8000-0026BB765291",
-      "maxValue": 7,
-      "minStep": 1,
-      "minValue": 1
-   },
    "DigitalZoom": {
       "Format": "float",
       "Permissions": [
@@ -456,27 +405,6 @@
          "ev"
       ],
       "UUID": "0000011D-0000-1000-8000-0026BB765291"
-   },
-   "DiscoverBridgedAccessories": {
-      "Format": "uint8",
-      "Permissions": [
-         "pr",
-         "pw",
-         "ev"
-      ],
-      "UUID": "0000009E-0000-1000-8000-0026BB765291",
-      "ValidValues": {
-         "StartDiscovery": 0,
-         "StopDiscovery": 1
-      }
-   },
-   "DiscoveredBridgedAccessories": {
-      "Format": "uint16",
-      "Permissions": [
-         "pr",
-         "ev"
-      ],
-      "UUID": "0000009F-0000-1000-8000-0026BB765291"
    },
    "FilterChangeIndication": {
       "Format": "uint8",
@@ -498,7 +426,8 @@
       ],
       "UUID": "000000AB-0000-1000-8000-0026BB765291",
       "maxValue": 100,
-      "minValue": 0
+      "minValue": 0,
+      "stepValue": 1
    },
    "FirmwareRevision": {
       "Format": "string",
@@ -576,6 +505,31 @@
       "minValue": 0,
       "unit": "arcdegrees"
    },
+   "InUse": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000D2-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "Inuse": 1,
+         "Notinuse": 0
+      }
+   },
+   "IsConfigured": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "000000D6-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "Configured": 1,
+         "NotConfigured": 0
+      }
+   },
    "LeakDetected": {
       "Format": "uint8",
       "Permissions": [
@@ -587,17 +541,6 @@
          "LeakDetected": 1,
          "LeakNotDetected": 0
       }
-   },
-   "LinkQuality": {
-      "Format": "uint8",
-      "Permissions": [
-         "pr",
-         "ev"
-      ],
-      "UUID": "0000009C-0000-1000-8000-0026BB765291",
-      "maxValue": 4,
-      "minStep": 1,
-      "minValue": 1
    },
    "LockControlPoint": {
       "Format": "tlv8",
@@ -628,15 +571,15 @@
       ],
       "UUID": "0000001C-0000-1000-8000-0026BB765291",
       "ValidValues": {
-         "SecuredbyAutoSecuretimeout": 8,
-         "Securedbykeypad": 4,
-         "Securedphysically,exterior": 2,
-         "Securedphysically,interior": 0,
-         "Securedremotely": 6,
-         "Unsecuredbykeypad": 5,
-         "Unsecuredphysically,exterior": 3,
-         "Unsecuredphysically,interior": 1,
-         "Unsecuredremotely": 7
+         "SecuredPhysically,Exterior": 2,
+         "SecuredPhysically,Interior": 0,
+         "SecuredRemotely": 6,
+         "SecuredbyAutoSecureTimeout": 8,
+         "SecuredbyKeypad": 4,
+         "UnsecuredPhysically,Exterior": 3,
+         "UnsecuredPhysically,Interior": 1,
+         "UnsecuredRemotely": 7,
+         "UnsecuredbyKeypad": 5
       }
    },
    "LockManagementAutoSecurityTimeout": {
@@ -647,9 +590,6 @@
          "ev"
       ],
       "UUID": "0000001A-0000-1000-8000-0026BB765291",
-      "maxValue": 86400,
-      "minStep": 1,
-      "minValue": 0,
       "unit": "seconds"
    },
    "LockPhysicalControls": {
@@ -867,6 +807,19 @@
          "Stopped": 2
       }
    },
+   "ProgramMode": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000D1-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "Noprogramscheduled": 0,
+         "Programscheduled": 1,
+         "Programscheduled(ManualMode)": 2
+      }
+   },
    "ProgrammableSwitchEvent": {
       "Format": "uint8",
       "Permissions": [
@@ -874,29 +827,11 @@
          "ev"
       ],
       "UUID": "00000073-0000-1000-8000-0026BB765291",
-      "maxValue": 1,
-      "minStep": 1,
-      "minValue": 0
-   },
-   "ProgrammableSwitchOutputState": {
-      "Format": "uint8",
-      "Permissions": [
-         "pr",
-         "pw",
-         "ev"
-      ],
-      "UUID": "00000074-0000-1000-8000-0026BB765291",
-      "maxValue": 1,
-      "minStep": 1,
-      "minValue": 0
-   },
-   "Reachable": {
-      "Format": "bool",
-      "Permissions": [
-         "pr",
-         "ev"
-      ],
-      "UUID": "00000063-0000-1000-8000-0026BB765291"
+      "ValidValues": {
+         "DoublePress": 1,
+         "LongPress": 2,
+         "SinglePress": 0
+      }
    },
    "RelativeHumidityDehumidifierThreshold": {
       "Format": "float",
@@ -919,6 +854,18 @@
       ],
       "UUID": "000000CA-0000-1000-8000-0026BB765291",
       "maxValue": 100,
+      "minStep": 1,
+      "minValue": 0,
+      "unit": "percentage"
+   },
+   "RemainingDuration": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000D4-0000-1000-8000-0026BB765291",
+      "maxValue": 3600,
       "minStep": 1,
       "minValue": 0
    },
@@ -1012,7 +959,7 @@
          "StayArm": 0
       }
    },
-   "SelectedStreamConfiguration": {
+   "SelectedRTPStreamConfiguration": {
       "Format": "tlv8",
       "Permissions": [
          "pr",
@@ -1022,25 +969,57 @@
    },
    "SerialNumber": {
       "Format": "string",
+      "MaximumLength": 64,
       "Permissions": [
          "pr"
       ],
       "UUID": "00000030-0000-1000-8000-0026BB765291"
    },
-   "SetupEndpoints": {
-      "Format": "tlv8",
+   "ServiceLabelIndex": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "000000CB-0000-1000-8000-0026BB765291",
+      "maxValue": 255,
+      "minStep": 1,
+      "minValue": 1
+   },
+   "ServiceLabelNamespace": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "000000CD-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "ArabicNumerals": 1,
+         "Dots": 0
+      }
+   },
+   "SetDuration": {
+      "Format": "uint32",
       "Permissions": [
          "pr",
          "pw",
          "ev"
+      ],
+      "UUID": "000000D3-0000-1000-8000-0026BB765291",
+      "maxValue": 3600,
+      "minStep": 1,
+      "minValue": 0
+   },
+   "SetupEndpoints": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw"
       ],
       "UUID": "00000118-0000-1000-8000-0026BB765291"
    },
    "SlatType": {
       "Format": "uint8",
       "Permissions": [
-         "pr",
-         "ev"
+         "pr"
       ],
       "UUID": "000000C0-0000-1000-8000-0026BB765291",
       "ValidValues": {
@@ -1060,13 +1039,6 @@
          "SmokeNotDetected": 0
       }
    },
-   "SoftwareRevision": {
-      "Format": "string",
-      "Permissions": [
-         "pr"
-      ],
-      "UUID": "00000054-0000-1000-8000-0026BB765291"
-   },
    "StatusActive": {
       "Format": "bool",
       "Permissions": [
@@ -1081,7 +1053,11 @@
          "pr",
          "ev"
       ],
-      "UUID": "00000077-0000-1000-8000-0026BB765291"
+      "UUID": "00000077-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "GeneralFault": 1,
+         "NoFault": 0
+      }
    },
    "StatusJammed": {
       "Format": "uint8",
@@ -1123,7 +1099,6 @@
       "Format": "tlv8",
       "Permissions": [
          "pr",
-         "pw",
          "ev"
       ],
       "UUID": "00000120-0000-1000-8000-0026BB765291"
@@ -1169,8 +1144,8 @@
       ],
       "UUID": "000000B6-0000-1000-8000-0026BB765291",
       "ValidValues": {
-         "Swingdisabled": 0,
-         "Swingenabled": 1
+         "SwingDisabled": 0,
+         "SwingEnabled": 1
       }
    },
    "TargetAirPurifierState": {
@@ -1277,9 +1252,9 @@
       ],
       "UUID": "000000B4-0000-1000-8000-0026BB765291",
       "ValidValues": {
-         "Auto": 0,
          "Dehumidifier": 2,
-         "Humidifier": 1
+         "Humidifier": 1,
+         "HumidifierorDehumidifier": 0
       }
    },
    "TargetPosition": {
@@ -1373,49 +1348,6 @@
          "Fahrenheit": 1
       }
    },
-   "TimeUpdate": {
-      "Format": "bool",
-      "Permissions": [
-         "pr",
-         "ev"
-      ],
-      "UUID": "0000009A-0000-1000-8000-0026BB765291"
-   },
-   "TunnelConnectionTimeout": {
-      "Format": "uint32",
-      "Permissions": [
-         "pw",
-         "pr",
-         "ev"
-      ],
-      "UUID": "00000061-0000-1000-8000-0026BB765291"
-   },
-   "TunneledAccessoryAdvertising": {
-      "Format": "bool",
-      "Permissions": [
-         "pw",
-         "pr",
-         "ev"
-      ],
-      "UUID": "00000060-0000-1000-8000-0026BB765291"
-   },
-   "TunneledAccessoryConnected": {
-      "Format": "bool",
-      "Permissions": [
-         "pw",
-         "pr",
-         "ev"
-      ],
-      "UUID": "00000059-0000-1000-8000-0026BB765291"
-   },
-   "TunneledAccessoryStateNumber": {
-      "Format": "float",
-      "Permissions": [
-         "pr",
-         "ev"
-      ],
-      "UUID": "00000058-0000-1000-8000-0026BB765291"
-   },
    "VOCDensity": {
       "Format": "float",
       "Permissions": [
@@ -1427,8 +1359,23 @@
       "minStep": 1,
       "minValue": 0
    },
+   "ValveType": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000D5-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "Genericvalve": 0,
+         "Irrigation": 1,
+         "Showerhead": 2,
+         "Waterfaucet": 3
+      }
+   },
    "Version": {
       "Format": "string",
+      "MaximumLength": 64,
       "Permissions": [
          "pr",
          "ev"
@@ -1436,7 +1383,7 @@
       "UUID": "00000037-0000-1000-8000-0026BB765291"
    },
    "Volume": {
-      "Format": "float",
+      "Format": "uint8",
       "Permissions": [
          "pr",
          "pw",

@@ -1,16 +1,16 @@
 {
    "AccessoryInformation": {
       "OptionalCharacteristics": [
-         "FirmwareRevision",
          "HardwareRevision",
-         "SoftwareRevision"
+         "AccessoryFlags"
       ],
       "RequiredCharacteristics": [
          "Identify",
          "Manufacturer",
          "Model",
          "Name",
-         "SerialNumber"
+         "SerialNumber",
+         "FirmwareRevision"
       ],
       "UUID": "0000003E-0000-1000-8000-0026BB765291"
    },
@@ -30,13 +30,19 @@
    },
    "AirQualitySensor": {
       "OptionalCharacteristics": [
-         "AirParticulateDensity",
-         "AirParticulateSize",
          "StatusActive",
          "StatusFault",
          "StatusTampered",
          "StatusLowBattery",
-         "Name"
+         "Name",
+         "OzoneDensity",
+         "NitrogenDioxideDensity",
+         "SulphurDioxideDensity",
+         "PM2.5Density",
+         "PM10Density",
+         "VOCDensity",
+         "CarbonMonoxideLevel",
+         "CarbonDioxideLevel"
       ],
       "RequiredCharacteristics": [
          "AirQuality"
@@ -54,46 +60,6 @@
       ],
       "UUID": "00000096-0000-1000-8000-0026BB765291"
    },
-   "BridgeConfiguration": {
-      "OptionalCharacteristics": [],
-      "RequiredCharacteristics": [
-         "ConfigureBridgedAccessoryStatus",
-         "DiscoverBridgedAccessories",
-         "DiscoveredBridgedAccessories",
-         "ConfigureBridgedAccessory"
-      ],
-      "UUID": "000000A1-0000-1000-8000-0026BB765291"
-   },
-   "BridgingState": {
-      "OptionalCharacteristics": [
-         "Name"
-      ],
-      "RequiredCharacteristics": [
-         "Reachable",
-         "LinkQuality",
-         "AccessoryIdentifier",
-         "Category"
-      ],
-      "UUID": "00000062-0000-1000-8000-0026BB765291"
-   },
-   "CameraControl": {
-      "OptionalCharacteristics": [
-         "CurrentHorizontalTiltAngle",
-         "CurrentVerticalTiltAngle",
-         "TargetHorizontalTiltAngle",
-         "TargetVerticalTiltAngle",
-         "NightVision",
-         "OpticalZoom",
-         "DigitalZoom",
-         "ImageRotation",
-         "ImageMirroring",
-         "Name"
-      ],
-      "RequiredCharacteristics": [
-         "On"
-      ],
-      "UUID": "00000111-0000-1000-8000-0026BB765291"
-   },
    "CameraRTPStreamManagement": {
       "OptionalCharacteristics": [
          "Name"
@@ -102,7 +68,7 @@
          "SupportedVideoStreamConfiguration",
          "SupportedAudioStreamConfiguration",
          "SupportedRTPConfiguration",
-         "SelectedStreamConfiguration",
+         "SelectedRTPStreamConfiguration",
          "StreamingStatus",
          "SetupEndpoints"
       ],
@@ -201,6 +167,16 @@
       ],
       "UUID": "000000B7-0000-1000-8000-0026BB765291"
    },
+   "Faucet": {
+      "OptionalCharacteristics": [
+         "Name",
+         "StatusFault"
+      ],
+      "RequiredCharacteristics": [
+         "Active"
+      ],
+      "UUID": "000000D7-0000-1000-8000-0026BB765291"
+   },
    "FilterMaintenance": {
       "OptionalCharacteristics": [
          "FilterLifeLevel",
@@ -274,6 +250,19 @@
       ],
       "UUID": "00000082-0000-1000-8000-0026BB765291"
    },
+   "IrrigationSystem": {
+      "OptionalCharacteristics": [
+         "Name",
+         "RemainingDuration",
+         "StatusFault"
+      ],
+      "RequiredCharacteristics": [
+         "Active",
+         "ProgramMode",
+         "InUse"
+      ],
+      "UUID": "000000CF-0000-1000-8000-0026BB765291"
+   },
    "LeakSensor": {
       "OptionalCharacteristics": [
          "StatusActive",
@@ -330,9 +319,6 @@
       "UUID": "00000044-0000-1000-8000-0026BB765291"
    },
    "LockMechanism": {
-      "IncludedServices": [
-         "00000044-0000-1000-8000-0026BB765291"
-      ],
       "OptionalCharacteristics": [
          "Name"
       ],
@@ -401,6 +387,15 @@
       ],
       "UUID": "0000007E-0000-1000-8000-0026BB765291"
    },
+   "ServiceLabel": {
+      "OptionalCharacteristics": [
+         "Name"
+      ],
+      "RequiredCharacteristics": [
+         "ServiceLabelNamespace"
+      ],
+      "UUID": "000000CC-0000-1000-8000-0026BB765291"
+   },
    "Slat": {
       "OptionalCharacteristics": [
          "Name",
@@ -437,19 +432,10 @@
       ],
       "UUID": "00000113-0000-1000-8000-0026BB765291"
    },
-   "StatefulProgrammableSwitch": {
-      "OptionalCharacteristics": [
-         "Name"
-      ],
-      "RequiredCharacteristics": [
-         "ProgrammableSwitchEvent",
-         "ProgrammableSwitchOutputState"
-      ],
-      "UUID": "00000088-0000-1000-8000-0026BB765291"
-   },
    "StatelessProgrammableSwitch": {
       "OptionalCharacteristics": [
-         "Name"
+         "Name",
+         "ServiceLabelIndex"
       ],
       "RequiredCharacteristics": [
          "ProgrammableSwitchEvent"
@@ -495,26 +481,21 @@
       ],
       "UUID": "0000004A-0000-1000-8000-0026BB765291"
    },
-   "TimeInformation": {
-      "OptionalCharacteristics": [],
-      "RequiredCharacteristics": [
-         "CurrentTime",
-         "DayoftheWeek",
-         "TimeUpdate"
+   "Valve": {
+      "OptionalCharacteristics": [
+         "SetDuration",
+         "RemainingDuration",
+         "IsConfigured",
+         "ServiceLabelIndex",
+         "StatusFault",
+         "Name"
       ],
-      "UUID": "00000099-0000-1000-8000-0026BB765291"
-   },
-   "TunneledBTLEAccessoryService": {
-      "OptionalCharacteristics": [],
       "RequiredCharacteristics": [
-         "Name",
-         "AccessoryIdentifier",
-         "TunneledAccessoryStateNumber",
-         "TunneledAccessoryConnected",
-         "TunneledAccessoryAdvertising",
-         "TunnelConnectionTimeout"
+         "Active",
+         "InUse",
+         "ValveType"
       ],
-      "UUID": "00000056-0000-1000-8000-0026BB765291"
+      "UUID": "000000D0-0000-1000-8000-0026BB765291"
    },
    "Window": {
       "OptionalCharacteristics": [

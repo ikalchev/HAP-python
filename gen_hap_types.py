@@ -112,11 +112,11 @@ def main():
     tidy_char(char_info)
     fix_valid_values(char_info)
     with open(CHAR_OUT_FILE, "w") as char_fp:
-        json.dump(list2dict(char_info), char_fp, indent=3)
+        json.dump(list2dict(char_info), char_fp, indent=3, sort_keys=True)
 
     replace_char_uuid(service_info, uuid2name)
     with open(SERVICE_OUT_FILE, "w") as services_fp:
-        json.dump(list2dict(service_info), services_fp, indent=3)
+        json.dump(list2dict(service_info), services_fp, indent=3, sort_keys=True)
 
 
 if __name__ == "__main__":
