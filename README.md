@@ -1,18 +1,4 @@
 [![PyPI version](https://badge.fury.io/py/HAP-python.svg)](https://badge.fury.io/py/HAP-python) [![Build Status](https://travis-ci.org/ikalchev/HAP-python.svg?branch=master)](https://travis-ci.org/ikalchev/HAP-python) [![codecov](https://codecov.io/gh/ikalchev/HAP-python/branch/master/graph/badge.svg)](https://codecov.io/gh/ikalchev/HAP-python) [![Documentation Status](https://readthedocs.org/projects/hap-python/badge/?version=latest)](http://hap-python.readthedocs.io/en/latest/?badge=latest)
-# Breaking change: 1.1.1 to 1.1.2+
-Since version 1.1.2 you no longer need to unpickle the accessory to retain its state!
-Have a look at [main.py](main.py) to see the new, simpler workflow. (the state is also
-1/10 the size and is python and HAP-python forward-compatible)
-
-If you want to convert the pickle state to the new format, run the `pickle_to_state.py`
-script, passing your .pickle file and the name of the new state file, e.g.:
-```sh
-$ python3 pickle_to_state.py accessory.pickle accessory.state
-```
-After that, you can just change your code to pass the `.state` file
-as the `persist_file` to the driver. Alternatively, just delete the state and re-pair with the Home app.
-
-Aplogies for any inconvenience!
 # HAP-python
 
 HomeKit Accessory Protocol implementation in python 3 (tested with 3.4, 3.5 and 3.6).
