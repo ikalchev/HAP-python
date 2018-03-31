@@ -7,19 +7,44 @@ This is:
 """
 import logging
 import signal
+import time
+import random
 
 from pyhap.accessories.TemperatureSensor import TemperatureSensor
-from pyhap.accessory import Bridge
+from pyhap.accessory import Bridge, Accessory, Category
 from pyhap.accessory_driver import AccessoryDriver
+import pyhap.loader as loader
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
+
+
+class SyncTemperatureSensor(Accessory):
+
+    category = Category.SENSOR
+
+    def __init__(self, *args, **kwargs):
+        super(SyncTemperatureSensor, self).__init__(*args, **kwargs)
+
+        self.temp_char = self.get_service("TemperatureSensor")\
+                             .get_characteristic("CurrentTemperature")
+
+    def _set_services(self):
+        super(SyncTemperatureSensor, self)._set_services()
+        self.add_service(
+            loader.get_serv_loader().get("TemperatureSensor"))
+
+    def run(self, stop_event, loop=None):
+        while not stop_event.is_set():  # This is not being set because it is from another thread.
+            time.sleep(3)
+            self.temp_char.set_value(random.randint(18, 26))
+            print(self.display_name, self.temp_char.value)
 
 
 def get_bridge():
     """Call this method to get a Bridge instead of a standalone accessory."""
     bridge = Bridge(display_name="Bridge")
     temp_sensor = TemperatureSensor("Termometer")
-    temp_sensor2 = TemperatureSensor("Termometer2")
+    temp_sensor2 = SyncTemperatureSensor("Termometer2")
     bridge.add_accessory(temp_sensor)
     bridge.add_accessory(temp_sensor2)
 
@@ -36,7 +61,7 @@ def get_accessory():
     return acc
 
 
-acc = get_accessory()  # Change to get_bridge() if you want to run a Bridge.
+acc = get_bridge()  # Change to get_bridge() if you want to run a Bridge.
 
 # Start the accessory on port 51826
 driver = AccessoryDriver(acc, port=51826)

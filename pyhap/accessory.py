@@ -377,7 +377,7 @@ class Accessory(object):
         self.print_qr()
         print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
 
-    async def run(self, loop, stop_event):
+    async def run(self, stop_event, loop=None):
         """Called when the Accessory should start doing its thing.
 
         Called when HAP server is running, advertising is set, etc.
@@ -499,12 +499,26 @@ class Bridge(Accessory):
 
         return acc.get_characteristic(aid, iid)
 
-    async def run(self, loop, stop_event):
+    async def run(self, stop_event, loop=None):
         """Schedule tasks for each of the accessories' run method.
         """
-        all_accessory_tasks = (acc.run(loop, stop_event)
-                               for acc in self.accessories.values())
-        await asyncio.gather(*all_accessory_tasks, loop=loop)
+        coroutines = []  # Accessories with async run method
+        syncs = []  # Accessories with non-async run method
+
+        for acc in self.accessories.values():
+            if asyncio.iscoroutinefunction(acc.run):
+                coroutines.append(acc)
+            else:
+                syncs.append(acc)
+
+        logger.debug("Coroutines: %s", coroutines)
+        logger.debug("Synchronous: %s", syncs)
+
+        for acc in syncs:
+            threading.Thread(target=acc.run, args=(stop_event,)).start()
+
+        accessory_futures = (acc.run(stop_event, loop) for acc in coroutines)
+        await asyncio.gather(*accessory_futures, loop=loop)
 
     def stop(self):
         """Calls stop() on all contained accessories."""

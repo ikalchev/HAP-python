@@ -110,7 +110,7 @@ class AIOThread(threading.Thread):
         """
         self.loop = asyncio.new_event_loop()
         self.stop_event = asyncio.Event()
-        self.task = self.loop.create_task(run_method(self.loop, self.stop_event))
+        self.task = self.loop.create_task(run_method(self.stop_event, self.loop))
         super(AIOThread, self).__init__(target=self.loop.run_until_complete,
                                         args=(self.task,))
 

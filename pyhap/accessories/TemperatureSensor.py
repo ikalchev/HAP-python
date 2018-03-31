@@ -23,7 +23,7 @@ class TemperatureSensor(Accessory):
         self.add_service(
             loader.get_serv_loader().get("TemperatureSensor"))
 
-    async def run(self, loop, stop_event):
+    async def run(self, stop_event, loop=None):
         while not stop_event.is_set():
             await asyncio.sleep(3)
             self.temp_char.set_value(random.randint(18, 26))
