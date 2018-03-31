@@ -390,7 +390,7 @@ class Accessory(object):
 
     # Broker
 
-    def publish(self, data, sender):
+    def publish(self, value, sender):
         """Append AID and IID of the sender and forward it to the broker.
 
         Characteristics call this method to send updates.
@@ -409,7 +409,7 @@ class Accessory(object):
         acc_data = {
             "aid": self.aid,
             "iid": self.iid_manager.get_iid(sender),
-            "value": data["value"],
+            "value": value,
         }
         self.broker.publish(acc_data)
 

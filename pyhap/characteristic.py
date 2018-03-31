@@ -4,6 +4,8 @@ All things for a HAP characteristic.
 A Characteristic is the smallest unit of the smart home, e.g.
 a temperature measuring or a device status.
 """
+import uuid
+
 
 class HAP_FORMAT:
     BOOL = 'bool'
@@ -72,10 +74,10 @@ class Characteristic:
     like format, min and max values, valid values and others.
     """
 
-    __slots__ = ['display_name', 'type_id', 'properties', 'broker',
-                 'setter_callback', 'value']
+    __slots__ = ('display_name', 'type_id', 'properties', 'broker',
+                 'setter_callback', 'value')
 
-    def __init__(self, display_name, type_id, properties, value=None, broker=None):
+    def __init__(self, display_name, type_id, properties):
         """Initialise with the given properties.
 
         :param display_name: Name that will be displayed for this characteristic, i.e.
@@ -87,89 +89,49 @@ class Characteristic:
 
         :param properties: A dict of properties, such as Format, ValidValues, etc.
         :type properties: dict
-
-        :param value: The initial value to set to this characteristic. If no value is given,
-            the assigned value happens as:
-            - if there is a ValidValue property, use some value from it.
-            - else use `HAP_FORMAT.DEFAULT` for the format of this characteristic.
-        :type value: Depends on `properties["Format"]`
         """
-        if 'Format' not in properties or 'Permissions' not in properties:
-            raise ValueError('Invalid properties')
         self.display_name = display_name
         self.type_id = type_id
         self.properties = properties
-        self.broker = broker
+        self.broker = None
         self.setter_callback = None
-        self.value = value or self._get_default_value()
+        self.value = self._get_default_value()
 
     def __repr__(self):
         """Return the representation of the characteristic."""
         return '<characteristic display_name={} value={} properties={}>' \
             .format(self.display_name, self.value, self.properties)
 
+    def set_value(self, value):
+        """Called from user to indicate value change.
+
+        Will notify broker that publishes change to clients.
+        """
+        value = self.to_valid_value(value)
+        self.value = value
+        self.notify()
+
     def _get_default_value(self):
         """Helper method. Return default value for format."""
         if self.properties.get('ValidValues'):
             return min(self.properties['ValidValues'].values())
         else:
-            value = HAP_FORMAT.DEFAULT[self.properties['Format']]
-            return self._validate_value(value)
+            value = HAP_FORMAT.DEFAULT[self.properties['Format']] 
+            return self.to_valid_value(value)
 
-    def _validate_value(self, value):
-        """Perform value validation depending on format."""
+    def to_valid_value(self, value):
+        """Perform validation and conversion to valid value"""
         if self.properties.get('ValidValues'):
             if value not in self.properties['ValidValues'].values():
-                raise ValueError
-            else:
-                return value
+                raise ValueError('%s is not a valid value'.format(value))
         elif self.properties['Format'] == HAP_FORMAT.STRING:
-            return str(value)[:256]
-        elif self.properties['Format'] == HAP_FORMAT.NUMERIC:
-            value = min(self.properties.get('maxValue', value), value)
-            return max(self.properties.get('minValue', value), value)
+            value = str(value)[:256]
         elif self.properties['Format'] == HAP_FORMAT.BOOL:
-            return bool(value)
-        elif self.properties['Format'] == HAP_FORMAT.ARRAY:
-            # TODO: Add validation
-            pass
-        elif self.properties['Format'] == HAP_FORMAT.DICTIONARY:
-            # TODO: Add validation
-            pass
-        elif self.properties['Format'] == HAP_FORMAT.DATA:
-            # TODO: Add validation
-            pass
-        elif self.properties['Format'] == HAP_FORMAT.TLV8:
-            # TODO: Add validation
-            pass
-
+            value = bool(value)
+        elif self.properties['Format'] in HAP_FORMAT.NUMERIC:
+            value = min(self.properties.get('maxValue', value), value)
+            value = max(self.properties.get('minValue', value), value)
         return value
-
-    def set_value(self, value, should_notify=True, should_callback=True):
-        """Set the given raw value.
-
-        :param value: The value to assign as this Characteristic's value.
-        :type value: Depends on properties["Format"]
-
-        :param should_notify: Whether a the change should be sent to subscribed clients.
-            The notification is called _after_ the setter callback.
-            Notify will be performed if broker is set.
-        :type should_notify: bool
-
-        :param should_callback: Whether to invoke the callback, if such is set. This
-            is useful in cases where you and HAP clients can both update the value and
-            you don't want your callback called when you set the value, but want it
-            called when clients do. Defaults to True.
-        :type should_callback: bool
-
-        :raise ValueError: When the value being assigned is not one of the valid values
-            for this Characteristic.
-        """
-        self.value = self._validate_value(value)
-        if self.setter_callback and should_callback:
-            self.setter_callback(self.value)
-        if self.broker and should_notify:
-            self.notify()
 
     def override_properties(self, properties=None, valid_values=None):
         """Override characteristic property values and valid values.
@@ -189,50 +151,44 @@ class Characteristic:
             self.properties['ValidValues'] = valid_values
 
     def notify(self):
-        """Notify clients about a value change. Sends the value.
+        """Notify clients about a value change. Sends the value."""
+        self.broker.publish(self.value, self)
 
-        .. note:: Non-blocking, i.e. does not wait for the update to be sent.
-        .. seealso:: accessory_driver.publish
-
-        :raise RuntimeError: When the broker is not set.
-        """
-        if not self.broker:
-            raise RuntimeError('Notify failed, because broker is not set')
-
-        data = {
-            'type_id': self.type_id,
-            'value': self.value,
-        }
-        self.broker.publish(data, self)
-
-    def to_HAP(self, iid_manager):
-        """Create a HAP representation of this Characteristic. Sends the value.
-
-        :param iid_manager: IID manager to query for this object's IID.
-        :type iid_manager: IIDManager
-
-        :return: A HAP representation.
-        :rtype: dict
-        """
-        hap_rep = {
-            "iid": iid_manager.get_iid(self),
-            "type": str(self.type_id).upper(),
-            "description": self.display_name,
-            "perms": self.properties["Permissions"],
-            "format": self.properties["Format"],
+    def to_dict(self):
+        """Create a dict repr of this object for json serialization."""
+        json_dict = {
+            'iid': self.broker.iid_manager.get_iid(self),
+            'type': str(self.type_id).upper(),
+            'description': self.display_name,
+            'perms': self.properties['Permissions'],
+            'format': self.properties['Format'],
         }
 
-        if self.properties["Format"] in HAP_FORMAT.NUMERIC:
-            value_info = {k: self.properties[k] for k in
-                          self.properties.keys() & _HAP_NUMERIC_FIELDS}
-        else:
-            value_info = dict()
-
-        if self.properties["Format"] == HAP_FORMAT.STRING:
+        if self.properties['Format'] in HAP_FORMAT.NUMERIC:
+            json_dict.update({k: self.properties[k] for k in
+                              self.properties.keys() & _HAP_NUMERIC_FIELDS})
+        elif self.properties['Format'] == HAP_FORMAT.STRING:
             if len(self.value) > 64:
-                value_info["maxLen"] = min(len(self.value), 256)
-        if HAP_PERMISSIONS.READ in self.properties["Permissions"]:
-            value_info["value"] = self.value
+                json_dict['maxLen'] = min(len(self.value), 256)
+        if HAP_PERMISSIONS.READ in self.properties['Permissions']:
+            json_dict['value'] = self.value
 
-        hap_rep.update(value_info)
-        return hap_rep
+        return json_dict
+
+    def update_value(self, value):
+        """Called from broker for value change in Home app.
+
+        Change self.value to value and call callback.
+        The callback method must return a boolean that indicates if successful.
+        """
+        self.value = value
+        self.notify()
+        if self.setter_callback:
+            return self.setter_callback(value)
+        return True
+
+    @classmethod
+    def from_dict(cls, name, json_dict):
+        """Convert json dictionary to characteristic instance."""
+        return cls(name, type_id=uuid.UUID(json_dict.pop('UUID')),
+                   properties=json_dict)
