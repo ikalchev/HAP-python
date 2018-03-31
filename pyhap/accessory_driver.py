@@ -21,6 +21,9 @@ Whenever a send fails, the client is unsubscribed, as it is assumed that the cli
 or went to sleep before telling us. This concludes the publishing process from the
 AccessoryDriver.
 """
+import asyncio
+from concurrent.futures import CancelledError
+import functools
 import os
 import logging
 import socket
@@ -95,6 +98,32 @@ class HAP_CONSTANTS:
     CHAR_STAT_OK = 0
     SERVICE_COMMUNICATION_FAILURE = -70402
 
+
+class AIOThread(threading.Thread):
+    """
+    TODO: temporary convenience class. Create an event loop and event object for
+    controlling the Accessory.run method.
+    """
+
+    def __init__(self, run_method):
+        """
+        """
+        self.loop = asyncio.new_event_loop()
+        self.stop_event = asyncio.Event()
+        self.task = self.loop.create_task(run_method(self.loop, self.stop_event))
+        super(AIOThread, self).__init__(target=self.loop.run_until_complete,
+                                        args=(self.task,))
+
+    def run(self):
+        try:
+            super(AIOThread, self).run()
+        except CancelledError:
+            self.loop.stop()
+            self.loop.close()
+            logger.info("Sucessfully stopped accessory event loop.")
+
+    def stop(self):
+        self.loop.call_soon_threadsafe(self.task.cancel)
 
 class AccessoryDriver(object):
     """
@@ -228,7 +257,7 @@ class AccessoryDriver(object):
         this is not run in a daemon thread or it is run on the main thread, the app will
         hang.
         """
-        while not self.run_sentinel.is_set():
+        while not self.accessory_thread.is_alive():  # self.run_sentinel.is_set():
             # Maybe consider having a pool of worker threads, each performing a send in
             # order to increase throughput.
             topic, bytedata = self.event_queue.get()
@@ -463,9 +492,7 @@ class AccessoryDriver(object):
                     self.accessory.display_name, self.address, self.port)
 
         # Start the accessory so it can do stuff.
-        self.run_sentinel = threading.Event()
-        self.accessory.set_sentinel(self.run_sentinel)
-        self.accessory_thread = threading.Thread(target=self.accessory.run)
+        self.accessory_thread = AIOThread(self.accessory.run)
         self.accessory_thread.start()
 
         # Start sending events to clients. This is done in a daemon thread, because:
@@ -505,8 +532,8 @@ class AccessoryDriver(object):
         logger.info("Stoping accessory '%s' on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
         logger.debug("Setting run sentinel, stopping accessory and event sending")
-        self.run_sentinel.set()
         self.accessory.stop()
+        self.accessory_thread.stop()
         self.accessory_thread.join()
 
         logger.debug("Stopping mDNS advertising")

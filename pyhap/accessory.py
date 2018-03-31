@@ -1,3 +1,4 @@
+import asyncio
 import threading
 import logging
 import itertools
@@ -376,7 +377,7 @@ class Accessory(object):
         self.print_qr()
         print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
 
-    def run(self):
+    async def run(self, loop, stop_event):
         """Called when the Accessory should start doing its thing.
 
         Called when HAP server is running, advertising is set, etc.
@@ -498,12 +499,12 @@ class Bridge(Accessory):
 
         return acc.get_characteristic(aid, iid)
 
-    def run(self):
-        """Creates and starts a new thread for each of the contained accessories' run
-            method.
+    async def run(self, loop, stop_event):
+        """Schedule tasks for each of the accessories' run method.
         """
-        for acc in self.accessories.values():
-            threading.Thread(target=acc.run).start()
+        all_accessory_tasks = (acc.run(loop, stop_event)
+                               for acc in self.accessories.values())
+        await asyncio.gather(*all_accessory_tasks, loop=loop)
 
     def stop(self):
         """Calls stop() on all contained accessories."""

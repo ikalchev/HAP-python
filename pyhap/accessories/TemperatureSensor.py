@@ -1,5 +1,6 @@
 # An Accessory mocking a temperature sensor.
 # It changes its value every few seconds.
+import asyncio
 import random
 import time
 
@@ -22,6 +23,8 @@ class TemperatureSensor(Accessory):
         self.add_service(
             loader.get_serv_loader().get("TemperatureSensor"))
 
-    def run(self):
-        while not self.run_sentinel.wait(3):
+    async def run(self, loop, stop_event):
+        while not stop_event.is_set():
+            await asyncio.sleep(3)
             self.temp_char.set_value(random.randint(18, 26))
+            print(self.display_name, self.temp_char.value)
