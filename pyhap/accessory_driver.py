@@ -32,7 +32,7 @@ import threading
 import json
 import queue
 
-from zeroconf import ServiceInfo, Zeroconf
+from zeroconf import ServiceInfo, Zeroconf, NonUniqueNameException
 
 from pyhap import util
 from pyhap.accessory import AsyncAccessory, get_topic, STANDALONE_AID
@@ -49,6 +49,11 @@ logger = logging.getLogger(__name__)
 
 CHAR_STAT_OK = 0
 SERVICE_COMMUNICATION_FAILURE = -70402
+
+
+WARNING_MSG_UNREGISTER_SERVICE = \
+    'Failed to update advertisement, iOS devices will continue to get ' \
+    'the old accessory state until a restart.'
 
 
 class AccessoryMDNSServiceInfo(ServiceInfo):
@@ -263,12 +268,23 @@ class AccessoryDriver:
 
     def update_advertisement(self):
         """Updates the mDNS service info for the accessory."""
-        self.advertiser.unregister_service(self.mdns_service_info)
+        # TODO: Find out what causes zeroconf errors.
+        try:
+            self.advertiser.unregister_service(self.mdns_service_info)
+        except KeyError as e:
+            logger.debug('Exception during update_advertisement, ' \
+                         'unregister_service: %s', e)
+            logger.error(WARNING_MSG_UNREGISTER_SERVICE)
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory,
                                                           self.address,
                                                           self.port)
         time.sleep(0.1)  # Doing it right away can cause crashes.
-        self.advertiser.register_service(self.mdns_service_info)
+        try:
+            self.advertiser.register_service(self.mdns_service_info)
+        except NonUniqueNameException as e:
+            logger.debug('Exception during update_advertisement, ' \
+                         'register_service: %s', e)
+            logger.error(WARNING_MSG_UNREGISTER_SERVICE)
 
     def persist(self):
         """Saves the state of the accessory."""
@@ -480,7 +496,14 @@ class AccessoryDriver:
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory,
                                                           self.address,
                                                           self.port)
-        self.advertiser.register_service(self.mdns_service_info)
+        try:
+            self.advertiser.register_service(self.mdns_service_info)
+        except NonUniqueNameException as e:
+            logger.error('Could not register HomeKit service. Restart')
+            logger.debug('Exception during start of driver, ' \
+                         'register service: %s', e)
+            self.stop()
+            return
 
         # Print accessory setup message
         if not self.accessory.paired:
@@ -516,6 +539,8 @@ class AccessoryDriver:
         """
         # TODO: This should happen in a different order - mDNS, server, accessory. Need
         # to ensure that sending with a closed server will not crash the app.
+        if self.stop_event.is_set():
+            return
         logger.info("Stopping accessory %s on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
         logger.debug("Setting stop events, stopping accessory and event sending")
@@ -526,8 +551,11 @@ class AccessoryDriver:
         self.accessory.stop()
 
         logger.debug("Stopping mDNS advertising")
-        self.advertiser.unregister_service(self.mdns_service_info)
-        self.advertiser.close()
+        try:
+            self.advertiser.close()
+        except KeyError as e:
+            logger.debug('Exception during stop of driver, ' \
+                         'close advertiser: %s', e)
 
         logger.debug("Stopping HAP server")
         self.http_server.shutdown()
