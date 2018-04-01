@@ -123,6 +123,7 @@ class AIOThread(threading.Thread):
             logger.info("Sucessfully stopped accessory event loop.")
 
     def stop(self):
+        self.stop_event.set()
         self.loop.call_soon_threadsafe(self.task.cancel)
 
 class AccessoryDriver(object):
