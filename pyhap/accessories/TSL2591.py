@@ -3,6 +3,8 @@
 
 import tsl2591
 
+import asyncio
+
 from pyhap.accessory import Accessory, Category
 import pyhap.loader as loader
 
@@ -32,8 +34,9 @@ class TSL2591(Accessory):
         self.__dict__.update(state)
         self.tsl = tsl2591.Tsl2591()
 
-    def run(self):
-        while not self.run_sentinel.wait(10):
+    async def run(self, stop_event, loop=None):
+        while not stop_event.is_set():
+            await asyncio.sleep(10)
             full, ir = self.tsl.get_full_luminosity()
             lux = min(max(0.001, self.tsl.calculate_lux(full, ir)), 10000)
             self.lux_char.set_value(lux)
