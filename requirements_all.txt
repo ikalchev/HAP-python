@@ -5,3 +5,4 @@ zeroconf
 curve25519-donna
 pyqrcode
 base36
+aiohttp==3.1.1

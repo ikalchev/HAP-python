@@ -1,4 +1,5 @@
 # An Accessory for viewing/controlling the status of a Mac display.
+import asyncio
 import subprocess
 
 from pyhap.accessory import Accessory, Category
@@ -26,19 +27,20 @@ class DisplaySwitch(Accessory):
     category = Category.SWITCH
 
     def __init__(self, *args, **kwargs):
-        super(DisplaySwitch, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.display = self.get_service("Switch")\
                            .get_characteristic("On")
         self.display.setter_callback = self.set_display
 
     def _set_services(self):
-        super(DisplaySwitch, self)._set_services()
+        super()._set_services()
         self.add_service(
             loader.get_serv_loader().get("Switch"))
 
-    def run(self):
-        while not self.run_sentinel.wait(1):
+    async def run(self, stop_event, loop=None):
+        while not stop_event.is_set():
+            await asyncio.sleep(1)
             # We can't just use .set_value(state), because that will
             # trigger our listener.
             state = get_display_state()

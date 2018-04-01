@@ -4,6 +4,7 @@ Also, make sure pigpiod is running.
 The DHT22 module was taken from
 https://www.raspberrypi.org/forums/viewtopic.php?f=37&t=71336
 """
+import asyncio
 import time
 import random
 
@@ -19,7 +20,7 @@ class AM2302(Accessory):
     category = Category.SENSOR
 
     def __init__(self, *args, pin=4, **kwargs):
-        super(AM2302, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.pin = pin
 
         self.temp_char = self.get_service("TemperatureSensor")\
@@ -31,14 +32,14 @@ class AM2302(Accessory):
         self.sensor = DHT22.sensor(pigpio.pi(), pin)
 
     def _set_services(self):
-        super(AM2302, self)._set_services()
+        super()._set_services()
         self.add_service(
             loader.get_serv_loader().get("TemperatureSensor"))
         self.add_service(
             loader.get_serv_loader().get("HumiditySensor"))
 
     def __getstate__(self):
-        state = super(AM2302, self).__getstate__()
+        state = super().__getstate__()
         state["sensor"] = None
         return state
 
@@ -46,10 +47,11 @@ class AM2302(Accessory):
         self.__dict__.update(state)
         self.sensor = DHT22.sensor(pigpio.pi(), self.pin)
 
-    def run(self):
-        while not self.run_sentinel.wait(10):
+    async def run(self):
+        while not stop_event.is_set():
+            await asyncio.sleep(10)
             self.sensor.trigger()
-            time.sleep(0.2)
+            await acyncio.sleep(0.2)
             t = self.sensor.temperature()
             h = self.sensor.humidity()
             self.temp_char.set_value(t)

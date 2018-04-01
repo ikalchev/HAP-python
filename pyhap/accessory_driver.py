@@ -108,22 +108,35 @@ class AIOThread(threading.Thread):
     def __init__(self, run_method):
         """
         """
-        self.loop = asyncio.new_event_loop()
-        self.stop_event = asyncio.Event()
-        self.task = self.loop.create_task(run_method(self.stop_event, self.loop))
-        super(AIOThread, self).__init__(target=self.loop.run_until_complete,
-                                        args=(self.task,))
+        self.run_method = run_method
+        super().__init__()
 
     def run(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+
+        self.stop_event = asyncio.Event()
+        self.task = self.loop.create_task(self.run_method(self.stop_event, self.loop))
+
+        self.loop.run_forever()
+        self.loop.close()
+        logger.debug("Sucessfully stopped accessory event loop.")
+
+    async def shutdown(self):
+        logger.debug("Shutting down accessory event loop")
+        self.stop_event.set()
         try:
-            super(AIOThread, self).run()
-        except CancelledError:
+            await asyncio.wait_for(self.task, timeout=5)
+        except asyncio.TimeoutError:
+            logger.info("Accessory task did not shutdown within 5 seconds")
+        finally:
             self.loop.stop()
-            self.loop.close()
-            logger.info("Sucessfully stopped accessory event loop.")
+
+    def safe_shutdown(self):
+        task = self.loop.create_task(self.shutdown())
 
     def stop(self):
-        self.loop.call_soon_threadsafe(self.task.cancel)
+        self.loop.call_soon_threadsafe(self.safe_shutdown)
 
 class AccessoryDriver(object):
     """

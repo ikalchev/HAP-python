@@ -3,6 +3,8 @@
 # Assume you have a bmp module with BMP180 class with read() method.
 from sensors.bmp180 import BMP180 as sensor
 
+import asyncio
+
 from pyhap.accessory import Accessory, Category
 import pyhap.loader as loader
 
@@ -33,7 +35,8 @@ class BMP180(Accessory):
         self.__dict__.update(state)
         self.sensor = sensor()
 
-    def run(self):
-        while not self.run_sentinel.wait(30):
+    async def run(self, stop_event, loop=None):
+        while not stop_event.is_set():
+            await asyncio.sleep(10)
             temp, _pressure = self.sensor.read()
             self.temp_char.set_value(temp)
