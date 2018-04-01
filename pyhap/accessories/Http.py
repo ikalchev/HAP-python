@@ -6,73 +6,52 @@ import json
 import threading
 import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from aiohttp import web
 
 from pyhap.accessory import Bridge, Category
 
 logger = logging.getLogger(__name__)
 
 
-class HttpBridgeHandler(BaseHTTPRequestHandler):
+class HttpBridgeHandler(web.Application):
     """Handles requests and passes value updates to an HttpAccessory.
 
     The POST request should contain json data with the format:
-    {   "aid": <aid>
+    {   "aid": <aid>,
         "services": {
             <service>: {
-                <characteristic>: value,
+                <characteristic>: <value>
             }
         }
     }
 
     Example:
-    {   "aid": 2
+    {   "aid": 2,
         "services": {
-            TemperatureSensor" : {
+            "TemperatureSensor" : {
                 "CurrentTemperature": 20
             }
         }
     }
     """
 
-    def __init__(self, http_accessory, sock, client_addr, server):
+    def __init__(self, http_accessory):
         """Create a handler that passes updates to the given HttpAccessory.
         """
+        super().__init__()
+
         self.http_accessory = http_accessory
-        super(HttpBridgeHandler, self).__init__(sock, client_addr, server)
+        self.add_routes([web.post('/', self.post_handler)])
 
-    def respond_ok(self):
-        """Reply with code 200 (OK) and close the connection.
-        """
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html")
-        self.send_header("Content-Length", 0)
-        self.end_headers()
-        self.close_connection = 1
-
-    def respond_err(self):
-        """Reply with code 400 and close the connection.
-        """
-        self.send_response(400)
-        self.send_header("Content-Type", "text/html")
-        self.send_header("Content-Length", 0)
-        self.end_headers()
-        self.close_connection = 1
-
-    def do_POST(self):
-        """Read the payload as json and update the state of the accessory.
-        """
-        length = int(self.headers["Content-Length"])
+    async def post_handler(self, request):
         try:
-            # The below decode is necessary only for python <3.6, because loads prior 3.6
-            # doesn't know bytes/bytearray.
-            content = self.rfile.read(length).decode("utf-8")
-            data = json.loads(content)
+            data = await request.json()
+            await self.http_accessory.update_state(data)
         except Exception as e:
             logger.error("Bad POST request; Error was: %s", str(e))
-            self.respond_err()
-        else:
-            self.http_accessory.update_state(data)
-            self.respond_ok()
+            return web.Response(text="Bad POST", status=400)
+
+        return web.Response(text="OK")
 
 
 class HttpBridge(Bridge):
@@ -127,7 +106,7 @@ class HttpBridge(Bridge):
 
     category = Category.OTHER
 
-    def __init__(self, address, *args, **kwargs):
+    def __init__(self, *args, address, **kwargs):
         """Initialise and add the given services.
 
         @param address: The address-port on which to listen for requests.
@@ -135,40 +114,11 @@ class HttpBridge(Bridge):
 
         @param accessories:
         """
-        super(HttpBridge, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
-        # For exclusive access to updates. Slight overkill...
-        self.update_lock = None
-        self.server_thread = None
-        self._set_server(address)
+        self.address = address
 
-    def _set_server(self, address):
-        """Set up a HTTPServer to listen on the given address.
-        """
-        self.server = HTTPServer(address, lambda *a: HttpBridgeHandler(self, *a))
-        self.server_thread = threading.Thread(target=self.server.serve_forever)
-        self.update_lock = threading.Lock()
-
-    def __getstate__(self):
-        """Return the state of this instance, less the server and server thread.
-
-        Also add the server address. All this is because we cannot pickle such
-        objects and to allow to recover the server using the address.
-        """
-        state = super(HttpBridge, self).__getstate__()
-        state["server"] = None
-        state["server_thread"] = None
-        state["update_lock"] = None
-        state["address"] = self.server.server_address
-        return state
-
-    def __setstate__(self, state):
-        """Load the state  and set up the server with the address in the state.
-        """
-        self.__dict__.update(state)
-        self._set_server(state["address"])
-
-    def update_state(self, data):
+    async def update_state(self, data):
         """Update the characteristics from the received data.
 
         Expected to be called from HapHttpHandler. Updates are thread-safe.
@@ -192,19 +142,17 @@ class HttpBridge(Bridge):
             service_obj = accessory.get_service(service)
             for char, value in char_data.items():
                 char_obj = service_obj.get_characteristic(char)
-                with self.update_lock:
-                    char_obj.set_value(value)
+                char_obj.set_value(value)
 
-    def stop(self):
-        """Stop the server.
-        """
-        super(HttpBridge, self).stop()
-        logger.debug("Stopping HTTP bridge server.")
-        self.server.shutdown()
-        self.server.server_close()
-
-    def run(self):
+    async def run(self, stop_event, loop=None):
         """Start the server - can listen for requests.
         """
         logger.debug("Starting HTTP bridge server.")
-        self.server_thread.start()
+        app = HttpBridgeHandler(self)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, self.address[0], self.address[1])
+        await site.start()
+
+        await stop_event.wait()
+        await runner.cleanup()
