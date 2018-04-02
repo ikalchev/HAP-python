@@ -4,9 +4,6 @@ All things for a HAP characteristic.
 A Characteristic is the smallest unit of the smart home, e.g.
 a temperature measuring or a device status.
 """
-import uuid
-
-
 class HAP_FORMAT:
     BOOL = 'bool'
     INT = 'int'
@@ -102,14 +99,20 @@ class Characteristic:
         return '<characteristic display_name={} value={} properties={}>' \
             .format(self.display_name, self.value, self.properties)
 
-    def set_value(self, value):
-        """Called from user to indicate value change.
+    def set_value(self, value, should_notify=True):
+        """Set the given raw value. It is checked if it is a valid value.
 
-        Will notify broker that publishes change to clients.
+        :param value: The value to assign as this Characteristic's value.
+        :type value: Depends on properties["Format"]
+
+        :param should_notify: Whether a the change should be sent to
+            subscribed clients. Notify will be performed if the broker is set.
+        :type should_notify: bool
         """
         value = self.to_valid_value(value)
         self.value = value
-        self.notify()
+        if should_notify and self.broker:
+            self.notify()
 
     def _get_default_value(self):
         """Helper method. Return default value for format."""
@@ -151,12 +154,32 @@ class Characteristic:
             self.properties['ValidValues'] = valid_values
 
     def notify(self):
-        """Notify clients about a value change. Sends the value."""
+        """Notify clients about a value change. Sends the value.
+
+        .. seealso:: accessory.publish
+        .. seealso:: accessory_driver.publish
+        """
         self.broker.publish(self.value, self)
 
-    def to_dict(self):
-        """Create a dict repr of this object for json serialization."""
-        json_dict = {
+    def client_update_value(self, value):
+        """Called from broker for value change in Home app.
+
+        Change self.value to value and call callback.
+        """
+        self.value = value
+        self.notify()
+        if self.setter_callback:
+            self.setter_callback(value)
+
+    def to_HAP(self):
+        """Create a HAP representation of this Characteristic.
+
+        Used for json serialization.
+
+        :return: A HAP representation.
+        :rtype: dict
+        """
+        hap_rep = {
             'iid': self.broker.iid_manager.get_iid(self),
             'type': str(self.type_id).upper(),
             'description': self.display_name,
@@ -165,30 +188,12 @@ class Characteristic:
         }
 
         if self.properties['Format'] in HAP_FORMAT.NUMERIC:
-            json_dict.update({k: self.properties[k] for k in
+            hap_rep.update({k: self.properties[k] for k in
                               self.properties.keys() & _HAP_NUMERIC_FIELDS})
         elif self.properties['Format'] == HAP_FORMAT.STRING:
             if len(self.value) > 64:
-                json_dict['maxLen'] = min(len(self.value), 256)
+                hap_rep['maxLen'] = min(len(self.value), 256)
         if HAP_PERMISSIONS.READ in self.properties['Permissions']:
-            json_dict['value'] = self.value
+            hap_rep['value'] = self.value
 
-        return json_dict
-
-    def update_value(self, value):
-        """Called from broker for value change in Home app.
-
-        Change self.value to value and call callback.
-        The callback method must return a boolean that indicates if successful.
-        """
-        self.value = value
-        self.notify()
-        if self.setter_callback:
-            return self.setter_callback(value)
-        return True
-
-    @classmethod
-    def from_dict(cls, name, json_dict):
-        """Convert json dictionary to characteristic instance."""
-        return cls(name, type_id=uuid.UUID(json_dict.pop('UUID')),
-                   properties=json_dict)
+        return hap_rep

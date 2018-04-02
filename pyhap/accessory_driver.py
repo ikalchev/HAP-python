@@ -440,7 +440,7 @@ class AccessoryDriver(object):
             }
             if "value" in cq:
                 # TODO: status needs to be based on success of set_value
-                char.update_value(cq["value"])
+                char.client_update_value(cq["value"])
                 if "r" in cq:
                     response["value"] = char.value
 

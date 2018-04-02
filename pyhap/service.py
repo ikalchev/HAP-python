@@ -60,11 +60,11 @@ class Service(object):
         :rtype: dict.
         """
         assert iid_manager is not None
-        chars = [c.to_dict() for c in self.characteristics]
+        characteristics = [c.toHAP() for c in self.characteristics]
 
         hap_rep = {
             "iid": iid_manager.get_iid(self),
             "type": str(self.type_id).upper(),
-            "characteristics": chars,
+            "characteristics": characteristics,
         }
         return hap_rep
