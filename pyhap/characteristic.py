@@ -4,6 +4,11 @@ All things for a HAP characteristic.
 A Characteristic is the smallest unit of the smart home, e.g.
 a temperature measuring or a device status.
 """
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+
+
 class HAP_FORMAT:
     BOOL = 'bool'
     INT = 'int'
@@ -55,13 +60,6 @@ class CharacteristicError(Exception):
     pass
 
 
-_HAP_NUMERIC_FIELDS = ('maxValue', 'minValue', 'minStep', 'unit')
-"""Fields that should be included in the HAP representation of the characteristic.
-
-That is, if they are present in the specification of a numeric-value characteristic.
-"""
-
-
 class Characteristic:
     """Represents a HAP characteristic, the smallest unit of the smart home.
 
@@ -109,6 +107,7 @@ class Characteristic:
             subscribed clients. Notify will be performed if the broker is set.
         :type should_notify: bool
         """
+        _LOGGER.debug('%s: Set value to %s', self.display_name, value)
         value = self.to_valid_value(value)
         self.value = value
         if should_notify and self.broker:
@@ -166,6 +165,8 @@ class Characteristic:
 
         Change self.value to value and call callback.
         """
+        _LOGGER.debug('%s: Client update value to %s',
+                      self.display_name, value)
         self.value = value
         self.notify()
         if self.setter_callback:
@@ -189,7 +190,8 @@ class Characteristic:
 
         if self.properties['Format'] in HAP_FORMAT.NUMERIC:
             hap_rep.update({k: self.properties[k] for k in
-                              self.properties.keys() & _HAP_NUMERIC_FIELDS})
+                            self.properties.keys() & 
+                            ('maxValue', 'minValue', 'minStep', 'unit')})
         elif self.properties['Format'] == HAP_FORMAT.STRING:
             if len(self.value) > 64:
                 hap_rep['maxLen'] = min(len(self.value), 256)
