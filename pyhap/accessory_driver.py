@@ -22,8 +22,6 @@ or went to sleep before telling us. This concludes the publishing process from t
 AccessoryDriver.
 """
 import asyncio
-from concurrent.futures import CancelledError, ThreadPoolExecutor
-import functools
 import os
 import logging
 import socket
@@ -37,7 +35,7 @@ import queue
 
 from zeroconf import ServiceInfo, Zeroconf
 
-from pyhap.accessory import get_topic, STANDALONE_AID
+from pyhap.accessory import AsyncAccessory, get_topic, STANDALONE_AID
 from pyhap.characteristic import CharacteristicError
 from pyhap.params import get_srp_context
 from pyhap.hsrp import Server as SrpServer
@@ -493,10 +491,13 @@ class AccessoryDriver(object):
 
         # Start the accessory so it can do stuff.
         self.accessory.set_sentinel(self.stop_event, self.aio_stop_event, self.event_loop)
-        self.accessory_task = self.event_loop.create_task(self.accessory.start())
+        if isinstance(self.accessory, AsyncAccessory):
+            self.accessory_task = self.event_loop.create_task(self.accessory.run())
+        else:
+            self.accessory_task = self.event_loop.run_in_executor(None,
+                                                                  self.accessory.run)
         logger.info("Starting event loop")
         self.event_loop.run_until_complete(self.accessory_task)
-        self.event_loop.stop()
         self.event_loop.close()
         logger.info("Stopped event loop.")
 
@@ -514,7 +515,8 @@ class AccessoryDriver(object):
                     self.accessory.display_name, self.address, self.port)
         logger.debug("Setting stop events, stopping accessory and event sending")
         self.stop_event.set()
-        self.event_loop.call_soon_threadsafe(self.aio_stop_event.set)
+        if not self.event_loop.is_closed():
+            self.event_loop.call_soon_threadsafe(self.aio_stop_event.set)
         self.accessory.stop()
 
         logger.debug("Stopping mDNS advertising")

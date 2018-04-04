@@ -381,41 +381,12 @@ class Accessory(object):
         self.print_qr()
         print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
 
-    def repeat(seconds):
-        """Decorator that runs decorated method in a while loop, which repeats every
-        ``seconds``. It ues the ``Accessory.aio_stop_event``.
-
-        :param seconds: The amount of seconds to wait for the event to be set.
-            Determines the interval on which the decorated method will be called.
-        :type seconds: float
-        """
-        def _repeat(func):
-            async def _wrapper(self, *args, **kwargs):
-                while not await util.event_wait(self.aio_stop_event, seconds):
-                    await func(self, *args, **kwargs)
-            return _wrapper
-        return _repeat
-
-    async def run(self):
+    def run(self):
         """Called when the Accessory should start doing its thing.
 
         Called when HAP server is running, advertising is set, etc.
         """
         pass
-
-    async def _wrap_in_thread(self):
-        threading.Thread(target=self.run).start()
-
-    async def start(self):
-        """Create and await on a task for ``Accessory.run``
-
-        If ``Accessory.run`` is not a coroutine, it will be wrapped in a task that
-        starts it in a new thread.
-        """
-        if asyncio.iscoroutinefunction(self.run):
-            await self.event_loop.create_task(self.run())
-        else:
-            await self.event_loop.create_task(self._wrap_in_thread())
 
     def stop(self):
         """Called when the Accessory should stop what is doing and clean up any resources.
@@ -448,7 +419,40 @@ class Accessory(object):
         self.broker.publish(acc_data)
 
 
-class Bridge(Accessory):
+class AsyncAccessory(Accessory):
+
+    def run_at_interval(seconds):
+        """Decorator that runs decorated method in a while loop, which repeats every
+        ``seconds`` until the ``Accessory.aio_stop_event`` is set.
+
+        Can be used as:
+        .. code-block:: python
+
+        @AsyncAccessory.run_at_interval(3)
+        async def run(self):
+            print("Hello again world!")
+
+        :param seconds: The amount of seconds to wait for the event to be set.
+            Determines the interval on which the decorated method will be called.
+        :type seconds: float
+        """
+        # decorator returns a decorator with the argument it got
+        def _repeat(func):
+            async def _wrapper(self, *args, **kwargs):
+                while not await util.event_wait(self.aio_stop_event,
+                                                seconds,
+                                                self.event_loop):
+                    await func(self, *args, **kwargs)
+            return _wrapper
+        return _repeat
+
+    async def run(self):
+        """Override in the implementation if needed.
+        """
+        pass
+
+
+class Bridge(AsyncAccessory):
     """A representation of a HAP bridge.
 
     A `Bridge` can have multiple `Accessories`.
@@ -469,7 +473,7 @@ class Bridge(Accessory):
 
     def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
         """Set the same sentinel to all contained accessories."""
-        super(Bridge, self).set_sentinel(run_sentinel, aio_stop_event, event_loop)
+        super().set_sentinel(run_sentinel, aio_stop_event, event_loop)
         for acc in self.accessories.values():
             acc.set_sentinel(run_sentinel, aio_stop_event, event_loop)
 
@@ -532,10 +536,23 @@ class Bridge(Accessory):
 
         return acc.get_characteristic(aid, iid)
 
-    async def start(self):
+    async def _wrap_in_thread(self, method):
+        """Coroutine which starts the given method in a thread.
+        """
+        # Not going through event_loop.run_in_executor, because this thread may never
+        # terminate.
+        threading.Thread(target=method).start()
+
+    async def run(self):
         """Schedule tasks for each of the accessories' run method.
         """
-        tasks = (acc.start() for acc in self.accessories.values())
+        tasks = []
+        for acc in self.accessories.values():
+            if isinstance(acc, AsyncAccessory):
+                task = self.event_loop.create_task(acc.run())
+            else:
+                task = self.event_loop.create_task(self._wrap_in_thread(acc.run))
+            tasks.append(task)
         await asyncio.gather(*tasks, loop=self.event_loop)
 
     def stop(self):

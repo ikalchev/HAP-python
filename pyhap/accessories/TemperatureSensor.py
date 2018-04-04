@@ -4,10 +4,10 @@ import asyncio
 import random
 import time
 
-from pyhap.accessory import Accessory, Category
+from pyhap.accessory import AsyncAccessory, Category
 import pyhap.loader as loader
 
-class TemperatureSensor(Accessory):
+class TemperatureSensor(AsyncAccessory):
 
     category = Category.SENSOR
 
@@ -22,7 +22,7 @@ class TemperatureSensor(Accessory):
         self.add_service(
             loader.get_serv_loader().get("TemperatureSensor"))
 
-    @Accessory.repeat(3)
+    @AsyncAccessory.run_at_interval(3)
     async def run(self):
         self.temp_char.set_value(random.randint(18, 26))
         print(self.display_name, self.temp_char.value)

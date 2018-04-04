@@ -128,7 +128,7 @@ async def event_wait(event, timeout, loop=None):
     :rtype: bool
     """
     try:
-        await asyncio.wait_for(event.wait(), timeout)
+        await asyncio.wait_for(event.wait(), timeout, loop=loop)
     except asyncio.TimeoutError:
         pass
     return event.is_set()

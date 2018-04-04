@@ -56,7 +56,7 @@ def get_bridge():
 
 def get_accessory():
     """Call this method to get a standalone Accessory."""
-    acc = TemperatureSensor("MyTempSensor")
+    acc = SyncTemperatureSensor("MyTempSensor")
     return acc
 
 
