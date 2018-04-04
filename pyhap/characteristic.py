@@ -100,6 +100,9 @@ class Characteristic:
     def set_value(self, value, should_notify=True):
         """Set the given raw value. It is checked if it is a valid value.
 
+        If not set_value will be aborted and an error message will be
+        displayed.
+
         :param value: The value to assign as this Characteristic's value.
         :type value: Depends on properties["Format"]
 
@@ -109,6 +112,8 @@ class Characteristic:
         """
         logger.debug('%s: Set value to %s', self.display_name, value)
         value = self.to_valid_value(value)
+        if value is None:
+            return
         self.value = value
         if should_notify and self.broker:
             self.notify()
@@ -125,12 +130,18 @@ class Characteristic:
         """Perform validation and conversion to valid value"""
         if self.properties.get('ValidValues'):
             if value not in self.properties['ValidValues'].values():
-                raise ValueError('%s is not a valid value'.format(value))
+                logger.error('%s: value=%s is an invalid value.',
+                             self.display_name, value)
+                return
         elif self.properties['Format'] == HAP_FORMAT.STRING:
             value = str(value)[:256]
         elif self.properties['Format'] == HAP_FORMAT.BOOL:
             value = bool(value)
         elif self.properties['Format'] in HAP_FORMAT.NUMERIC:
+            if not isinstance(value, (int, float)):
+                logger.error('%s: value=%s is not a numeric value.',
+                             self.display_name, value)
+                return
             value = min(self.properties.get('maxValue', value), value)
             value = max(self.properties.get('minValue', value), value)
         return value
