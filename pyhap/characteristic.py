@@ -6,7 +6,7 @@ a temperature measuring or a device status.
 """
 import logging
 
-_LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class HAP_FORMAT:
@@ -107,7 +107,7 @@ class Characteristic:
             subscribed clients. Notify will be performed if the broker is set.
         :type should_notify: bool
         """
-        _LOGGER.debug('%s: Set value to %s', self.display_name, value)
+        logger.debug('%s: Set value to %s', self.display_name, value)
         value = self.to_valid_value(value)
         self.value = value
         if should_notify and self.broker:
@@ -165,7 +165,7 @@ class Characteristic:
 
         Change self.value to value and call callback.
         """
-        _LOGGER.debug('%s: Client update value to %s',
+        logger.debug('%s: Client update value to %s',
                       self.display_name, value)
         self.value = value
         self.notify()
