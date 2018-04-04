@@ -33,9 +33,8 @@ class SyncTemperatureSensor(Accessory):
         self.add_service(
             loader.get_serv_loader().get("TemperatureSensor"))
 
-    def run(self, stop_event, loop=None):
-        while not stop_event.is_set():  # This is not being set because it is from another thread.
-            time.sleep(3)
+    def run(self):
+        while not self.run_sentinel.wait(3):
             self.temp_char.set_value(random.randint(18, 26))
             print(self.display_name, self.temp_char.value)
 
@@ -43,8 +42,8 @@ class SyncTemperatureSensor(Accessory):
 def get_bridge():
     """Call this method to get a Bridge instead of a standalone accessory."""
     bridge = Bridge(display_name="Bridge")
-    temp_sensor = TemperatureSensor("Termometer")
-    temp_sensor2 = SyncTemperatureSensor("Termometer2")
+    temp_sensor = TemperatureSensor("Aio")
+    temp_sensor2 = SyncTemperatureSensor("Synchronised")
     bridge.add_accessory(temp_sensor)
     bridge.add_accessory(temp_sensor2)
 

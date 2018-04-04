@@ -9,7 +9,7 @@ import ed25519
 import base36
 from pyqrcode import QRCode
 
-import pyhap.util as util
+from pyhap import util
 from pyhap.loader import get_serv_loader
 
 logger = logging.getLogger(__name__)
@@ -156,6 +156,8 @@ class Accessory(object):
         self.broker = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
+        self.event_loop = None
+        self.aio_stop_event = None
 
         sk, vk = ed25519.create_keypair()
         self.private_key = sk
@@ -212,7 +214,7 @@ class Accessory(object):
         # FIXME: Need to ensure AccessoryInformation is with IID 1.
         self.add_service(info_service)
 
-    def set_sentinel(self, run_sentinel):
+    def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
         """Assign a run sentinel that can signal stopping.
 
         The run sentinel is a threading.Event object that can be used to manage
@@ -225,6 +227,8 @@ class Accessory(object):
         ...    sensor.readTemperature()
         """
         self.run_sentinel = run_sentinel
+        self.aio_stop_event = aio_stop_event
+        self.event_loop = event_loop
 
     def config_changed(self):
         """Notify the accessory about configuration changes.
@@ -377,12 +381,41 @@ class Accessory(object):
         self.print_qr()
         print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
 
-    async def run(self, stop_event, loop=None):
+    def repeat(seconds):
+        """Decorator that runs decorated method in a while loop, which repeats every
+        ``seconds``. It ues the ``Accessory.aio_stop_event``.
+
+        :param seconds: The amount of seconds to wait for the event to be set.
+            Determines the interval on which the decorated method will be called.
+        :type seconds: float
+        """
+        def _repeat(func):
+            async def _wrapper(self, *args, **kwargs):
+                while not await util.event_wait(self.aio_stop_event, seconds):
+                    await func(self, *args, **kwargs)
+            return _wrapper
+        return _repeat
+
+    async def run(self):
         """Called when the Accessory should start doing its thing.
 
         Called when HAP server is running, advertising is set, etc.
         """
         pass
+
+    async def _wrap_in_thread(self):
+        threading.Thread(target=self.run).start()
+
+    async def start(self):
+        """Create and await on a task for ``Accessory.run``
+
+        If ``Accessory.run`` is not a coroutine, it will be wrapped in a task that
+        starts it in a new thread.
+        """
+        if asyncio.iscoroutinefunction(self.run):
+            await self.event_loop.create_task(self.run())
+        else:
+            await self.event_loop.create_task(self._wrap_in_thread())
 
     def stop(self):
         """Called when the Accessory should stop what is doing and clean up any resources.
@@ -434,11 +467,11 @@ class Bridge(Accessory):
                                      setup_id=setup_id)
         self.accessories = {}  # aid: acc
 
-    def set_sentinel(self, run_sentinel):
+    def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
         """Set the same sentinel to all contained accessories."""
-        super(Bridge, self).set_sentinel(run_sentinel)
+        super(Bridge, self).set_sentinel(run_sentinel, aio_stop_event, event_loop)
         for acc in self.accessories.values():
-            acc.set_sentinel(run_sentinel)
+            acc.set_sentinel(run_sentinel, aio_stop_event, event_loop)
 
     def add_accessory(self, acc):
         """Add the given ``Accessory`` to this ``Bridge``.
@@ -499,26 +532,11 @@ class Bridge(Accessory):
 
         return acc.get_characteristic(aid, iid)
 
-    async def run(self, stop_event, loop=None):
+    async def start(self):
         """Schedule tasks for each of the accessories' run method.
         """
-        coroutines = []  # Accessories with async run method
-        syncs = []  # Accessories with non-async run method
-
-        for acc in self.accessories.values():
-            if asyncio.iscoroutinefunction(acc.run):
-                coroutines.append(acc)
-            else:
-                syncs.append(acc)
-
-        logger.debug("Coroutines: %s", coroutines)
-        logger.debug("Synchronous: %s", syncs)
-
-        for acc in syncs:
-            threading.Thread(target=acc.run, args=(stop_event,)).start()
-
-        accessory_futures = (acc.run(stop_event, loop) for acc in coroutines)
-        await asyncio.gather(*accessory_futures, loop=loop)
+        tasks = (acc.start() for acc in self.accessories.values())
+        await asyncio.gather(*tasks, loop=self.event_loop)
 
     def stop(self):
         """Calls stop() on all contained accessories."""

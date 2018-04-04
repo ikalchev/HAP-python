@@ -22,7 +22,7 @@ or went to sleep before telling us. This concludes the publishing process from t
 AccessoryDriver.
 """
 import asyncio
-from concurrent.futures import CancelledError
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 import functools
 import os
 import logging
@@ -99,32 +99,6 @@ class HAP_CONSTANTS:
     SERVICE_COMMUNICATION_FAILURE = -70402
 
 
-class AIOThread(threading.Thread):
-    """
-    TODO: temporary convenience class. Create an event loop and event object for
-    controlling the Accessory.run method.
-    """
-
-    def __init__(self, run_method):
-        """
-        """
-        self.loop = asyncio.new_event_loop()
-        self.stop_event = asyncio.Event()
-        self.task = self.loop.create_task(run_method(self.stop_event, self.loop))
-        super(AIOThread, self).__init__(target=self.loop.run_until_complete,
-                                        args=(self.task,))
-
-    def run(self):
-        try:
-            super(AIOThread, self).run()
-        except CancelledError:
-            self.loop.stop()
-            self.loop.close()
-            logger.info("Sucessfully stopped accessory event loop.")
-
-    def stop(self):
-        self.loop.call_soon_threadsafe(self.task.cancel)
-
 class AccessoryDriver(object):
     """
     An AccessoryDriver mediates between incoming requests from the HAPServer and
@@ -137,7 +111,7 @@ class AccessoryDriver(object):
     NUM_EVENTS_BEFORE_STATS = 100
 
     def __init__(self, accessory, port, address=None, persist_file="accessory.state",
-                 encoder=None):
+                 encoder=None, max_acc_threads=3):
         """
         :param accessory: The `Accessory` to be managed by this driver. The `Accessory`
             must have the standalone AID (`pyhap.accessory.STANDALONE_AID`). If the
@@ -185,6 +159,9 @@ class AccessoryDriver(object):
             self.persist()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
+        self.event_loop = asyncio.get_event_loop()
+        self.aio_stop_event = asyncio.Event()
+        self.stop_event = threading.Event()
         self.event_queue = queue.Queue()  # (topic, bytes)
         self.send_event_thread = None  # the event dispatch thread
         self.sent_events = 0
@@ -193,7 +170,6 @@ class AccessoryDriver(object):
         self.accessory.set_broker(self)
         self.mdns_service_info = None
         self.srp_verifier = None
-        self.run_sentinel = None
         self.accessory_thread = None
 
     def subscribe_client_topic(self, client, topic, subscribe=True):
@@ -257,7 +233,7 @@ class AccessoryDriver(object):
         this is not run in a daemon thread or it is run on the main thread, the app will
         hang.
         """
-        while not self.accessory_thread.is_alive():  # self.run_sentinel.is_set():
+        while not self.event_loop.is_closed():
             # Maybe consider having a pool of worker threads, each performing a send in
             # order to increase throughput.
             topic, bytedata = self.event_queue.get()
@@ -491,10 +467,6 @@ class AccessoryDriver(object):
         logger.info("Starting accessory '%s' on address '%s', port '%s'.",
                     self.accessory.display_name, self.address, self.port)
 
-        # Start the accessory so it can do stuff.
-        self.accessory_thread = AIOThread(self.accessory.run)
-        self.accessory_thread.start()
-
         # Start sending events to clients. This is done in a daemon thread, because:
         # - if the queue is blocked waiting on an empty queue, then there is nothing left
         #   for clean up.
@@ -519,6 +491,15 @@ class AccessoryDriver(object):
         if not self.accessory.paired:
             self.accessory.setup_message()
 
+        # Start the accessory so it can do stuff.
+        self.accessory.set_sentinel(self.stop_event, self.aio_stop_event, self.event_loop)
+        self.accessory_task = self.event_loop.create_task(self.accessory.start())
+        logger.info("Starting event loop")
+        self.event_loop.run_until_complete(self.accessory_task)
+        self.event_loop.stop()
+        self.event_loop.close()
+        logger.info("Stopped event loop.")
+
     def stop(self):
         """Stop the accessory.
 
@@ -531,10 +512,10 @@ class AccessoryDriver(object):
         # to ensure that sending with a closed server will not crash the app.
         logger.info("Stoping accessory '%s' on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
-        logger.debug("Setting run sentinel, stopping accessory and event sending")
+        logger.debug("Setting stop events, stopping accessory and event sending")
+        self.stop_event.set()
+        self.event_loop.call_soon_threadsafe(self.aio_stop_event.set)
         self.accessory.stop()
-        self.accessory_thread.stop()
-        self.accessory_thread.join()
 
         logger.debug("Stopping mDNS advertising")
         self.advertiser.unregister_service(self.mdns_service_info)
