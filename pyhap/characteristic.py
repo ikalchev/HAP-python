@@ -109,20 +109,20 @@ class Characteristic:
         """Perform validation and conversion to valid value"""
         if self.properties.get('ValidValues'):
             if value not in self.properties['ValidValues'].values():
-                logger.error('%s: value={} is an invalid value.',
-                             self.display_name, value)
-                raise ValueError('{}: value={} is an invalid value.'
-                                 .format(self.display_name, value))
+                error_msg = '{}: value={} is an invalid value.' \
+                            .format(self.display_name, value)
+                logger.error(error_msg)
+                raise ValueError(error_msg)
         elif self.properties['Format'] == HAP_FORMAT.STRING:
             value = str(value)[:256]
         elif self.properties['Format'] == HAP_FORMAT.BOOL:
             value = bool(value)
         elif self.properties['Format'] in HAP_FORMAT.NUMERIC:
             if not isinstance(value, (int, float)):
-                logger.error('%s: value=%s is not a numeric value.',
-                             self.display_name, value)
-                raise ValueError('{}: value={} is not a numeric value.'
-                                 .format(self.display_name, value))
+                error_msg = '{}: value={} is not a numeric value.' \
+                            .format(self.display_name, value)
+                logger.error(error_msg)
+                raise ValueError(error_msg)
             value = min(self.properties.get('maxValue', value), value)
             value = max(self.properties.get('minValue', value), value)
         return value

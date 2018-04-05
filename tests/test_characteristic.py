@@ -51,10 +51,8 @@ def test_set_value_valid_values():
 def test_set_value_callback_toggle():
     char = get_char(PROPERTIES.copy())
     char.setter_callback = mock.Mock()
-    char.set_value(3, should_callback=False)
+    char.set_value(3)
     assert not char.setter_callback.called
-    char.set_value(3, should_callback=True)
-    assert char.setter_callback.called
 
 def test_override_properties_properties():
     new_properties = {'minValue': 10, 'maxValue': 20, 'step': 1}
