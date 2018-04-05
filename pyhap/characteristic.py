@@ -97,25 +97,6 @@ class Characteristic:
         return '<characteristic display_name={} value={} properties={}>' \
             .format(self.display_name, self.value, self.properties)
 
-    def set_value(self, value, should_notify=True):
-        """Set the given raw value. It is checked if it is a valid value.
-
-        If not set_value will be aborted and an error message will be
-        displayed.
-
-        :param value: The value to assign as this Characteristic's value.
-        :type value: Depends on properties["Format"]
-
-        :param should_notify: Whether a the change should be sent to
-            subscribed clients. Notify will be performed if the broker is set.
-        :type should_notify: bool
-        """
-        logger.debug('%s: Set value to %s', self.display_name, value)
-        value = self.to_valid_value(value)
-        self.value = value
-        if should_notify and self.broker:
-            self.notify()
-
     def _get_default_value(self):
         """Helper method. Return default value for format."""
         if self.properties.get('ValidValues'):
@@ -163,13 +144,24 @@ class Characteristic:
         if valid_values:
             self.properties['ValidValues'] = valid_values
 
-    def notify(self):
-        """Notify clients about a value change. Sends the value.
+    def set_value(self, value, should_notify=True):
+        """Set the given raw value. It is checked if it is a valid value.
 
-        .. seealso:: accessory.publish
-        .. seealso:: accessory_driver.publish
+        If not set_value will be aborted and an error message will be
+        displayed.
+
+        :param value: The value to assign as this Characteristic's value.
+        :type value: Depends on properties["Format"]
+
+        :param should_notify: Whether a the change should be sent to
+            subscribed clients. Notify will be performed if the broker is set.
+        :type should_notify: bool
         """
-        self.broker.publish(self.value, self)
+        logger.debug('%s: Set value to %s', self.display_name, value)
+        value = self.to_valid_value(value)
+        self.value = value
+        if should_notify and self.broker:
+            self.notify()
 
     def client_update_value(self, value):
         """Called from broker for value change in Home app.
@@ -182,6 +174,14 @@ class Characteristic:
         self.notify()
         if self.setter_callback:
             self.setter_callback(value)
+
+    def notify(self):
+        """Notify clients about a value change. Sends the value.
+
+        .. seealso:: accessory.publish
+        .. seealso:: accessory_driver.publish
+        """
+        self.broker.publish(self.value, self)
 
     def to_HAP(self):
         """Create a HAP representation of this Characteristic.
