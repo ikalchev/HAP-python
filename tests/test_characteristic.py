@@ -1,96 +1,178 @@
-"""
-Tests for pyhap.characteristic
-"""
+"""Tests for pyhap.characteristic."""
+import unittest
+from unittest.mock import Mock, patch, ANY
 import uuid
-from unittest import mock
 
-import pytest
+from pyhap.characteristic import Characteristic, HAP_FORMAT, HAP_PERMISSIONS
 
-import pyhap.characteristic as characteristic
-from pyhap.characteristic import Characteristic
 
 PROPERTIES = {
-    "Format": characteristic.HAP_FORMAT.INT,
-    "Permissions": [characteristic.HAP_PERMISSIONS.READ]
+    'Format': HAP_FORMAT.INT,
+    'Permissions': [HAP_PERMISSIONS.READ]
 }
 
+
 def get_char(props, valid=None, min_value=None, max_value=None):
-    if valid is not None:
-        props["ValidValues"] = valid
-    if min_value is not None:
-        props["minValue"] = min_value
-    if max_value is not None:
-        props["maxValue"] = max_value
-    c = Characteristic(display_name="Test Char",
-                       type_id=uuid.uuid1(),
-                       properties=props)
-    return c
+    if valid:
+        props['ValidValues'] = valid
+    if min_value:
+        props['minValue'] = min_value
+    if max_value:
+        props['maxValue'] = max_value
+    return Characteristic(display_name='Test Char', type_id=uuid.uuid1(),
+                          properties=props)
 
-def test_default_value():
-    char = get_char(PROPERTIES.copy())
-    assert (characteristic.HAP_FORMAT.DEFAULT[PROPERTIES["Format"]]
-            == char.value)
 
-def test_default_valid_value():
-    valid_values = {"foo": 2, "bar": 3}
-    char = get_char(PROPERTIES.copy(), valid=valid_values)
-    assert char.value in valid_values.values()
+class TestCharacteristic(unittest.TestCase):
 
-def test_set_value():
-    char = get_char(PROPERTIES.copy())
-    new_value = 3
-    char.set_value(new_value)
-    assert char.value == new_value
+    def test_repr(self):
+        char = get_char(PROPERTIES.copy())
+        del char.properties['Permissions']
+        self.assertEqual(
+            '<characteristic display_name=Test Char value=0 ' \
+            'properties={\'Format\': \'int\'}>', char.__repr__())
 
-def test_set_value_valid_values():
-    valid_values = {"foo": 2, "bar": 3, }
-    char = get_char(PROPERTIES.copy(), valid=valid_values)
-    with pytest.raises(ValueError):
-        char.set_value(4)
+    def test_default_value(self):
+        char = get_char(PROPERTIES.copy())
+        self.assertEqual(char.value, HAP_FORMAT.DEFAULT[PROPERTIES['Format']])
 
-def test_set_value_callback_toggle():
-    char = get_char(PROPERTIES.copy())
-    char.setter_callback = mock.Mock()
-    char.set_value(3)
-    assert not char.setter_callback.called
+    def test_get_default_value(self):
+        valid_values = {'foo': 2, 'bar': 3}
+        char = get_char(PROPERTIES.copy(), valid=valid_values)
+        self.assertEqual(char.value, 2)
+        self.assertIn(char.value, valid_values.values())
+        char = get_char(PROPERTIES.copy(), min_value=3, max_value=10)
+        self.assertEqual(char.value, 3)
 
-def test_override_properties_properties():
-    new_properties = {'minValue': 10, 'maxValue': 20, 'step': 1}
-    char = get_char(PROPERTIES.copy(), min_value=0, max_value=1)
-    char.override_properties(properties=new_properties)
-    assert char.properties['minValue'] == new_properties['minValue']
-    assert char.properties['maxValue'] == new_properties['maxValue']
-    assert char.properties['step'] == new_properties['step']
+    def test_to_valid_value(self):
+        char = get_char(PROPERTIES.copy(), valid={'foo': 2, 'bar': 3},
+                        min_value=2, max_value=7)
+        with self.assertRaises(ValueError):
+            char.to_valid_value(1)
+        self.assertEqual(char.to_valid_value(2), 2)
 
-def test_override_properties_valid_values():
-    new_valid_values = {'foo2': 2, 'bar2': 3}
-    char = get_char(PROPERTIES.copy(), valid={'foo': 1, 'bar': 2})
-    char.override_properties(valid_values=new_valid_values)
-    assert char.properties['ValidValues'] == new_valid_values
+        del char.properties['ValidValues']
+        for value in ('2', None):
+            with self.assertRaises(ValueError):
+                char.to_valid_value(value)
+        self.assertEqual(char.to_valid_value(1), 2)
+        self.assertEqual(char.to_valid_value(5), 5)
+        self.assertEqual(char.to_valid_value(8), 7)
 
-def test_get_hap_value():
-    max_value = 5
-    raw_value = 6
-    char = get_char(PROPERTIES.copy(), max_value=max_value)
-    char.set_value(raw_value, should_notify=False)
-    assert char.value == raw_value
-    assert char.get_hap_value() == max_value
+        char.properties['Format'] = 'string'
+        self.assertEqual(char.to_valid_value(24), '24')
 
-def test_notify():
-    char = get_char(PROPERTIES.copy())
-    broker_mock = mock.Mock()
-    char.broker = broker_mock
-    notify_value = 3
-    expected = {
-        "type_id": char.type_id,
-        "value": notify_value,
-    }
-    char.value = notify_value
-    char.notify()
-    assert broker_mock.publish.called
-    broker_mock.publish.assert_called_with(expected, char)
+        char.properties['Format'] = 'bool'
+        self.assertTrue(char.to_valid_value(1))
+        self.assertFalse(char.to_valid_value(0))
 
-def test_notify_except_no_broker():
-    char = get_char(PROPERTIES.copy())
-    with pytest.raises(characteristic.NotConfiguredError):
-        char.notify()
+        char.properties['Format'] = 'dictionary'
+        self.assertEqual(char.to_valid_value({'a': 1}), {'a': 1})
+
+    def test_override_properties_properties(self):
+        new_properties = {'minValue': 10, 'maxValue': 20, 'step': 1}
+        char = get_char(PROPERTIES.copy(), min_value=0, max_value=1)
+        char.override_properties(properties=new_properties)
+        self.assertEqual(char.properties['minValue'],
+                         new_properties['minValue'])
+        self.assertEqual(char.properties['maxValue'],
+                         new_properties['maxValue'])
+        self.assertEqual(char.properties['step'], new_properties['step'])
+
+    def test_override_properties_valid_values(self):
+        new_valid_values = {'foo2': 2, 'bar2': 3}
+        char = get_char(PROPERTIES.copy(), valid={'foo': 1, 'bar': 2})
+        char.override_properties(valid_values=new_valid_values)
+        self.assertEqual(char.properties['ValidValues'], new_valid_values)
+
+    def test_set_value(self):
+        path = 'pyhap.characteristic.Characteristic.notify'
+        char = get_char(PROPERTIES.copy(), min_value=3, max_value=7)
+
+        with patch(path) as mock_notify:
+            char.set_value(5)
+            self.assertEqual(char.value, 5)
+            self.assertFalse(mock_notify.called)
+
+            char.broker = Mock()
+            char.set_value(8, should_notify=False)
+            self.assertEqual(char.value, 7)
+            self.assertFalse(mock_notify.called)
+
+            char.set_value(1)
+            self.assertEqual(char.value, 3)
+            self.assertEqual(mock_notify.call_count, 1)
+
+    def test_client_update_value(self):
+        path_notify = 'pyhap.characteristic.Characteristic.notify'
+        char = get_char(PROPERTIES.copy())
+
+        with patch(path_notify) as mock_notify:
+            char.client_update_value(4)
+            self.assertEqual(char.value, 4)
+            with patch.object(char, 'setter_callback') as mock_callback:
+                char.client_update_value(3)
+
+        self.assertEqual(char.value, 3)
+        self.assertEqual(mock_notify.call_count, 2)
+        mock_callback.assert_called_with(3)
+
+    def test_notify(self):
+        char = get_char(PROPERTIES.copy())
+
+        char.value = 2
+        with self.assertRaises(AttributeError):
+            char.notify()
+
+        with patch.object(char, 'broker') as mock_broker:
+            char.notify()
+        mock_broker.publish.assert_called_with(2, char)
+
+    def test_to_HAP_numberic(self):
+        char = get_char(PROPERTIES.copy(), min_value=1, max_value=2)
+        with patch.object(char, 'broker') as mock_broker:
+            mock_iid = mock_broker.iid_manager.get_iid
+            mock_iid.return_value = 2
+            hap_rep = char.to_HAP()
+            mock_iid.assert_called_with(char)
+
+        self.assertEqual(
+            hap_rep,
+            {
+                'iid': 2,
+                'type': ANY,
+                'description': 'Test Char',
+                'perms': ['pr'],
+                'format': 'int',
+                'maxValue': 2,
+                'minValue': 1,
+                'value': 1, 
+            })
+
+    def test_to_HAP_string(self):
+        char = get_char(PROPERTIES.copy())
+        char.properties['Format'] = 'string'
+        char.value = 'aaa'
+        with patch.object(char, 'broker') as mock_broker:
+            hap_rep = char.to_HAP()
+        self.assertEqual(hap_rep['format'], 'string')
+        self.assertNotIn('maxLen', hap_rep)
+
+        char.value = 'aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee' \
+            'ffffffffffgggggggggg'
+        with patch.object(char, 'broker') as mock_broker:
+            hap_rep = char.to_HAP()
+        self.assertEqual(hap_rep['maxLen'], 70)
+        self.assertEqual(hap_rep['value'], char.value)
+
+    def test_to_HAP_bool(self):
+        char = get_char(PROPERTIES.copy())
+        char.properties['Format'] = 'bool'
+        with patch.object(char, 'broker') as mock_broker:
+            hap_rep = char.to_HAP()
+        self.assertEqual(hap_rep['format'], 'bool')
+
+        char.properties['Permissions'] = []
+        with patch.object(char, 'broker') as mock_broker:
+            hap_rep = char.to_HAP()
+        self.assertNotIn('value', hap_rep)
