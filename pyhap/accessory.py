@@ -381,6 +381,28 @@ class Accessory(object):
         self.print_qr()
         print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
 
+    def run_at_interval(seconds):
+        """Decorator that runs decorated method in a while loop, which repeats every
+        ``seconds`` until the ``Accessory.run_sentinel`` is set.
+
+        .. code-block:: python
+
+            @Accessory.run_at_interval(3)
+            def run(self):
+                print("Hello again world!")
+
+        :param seconds: The amount of seconds to wait for the event to be set.
+            Determines the interval on which the decorated method will be called.
+        :type seconds: float
+        """
+        # decorator returns a decorator with the argument it got
+        def _repeat(func):
+            def _wrapper(self, *args, **kwargs):
+                while not self.run_sentinel.wait(seconds):
+                    func(self, *args, **kwargs)
+            return _wrapper
+        return _repeat
+
     def run(self):
         """Called when the Accessory should start doing its thing.
 

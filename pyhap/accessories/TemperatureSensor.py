@@ -25,4 +25,3 @@ class TemperatureSensor(AsyncAccessory):
     @AsyncAccessory.run_at_interval(3)
     async def run(self):
         self.temp_char.set_value(random.randint(18, 26))
-        print(self.display_name, self.temp_char.value)

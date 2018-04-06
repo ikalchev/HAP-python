@@ -54,10 +54,11 @@ will take care of advertising it on the local network, setting a HAP server and
 running the Accessory. Take a look at [main.py](main.py) for a quick start on that.
 
 ```python
-from pyhap.accessory import Accessory, Category
+from pyhap.accessory import Accessory, AsyncAccessory, Category
 import pyhap.loader as loader
 
-class TemperatureSensor(Accessory):
+### Async accessory - run method is run asynchronously in the event loop
+class TemperatureSensor(AsyncAccessory):
     """Implementation of a mock temperature sensor accessory."""
 
     category = Category.SENSOR  # This is for the icon in the iOS Home app.
@@ -98,25 +99,31 @@ class TemperatureSensor(Accessory):
         temp_sensor_service = loader.get_serv_loader().get("TemperatureSensor")
         self.add_service(temp_sensor_service)
 
-    def run(self):
+    @AsyncAcessory.run_at_interval(3)  # Run this method every 3 seconds
+    async def run(self):
         """We override this method to implement what the accessory will do when it is
         started. An accessory is started and stopped from the AccessoryDriver.
 
-        It might be convenient to use the Accessory's run_sentinel, which is a
-        threading.Event object which is set when the accessory should stop running.
-
-        In this example, we wait 3 seconds to see if the run_sentinel will be set and if
-        not, we set the current temperature to a random number.
+        We set the current temperature to a random number. The decorator runs this method
+        every 3 seconds.
         """
-        while not self.run_sentinel.wait(3):
-            self.temp_char.set_value(random.randint(18, 26))
+        self.temp_char.set_value(random.randint(18, 26))
 
     def stop(self):
         """We override this method to clean up any resources or perform final actions, as
-        this is called by the AccessoryDriver when the Accessory is being stopped (it is
-        called right after run_sentinel is set).
+        this is called by the AccessoryDriver when the Accessory is being stopped.
         """
         print("Stopping accessory.")
+
+### Synchronouse accessory - run method is in a thread
+class SyncTemperatureSensor(Accessory):
+    """Everything is same as in the TemperatureSensor, apart from the run method which is
+    not async.
+    """
+
+    @Accessory.run_at_interval(3)
+    def run(self):
+        self.temp_char.set_value(random.randint(18, 26))
 ```
 
 ## Integrating non-compatible devices <a name="HttpAcc"></a>
