@@ -447,12 +447,11 @@ class AsyncAccessory(Accessory):
         """Decorator that runs decorated method in a while loop, which repeats every
         ``seconds`` until the ``Accessory.aio_stop_event`` is set.
 
-        Can be used as:
         .. code-block:: python
 
-        @AsyncAccessory.run_at_interval(3)
-        async def run(self):
-            print("Hello again world!")
+            @AsyncAccessory.run_at_interval(3)
+            async def run(self):
+                print("Hello again world!")
 
         :param seconds: The amount of seconds to wait for the event to be set.
             Determines the interval on which the decorated method will be called.

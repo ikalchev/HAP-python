@@ -11,7 +11,7 @@ import time
 import random
 
 from pyhap.accessories.TemperatureSensor import TemperatureSensor
-from pyhap.accessory import Bridge, AsyncAccessory, Accessory, Category
+from pyhap.accessory import Bridge
 from pyhap.accessory_driver import AccessoryDriver
 import pyhap.loader as loader
 
@@ -39,7 +39,7 @@ def get_accessory():
     return acc
 
 
-acc = get_bridge()  # Change to get_bridge() if you want to run a Bridge.
+acc = get_accessory()  # Change to get_bridge() if you want to run a Bridge.
 
 # Start the accessory on port 51826
 driver = AccessoryDriver(acc, port=51826)
