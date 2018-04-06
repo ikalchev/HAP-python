@@ -19,6 +19,7 @@ docs/build/doctrees
 docs/build/html
 .coverage
 .coverage.*
+/htmlcov
 
 # python venv
 bin
