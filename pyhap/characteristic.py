@@ -144,6 +144,12 @@ class Characteristic:
         if valid_values:
             self.properties['ValidValues'] = valid_values
 
+        if properties or valid_values:
+            try:
+                self.value = self.to_valid_value(self.value)
+            except ValueError:
+                self.value = self._get_default_value()
+
     def set_value(self, value, should_notify=True):
         """Set the given raw value. It is checked if it is a valid value.
 
