@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Convert from pickled state to an AccessoryEncoder state.
 
