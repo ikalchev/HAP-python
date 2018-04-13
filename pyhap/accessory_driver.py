@@ -21,6 +21,7 @@ Whenever a send fails, the client is unsubscribed, as it is assumed that the cli
 or went to sleep before telling us. This concludes the publishing process from the
 AccessoryDriver.
 """
+import asyncio
 import os
 import logging
 import socket
@@ -34,7 +35,7 @@ import queue
 
 from zeroconf import ServiceInfo, Zeroconf
 
-from pyhap.accessory import get_topic, STANDALONE_AID
+from pyhap.accessory import AsyncAccessory, get_topic, STANDALONE_AID
 from pyhap.characteristic import CharacteristicError
 from pyhap.params import get_srp_context
 from pyhap.hsrp import Server as SrpServer
@@ -156,6 +157,9 @@ class AccessoryDriver(object):
             self.persist()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
+        self.event_loop = asyncio.get_event_loop()
+        self.aio_stop_event = asyncio.Event()
+        self.stop_event = threading.Event()
         self.event_queue = queue.Queue()  # (topic, bytes)
         self.send_event_thread = None  # the event dispatch thread
         self.sent_events = 0
@@ -164,7 +168,6 @@ class AccessoryDriver(object):
         self.accessory.set_broker(self)
         self.mdns_service_info = None
         self.srp_verifier = None
-        self.run_sentinel = None
         self.accessory_thread = None
 
     def subscribe_client_topic(self, client, topic, subscribe=True):
@@ -228,7 +231,7 @@ class AccessoryDriver(object):
         this is not run in a daemon thread or it is run on the main thread, the app will
         hang.
         """
-        while not self.run_sentinel.is_set():
+        while not self.event_loop.is_closed():
             # Maybe consider having a pool of worker threads, each performing a send in
             # order to increase throughput.
             topic, bytedata = self.event_queue.get()
@@ -462,12 +465,6 @@ class AccessoryDriver(object):
         logger.info("Starting accessory '%s' on address '%s', port '%s'.",
                     self.accessory.display_name, self.address, self.port)
 
-        # Start the accessory so it can do stuff.
-        self.run_sentinel = threading.Event()
-        self.accessory.set_sentinel(self.run_sentinel)
-        self.accessory_thread = threading.Thread(target=self.accessory.run)
-        self.accessory_thread.start()
-
         # Start sending events to clients. This is done in a daemon thread, because:
         # - if the queue is blocked waiting on an empty queue, then there is nothing left
         #   for clean up.
@@ -492,6 +489,18 @@ class AccessoryDriver(object):
         if not self.accessory.paired:
             self.accessory.setup_message()
 
+        # Start the accessory so it can do stuff.
+        self.accessory.set_sentinel(self.stop_event, self.aio_stop_event, self.event_loop)
+        if isinstance(self.accessory, AsyncAccessory):
+            self.accessory_task = self.event_loop.create_task(self.accessory.run())
+        else:
+            self.accessory_task = self.event_loop.run_in_executor(None,
+                                                                  self.accessory.run)
+        logger.info("Starting event loop")
+        self.event_loop.run_until_complete(self.accessory_task)
+        self.event_loop.close()
+        logger.info("Stopped event loop.")
+
     def stop(self):
         """Stop the accessory.
 
@@ -504,10 +513,11 @@ class AccessoryDriver(object):
         # to ensure that sending with a closed server will not crash the app.
         logger.info("Stoping accessory '%s' on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
-        logger.debug("Setting run sentinel, stopping accessory and event sending")
-        self.run_sentinel.set()
+        logger.debug("Setting stop events, stopping accessory and event sending")
+        self.stop_event.set()
+        if not self.event_loop.is_closed():
+            self.event_loop.call_soon_threadsafe(self.aio_stop_event.set)
         self.accessory.stop()
-        self.accessory_thread.join()
 
         logger.debug("Stopping mDNS advertising")
         self.advertiser.unregister_service(self.mdns_service_info)

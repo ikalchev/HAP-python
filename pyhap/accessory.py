@@ -1,3 +1,4 @@
+import asyncio
 import threading
 import logging
 import itertools
@@ -8,7 +9,7 @@ import ed25519
 import base36
 from pyqrcode import QRCode
 
-import pyhap.util as util
+from pyhap import util
 from pyhap.loader import get_serv_loader
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,8 @@ class Accessory(object):
         self.broker = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
+        self.event_loop = None
+        self.aio_stop_event = None
 
         sk, vk = ed25519.create_keypair()
         self.private_key = sk
@@ -211,7 +214,7 @@ class Accessory(object):
         # FIXME: Need to ensure AccessoryInformation is with IID 1.
         self.add_service(info_service)
 
-    def set_sentinel(self, run_sentinel):
+    def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
         """Assign a run sentinel that can signal stopping.
 
         The run sentinel is a threading.Event object that can be used to manage
@@ -224,6 +227,8 @@ class Accessory(object):
         ...    sensor.readTemperature()
         """
         self.run_sentinel = run_sentinel
+        self.aio_stop_event = aio_stop_event
+        self.event_loop = event_loop
 
     def config_changed(self):
         """Notify the accessory about configuration changes.
@@ -376,6 +381,28 @@ class Accessory(object):
         self.print_qr()
         print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
 
+    def run_at_interval(seconds):
+        """Decorator that runs decorated method in a while loop, which repeats every
+        ``seconds`` until the ``Accessory.run_sentinel`` is set.
+
+        .. code-block:: python
+
+            @Accessory.run_at_interval(3)
+            def run(self):
+                print("Hello again world!")
+
+        :param seconds: The amount of seconds to wait for the event to be set.
+            Determines the interval on which the decorated method will be called.
+        :type seconds: float
+        """
+        # decorator returns a decorator with the argument it got
+        def _repeat(func):
+            def _wrapper(self, *args, **kwargs):
+                while not self.run_sentinel.wait(seconds):
+                    func(self, *args, **kwargs)
+            return _wrapper
+        return _repeat
+
     def run(self):
         """Called when the Accessory should start doing its thing.
 
@@ -414,7 +441,39 @@ class Accessory(object):
         self.broker.publish(acc_data)
 
 
-class Bridge(Accessory):
+class AsyncAccessory(Accessory):
+
+    def run_at_interval(seconds):
+        """Decorator that runs decorated method in a while loop, which repeats every
+        ``seconds`` until the ``Accessory.aio_stop_event`` is set.
+
+        .. code-block:: python
+
+            @AsyncAccessory.run_at_interval(3)
+            async def run(self):
+                print("Hello again world!")
+
+        :param seconds: The amount of seconds to wait for the event to be set.
+            Determines the interval on which the decorated method will be called.
+        :type seconds: float
+        """
+        # decorator returns a decorator with the argument it got
+        def _repeat(func):
+            async def _wrapper(self, *args, **kwargs):
+                while not await util.event_wait(self.aio_stop_event,
+                                                seconds,
+                                                self.event_loop):
+                    await func(self, *args, **kwargs)
+            return _wrapper
+        return _repeat
+
+    async def run(self):
+        """Override in the implementation if needed.
+        """
+        pass
+
+
+class Bridge(AsyncAccessory):
     """A representation of a HAP bridge.
 
     A `Bridge` can have multiple `Accessories`.
@@ -433,11 +492,11 @@ class Bridge(Accessory):
                                      setup_id=setup_id)
         self.accessories = {}  # aid: acc
 
-    def set_sentinel(self, run_sentinel):
+    def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
         """Set the same sentinel to all contained accessories."""
-        super(Bridge, self).set_sentinel(run_sentinel)
+        super().set_sentinel(run_sentinel, aio_stop_event, event_loop)
         for acc in self.accessories.values():
-            acc.set_sentinel(run_sentinel)
+            acc.set_sentinel(run_sentinel, aio_stop_event, event_loop)
 
     def add_accessory(self, acc):
         """Add the given ``Accessory`` to this ``Bridge``.
@@ -498,12 +557,24 @@ class Bridge(Accessory):
 
         return acc.get_characteristic(aid, iid)
 
-    def run(self):
-        """Creates and starts a new thread for each of the contained accessories' run
-            method.
+    async def _wrap_in_thread(self, method):
+        """Coroutine which starts the given method in a thread.
         """
+        # Not going through event_loop.run_in_executor, because this thread may never
+        # terminate.
+        threading.Thread(target=method).start()
+
+    async def run(self):
+        """Schedule tasks for each of the accessories' run method.
+        """
+        tasks = []
         for acc in self.accessories.values():
-            threading.Thread(target=acc.run).start()
+            if isinstance(acc, AsyncAccessory):
+                task = self.event_loop.create_task(acc.run())
+            else:
+                task = self.event_loop.create_task(self._wrap_in_thread(acc.run))
+            tasks.append(task)
+        await asyncio.gather(*tasks, loop=self.event_loop)
 
     def stop(self):
         """Calls stop() on all contained accessories."""

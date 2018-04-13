@@ -1,13 +1,13 @@
 # An Accessory mocking a temperature sensor.
 # It changes its value every few seconds.
+import asyncio
 import random
 import time
 
-from pyhap.accessory import Accessory, Category
+from pyhap.accessory import AsyncAccessory, Category
 import pyhap.loader as loader
 
-
-class TemperatureSensor(Accessory):
+class TemperatureSensor(AsyncAccessory):
 
     category = Category.SENSOR
 
@@ -22,6 +22,6 @@ class TemperatureSensor(Accessory):
         self.add_service(
             loader.get_serv_loader().get("TemperatureSensor"))
 
-    def run(self):
-        while not self.run_sentinel.wait(3):
-            self.temp_char.set_value(random.randint(18, 26))
+    @AsyncAccessory.run_at_interval(3)
+    async def run(self):
+        self.temp_char.set_value(random.randint(18, 26))
