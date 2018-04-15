@@ -1,4 +1,7 @@
 """This module implements the HAP Service."""
+from uuid import UUID
+
+from .characteristic import Characteristic
 
 
 class Service:
@@ -68,3 +71,15 @@ class Service:
             'type': str(self.type_id).upper(),
             'characteristics': [c.to_HAP() for c in self.characteristics],
         }
+
+    @classmethod
+    def from_dict(cls, name, json_dict, char_loader):
+        """Initialize a service object from a dict."""
+        type_id = UUID(json_dict.pop('UUID'))
+        service = cls(type_id, name)
+        chars = []
+
+        for name in json_dict['RequiredCharacteristics']:
+            chars.append(char_loader.get(name))
+        service.add_characteristic(*chars)
+        return service
