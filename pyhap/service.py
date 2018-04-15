@@ -2,6 +2,7 @@
 from uuid import UUID
 
 from pyhap.characteristic import Characteristic
+from pyhap.const import HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_TYPE
 
 
 class Service:
@@ -67,9 +68,9 @@ class Service:
         :rtype: dict.
         """
         return {
-            'iid': self.broker.iid_manager.get_iid(self),
-            'type': str(self.type_id).upper(),
-            'characteristics': [c.to_HAP() for c in self.characteristics],
+            HAP_REPR_IID: self.broker.iid_manager.get_iid(self),
+            HAP_REPR_TYPE: str(self.type_id).upper(),
+            HAP_REPR_CHARS: [c.to_HAP() for c in self.characteristics],
         }
 
     @classmethod

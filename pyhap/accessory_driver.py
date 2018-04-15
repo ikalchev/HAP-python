@@ -37,12 +37,18 @@ from zeroconf import ServiceInfo, Zeroconf
 from pyhap import util
 from pyhap.accessory import AsyncAccessory, get_topic, STANDALONE_AID
 from pyhap.characteristic import CharacteristicError
+from pyhap.const import (
+    STANDALONE_AID, HAP_PERMISSION_NOTIFY, HAP_REPR_ACCS, HAP_REPR_AID,
+    HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_STATUS, HAP_REPR_VALUE)
 from pyhap.params import get_srp_context
 from pyhap.hsrp import Server as SrpServer
 from pyhap.hap_server import HAPServer
 from pyhap.encoder import AccessoryEncoder
 
 logger = logging.getLogger(__name__)
+
+CHAR_STAT_OK = 0
+SERVICE_COMMUNICATION_FAILURE = -70402
 
 
 class AccessoryMDNSServiceInfo(ServiceInfo):
@@ -89,11 +95,6 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         }
 
         return adv_data
-
-
-class HAP_CONSTANTS:
-    CHAR_STAT_OK = 0
-    SERVICE_COMMUNICATION_FAILURE = -70402
 
 
 class AccessoryDriver(object):
@@ -208,11 +209,11 @@ class AccessoryDriver(object):
             "iid".
         :type data: dict
         """
-        topic = get_topic(data["aid"], data["iid"])
+        topic = get_topic(data[HAP_REPR_AID], data[HAP_REPR_IID])
         if topic not in self.topics:
             return
 
-        data = {"characteristics": [data]}
+        data = {HAP_REPR_CHARS: [data]}
         bytedata = json.dumps(data).encode()
         self.event_queue.put((topic, bytedata))
 
@@ -356,7 +357,7 @@ class AccessoryDriver(object):
         hap_rep = self.accessory.to_HAP()
         if not isinstance(hap_rep, list):
             hap_rep = [hap_rep, ]
-        return {"accessories": hap_rep}
+        return {HAP_REPR_ACCS: hap_rep}
 
     def get_characteristics(self, char_ids):
         """Returns values for the required characteristics.
@@ -381,17 +382,17 @@ class AccessoryDriver(object):
         chars = []
         for id in char_ids:
             aid, iid = (int(i) for i in id.split("."))
-            rep = {"aid": aid, "iid": iid}
+            rep = {HAP_REPR_AID: aid, HAP_REPR_IID: iid}
             char = self.accessory.get_characteristic(aid, iid)
             try:
-                rep["value"] = char.value
-                rep["status"] = HAP_CONSTANTS.CHAR_STAT_OK
+                rep[HAP_REPR_VALUE] = char.value
+                rep[HAP_REPR_STATUS] = CHAR_STAT_OK
             except CharacteristicError:
                 logger.error("Error getting value for characteristic %s.", id)
-                rep["status"] = HAP_CONSTANTS.SERVICE_COMMUNICATION_FAILURE
+                rep[HAP_REPR_STATUS] = SERVICE_COMMUNICATION_FAILURE
 
             chars.append(rep)
-        return {"characteristics": chars}
+        return {HAP_REPR_CHARS: chars}
 
     def set_characteristics(self, chars_query, client_addr):
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.
@@ -425,29 +426,30 @@ class AccessoryDriver(object):
 
         :rtype: dict
         """
-        chars_query = chars_query["characteristics"]
+        chars_query = chars_query[HAP_REPR_CHARS]
         chars_response = []
         for cq in chars_query:
-            aid, iid = cq["aid"], cq["iid"]
+            aid, iid = cq[HAP_REPR_AID], cq[HAP_REPR_IID]
             char = self.accessory.get_characteristic(aid, iid)
 
-            if "ev" in cq:
+            if HAP_PERMISSION_NOTIFY in cq:
                 char_topic = get_topic(aid, iid)
-                self.subscribe_client_topic(client_addr, char_topic, cq["ev"])
+                self.subscribe_client_topic(
+                    client_addr, char_topic, cq[HAP_PERMISSION_NOTIFY])
 
             response = {
-                "aid": aid,
-                "iid": iid,
-                "status": HAP_CONSTANTS.CHAR_STAT_OK,
+                HAP_REPR_AID: aid,
+                HAP_REPR_IID: iid,
+                HAP_REPR_STATUS: CHAR_STAT_OK,
             }
-            if "value" in cq:
+            if HAP_REPR_VALUE in cq:
                 # TODO: status needs to be based on success of set_value
-                char.client_update_value(cq["value"])
+                char.client_update_value(cq[HAP_REPR_VALUE])
                 if "r" in cq:
-                    response["value"] = char.value
+                    response[HAP_REPR_VALUE] = char.value
 
             chars_response.append(response)
-        return {"characteristics": chars_response}
+        return {HAP_REPR_CHARS: chars_response}
 
     def start(self):
         """Starts the accessory.

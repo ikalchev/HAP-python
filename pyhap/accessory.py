@@ -10,6 +10,9 @@ import base36
 from pyqrcode import QRCode
 
 from pyhap import util
+from pyhap.const import (
+    STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID,
+    HAP_REPR_SERVICES, HAP_REPR_VALUE)
 from pyhap.loader import get_serv_loader
 
 logger = logging.getLogger(__name__)
@@ -18,8 +21,8 @@ logger = logging.getLogger(__name__)
 class Category:
     """Known category values.
 
-    Category is a hint to iOS clients about what "type" of Accessory this represents,
-    for UI only.
+    Category is a hint to iOS clients about what "type" of Accessory this
+    represents, for UI only.
     """
     OTHER = 1
     BRIDGE = 2
@@ -38,10 +41,6 @@ class Category:
     PROGRAMMABLE_SWITCH = 15
     RANGE_EXTENDER = 16
     CAMERA = 17
-
-
-# Standalone accessory ID (i.e. not bridged)
-STANDALONE_AID = 1
 
 
 class IIDManager(object):
@@ -372,8 +371,8 @@ class Accessory(object):
         :rtype: dict
         """
         return {
-            "aid": self.aid,
-            "services": [s.to_HAP() for s in self.services],
+            HAP_REPR_AID: self.aid,
+            HAP_REPR_SERVICES: [s.to_HAP() for s in self.services],
         }
 
     def setup_message(self):
@@ -435,9 +434,9 @@ class Accessory(object):
             return
 
         acc_data = {
-            "aid": self.aid,
-            "iid": self.iid_manager.get_iid(sender),
-            "value": value,
+            HAP_REPR_AID: self.aid,
+            HAP_REPR_IID: self.iid_manager.get_iid(sender),
+            HAP_REPR_VALUE: value,
         }
         self.broker.publish(acc_data)
 
