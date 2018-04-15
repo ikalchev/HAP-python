@@ -46,15 +46,15 @@ class Service:
         raise ValueError('Characteristic not found')
 
     def configure_char(char_name, properties=None, valid_values=None,
-                       value=None, callback=None):
+                       value=None, setter_callback=None):
         """Helper method to return fully configured characteristic."""
         char = service.get_characteristic(char_name)
         if properties or valid_values:
             char.override_properties(properties)
         if value:
             char.set_value(value, should_notify=False)
-        if callback:
-            char.setter_callback = callback
+        if setter_callback:
+            char.setter_callback = setter_callback
         return char
 
     def to_HAP(self):
