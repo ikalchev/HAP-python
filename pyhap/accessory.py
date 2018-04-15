@@ -261,6 +261,7 @@ class Accessory(object):
         for s in servs:
             self.services.append(s)
             self.iid_manager.assign(s)
+            s.broker = self
             for c in s.characteristics:
                 self.iid_manager.assign(c)
                 c.broker = self
@@ -353,7 +354,7 @@ class Accessory(object):
 
         return self.iid_manager.get_obj(iid)
 
-    def to_HAP(self, iid_manager=None):
+    def to_HAP(self):
         """A HAP representation of this Accessory.
 
         :return: A HAP representation of this accessory. For example:
@@ -370,10 +371,10 @@ class Accessory(object):
 
         :rtype: dict
         """
-        iid_manager = iid_manager or self.iid_manager
-        services_HAP = [s.to_HAP(iid_manager) for s in self.services]
-        hap_rep = {"aid": self.aid, "services": services_HAP, }
-        return hap_rep
+        return {
+            "aid": self.aid,
+            "services": [s.to_HAP() for s in self.services],
+        }
 
     def setup_message(self):
         print('Setup payload: %s' % self.xhm_uri, flush=True)
@@ -533,15 +534,15 @@ class Bridge(AsyncAccessory):
         for _, acc in self.accessories.items():
             acc.broker = broker
 
-    def to_HAP(self, iid_manager=None):
+    def to_HAP(self):
         """Returns a HAP representation of itself and all contained accessories.
 
         .. seealso:: Accessory.to_HAP
         """
-        hap_rep = [super(Bridge, self).to_HAP(iid_manager), ]
+        hap_rep = [super().to_HAP()]
 
-        for _, acc in self.accessories.items():
-            hap_rep.append(acc.to_HAP(iid_manager))
+        for acc in self.accessories.values():
+            hap_rep.append(acc.to_HAP())
 
         return hap_rep
 
