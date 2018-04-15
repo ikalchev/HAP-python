@@ -19,9 +19,8 @@ _char_loader = None
 _serv_loader = None
 
 
-class TypeLoader(object):
-    """Looks up type descriptions based on a name.
-    """
+class TypeLoader:
+    """Looks up type descriptions based on a name."""
 
     def __init__(self, fp):
         """Initialise with the type descriptions in the given file.

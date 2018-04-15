@@ -77,9 +77,6 @@ class Service:
         """Initialize a service object from a dict."""
         type_id = UUID(json_dict.pop('UUID'))
         service = cls(type_id, name)
-        chars = []
-
         for name in json_dict['RequiredCharacteristics']:
-            chars.append(char_loader.get(name))
-        service.add_characteristic(*chars)
+            service.add_characteristic(char_loader.get(name))
         return service
