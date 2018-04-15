@@ -157,7 +157,7 @@ class AccessoryDriver(object):
             self.persist()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
-        self.event_loop = asyncio.get_event_loop()
+        self.event_loop = asyncio.new_event_loop()
         self.aio_stop_event = asyncio.Event()
         self.stop_event = threading.Event()
         self.event_queue = queue.Queue()  # (topic, bytes)
@@ -490,16 +490,24 @@ class AccessoryDriver(object):
             self.accessory.setup_message()
 
         # Start the accessory so it can do stuff.
-        self.accessory.set_sentinel(self.stop_event, self.aio_stop_event, self.event_loop)
+        self.accessory.set_sentinel(self.stop_event, self.aio_stop_event,
+                                    self.event_loop)
         if isinstance(self.accessory, AsyncAccessory):
-            self.accessory_task = self.event_loop.create_task(self.accessory.run())
+            self.accessory_task = self.event_loop.create_task(
+                self.accessory.run())
         else:
-            self.accessory_task = self.event_loop.run_in_executor(None,
-                                                                  self.accessory.run)
+            self.accessory_task = self.event_loop.run_in_executor(
+                None, self.accessory.run)
+
         logger.info("Starting event loop")
-        self.event_loop.run_until_complete(self.accessory_task)
-        self.event_loop.close()
-        logger.info("Stopped event loop.")
+        try:
+            self.event_loop.run_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.event_loop.close()
+            logger.info("Closed event loop.")
+
 
     def stop(self):
         """Stop the accessory.
@@ -517,6 +525,7 @@ class AccessoryDriver(object):
         self.stop_event.set()
         if not self.event_loop.is_closed():
             self.event_loop.call_soon_threadsafe(self.aio_stop_event.set)
+            self.event_loop.stop()
         self.accessory.stop()
 
         logger.debug("Stopping mDNS advertising")
