@@ -78,5 +78,5 @@ class Service:
         type_id = UUID(json_dict.pop('UUID'))
         service = cls(type_id, name)
         for name in json_dict['RequiredCharacteristics']:
-            service.add_characteristic(char_loader.get(name))
+            service.add_characteristic(char_loader.get_char(name))
         return service
