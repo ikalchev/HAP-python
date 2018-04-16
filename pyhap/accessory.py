@@ -176,7 +176,7 @@ class Accessory(object):
             always call the base implementation first, as it reserves IID of
             1 for the Accessory Information service (HAP requirement).
         """
-        info_service = get_serv_loader().get("AccessoryInformation")
+        info_service = get_serv_loader().get_service("AccessoryInformation")
         info_service.get_characteristic("Name")\
                     .set_value(self.display_name, False)
         info_service.get_characteristic("Manufacturer")\

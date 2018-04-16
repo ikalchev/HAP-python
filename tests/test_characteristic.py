@@ -1,14 +1,15 @@
 """Tests for pyhap.characteristic."""
 import unittest
 from unittest.mock import Mock, patch, ANY
-import uuid
+from uuid import uuid1
 
-from pyhap.characteristic import Characteristic, HAP_FORMAT, HAP_PERMISSIONS
+from pyhap.characteristic import (
+    Characteristic, HAP_FORMAT_INT, HAP_FORMAT_DEFAULTS, HAP_PERMISSION_READ)
 
 
 PROPERTIES = {
-    'Format': HAP_FORMAT.INT,
-    'Permissions': [HAP_PERMISSIONS.READ]
+    'Format': HAP_FORMAT_INT,
+    'Permissions': [HAP_PERMISSION_READ]
 }
 
 
@@ -19,8 +20,22 @@ def get_char(props, valid=None, min_value=None, max_value=None):
         props['minValue'] = min_value
     if max_value:
         props['maxValue'] = max_value
-    return Characteristic(display_name='Test Char', type_id=uuid.uuid1(),
+    return Characteristic(display_name='Test Char', type_id=uuid1(),
                           properties=props)
+
+
+def test_from_dict():
+    uuid = uuid1()
+    json_dict = {
+        'UUID': str(uuid),
+        'Format': 'int',
+        'Permissions': 'read',
+    }
+
+    char = Characteristic.from_dict('Test Char', json_dict)
+    assert char.display_name == 'Test Char'
+    assert char.type_id == uuid
+    assert char.properties == {'Format': 'int', 'Permissions': 'read'}
 
 
 class TestCharacteristic(unittest.TestCase):
@@ -34,7 +49,7 @@ class TestCharacteristic(unittest.TestCase):
 
     def test_default_value(self):
         char = get_char(PROPERTIES.copy())
-        self.assertEqual(char.value, HAP_FORMAT.DEFAULT[PROPERTIES['Format']])
+        self.assertEqual(char.value, HAP_FORMAT_DEFAULTS[PROPERTIES['Format']])
 
     def test_get_default_value(self):
         valid_values = {'foo': 2, 'bar': 3}
@@ -85,6 +100,11 @@ class TestCharacteristic(unittest.TestCase):
         char.override_properties(valid_values=new_valid_values)
         self.assertEqual(char.properties['ValidValues'], new_valid_values)
 
+    def test_override_properties_error(self):
+        char = get_char(PROPERTIES.copy())
+        with self.assertRaises(ValueError):
+            char.override_properties()
+
     def test_set_value(self):
         path = 'pyhap.characteristic.Characteristic.notify'
         char = get_char(PROPERTIES.copy(), min_value=3, max_value=7)
@@ -133,11 +153,11 @@ class TestCharacteristic(unittest.TestCase):
         with patch.object(char, 'broker') as mock_broker:
             mock_iid = mock_broker.iid_manager.get_iid
             mock_iid.return_value = 2
-            hap_rep = char.to_HAP()
+            hap_repr = char.to_HAP()
             mock_iid.assert_called_with(char)
 
         self.assertEqual(
-            hap_rep,
+            hap_repr,
             {
                 'iid': 2,
                 'type': ANY,
@@ -154,25 +174,25 @@ class TestCharacteristic(unittest.TestCase):
         char.properties['Format'] = 'string'
         char.value = 'aaa'
         with patch.object(char, 'broker') as mock_broker:
-            hap_rep = char.to_HAP()
-        self.assertEqual(hap_rep['format'], 'string')
-        self.assertNotIn('maxLen', hap_rep)
+            hap_repr = char.to_HAP()
+        self.assertEqual(hap_repr['format'], 'string')
+        self.assertNotIn('maxLen', hap_repr)
 
         char.value = 'aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee' \
             'ffffffffffgggggggggg'
         with patch.object(char, 'broker') as mock_broker:
-            hap_rep = char.to_HAP()
-        self.assertEqual(hap_rep['maxLen'], 70)
-        self.assertEqual(hap_rep['value'], char.value)
+            hap_repr = char.to_HAP()
+        self.assertEqual(hap_repr['maxLen'], 70)
+        self.assertEqual(hap_repr['value'], char.value)
 
     def test_to_HAP_bool(self):
         char = get_char(PROPERTIES.copy())
         char.properties['Format'] = 'bool'
         with patch.object(char, 'broker') as mock_broker:
-            hap_rep = char.to_HAP()
-        self.assertEqual(hap_rep['format'], 'bool')
+            hap_repr = char.to_HAP()
+        self.assertEqual(hap_repr['format'], 'bool')
 
         char.properties['Permissions'] = []
         with patch.object(char, 'broker') as mock_broker:
-            hap_rep = char.to_HAP()
-        self.assertNotIn('value', hap_rep)
+            hap_repr = char.to_HAP()
+        self.assertNotIn('value', hap_repr)
