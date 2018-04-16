@@ -6,6 +6,8 @@ a temperature measuring or a device status.
 """
 import logging
 
+from uuid import UUID
+
 logger = logging.getLogger(__name__)
 
 
@@ -216,3 +218,14 @@ class Characteristic:
             hap_rep['value'] = self.value
 
         return hap_rep
+
+    @classmethod
+    def from_dict(cls, name, json_dict):
+        """Initialize a characteristic object from a dict.
+
+        :param json_dict: Dictionary containing at least the keys `Format`,
+            `Permissions` and `UUID`
+        :type json_dict: dict
+        """
+        type_id = UUID(json_dict.pop('UUID'))
+        return cls(name, type_id, properties=json_dict)

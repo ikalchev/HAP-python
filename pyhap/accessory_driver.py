@@ -17,7 +17,7 @@ the Characteristic does not block waiting for the actual send to happen.
 
 When the AccessoryDriver is started, it spawns an event dispatch thread. The purpose of
 this thread is to get events from the event queue and send them to subscribed clients.
-Whenever a send fails, the client is unsubscribed, as it is assumed that the client left
+Whenever a send fails, the client is unsubscripted, as it is assumed that the client left
 or went to sleep before telling us. This concludes the publishing process from the
 AccessoryDriver.
 """
@@ -30,17 +30,16 @@ import base64
 import time
 import threading
 import json
-import pickle
 import queue
 
 from zeroconf import ServiceInfo, Zeroconf
 
+from pyhap import util
 from pyhap.accessory import AsyncAccessory, get_topic, STANDALONE_AID
 from pyhap.characteristic import CharacteristicError
 from pyhap.params import get_srp_context
 from pyhap.hsrp import Server as SrpServer
 from pyhap.hap_server import HAPServer
-import pyhap.util as util
 from pyhap.encoder import AccessoryEncoder
 
 logger = logging.getLogger(__name__)
@@ -72,7 +71,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         return base64.b64encode(temp_hash.digest()[:4])
 
     def _get_advert_data(self):
-        """Generate advertisment data from the accessory."""
+        """Generate advertisement data from the accessory."""
         adv_data = {
             "md": self.accessory.display_name,
             "pv": "1.0",
@@ -257,13 +256,13 @@ class AccessoryDriver(object):
         """Notify the driver that the accessory's configuration has changed.
 
         Persists the accessory, so that the new configuration is available on
-        restart. Also, updates the mDNS advertisment, so that iOS clients know they need
+        restart. Also, updates the mDNS advertisement, so that iOS clients know they need
         to fetch new data.
         """
         self.persist()
-        self.update_advertisment()
+        self.update_advertisement()
 
-    def update_advertisment(self):
+    def update_advertisement(self):
         """Updates the mDNS service info for the accessory."""
         self.advertiser.unregister_service(self.mdns_service_info)
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory,
@@ -305,7 +304,7 @@ class AccessoryDriver(object):
         logger.info("Paired with %s.", client_uuid)
         self.accessory.add_paired_client(client_uuid, client_public)
         self.persist()
-        self.update_advertisment()
+        self.update_advertisement()
         return True
 
     def unpair(self, client_uuid):
@@ -320,7 +319,7 @@ class AccessoryDriver(object):
         logger.info("Unpairing client '%s'.", client_uuid)
         self.accessory.remove_paired_client(client_uuid)
         self.persist()
-        self.update_advertisment()
+        self.update_advertisement()
 
     def setup_srp_verifier(self):
         """Create an SRP verifier for the accessory's info."""
@@ -406,7 +405,7 @@ class AccessoryDriver(object):
                  "aid": 1,
                  "iid": 2,
                  "value": False, # Value to set
-                 "ev": True # (Un)subscribe for events from this charactertics.
+                 "ev": True # (Un)subscribe for events from this characteristics.
               }]
            }
 
@@ -456,7 +455,7 @@ class AccessoryDriver(object):
         - Call the accessory's run method.
         - Start handling accessory events.
         - Start the HAP server.
-        - Publish a mDNS advertisment.
+        - Publish a mDNS advertisement.
         - Print the setup QR code if the accessory is not paired.
 
         All of the above are started in separate threads. Accessory thread is set as
