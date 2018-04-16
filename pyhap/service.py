@@ -1,7 +1,7 @@
 """This module implements the HAP Service."""
 from uuid import UUID
 
-from .characteristic import Characteristic
+from pyhap.characteristic import Characteristic
 
 
 class Service:
