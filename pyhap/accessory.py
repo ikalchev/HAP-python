@@ -11,36 +11,11 @@ from pyqrcode import QRCode
 
 from pyhap import util
 from pyhap.const import (
-    STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID,
-    HAP_REPR_SERVICES, HAP_REPR_VALUE)
+    STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_SERVICES,
+    HAP_REPR_VALUE, CATEGORY_OTHER, CATEGORY_BRIDGE)
 from pyhap.loader import get_serv_loader
 
 logger = logging.getLogger(__name__)
-
-
-class Category:
-    """Known category values.
-
-    Category is a hint to iOS clients about what "type" of Accessory this
-    represents, for UI only.
-    """
-    OTHER = 1
-    BRIDGE = 2
-    FAN = 3
-    GARAGE_DOOR_OPENER = 4
-    LIGHTBULB = 5
-    DOOR_LOCK = 6
-    OUTLET = 7
-    SWITCH = 8
-    THERMOSTAT = 9
-    SENSOR = 10
-    ALARM_SYSTEM = 11
-    DOOR = 12
-    WINDOW = 13
-    WINDOW_COVERING = 14
-    PROGRAMMABLE_SWITCH = 15
-    RANGE_EXTENDER = 16
-    CAMERA = 17
 
 
 class IIDManager(object):
@@ -109,7 +84,7 @@ class Accessory(object):
     Use this to set your HAP services.
     """
 
-    category = Category.OTHER
+    category = CATEGORY_OTHER
 
     @classmethod
     def create(cls, display_name, pincode, aid=STANDALONE_AID):
@@ -318,7 +293,7 @@ class Accessory(object):
         value_low |= 1 << 28
         struct.pack_into('>L', buffer, 4, value_low)
 
-        if self.category == Category.OTHER:
+        if self.category == CATEGORY_OTHER:
             buffer[4] = buffer[4] | 1 << 7
 
         value_high = self.category >> 1
@@ -479,7 +454,7 @@ class Bridge(AsyncAccessory):
     A `Bridge` can have multiple `Accessories`.
     """
 
-    category = Category.BRIDGE
+    category = CATEGORY_BRIDGE
 
     def __init__(self, display_name, mac=None, pincode=None,
                  iid_manager=None, setup_id=None):
@@ -512,11 +487,11 @@ class Bridge(AsyncAccessory):
         :param acc: The ``Accessory`` to be bridged.
         :type acc: Accessory
 
-        :raise ValueError: When the given ``Accessory`` is of category ``Category.BRIDGE``
+        :raise ValueError: When the given ``Accessory`` is of category ``CATEGORY_BRIDGE``
             or if the AID of the ``Accessory`` clashes with another ``Accessory`` already in this
             ``Bridge``.
         """
-        if acc.category == Category.BRIDGE:
+        if acc.category == CATEGORY_BRIDGE:
             raise ValueError("Bridges cannot be bridged")
 
         if acc.aid is None:
