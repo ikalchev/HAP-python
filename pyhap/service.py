@@ -74,7 +74,12 @@ class Service:
 
     @classmethod
     def from_dict(cls, name, json_dict, char_loader):
-        """Initialize a service object from a dict."""
+        """Initialize a service object from a dict.
+
+        :param json_dict: Dictionary containing at least the keys `UUID` and
+            `RequiredCharacteristics`
+        :type json_dict: dict
+        """
         type_id = UUID(json_dict.pop('UUID'))
         service = cls(type_id, name)
         for name in json_dict['RequiredCharacteristics']:

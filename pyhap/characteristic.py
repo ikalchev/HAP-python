@@ -221,6 +221,11 @@ class Characteristic:
 
     @classmethod
     def from_dict(cls, name, json_dict):
-        """Initialize a characteristic object from a dict."""
+        """Initialize a characteristic object from a dict.
+
+        :param json_dict: Dictionary containing at least the keys `Format`,
+            `Permissions` and `UUID`
+        :type json_dict: dict
+        """
         type_id = UUID(json_dict.pop('UUID'))
         return cls(name, type_id, properties=json_dict)

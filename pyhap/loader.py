@@ -45,7 +45,8 @@ class TypeLoader:
             keys.
         """
         char_dict = self.get(name)
-        if 'Format' not in char_dict or 'Permissions' not in char_dict or \
+        if 'Format' not in char_dict or \
+            'Permissions' not in char_dict or \
                 'UUID' not in char_dict:
             raise KeyError('Could not load char {}!'.format(name))
         return Characteristic.from_dict(name, char_dict)
@@ -53,7 +54,7 @@ class TypeLoader:
     def get_service(self, name, char_loader=None):
         """Return new service object.
 
-        :param char_loader: `TypeLoader object to use when creating the
+        :param char_loader: `TypeLoader` object to use when creating the
             characteristics for adding to instantiated service.
         :type char_loader: TypeLoader
 
