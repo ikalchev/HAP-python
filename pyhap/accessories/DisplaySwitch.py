@@ -1,7 +1,8 @@
 # An Accessory for viewing/controlling the status of a Mac display.
 import subprocess
 
-from pyhap.accessory import Accessory, Category
+from pyhap.accessory import Accessory
+from pyhap.const import CATEGORY_SWITCH
 import pyhap.loader as loader
 
 
@@ -23,19 +24,19 @@ class DisplaySwitch(Accessory):
     of the Mac that this code is running on.
     """
 
-    category = Category.SWITCH
+    category = CATEGORY_SWITCH
 
     def __init__(self, *args, **kwargs):
-        super(DisplaySwitch, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.display = self.get_service("Switch")\
                            .get_characteristic("On")
         self.display.setter_callback = self.set_display
 
     def _set_services(self):
-        super(DisplaySwitch, self)._set_services()
+        super()._set_services()
         self.add_service(
-            loader.get_serv_loader().get("Switch"))
+            loader.get_serv_loader().get_service("Switch"))
 
     def run(self):
         while not self.run_sentinel.wait(1):
