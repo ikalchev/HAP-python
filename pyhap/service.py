@@ -22,7 +22,7 @@ class Service:
 
     def __repr__(self):
         """Return the representation of the service."""
-        return "<service display_name='{}' chars={}>" \
+        return '<service display_name={} chars={}>' \
             .format(self.display_name,
                     {c.display_name: c.value for c in self.characteristics})
 
@@ -49,12 +49,12 @@ class Service:
                 return char
         raise ValueError('Characteristic not found')
 
-    def configure_char(char_name, properties=None, valid_values=None,
+    def configure_char(self, char_name, properties=None, valid_values=None,
                        value=None, setter_callback=None):
         """Helper method to return fully configured characteristic."""
-        char = service.get_characteristic(char_name)
+        char = self.get_characteristic(char_name)
         if properties or valid_values:
-            char.override_properties(properties)
+            char.override_properties(properties, valid_values)
         if value:
             char.set_value(value, should_notify=False)
         if setter_callback:

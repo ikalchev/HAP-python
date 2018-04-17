@@ -147,17 +147,20 @@ class Characteristic:
             valid_values. Valid values will be set to new dictionary.
         :type valid_values: dict
         """
+        if not properties and not valid_values:
+            raise ValueError(
+                'No properties or valid_values specified to override.')
+
         if properties:
             self.properties.update(properties)
 
         if valid_values:
             self.properties[PROP_VALID_VALUES] = valid_values
 
-        if properties or valid_values:
-            try:
-                self.value = self.to_valid_value(self.value)
-            except ValueError:
-                self.value = self._get_default_value()
+        try:
+            self.value = self.to_valid_value(self.value)
+        except ValueError:
+            self.value = self._get_default_value()
 
     def set_value(self, value, should_notify=True):
         """Set the given raw value. It is checked if it is a valid value.
