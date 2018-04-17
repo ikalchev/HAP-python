@@ -98,8 +98,9 @@ class Characteristic:
         self.type_id = type_id
         self.properties = properties
         self.broker = None
+        self._value = None
+        self.getter_callback = None
         self.setter_callback = None
-        self.value = self._get_default_value()
 
     def __repr__(self):
         """Return the representation of the characteristic."""
@@ -162,6 +163,14 @@ class Characteristic:
         except ValueError:
             self.value = self._get_default_value()
 
+    @property
+    def value(self):
+        if not getattr(self, '_value', None):
+            self._value = self._get_default_value()
+        if self.getter_callback:
+            self.getter_callback(self._value)
+        return self._value
+
     def set_value(self, value, should_notify=True):
         """Set the given raw value. It is checked if it is a valid value.
 
@@ -177,18 +186,18 @@ class Characteristic:
         """
         logger.debug('%s: Set value to %s', self.display_name, value)
         value = self.to_valid_value(value)
-        self.value = value
+        self._value = value
         if should_notify and self.broker:
             self.notify()
 
     def client_update_value(self, value):
         """Called from broker for value change in Home app.
 
-        Change self.value to value and call callback.
+        Call set_value and call callback.
         """
         logger.debug('%s: Client update value to %s',
-                      self.display_name, value)
-        self.value = value
+                     self.display_name, value)
+        self.set_value(value)
         self.notify()
         if self.setter_callback:
             self.setter_callback(value)
