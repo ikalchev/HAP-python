@@ -3,16 +3,17 @@ import random
 
 import RPi.GPIO as GPIO
 
-from pyhap.accessory import Accessory, Category
+from pyhap.accessory import Accessory
+from pyhap.const import CATEGORY_SENSOR
 import pyhap.loader as loader
 
 
 class MotionSensor(Accessory):
 
-    category = Category.SENSOR
+    category = CATEGORY_SENSOR
 
     def __init__(self, *args, **kwargs):
-        super(MotionSensor, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self.detected_char = self.get_service("MotionSensor")\
                                  .get_characteristic("MotionDetected")
@@ -21,13 +22,13 @@ class MotionSensor(Accessory):
         GPIO.add_event_detect(7, GPIO.RISING, callback=self._detected)
 
     def _set_services(self):
-        super(MotionSensor, self)._set_services()
+        super()._set_services()
         self.add_service(
-            loader.get_serv_loader().get("MotionSensor"))
+            loader.get_serv_loader().get_service("MotionSensor"))
 
     def _detected(self, _pin):
         self.detected_char.set_value(True)
 
     def stop(self):
-        super(MotionSensor, self).stop()
+        super().stop()
         GPIO.cleanup()

@@ -10,7 +10,8 @@ import time
 import logging
 
 from sensors.SDS011 import SDS011 as AirSensor
-from pyhap.accessory import Accessory, Category
+from pyhap.accessory import Accessory
+from pyhap.const import CATEGORY_SENSOR
 import pyhap.loader as loader
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ class SDS011(Accessory):
     """Accessory wrapper for SDS011.
     """
 
-    category = Category.SENSOR
+    category = CATEGORY_SENSOR
 
     SORTED_PM_QUALITY_MAP = ((200, 5), (150, 4), (100, 3), (50, 2), (0, 1))
     """
@@ -54,7 +55,7 @@ class SDS011(Accessory):
         self.pm25_density = None
         self.pm10_quality = None
         self.pm10_density = None
-        super(SDS011, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.sleep_duration_s = sleep_duration_s
         self.calib_duration_s = calib_duration_s
         self.serial_port = serial_port
@@ -67,25 +68,27 @@ class SDS011(Accessory):
         Also adds and configures optional characteristics, such as Name,
         AirParticulateSize, AirParticulateDensity.
         """
-        super(SDS011, self)._set_services()
+        super()._set_services()
         char_loader = loader.get_char_loader()
 
         # PM2.5
-        air_quality_pm25 = loader.get_serv_loader().get("AirQualitySensor")
-        pm25_size = char_loader.get("AirParticulateSize")
+        air_quality_pm25 = loader.get_serv_loader() \
+            .get_service("AirQualitySensor")
+        pm25_size = char_loader.get_char("AirParticulateSize")
         pm25_size.set_value(0, should_notify=False)
-        self.pm25_density = char_loader.get("AirParticulateDensity")
-        pm25_name = char_loader.get("Name")
+        self.pm25_density = char_loader.get_char("AirParticulateDensity")
+        pm25_name = char_loader.get_char("Name")
         pm25_name.set_value("PM2.5", should_notify=False)
         self.pm25_quality = air_quality_pm25.get_characteristic("AirQuality")
         air_quality_pm25.add_characteristic(pm25_name, pm25_size, self.pm25_density)
 
         # PM10
-        air_quality_pm10 = loader.get_serv_loader().get("AirQualitySensor")
-        pm10_size = char_loader.get("AirParticulateSize")
+        air_quality_pm10 = loader.get_serv_loader() \
+            .get_service("AirQualitySensor")
+        pm10_size = char_loader.get_char("AirParticulateSize")
         pm10_size.set_value(1, should_notify=False)
-        self.pm10_density = char_loader.get("AirParticulateDensity")
-        pm10_name = char_loader.get("Name")
+        self.pm10_density = char_loader.get_char("AirParticulateDensity")
+        pm10_name = char_loader.get_char("Name")
         pm10_name.set_value("PM10", should_notify=False)
         self.pm10_quality = air_quality_pm10.get_characteristic("AirQuality")
         air_quality_pm10.add_characteristic(pm10_name, pm10_size, self.pm10_density)

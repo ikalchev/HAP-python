@@ -10,16 +10,17 @@ import random
 import pigpio
 import sensors.DHT22 as DHT22
 
-from pyhap.accessory import Accessory, Category
+from pyhap.accessory import Accessory
+from pyhap.const import CATEGORY_SENSOR
 import pyhap.loader as loader
 
 
 class AM2302(Accessory):
 
-    category = Category.SENSOR
+    category = CATEGORY_SENSOR
 
     def __init__(self, *args, pin=4, **kwargs):
-        super(AM2302, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.pin = pin
 
         self.temp_char = self.get_service("TemperatureSensor")\
@@ -31,14 +32,14 @@ class AM2302(Accessory):
         self.sensor = DHT22.sensor(pigpio.pi(), pin)
 
     def _set_services(self):
-        super(AM2302, self)._set_services()
+        super()._set_services()
         self.add_service(
-            loader.get_serv_loader().get("TemperatureSensor"))
+            loader.get_serv_loader().get_service("TemperatureSensor"))
         self.add_service(
-            loader.get_serv_loader().get("HumiditySensor"))
+            loader.get_serv_loader().get_service("HumiditySensor"))
 
     def __getstate__(self):
-        state = super(AM2302, self).__getstate__()
+        state = super().__getstate__()
         state["sensor"] = None
         return state
 

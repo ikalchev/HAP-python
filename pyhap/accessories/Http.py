@@ -7,7 +7,8 @@ import threading
 import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from pyhap.accessory import Bridge, Category
+from pyhap.accessory import Bridge
+from pyhap.const import CATEGORY_OTHER
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class HttpBridgeHandler(BaseHTTPRequestHandler):
         """Create a handler that passes updates to the given HttpAccessory.
         """
         self.http_accessory = http_accessory
-        super(HttpBridgeHandler, self).__init__(sock, client_addr, server)
+        super().__init__(sock, client_addr, server)
 
     def respond_ok(self):
         """Reply with code 200 (OK) and close the connection.
@@ -125,7 +126,7 @@ class HttpBridge(Bridge):
     After the above you can HTTP POST updates to the local address at port 51111.
     """
 
-    category = Category.OTHER
+    category = CATEGORY_OTHER
 
     def __init__(self, address, *args, **kwargs):
         """Initialise and add the given services.
@@ -135,7 +136,7 @@ class HttpBridge(Bridge):
 
         @param accessories:
         """
-        super(HttpBridge, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # For exclusive access to updates. Slight overkill...
         self.update_lock = None
@@ -155,7 +156,7 @@ class HttpBridge(Bridge):
         Also add the server address. All this is because we cannot pickle such
         objects and to allow to recover the server using the address.
         """
-        state = super(HttpBridge, self).__getstate__()
+        state = super().__getstate__()
         state["server"] = None
         state["server_thread"] = None
         state["update_lock"] = None
@@ -198,7 +199,7 @@ class HttpBridge(Bridge):
     def stop(self):
         """Stop the server.
         """
-        super(HttpBridge, self).stop()
+        super().stop()
         logger.debug("Stopping HTTP bridge server.")
         self.server.shutdown()
         self.server.server_close()

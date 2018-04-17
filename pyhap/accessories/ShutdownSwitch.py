@@ -10,7 +10,8 @@ $ # add the line "hap-user ALL=NOPASSWD: /sbin/shutdown"
 import os
 import logging
 
-from pyhap.accessory import Accessory, Category
+from pyhap.accessory import Accessory
+from pyhap.const import CATEGORY_SWITCH
 import pyhap.loader as loader
 
 logger = logging.getLogger(__name__)
@@ -19,20 +20,20 @@ logger = logging.getLogger(__name__)
 class ShutdownSwitch(Accessory):
     """A switch accessory that executes sudo shutdown."""
 
-    category = Category.SWITCH
+    category = CATEGORY_SWITCH
 
     def __init__(self, *args, **kwargs):
         """Initialise and set a shutdown callback to the On characteristic."""
-        super(ShutdownSwitch, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         on_char = self.get_service("Switch")\
                       .get_characteristic("On")
         on_char.setter_callback = self.execute_shutdown
 
     def _set_services(self):
         """Add the Switch service."""
-        super(ShutdownSwitch, self)._set_services()
+        super()._set_services()
         service_loader = loader.get_serv_loader()
-        self.add_service(service_loader.get("Switch"))
+        self.add_service(service_loader.get_service("Switch"))
 
     def execute_shutdown(self, _value):
         """Execute shutdown -h."""
