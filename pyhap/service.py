@@ -12,19 +12,19 @@ class Service:
     TemperatureSensor service has the characteristic CurrentTemperature.
     """
 
-    __slots__ = ('display_name', 'type_id', 'characteristics', 'broker')
+    __slots__ = ('name', 'type_id', 'characteristics', 'broker')
 
-    def __init__(self, type_id, display_name=None):
-        self.display_name = display_name
+    def __init__(self, type_id, name=None):
+        self.name = name
         self.type_id = type_id
         self.characteristics = []
         self.broker = None
 
     def __repr__(self):
         """Return the representation of the service."""
-        return '<service display_name={} chars={}>' \
-            .format(self.display_name,
-                    {c.display_name: c.value for c in self.characteristics})
+        return '<service name={} chars={}>' \
+            .format(self.name,
+                    {c.name: c.value for c in self.characteristics})
 
     def add_characteristic(self, *chars):
         """Add the given characteristics as "mandatory" for this Service."""
@@ -45,7 +45,7 @@ class Service:
         :rtype: Characteristic
         """
         for char in self.characteristics:
-            if char.display_name == name:
+            if char.name == name:
                 return char
         raise ValueError('Characteristic not found')
 

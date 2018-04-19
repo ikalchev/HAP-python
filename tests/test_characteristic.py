@@ -20,15 +20,14 @@ def get_char(props, valid=None, min_value=None, max_value=None):
         props['minValue'] = min_value
     if max_value:
         props['maxValue'] = max_value
-    return Characteristic(display_name='Test Char', type_id=uuid1(),
-                          properties=props)
+    return Characteristic('Test Char', type_id=uuid1(), properties=props)
 
 
 def test_repr():
     char = get_char(PROPERTIES.copy())
     del char.properties['Permissions']
     assert char.__repr__() == \
-        '<characteristic display_name=Test Char value=0 ' \
+        '<characteristic name=Test Char value=0 ' \
         'properties={\'Format\': \'int\'}>'
 
 
@@ -199,6 +198,6 @@ def test_from_dict():
     }
 
     char = Characteristic.from_dict('Test Char', json_dict)
-    assert char.display_name == 'Test Char'
+    assert char.name == 'Test Char'
     assert char.type_id == uuid
     assert char.properties == {'Format': 'int', 'Permissions': 'read'}

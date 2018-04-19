@@ -62,7 +62,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         adv_data = self._get_advert_data()
         super().__init__(
              '_hap._tcp.local.',
-             self.accessory.display_name + '._hap._tcp.local.',
+             self.accessory.name + '._hap._tcp.local.',
              socket.inet_aton(address),
              port,
              0,
@@ -79,7 +79,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
     def _get_advert_data(self):
         """Generate advertisement data from the accessory."""
         return {
-            'md': self.accessory.display_name,
+            'md': self.accessory.name,
             'pv': '1.0',
             'id': self.accessory.mac,
             # represents the 'configuration version' of an Accessory.
@@ -460,7 +460,7 @@ class AccessoryDriver:
         daemon.
         """
         logger.info("Starting accessory %s on address %s, port %s.",
-                    self.accessory.display_name, self.address, self.port)
+                    self.accessory.name, self.address, self.port)
 
         # Start sending events to clients. This is done in a daemon thread, because:
         # - if the queue is blocked waiting on an empty queue, then there is nothing left
@@ -517,7 +517,7 @@ class AccessoryDriver:
         # TODO: This should happen in a different order - mDNS, server, accessory. Need
         # to ensure that sending with a closed server will not crash the app.
         logger.info("Stoping accessory %s on address %s, port %s.",
-                    self.accessory.display_name, self.address, self.port)
+                    self.accessory.name, self.address, self.port)
         logger.debug("Setting stop events, stopping accessory and event sending")
         self.stop_event.set()
         if not self.event_loop.is_closed():
