@@ -13,66 +13,10 @@ from pyhap import util
 from pyhap.const import (
     STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_SERVICES,
     HAP_REPR_VALUE, CATEGORY_OTHER, CATEGORY_BRIDGE)
+from pyhap.iid_manager import IIDManager
 from pyhap.loader import get_serv_loader
 
 logger = logging.getLogger(__name__)
-
-
-class IIDManager(object):
-    """Maintains a mapping between Service/Characteristic objects and IIDs."""
-
-    def __init__(self):
-        """Initialise an empty instance."""
-        self.iids = {}
-        self.reverse_iids = {}
-
-    def assign(self, obj):
-        """Assign an IID to the given object.
-
-        If the object already has an assigned ID, log a warning and do nothing.
-
-        :param obj: The object that will be assigned an IID.
-        :type obj: Service or Characteristic
-        """
-        if obj in self.reverse_iids:
-            logger.warning("The given Service or Characteristic with UUID %s "
-                           "already has an assigned IID %s, ignoring.",
-                           obj.type_id, self.reverse_iids[obj])
-            return
-        iid = len(self.iids) + 1
-        self.iids[iid] = obj
-        self.reverse_iids[obj] = iid
-
-    def remove(self, obj=None, iid=None):
-        """Remove an object or an object with the given IID."""
-        if obj is not None:
-            iid = self.reverse_iids.pop(obj, None)
-            if iid is None:
-                logger.error("Object %s not found.", obj)
-                return
-            del self.iids[iid]
-        else:
-            obj = self.iids.pop(iid, None)
-            if obj is None:
-                logger.error("IID %s not found.", iid)
-                return
-            del self.reverse_iids[obj]
-
-    def get_iid(self, obj):
-        """Get the IID assigned to the given object.
-
-        :return: IID assigned to the given object or None if the object is not found.
-        :rtype: int
-        """
-        return self.reverse_iids.get(obj)
-
-    def get_obj(self, iid):
-        """Get the object that is assigned the given IID.
-
-        :return: The object with the given IID or None if no object has that IID.
-        :rtype: Service or Characteristic
-        """
-        return self.iids.get(iid)
 
 
 class Accessory(object):
