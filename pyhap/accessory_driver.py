@@ -163,7 +163,7 @@ class AccessoryDriver:
         self.sent_events = 0
         self.accumulated_qsize = 0
 
-        self.accessory.set_broker(self)
+        self.accessory.set_driver(self)
         self.mdns_service_info = None
         self.srp_verifier = None
         self.accessory_thread = None

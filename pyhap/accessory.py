@@ -70,7 +70,7 @@ class Accessory:
         self.reachable = True
         self._pincode = pincode
         self._setup_id = setup_id
-        self.broker = None
+        self.driver = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
         self.event_loop = None
@@ -93,7 +93,7 @@ class Accessory:
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state['broker'] = None
+        state['driver'] = None
         state['run_sentinel'] = None
         return state
 
@@ -153,7 +153,7 @@ class Accessory:
         These include new services or updated characteristic values, e.g.
         the Name of a service changed.
 
-        This method also notifies the broker about the change, so that it can
+        This method also notifies the driver about the change, so that it can
         publish the changes to the world.
 
         .. note:: If you are changing the configuration of a bridged accessory
@@ -162,7 +162,7 @@ class Accessory:
 
         """
         self.config_version += 1
-        self.broker.config_changed()
+        self.driver.config_changed()
 
     def add_service(self, *servs):
         """Add the given services to this Accessory.
@@ -198,8 +198,8 @@ class Accessory:
         """
         return next((s for s in self.services if s.display_name == name), None)
 
-    def set_broker(self, broker):
-        self.broker = broker
+    def set_driver(self, driver):
+        self.driver = driver
 
     def add_paired_client(self, client_uuid, client_public):
         """Adds the given client to the set of paired clients.
@@ -333,14 +333,14 @@ class Accessory:
         """
         pass
 
-    # Broker
+    # Driver
 
     def publish(self, value, sender):
-        """Append AID and IID of the sender and forward it to the broker.
+        """Append AID and IID of the sender and forward it to the driver.
 
         Characteristics call this method to send updates.
 
-        .. note:: The method will not fail if the broker is not set - it will do nothing.
+        .. note:: The method will not fail if the driver is not set - it will do nothing.
 
         :param data: Data to publish, usually from a Characteristic.
         :type data: dict
@@ -348,7 +348,7 @@ class Accessory:
         :param sender: The Service or Characteristic from which the call originated.
         :type: Service or Characteristic
         """
-        if self.broker is None:
+        if self.driver is None:
             return
 
         acc_data = {
@@ -356,7 +356,7 @@ class Accessory:
             HAP_REPR_IID: self.iid_manager.get_iid(sender),
             HAP_REPR_VALUE: value,
         }
-        self.broker.publish(acc_data)
+        self.driver.publish(acc_data)
 
 
 class AsyncAccessory(Accessory):
@@ -445,10 +445,10 @@ class Bridge(AsyncAccessory):
 
         self.accessories[acc.aid] = acc
 
-    def set_broker(self, broker):
-        super().set_broker(broker)
+    def set_driver(self, driver):
+        super().set_driver(driver)
         for _, acc in self.accessories.items():
-            acc.broker = broker
+            acc.driver = driver
 
     def to_HAP(self):
         """Returns a HAP representation of itself and all contained accessories.
