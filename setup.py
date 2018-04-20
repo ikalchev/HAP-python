@@ -21,13 +21,13 @@ setup(
         "pyhap.accessories"
     ],
     install_requires=[
-        "pycryptodome",
-        "tlslite-ng",
-        "ed25519",
-        "zeroconf",
+        "base36",
         "curve25519-donna",
+        "ed25519",
+        "pycryptodome",
         "pyqrcode",
-        "base36"
+        "tlslite-ng",
+        "zeroconf",
     ],
     extras_require={
         "dev": [
