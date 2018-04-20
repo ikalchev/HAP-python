@@ -28,7 +28,7 @@ class BMP180(Accessory):
         self.__dict__.update(state)
         self.sensor = sensor()
 
+    @Accessory.run_at_interval(30)
     def run(self):
-        while not self.run_sentinel.wait(30):
-            temp, _pressure = self.sensor.read()
-            self.char_temp.set_value(temp)
+        temp, _pressure = self.sensor.read()
+        self.char_temp.set_value(temp)
