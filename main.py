@@ -20,9 +20,9 @@ logging.basicConfig(level=logging.INFO)
 
 def get_bridge():
     """Call this method to get a Bridge instead of a standalone accessory."""
-    bridge = Bridge(display_name="Bridge")
-    temp_sensor = TemperatureSensor("Sensor 2")
-    temp_sensor2 = TemperatureSensor("Sensor 1")
+    bridge = Bridge(display_name='Bridge')
+    temp_sensor = TemperatureSensor('Sensor 2')
+    temp_sensor2 = TemperatureSensor('Sensor 1')
     bridge.add_accessory(temp_sensor)
     bridge.add_accessory(temp_sensor2)
 
@@ -35,7 +35,7 @@ def get_bridge():
 
 def get_accessory():
     """Call this method to get a standalone Accessory."""
-    acc = TemperatureSensor("MyTempSensor")
+    acc = TemperatureSensor('MyTempSensor')
     return acc
 
 

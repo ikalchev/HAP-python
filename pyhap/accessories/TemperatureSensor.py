@@ -6,7 +6,7 @@ import time
 
 from pyhap.accessory import AsyncAccessory
 from pyhap.const import CATEGORY_SENSOR
-import pyhap.loader as loader
+
 
 class TemperatureSensor(AsyncAccessory):
 
@@ -15,14 +15,9 @@ class TemperatureSensor(AsyncAccessory):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.temp_char = self.get_service("TemperatureSensor")\
-                             .get_characteristic("CurrentTemperature")
-
-    def _set_services(self):
-        super()._set_services()
-        self.add_service(
-            loader.get_serv_loader().get_service("TemperatureSensor"))
+        serv_temp = self.add_preload_service('TemperatureSensor')
+        self.char_temp = serv_temp.configure_char('CurrentTemperature')
 
     @AsyncAccessory.run_at_interval(3)
     async def run(self):
-        self.temp_char.set_value(random.randint(18, 26))
+        self.char_temp.set_value(random.randint(18, 26))

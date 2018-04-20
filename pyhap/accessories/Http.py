@@ -66,7 +66,7 @@ class HttpBridgeHandler(BaseHTTPRequestHandler):
         try:
             # The below decode is necessary only for python <3.6, because loads prior 3.6
             # doesn't know bytes/bytearray.
-            content = self.rfile.read(length).decode("utf-8")
+            content = self.rfile.read(length).decode('utf-8')
             data = json.loads(content)
         except Exception as e:
             logger.error("Bad POST request; Error was: %s", str(e))
@@ -157,17 +157,17 @@ class HttpBridge(Bridge):
         objects and to allow to recover the server using the address.
         """
         state = super().__getstate__()
-        state["server"] = None
-        state["server_thread"] = None
-        state["update_lock"] = None
-        state["address"] = self.server.server_address
+        state['server'] = None
+        state['server_thread'] = None
+        state['update_lock'] = None
+        state['address'] = self.server.server_address
         return state
 
     def __setstate__(self, state):
         """Load the state  and set up the server with the address in the state.
         """
         self.__dict__.update(state)
-        self._set_server(state["address"])
+        self._set_server(state['address'])
 
     def update_state(self, data):
         """Update the characteristics from the received data.
@@ -185,10 +185,10 @@ class HttpBridge(Bridge):
             }
         @type data: dict
         """
-        aid = data["aid"]
+        aid = data['aid']
         logger.debug("Got update from accessory with aid: %d", aid)
         accessory = self.accessories[aid]
-        service_data = data["services"]
+        service_data = data['services']
         for service, char_data in service_data.items():
             service_obj = accessory.get_service(service)
             for char, value in char_data.items():
