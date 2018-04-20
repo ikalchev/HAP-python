@@ -13,6 +13,22 @@ All fines not explicitly mentioned below
     License: Apache License 2.0
     License text: See below
 
+pyhap/accessory_driver.py
+    What: Async helper methods
+    Methods:
+      callback
+      is_callback
+      AccessoryDriver.start
+      AccessoryDriver.stop
+      AccessoryDriver.async_stop
+      AccessoryDriver.add_job
+      AccessoryDriver.async_add_job
+      AccessoryDriver.async_run_job
+    Inspired from: Home Assistant [1]
+    Original file:
+      https://github.com/home-assistant/home-assistant/blob/master/homeassistant/core.py
+
+
 setup.py
     Inspired from: Home Assistant [1]
     Original file:

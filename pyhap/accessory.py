@@ -1,9 +1,7 @@
 """Module for the Accessory classes."""
-import asyncio
 import itertools
 import logging
 import struct
-import threading
 
 from pyhap import util, SUPPORT_QR_CODE
 from pyhap.const import (
@@ -252,6 +250,8 @@ class Accessory:
     def run_at_interval(seconds):
         """Decorator that runs decorated method every x seconds, until stopped.
 
+        Can be used with normal and async methods.
+
         .. code-block:: python
 
             @Accessory.run_at_interval(3)
@@ -262,23 +262,29 @@ class Accessory:
             Determines the interval on which the decorated method will be called.
         :type seconds: float
         """
-        # decorator returns a decorator with the argument it got
         def _repeat(func):
-            def _wrapper(self, *args, **kwargs):
-                while not self.driver.stop_event.wait(seconds):
-                    func(self, *args, **kwargs)
+            async def _wrapper(self, *args):
+                while True:
+                    self.driver.async_add_job(func, self, *args)
+                    if await util.event_wait(
+                            self.driver.aio_stop_event, seconds):
+                        break
             return _wrapper
         return _repeat
 
-    def run(self):
+    async def run(self):
         """Called when the Accessory should start doing its thing.
 
         Called when HAP server is running, advertising is set, etc.
+        Can be overridden with a normal or async method.
         """
         pass
 
-    def stop(self):
-        """Called when the Accessory should stop what is doing and clean up any resources."""
+    async def stop(self):
+        """Called when the Accessory should stop what is doing and clean up any resources.
+
+        Can be overridden with a normal or async method.
+        """
         pass
 
     # Driver
@@ -302,38 +308,7 @@ class Accessory:
         self.driver.publish(acc_data)
 
 
-class AsyncAccessory(Accessory):
-
-    @staticmethod
-    def run_at_interval(seconds):
-        """Decorator that runs decorated method every x seconds, until stopped.
-
-        .. code-block:: python
-
-            @AsyncAccessory.run_at_interval(3)
-            async def run(self):
-                print("Hello again world!")
-
-        :param seconds: The amount of seconds to wait for the event to be set.
-            Determines the interval on which the decorated method will be called.
-        :type seconds: float
-        """
-        # decorator returns a decorator with the argument it got
-        def _repeat(func):
-            async def _wrapper(self, *args, **kwargs):
-                while not await util.event_wait(self.driver.aio_stop_event,
-                                                seconds,
-                                                self.driver.loop):
-                    await func(self, *args, **kwargs)
-            return _wrapper
-        return _repeat
-
-    async def run(self):
-        """Override in the implementation if needed."""
-        pass
-
-
-class Bridge(AsyncAccessory):
+class Bridge(Accessory):
     """A representation of a HAP bridge.
 
     A `Bridge` can have multiple `Accessories`.
@@ -393,28 +368,16 @@ class Bridge(AsyncAccessory):
 
         return acc.get_characteristic(aid, iid)
 
-    async def _wrap_in_thread(self, method):
-        """Coroutine which starts the given method in a thread."""
-        # Not going through loop.run_in_executor, because this thread may never
-        # terminate.
-        threading.Thread(target=method).start()
-
     async def run(self):
         """Schedule tasks for each of the accessories' run method."""
-        tasks = []
         for acc in self.accessories.values():
-            if isinstance(acc, AsyncAccessory):
-                task = self.driver.loop.create_task(acc.run())
-            else:
-                task = self.driver.loop.create_task(self._wrap_in_thread(acc.run))
-            tasks.append(task)
-        await asyncio.gather(*tasks, loop=self.driver.loop)
+            self.driver.async_add_job(acc.run)
 
-    def stop(self):
+    async def stop(self):
         """Calls stop() on all contained accessories."""
-        super().stop()
+        await self.driver.async_add_job(super().stop)
         for acc in self.accessories.values():
-            acc.stop()
+            await self.driver.async_add_job(acc.stop)
 
 
 def get_topic(aid, iid):

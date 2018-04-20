@@ -29,10 +29,12 @@ Sections
 - The `driver` doesn't take the top `accessory` anymore. Instead it's added through `driver.add_accessory()` after the initialization. [#105](https://github.com/ikalchev/HAP-python/pull/105)
 - All `driver` init parameter are now required to be passed as keywords. [#105](https://github.com/ikalchev/HAP-python/pull/105)
 - Any `accessory` needs the `driver` object for its initialization, passed as first argument. [#105](https://github.com/ikalchev/HAP-python/pull/105)
+- Removed class `AsyncAccessory`. All of its methods are now fully integrated into the `Accessory` class. `run`, `stop` can be either normal or async methods and `run_at_interval` works with both as well. [#124](https://github.com/ikalchev/HAP-python/pull/124)
 
 ### Developers
 - Removed `acc.set_driver()` and `acc.set_sentinel()` methods. `acc.run_sentinel`, `acc.aio_stop_event` and `acc.loop` are now accessed through `acc.driver.xxx`. `run_sentinel` is changed to `stop_event`. [#105](https://github.com/ikalchev/HAP-python/pull/105)
 - Added scripts for `setup` and `release`.  [#125](https://github.com/ikalchev/HAP-python/pull/125)
+- Added `async` helper methods and restructured `start` and `stop` methods for `async` conversion. [#124](https://github.com/ikalchev/HAP-python/pull/124)
 
 
 

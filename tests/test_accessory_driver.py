@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pyhap.accessory import Accessory, AsyncAccessory, STANDALONE_AID
+from pyhap.accessory import Accessory, STANDALONE_AID
 from pyhap.accessory_driver import AccessoryDriver
 
 
@@ -47,9 +47,8 @@ def test_start_stop_sync_acc(driver):
     class Acc(Accessory):
         running = True
 
+        @Accessory.run_at_interval(0)
         def run(self):
-            while self.driver.stop_event.wait(0):
-                pass
             self.running = False
             driver.stop()
 
@@ -63,9 +62,9 @@ def test_start_stop_sync_acc(driver):
 
 
 def test_start_stop_async_acc(driver):
-    class Acc(AsyncAccessory):
+    class Acc(Accessory):
 
-        @AsyncAccessory.run_at_interval(0)
+        @Accessory.run_at_interval(0)
         async def run(self):
             driver.stop()
 

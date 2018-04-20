@@ -22,11 +22,13 @@ or went to sleep before telling us. This concludes the publishing process from t
 AccessoryDriver.
 """
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import os
 import logging
 import socket
 import hashlib
 import base64
+import sys
 import time
 import threading
 import json
@@ -34,7 +36,7 @@ import queue
 
 from zeroconf import ServiceInfo, Zeroconf
 
-from pyhap.accessory import AsyncAccessory, get_topic
+from pyhap.accessory import get_topic
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import (
     STANDALONE_AID, HAP_PERMISSION_NOTIFY, HAP_REPR_ACCS, HAP_REPR_AID,
@@ -50,6 +52,17 @@ logger = logging.getLogger(__name__)
 
 CHAR_STAT_OK = 0
 SERVICE_COMMUNICATION_FAILURE = -70402
+
+
+def callback(func):
+    """Decorator for non blocking functions."""
+    setattr(func, '_pyhap_callback', True)
+    return func
+
+
+def is_callback(func):
+    """Check if function is callback."""
+    return '_pyhap_callback' in getattr(func, '__dict__', {})
 
 
 class AccessoryMDNSServiceInfo(ServiceInfo):
@@ -106,7 +119,7 @@ class AccessoryDriver:
 
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
-                 encoder=None, loader=None):
+                 encoder=None, loader=None, loop=None):
         """
         Initialize a new AccessoryDriver object.
 
@@ -133,6 +146,18 @@ class AccessoryDriver:
         :param encoder: The encoder to use when persisting/loading the Accessory state.
         :type encoder: AccessoryEncoder
         """
+        if sys.platform == 'win32':
+            self.loop = loop or asyncio.ProactorEventLoop()
+        else:
+            self.loop = loop or asyncio.new_event_loop()
+
+        executer_opts = {'max_workers': None}
+        if sys.version_info[:2] >= (3, 6):
+            executer_opts['thread_name_prefix'] = 'SyncWorker'
+
+        self.executer = ThreadPoolExecutor(**executer_opts)
+        self.loop.set_default_executor(self.executer)
+
         self.accessory = None
         self.http_server_thread = None
         self.advertiser = Zeroconf()
@@ -141,7 +166,6 @@ class AccessoryDriver:
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
         self.loader = loader or Loader()
-        self.loop = asyncio.new_event_loop()
         self.aio_stop_event = asyncio.Event(loop=self.loop)
         self.stop_event = threading.Event()
         self.event_queue = queue.Queue()  # (topic, bytes)
@@ -156,6 +180,68 @@ class AccessoryDriver:
         self.state = State(address=address, pincode=pincode, port=port)
         network_tuple = (self.state.address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
+
+    def start(self):
+        """Start the event loop and call `start_pyhap`.
+
+        Pyhap will be stopped gracefully on a KeyBoardInterrupt.
+        """
+        try:
+            logger.info('Starting the event loop')
+            self.add_job(self.start_pyhap)
+            self.loop.run_forever()
+        except KeyboardInterrupt:
+            self.loop.call_soon_threadsafe(
+                self.loop.create_task, self.async_stop())
+            self.loop.run_forever()
+        finally:
+            self.loop.close()
+            logger.info('Closed the event loop')
+
+    def stop(self):
+        """Method to stop pyhap."""
+        self.loop.call_soon_threadsafe(
+            self.loop.create_task, self.async_stop())
+
+    async def async_stop(self):
+        """Stops the AccessoryDriver and shutdown all remaining tasks."""
+        await self.async_add_job(self.stop_pyhap)
+        logger.debug('Shutdown executers')
+        self.executer.shutdown()
+        self.loop.stop()
+
+    def add_job(self, target, *args):
+        """Add job to executer pool."""
+        if target is None:
+            raise ValueError("Don't call add_job with None.")
+        self.loop.call_soon_threadsafe(self.async_add_job, target, *args)
+
+    @callback
+    def async_add_job(self, target, *args):
+        """Add job from within the eventloop."""
+        task = None
+
+        if asyncio.iscoroutine(target):
+            task = self.loop.create_task(target)
+        elif is_callback(target):
+            self.loop.call_soon(target, *args)
+        elif asyncio.iscoroutinefunction(target):
+            task = self.loop.create_task(target(*args))
+        else:
+            task = self.loop.run_in_executor(None, target, *args)
+
+        return task
+
+    @callback
+    def async_run_job(self, target, *args):
+        """Run job from within the eventloop.
+
+        In contract to `async_add_job`, `callbacks` get called immediately.
+        """
+        if not asyncio.iscoroutine(target) and is_callback(target):
+            target(*args)
+        else:
+            self.async_add_job(target, *args)
 
     def add_accessory(self, accessory):
         """Add top level accessory to driver."""
@@ -450,7 +536,7 @@ class AccessoryDriver:
             chars_response.append(response)
         return {HAP_REPR_CHARS: chars_response}
 
-    def start(self):
+    def start_pyhap(self):
         """Starts the accessory.
 
         - Call the accessory's run method.
@@ -493,23 +579,10 @@ class AccessoryDriver:
             self.accessory.setup_message()
 
         # Start the accessory so it can do stuff.
-        if isinstance(self.accessory, AsyncAccessory):
-            self.accessory_task = self.loop.create_task(
-                self.accessory.run())
-        else:
-            self.accessory_task = self.loop.run_in_executor(
-                None, self.accessory.run)
+        self.add_job(self.accessory.run)
+        logger.debug('AccessoryDriver started successfully')
 
-        logger.info("Starting event loop")
-        try:
-            self.loop.run_forever()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            self.loop.close()
-            logger.info("Closed event loop.")
-
-    def stop(self):
+    def stop_pyhap(self):
         """Stop the accessory.
 
         1. Set the run sentinel.
@@ -524,10 +597,8 @@ class AccessoryDriver:
                     self.state.port)
         logger.debug("Setting stop events, stopping accessory and event sending")
         self.stop_event.set()
-        if not self.loop.is_closed():
-            self.loop.call_soon_threadsafe(self.aio_stop_event.set)
-            self.loop.stop()
-        self.accessory.stop()
+        self.loop.call_soon_threadsafe(self.aio_stop_event.set)
+        self.add_job(self.accessory.stop)
 
         logger.debug("Stopping mDNS advertising")
         self.advertiser.unregister_service(self.mdns_service_info)
