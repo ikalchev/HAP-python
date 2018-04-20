@@ -13,90 +13,59 @@ from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
 from pyhap.characteristic import Characteristic
 from pyhap.service import Service
 
-# Because we are loading mostly from the characteristics.json
-# and services.json files, these loaders are "cached".
-_char_loader = None
-_serv_loader = None
+_loader = None
 
 
-class TypeLoader:
+class Loader:
     """Looks up type descriptions based on a name.
 
     .. seealso:: pyhap/resources/services.json
     .. seealso:: pyhap/resources/characteristics.json
     """
 
-    def __init__(self, fp):
-        """Initialise with the type descriptions in the given file.
+    def __init__(self, path_char=CHARACTERISTICS_FILE,
+                 path_service=SERVICES_FILE):
+        """Initialize a new Loader instance."""
+        self.char_types = self._read_file(path_char)
+        self.serv_types = self._read_file(path_service)
 
-        :param fp: File-like object to read from.
-        :type fp: input stream
-        """
-        self.types = json.load(fp)
-
-    def get(self, name):
-        """Get type description with the given name."""
-        return self.types[name].copy()
+    def _read_file(self, path):
+        """Read file and return a dict."""
+        with open(path, 'r') as file:
+            return json.load(file)
 
     def get_char(self, name):
-        """Return new Characteristic object.
-
-        :raise KeyError: When characteristic file did not contain necessary
-            keys.
-        """
-        char_dict = self.get(name)
+        """Return new Characteristic object."""
+        char_dict = self.char_types[name].copy()
         if 'Format' not in char_dict or \
             'Permissions' not in char_dict or \
                 'UUID' not in char_dict:
             raise KeyError('Could not load char {}!'.format(name))
         return Characteristic.from_dict(name, char_dict)
 
-    def get_service(self, name, char_loader=None):
-        """Return new service object.
-
-        :param char_loader: `TypeLoader` object to use when creating the
-            characteristics for adding to instantiated service.
-        :type char_loader: TypeLoader
-
-        :raise KeyError: When service file did not contain necessary keys.
-        """
-        char_loader = char_loader or get_char_loader()
-        service_dict = self.get(name)
+    def get_service(self, name):
+        """Return new service object."""
+        service_dict = self.serv_types[name].copy()
         if 'RequiredCharacteristics' not in service_dict or \
                 'UUID' not in service_dict:
             raise KeyError('Could not load service {}!'.format(name))
-        return Service.from_dict(name, service_dict, char_loader)
+        return Service.from_dict(name, service_dict, self)
+
+    @classmethod
+    def from_dict(cls, char_dict=None, serv_dict=None):
+        """Create a new instance directly from json dicts."""
+        loader = cls.__new__(Loader)
+        loader.char_types = char_dict or {}
+        loader.serv_types = serv_dict or {}
+        return loader
 
 
-def get_char_loader(desc_file=CHARACTERISTICS_FILE):
-    """Get a CharacteristicLoader with characteristic descriptions in the given file.
+def get_loader():
+    """Get a service and char loader.
 
-    Uses a 'singleton' when the file is `CHARACTERISTICS_FILE`.
+    If already initialized it returns the existing one.
     """
-    global _char_loader
-    if desc_file == CHARACTERISTICS_FILE:
-        if _char_loader is None:
-            with open(desc_file, 'r') as fp:
-                _char_loader = TypeLoader(fp)
-        return _char_loader
-
-    with open(desc_file, 'r') as fp:
-        ld = TypeLoader(fp)
-    return ld
-
-
-def get_serv_loader(desc_file=SERVICES_FILE):
-    """Get a ServiceLoader with service descriptions in the given file.
-
-    Uses a 'singleton' when the file is `SERVICES_FILE`.
-    """
-    global _serv_loader
-    if desc_file == SERVICES_FILE:
-        if _serv_loader is None:
-            with open(desc_file, 'r') as fp:
-                _serv_loader = TypeLoader(fp)
-        return _serv_loader
-
-    with open(desc_file, 'r') as fp:
-        ld = TypeLoader(fp)
-    return ld
+    global _loader
+    if _loader is None:
+        _loader = Loader()
+    return _loader
