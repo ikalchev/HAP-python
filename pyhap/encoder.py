@@ -10,7 +10,7 @@ import ed25519
 
 from pyhap.util import fromhex, tohex
 
-class AccessoryEncoder(object):
+class AccessoryEncoder:
     """This class defines the Accessory encoder interface.
 
     The AccessoryEncoder is used by the AccessoryDriver to persist and restore the
@@ -53,11 +53,11 @@ class AccessoryEncoder(object):
         paired_clients = {str(client): tohex(key)
                           for client, key in acc.paired_clients.items()}
         config_state = {
-            "mac": acc.mac,
-            "config_version": acc.config_version,
-            "paired_clients": paired_clients,
-            "private_key": tohex(acc.private_key.to_seed()),
-            "public_key":  tohex(acc.public_key.to_bytes()),
+            'mac': acc.mac,
+            'config_version': acc.config_version,
+            'paired_clients': paired_clients,
+            'private_key': tohex(acc.private_key.to_seed()),
+            'public_key':  tohex(acc.public_key.to_bytes()),
         }
         json.dump(config_state, fp)
 
@@ -67,9 +67,9 @@ class AccessoryEncoder(object):
         @see: AccessoryEncoder.persist
         """
         state = json.load(fp)
-        acc.mac = state["mac"]
-        acc.config_version = state["config_version"]
+        acc.mac = state['mac']
+        acc.config_version = state['config_version']
         acc.paired_clients = {uuid.UUID(client): fromhex(key)
-                              for client, key in state["paired_clients"].items()}
-        acc.private_key = ed25519.SigningKey(fromhex(state["private_key"]))
-        acc.public_key = ed25519.VerifyingKey(fromhex(state["public_key"]))
+                              for client, key in state['paired_clients'].items()}
+        acc.private_key = ed25519.SigningKey(fromhex(state['private_key']))
+        acc.public_key = ed25519.VerifyingKey(fromhex(state['public_key']))

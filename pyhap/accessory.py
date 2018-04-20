@@ -18,7 +18,7 @@ from pyhap.loader import get_serv_loader
 logger = logging.getLogger(__name__)
 
 
-class Accessory(object):
+class Accessory:
     """A representation of a HAP accessory.
 
     Inherit from this class to build your own accessories.
@@ -93,19 +93,19 @@ class Accessory(object):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state["broker"] = None
-        state["run_sentinel"] = None
+        state['broker'] = None
+        state['run_sentinel'] = None
         return state
 
     @property
     def setup_id(self):
-        if not getattr(self, '_setup_id', None):
+        if self._setup_id is None:
             self._setup_id = util.generate_setup_id()
         return self._setup_id
 
     @property
     def pincode(self):
-        if not getattr(self, '_pincode', None):
+        if self._pincode is None:
             self._pincode = util.generate_pincode()
         return self._pincode
 
@@ -405,9 +405,8 @@ class Bridge(AsyncAccessory):
         # A Bridge cannot be Bridge, hence talks directly to HAP clients.
         # Thus, we need a mac.
         mac = mac or util.generate_mac()
-        super(Bridge, self).__init__(display_name, aid=aid, mac=mac,
-                                     pincode=pincode, iid_manager=iid_manager,
-                                     setup_id=setup_id)
+        super().__init__(display_name, aid=aid, mac=mac, pincode=pincode,
+                         iid_manager=iid_manager, setup_id=setup_id)
         self.accessories = {}  # aid: acc
 
     def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
@@ -447,7 +446,7 @@ class Bridge(AsyncAccessory):
         self.accessories[acc.aid] = acc
 
     def set_broker(self, broker):
-        super(Bridge, self).set_broker(broker)
+        super().set_broker(broker)
         for _, acc in self.accessories.items():
             acc.broker = broker
 
@@ -496,10 +495,10 @@ class Bridge(AsyncAccessory):
 
     def stop(self):
         """Calls stop() on all contained accessories."""
-        super(Bridge, self).stop()
+        super().stop()
         for acc in self.accessories.values():
             acc.stop()
 
 
 def get_topic(aid, iid):
-    return str(aid) + "." + str(iid)
+    return str(aid) + '.' + str(iid)
