@@ -109,6 +109,22 @@ class Characteristic:
 
     @property
     def value(self):
+        """
+        The value for the `Characteristic`.
+
+        `Characteristic.setter_callback`
+        You may define a `getter_callback` on the `Characteristic`
+        to override the returned value. `getter_callback` must
+        return a value. This will also set the `Characteristic`
+        value to the returned value from `getter_callback`.
+
+        To set the value for the `Characteristic` on a state
+        change, use `set_value` to handle notifying clients.
+
+        .. seealso:: Characteristic.set_value()
+
+        :return: value
+        """
         if not getattr(self, '_value', None):
             self._value = self._get_default_value()
         if self.getter_callback:
@@ -176,6 +192,12 @@ class Characteristic:
 
         If not set_value will be aborted and an error message will be
         displayed.
+
+        `Characteristic.setter_callback`
+        You may also define a `setter_callback` on the `Characteristic`.
+        This will be called with the value being set as the arg.
+
+        .. seealso:: Characteristic.value
 
         :param value: The value to assign as this Characteristic's value.
         :type value: Depends on properties["Format"]
