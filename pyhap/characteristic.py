@@ -112,7 +112,7 @@ class Characteristic:
         """
         The value for the `Characteristic`.
 
-        `Characteristic.setter_callback`
+        `Characteristic.getter_callback`
         You may define a `getter_callback` on the `Characteristic`
         to override the returned value. `getter_callback` must
         return a value. This will also set the `Characteristic`
