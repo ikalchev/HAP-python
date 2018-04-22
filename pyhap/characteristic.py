@@ -79,7 +79,7 @@ class Characteristic:
     """
 
     __slots__ = ('display_name', 'type_id', 'properties', 'broker',
-                 'setter_callback', 'value')
+                 '_value', 'getter_callback', 'setter_callback')
 
     def __init__(self, display_name, type_id, properties):
         """Initialise with the given properties.
@@ -106,6 +106,14 @@ class Characteristic:
         """Return the representation of the characteristic."""
         return '<characteristic display_name={} value={} properties={}>' \
             .format(self.display_name, self.value, self.properties)
+
+    @property
+    def value(self):
+        if not getattr(self, '_value', None):
+            self._value = self._get_default_value()
+        if self.getter_callback:
+            self._value = self.to_valid_value(self.getter_callback())
+        return self._value
 
     def _get_default_value(self):
         """Helper method. Return default value for format."""
@@ -159,17 +167,9 @@ class Characteristic:
             self.properties[PROP_VALID_VALUES] = valid_values
 
         try:
-            self.value = self.to_valid_value(self.value)
+            self.set_value(self.to_valid_value(self.value), should_notify=False)
         except ValueError:
-            self.value = self._get_default_value()
-
-    @property
-    def value(self):
-        if not getattr(self, '_value', None):
-            self._value = self._get_default_value()
-        if self.getter_callback:
-            self.getter_callback(self._value)
-        return self._value
+            self.set_value(self._get_default_value(), should_notify=False)
 
     def set_value(self, value, should_notify=True):
         """Set the given raw value. It is checked if it is a valid value.
@@ -197,8 +197,9 @@ class Characteristic:
         """
         logger.debug('%s: Client update value to %s',
                      self.display_name, value)
+        # Set new value before anything else, set_value calls notify
         self.set_value(value)
-        self.notify()
+        # Call setter_callback
         if self.setter_callback:
             self.setter_callback(value)
 
