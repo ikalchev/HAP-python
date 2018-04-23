@@ -98,7 +98,7 @@ class Characteristic:
         self.type_id = type_id
         self.properties = properties
         self.broker = None
-        self._value = None
+        self._value = self._get_default_value()
         self.getter_callback = None
         self.setter_callback = None
 
@@ -125,10 +125,8 @@ class Characteristic:
 
         :return: value
         """
-        if not getattr(self, '_value', None):
-            self._value = self._get_default_value()
         if self.getter_callback:
-            self._value = self.to_valid_value(self.getter_callback())
+            self._value = self.to_valid_value(value=self.getter_callback())
         return self._value
 
     def _get_default_value(self):
@@ -183,9 +181,9 @@ class Characteristic:
             self.properties[PROP_VALID_VALUES] = valid_values
 
         try:
-            self.set_value(self.to_valid_value(self.value), should_notify=False)
+            self._value = self.to_valid_value(self.value)
         except ValueError:
-            self.set_value(self._get_default_value(), should_notify=False)
+            self._value = self._get_default_value()
 
     def set_value(self, value, should_notify=True):
         """Set the given raw value. It is checked if it is a valid value.
@@ -219,8 +217,9 @@ class Characteristic:
         """
         logger.debug('%s: Client update value to %s',
                      self.display_name, value)
-        # Set new value before anything else, set_value calls notify
-        self.set_value(value)
+        # Set new value before anything else, then notify client
+        self._value = value
+        self.notify()
         # Call setter_callback
         if self.setter_callback:
             self.setter_callback(value)
