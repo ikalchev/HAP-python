@@ -34,6 +34,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - `TypeLoader`, `CharLoader` and `ServiceLoader` are now combined into the `TypeLoader` with the new methods `get_char` and `get_service` to load new chars and services. [85](https://github.com/ikalchev/HAP-python/pull/85)
 - Moved some constants to `pyhap/const.py` and removed `HAP_FORMAT`, `HAP_UNITS` and `HAP_PERMISSIONS` in favor for `HAP_FORMAT_[OLD_FORMAT]`, etc. [#86](https://github.com/ikalchev/HAP-python/pull/86)
 - Updated tests and added new test dependency `pytest-timeout` [#88](https://github.com/ikalchev/HAP-python/pull/88)
+- Rewrote `IIDManager` and split `IIDManager.remove` into `remove_obj` and `remove_iid`
 
 
 
