@@ -79,7 +79,7 @@ class Characteristic:
     """
 
     __slots__ = ('display_name', 'type_id', 'properties', 'broker',
-                 '_value', 'getter_callback', 'setter_callback')
+                 'value', 'getter_callback', 'setter_callback')
 
     def __init__(self, display_name, type_id, properties):
         """Initialise with the given properties.
@@ -98,7 +98,7 @@ class Characteristic:
         self.type_id = type_id
         self.properties = properties
         self.broker = None
-        self._value = self._get_default_value()
+        self.value = self._get_default_value()
         self.getter_callback = None
         self.setter_callback = None
 
@@ -107,28 +107,6 @@ class Characteristic:
         return '<characteristic display_name={} value={} properties={}>' \
             .format(self.display_name, self.value, self.properties)
 
-    @property
-    def value(self):
-        """
-        The value for the `Characteristic`.
-
-        `Characteristic.getter_callback`
-        You may define a `getter_callback` on the `Characteristic`
-        to override the returned value. `getter_callback` must
-        return a value. This will also set the `Characteristic`
-        value to the returned value from `getter_callback`.
-
-        To set the value for the `Characteristic` on a state
-        change, use `set_value` to handle notifying clients.
-
-        .. seealso:: Characteristic.set_value()
-
-        :return: value
-        """
-        if self.getter_callback:
-            self._value = self.to_valid_value(value=self.getter_callback())
-        return self._value
-
     def _get_default_value(self):
         """Helper method. Return default value for format."""
         if self.properties.get(PROP_VALID_VALUES):
@@ -136,6 +114,11 @@ class Characteristic:
         else:
             value = HAP_FORMAT_DEFAULTS[self.properties[PROP_FORMAT]]
             return self.to_valid_value(value)
+
+    def get_value(self):
+        if self.getter_callback:
+            self.value = self.to_valid_value(value=self.getter_callback())
+        return self.value
 
     def to_valid_value(self, value):
         """Perform validation and conversion to valid value"""
@@ -181,9 +164,9 @@ class Characteristic:
             self.properties[PROP_VALID_VALUES] = valid_values
 
         try:
-            self._value = self.to_valid_value(self.value)
+            self.value = self.to_valid_value(self.value)
         except ValueError:
-            self._value = self._get_default_value()
+            self.value = self._get_default_value()
 
     def set_value(self, value, should_notify=True):
         """Set the given raw value. It is checked if it is a valid value.
@@ -206,7 +189,7 @@ class Characteristic:
         """
         logger.debug('%s: Set value to %s', self.display_name, value)
         value = self.to_valid_value(value)
-        self._value = value
+        self.value = value
         if should_notify and self.broker:
             self.notify()
 
@@ -218,7 +201,7 @@ class Characteristic:
         logger.debug('%s: Client update value to %s',
                      self.display_name, value)
         # Set new value before anything else, then notify client
-        self._value = value
+        self.value = value
         self.notify()
         # Call setter_callback
         if self.setter_callback:

@@ -140,7 +140,7 @@ class TestCharacteristic(unittest.TestCase):
     def test_notify(self):
         char = get_char(PROPERTIES.copy())
 
-        char._value = 2
+        char.value = 2
         with self.assertRaises(AttributeError):
             char.notify()
 
@@ -172,13 +172,13 @@ class TestCharacteristic(unittest.TestCase):
     def test_to_HAP_string(self):
         char = get_char(PROPERTIES.copy())
         char.properties['Format'] = 'string'
-        char._value  = 'aaa'
+        char.value  = 'aaa'
         with patch.object(char, 'broker') as mock_broker:
             hap_repr = char.to_HAP()
         self.assertEqual(hap_repr['format'], 'string')
         self.assertNotIn('maxLen', hap_repr)
 
-        char._value = 'aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee' \ 
+        char.value = 'aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee' \ 
         'ffffffffffgggggggggg'
         with patch.object(char, 'broker') as mock_broker:
             hap_repr = char.to_HAP()
