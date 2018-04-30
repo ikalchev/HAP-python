@@ -1,12 +1,11 @@
 import asyncio
-import threading
-import logging
 import itertools
+import logging
 import struct
-from os import urandom
+import threading
 
-import ed25519
 import base36
+import ed25519
 from pyqrcode import QRCode
 
 from pyhap import util
