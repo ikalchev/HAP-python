@@ -14,6 +14,7 @@ CHAR_PROPS = {
     PROP_PERMISSIONS: HAP_PERMISSION_READ,
 }
 
+
 def get_chars():
     c1 = Characteristic('Char 1', uuid1(), CHAR_PROPS)
     c2 = Characteristic('Char 2', uuid1(), CHAR_PROPS)

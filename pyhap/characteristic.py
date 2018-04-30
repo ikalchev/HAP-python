@@ -187,7 +187,7 @@ class Characteristic:
             subscribed clients. Notify will be performed if the broker is set.
         :type should_notify: bool
         """
-        logger.debug('%s: Set value to %s', self.display_name, value)
+        logger.debug('set_value: %s to %s', self.display_name, value)
         value = self.to_valid_value(value)
         self.value = value
         if should_notify and self.broker:
@@ -201,6 +201,7 @@ class Characteristic:
         logger.debug('%s: Client update value to %s',
                      self.display_name, value)
         # Set new value before anything else, then notify client
+
         self.value = value
         self.notify()
         # Call setter_callback

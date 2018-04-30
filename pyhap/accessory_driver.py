@@ -158,7 +158,7 @@ class AccessoryDriver(object):
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
         self.event_loop = asyncio.new_event_loop()
-        self.aio_stop_event = asyncio.Event()
+        self.aio_stop_event = asyncio.Event(loop=self.event_loop)
         self.stop_event = threading.Event()
         self.event_queue = queue.Queue()  # (topic, bytes)
         self.send_event_thread = None  # the event dispatch thread

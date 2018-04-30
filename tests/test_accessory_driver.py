@@ -50,8 +50,6 @@ def test_persist_load():
         os.remove(persist_file)
 
 
-@patch("pyhap.accessory_driver.asyncio.get_event_loop",
-       new=Mock(side_effect=asyncio.new_event_loop))
 @patch("pyhap.accessory_driver.Zeroconf", new=Mock())
 @patch("pyhap.accessory_driver.AccessoryDriver.persist")
 @patch("pyhap.accessory_driver.HAPServer", new=Mock())
@@ -59,26 +57,24 @@ def test_start_stop_sync_acc(_persist):
     class Acc(Accessory):
         running = True
         def run(self):
-            while self.run_sentinel.wait(2):
+            while self.run_sentinel.wait(0):
                 pass
             self.running = False
+            driver.stop()
         def setup_message(self): pass
 
     acc = Acc("TestAcc")
     driver = AccessoryDriver(acc, 51234, persist_file="foo")
     driver.start()
-    driver.stop()
     assert not acc.running
 
 
-#TODO: This test is failing when there is no patch for the get_event_loop.
-# Something is getting the default loop and not the new loop
 @patch("pyhap.accessory_driver.Zeroconf", new=Mock())
 @patch("pyhap.accessory_driver.AccessoryDriver.persist")
 @patch("pyhap.accessory_driver.HAPServer", new=Mock())
 def test_start_stop_async_acc(_persist):
     class Acc(AsyncAccessory):
-        @AsyncAccessory.run_at_interval(2)
+        @AsyncAccessory.run_at_interval(0)
         async def run(self):
             driver.stop()
         def setup_message(self): pass
