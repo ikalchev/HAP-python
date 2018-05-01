@@ -57,12 +57,12 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
     def __init__(self, accessory, address, port):
         self.accessory = accessory
         hname = socket.gethostname()
-        pubname = hname + "." if hname.endswith(".local") else hname + ".local."
+        pubname = hname + '.' if hname.endswith('.local') else hname + '.local.'
 
         adv_data = self._get_advert_data()
-        super(AccessoryMDNSServiceInfo, self).__init__(
-             "_hap._tcp.local.",
-             self.accessory.display_name + "._hap._tcp.local.",
+        super().__init__(
+             '_hap._tcp.local.',
+             self.accessory.display_name + '._hap._tcp.local.',
              socket.inet_aton(address),
              port,
              0,
@@ -78,26 +78,24 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
 
     def _get_advert_data(self):
         """Generate advertisement data from the accessory."""
-        adv_data = {
-            "md": self.accessory.display_name,
-            "pv": "1.0",
-            "id": self.accessory.mac,
-            # represents the "configuration version" of an Accessory.
-            # Increasing this "version number" signals iOS devices to
+        return {
+            'md': self.accessory.display_name,
+            'pv': '1.0',
+            'id': self.accessory.mac,
+            # represents the 'configuration version' of an Accessory.
+            # Increasing this 'version number' signals iOS devices to
             # re-fetch accessories data.
-            "c#": str(self.accessory.config_version),
-            "s#": "1",  # "accessory state"
-            "ff": "0",
-            "ci": str(self.accessory.category),
-            # "sf == 1" means "discoverable by HomeKit iOS clients"
-            "sf": "0" if self.accessory.paired else "1",
-            "sh": self._setup_hash()
+            'c#': str(self.accessory.config_version),
+            's#': '1',  # 'accessory state'
+            'ff': '0',
+            'ci': str(self.accessory.category),
+            # 'sf == 1' means "discoverable by HomeKit iOS clients"
+            'sf': '0' if self.accessory.paired else '1',
+            'sh': self._setup_hash()
         }
 
-        return adv_data
 
-
-class AccessoryDriver(object):
+class AccessoryDriver:
     """
     An AccessoryDriver mediates between incoming requests from the HAPServer and
     the Accessory.
@@ -165,7 +163,7 @@ class AccessoryDriver(object):
         self.sent_events = 0
         self.accumulated_qsize = 0
 
-        self.accessory.set_broker(self)
+        self.accessory.set_driver(self)
         self.mdns_service_info = None
         self.srp_verifier = None
         self.accessory_thread = None
@@ -273,15 +271,13 @@ class AccessoryDriver(object):
         self.advertiser.register_service(self.mdns_service_info)
 
     def persist(self):
-        """Saves the state of the accessory.
-        """
-        with open(self.persist_file, "w") as fp:
+        """Saves the state of the accessory."""
+        with open(self.persist_file, 'w') as fp:
             self.encoder.persist(fp, self.accessory)
 
     def load(self):
-        """
-        """
-        with open(self.persist_file, "r") as fp:
+        """ """
+        with open(self.persist_file, 'r') as fp:
             self.encoder.load_into(fp, self.accessory)
 
     def pair(self, client_uuid, client_public):
@@ -317,7 +313,7 @@ class AccessoryDriver(object):
         :param client_uuid: The client uuid.
         :type client_uuid: uuid.UUID
         """
-        logger.info("Unpairing client '%s'.", client_uuid)
+        logger.info("Unpairing client %s.", client_uuid)
         self.accessory.remove_paired_client(client_uuid)
         self.persist()
         self.update_advertisement()
@@ -326,7 +322,7 @@ class AccessoryDriver(object):
         """Create an SRP verifier for the accessory's info."""
         # TODO: Move the below hard-coded values somewhere nice.
         ctx = get_srp_context(3072, hashlib.sha512, 16)
-        verifier = SrpServer(ctx, b"Pair-Setup", self.accessory.pincode)
+        verifier = SrpServer(ctx, b'Pair-Setup', self.accessory.pincode)
         self.srp_verifier = verifier
 
     def get_accessories(self):
@@ -381,7 +377,7 @@ class AccessoryDriver(object):
         """
         chars = []
         for id in char_ids:
-            aid, iid = (int(i) for i in id.split("."))
+            aid, iid = (int(i) for i in id.split('.'))
             rep = {HAP_REPR_AID: aid, HAP_REPR_IID: iid}
             char = self.accessory.get_characteristic(aid, iid)
             try:
@@ -463,7 +459,7 @@ class AccessoryDriver(object):
         All of the above are started in separate threads. Accessory thread is set as
         daemon.
         """
-        logger.info("Starting accessory '%s' on address '%s', port '%s'.",
+        logger.info("Starting accessory %s on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
 
         # Start sending events to clients. This is done in a daemon thread, because:
@@ -520,7 +516,7 @@ class AccessoryDriver(object):
         """
         # TODO: This should happen in a different order - mDNS, server, accessory. Need
         # to ensure that sending with a closed server will not crash the app.
-        logger.info("Stoping accessory '%s' on address %s, port %s.",
+        logger.info("Stoping accessory %s on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
         logger.debug("Setting stop events, stopping accessory and event sending")
         self.stop_event.set()
