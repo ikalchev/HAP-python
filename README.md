@@ -37,7 +37,7 @@ $ sudo apt-get install libavahi-compat-libdnssd-dev
 ```
 `avahi-utils` may also fit the bill. Then, you can install with `pip3` (you will need `sudo` or `--user` for the install):
 ```sh
-$ pip3 install HAP-python
+$ pip3 install HAP-python[QRCode]
 ```
 
 This will install HAP-python in your python packages, so that you can import it as `pyhap`. To uninstall, just do:
