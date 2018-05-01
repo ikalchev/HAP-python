@@ -85,6 +85,8 @@ class Accessory:
 
         self.add_info_service()
 
+        self._set_services()
+
     def __repr__(self):
         """Return the representation of the accessory."""
         services = [s.display_name for s in self.services]
@@ -108,6 +110,16 @@ class Accessory:
         if self._pincode is None:
             self._pincode = util.generate_pincode()
         return self._pincode
+
+    def _set_services(self):
+        """Sets the services for this accessory.
+
+        This method is now deprecated, initialize the service inside the
+        accessory `init` method.
+        """
+        logger.warning(
+            "The 'Accessory._set_services' method is deprecated. Initialize "
+            "the services inside the accessories 'init' method instead.")
 
     def add_info_service(self):
         """Helper method to add the required `AccessoryInformation` service.
@@ -140,7 +152,7 @@ class Accessory:
                     "be at least one character long.", self.display_name)
 
     def add_preload_service(self, service, chars=None):
-        """Define and return a service to be available for the accessory."""
+        """Create a service with the given name and add it to this acc."""
         service = get_serv_loader().get_service(service)
         if chars:
             chars = chars if isinstance(chars, list) else [chars]

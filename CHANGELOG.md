@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - `driver.start` starts the event loop with `loop.run_forever()`. [#83](https://github.com/ikalchev/HAP-python/pull/83)
 - Debug logs for `char.set_value` and `char.client_update_value`. [#99](https://github.com/ikalchev/HAP-python/pull/99)
 - Changed default values associated with the `AccessoryInformation` service. [#102](https://github.com/ikalchev/HAP-python/pull/102)
+- `Accessory._set_services` is now deprecated. Instead services should be initialized in the accessories `init` method. [#102](https://github.com/ikalchev/HAP-python/pull/102)
 
 ### Fixed
 - Overriding properties now checks that value is still a valid value, otherwise value will be set to the default value. [#82](https://github.com/ikalchev/HAP-python/pull/82)
@@ -31,7 +32,6 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - The `Accessory.Category` class was removed and the `Category` constants moved to `pyhap/const.py` with the naming: `CATEGORY_[OLD_NAME]` (e.g. `CATEGORY_OTHER`) [#86](https://github.com/ikalchev/HAP-python/pull/86)
 - Updated `Accessories` to work with changes. [#74](https://github.com/ikalchev/HAP-python/pull/74), [#89](https://github.com/ikalchev/HAP-python/pull/89)
 - Renamed `Accessory.broker` to `Accessory.Driver`. `acc.set_broker` is now `acc.set_driver`. [#104](https://github.com/ikalchev/HAP-python/pull/104)
-- Removed accessory call to `Accessory._set_services`. Overriding this method not longer works. Instead services should be initialized in the accessories `init` method. [#102](https://github.com/ikalchev/HAP-python/pull/102)
 
 ### Developers
 - `to_HAP` methods don't require the `iid_manager` any more [#84](https://github.com/ikalchev/HAP-python/pull/84), [#85](https://github.com/ikalchev/HAP-python/pull/85)
