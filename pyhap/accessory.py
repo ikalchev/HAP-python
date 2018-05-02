@@ -75,7 +75,7 @@ class Accessory:
         self.driver = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
-        self.event_loop = None
+        self.loop = None
         self.aio_stop_event = None
 
         sk, vk = ed25519.create_keypair()
@@ -162,7 +162,7 @@ class Accessory:
         self.add_service(service)
         return service
 
-    def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
+    def set_sentinel(self, run_sentinel, aio_stop_event, loop):
         """Assign a run sentinel that can signal stopping.
 
         The run sentinel is a threading.Event object that can be used to manage
@@ -176,7 +176,7 @@ class Accessory:
         """
         self.run_sentinel = run_sentinel
         self.aio_stop_event = aio_stop_event
-        self.event_loop = event_loop
+        self.loop = loop
 
     def config_changed(self):
         """Notify the accessory about configuration changes.
@@ -411,7 +411,7 @@ class AsyncAccessory(Accessory):
             async def _wrapper(self, *args, **kwargs):
                 while not await util.event_wait(self.aio_stop_event,
                                                 seconds,
-                                                self.event_loop):
+                                                self.loop):
                     await func(self, *args, **kwargs)
             return _wrapper
         return _repeat
@@ -440,11 +440,11 @@ class Bridge(AsyncAccessory):
                          iid_manager=iid_manager, setup_id=setup_id)
         self.accessories = {}  # aid: acc
 
-    def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
+    def set_sentinel(self, run_sentinel, aio_stop_event, loop):
         """Set the same sentinel to all contained accessories."""
-        super().set_sentinel(run_sentinel, aio_stop_event, event_loop)
+        super().set_sentinel(run_sentinel, aio_stop_event, loop)
         for acc in self.accessories.values():
-            acc.set_sentinel(run_sentinel, aio_stop_event, event_loop)
+            acc.set_sentinel(run_sentinel, aio_stop_event, loop)
 
     def add_accessory(self, acc):
         """Add the given ``Accessory`` to this ``Bridge``.
@@ -508,7 +508,7 @@ class Bridge(AsyncAccessory):
     async def _wrap_in_thread(self, method):
         """Coroutine which starts the given method in a thread.
         """
-        # Not going through event_loop.run_in_executor, because this thread may never
+        # Not going through loop.run_in_executor, because this thread may never
         # terminate.
         threading.Thread(target=method).start()
 
@@ -518,11 +518,11 @@ class Bridge(AsyncAccessory):
         tasks = []
         for acc in self.accessories.values():
             if isinstance(acc, AsyncAccessory):
-                task = self.event_loop.create_task(acc.run())
+                task = self.loop.create_task(acc.run())
             else:
-                task = self.event_loop.create_task(self._wrap_in_thread(acc.run))
+                task = self.loop.create_task(self._wrap_in_thread(acc.run))
             tasks.append(task)
-        await asyncio.gather(*tasks, loop=self.event_loop)
+        await asyncio.gather(*tasks, loop=self.loop)
 
     def stop(self):
         """Calls stop() on all contained accessories."""
