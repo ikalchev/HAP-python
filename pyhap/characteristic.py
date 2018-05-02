@@ -78,15 +78,15 @@ class Characteristic:
     like format, min and max values, valid values and others.
     """
 
-    __slots__ = ('display_name', 'type_id', 'properties', 'broker',
+    __slots__ = ('name', 'type_id', 'properties', 'broker',
                  'setter_callback', 'value')
 
-    def __init__(self, display_name, type_id, properties):
+    def __init__(self, name, type_id, properties):
         """Initialise with the given properties.
 
-        :param display_name: Name that will be displayed for this characteristic, i.e.
+        :param name: Name that will be displayed for this characteristic, i.e.
             the `description` in the HAP representation.
-        :type display_name: str
+        :type name: str
 
         :param type_id: UUID unique to this type of characteristic.
         :type type_id: uuid.UUID
@@ -94,7 +94,7 @@ class Characteristic:
         :param properties: A dict of properties, such as Format, ValidValues, etc.
         :type properties: dict
         """
-        self.display_name = display_name
+        self.name = name
         self.type_id = type_id
         self.properties = properties
         self.broker = None
@@ -103,8 +103,8 @@ class Characteristic:
 
     def __repr__(self):
         """Return the representation of the characteristic."""
-        return '<characteristic display_name={} value={} properties={}>' \
-            .format(self.display_name, self.value, self.properties)
+        return '<characteristic name={} value={} properties={}>' \
+            .format(self.name, self.value, self.properties)
 
     def _get_default_value(self):
         """Helper method. Return default value for format."""
@@ -119,7 +119,7 @@ class Characteristic:
         if self.properties.get(PROP_VALID_VALUES):
             if value not in self.properties[PROP_VALID_VALUES].values():
                 error_msg = '{}: value={} is an invalid value.' \
-                            .format(self.display_name, value)
+                            .format(self.name, value)
                 logger.error(error_msg)
                 raise ValueError(error_msg)
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
@@ -129,7 +129,7 @@ class Characteristic:
         elif self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
             if not isinstance(value, (int, float)):
                 error_msg = '{}: value={} is not a numeric value.' \
-                            .format(self.display_name, value)
+                            .format(self.name, value)
                 logger.error(error_msg)
                 raise ValueError(error_msg)
             value = min(self.properties.get(PROP_MAX_VALUE, value), value)
@@ -175,7 +175,7 @@ class Characteristic:
             subscribed clients. Notify will be performed if the broker is set.
         :type should_notify: bool
         """
-        logger.debug('set_value: %s to %s', self.display_name, value)
+        logger.debug('set_value: %s to %s', self.name, value)
         value = self.to_valid_value(value)
         self.value = value
         if should_notify and self.broker:
@@ -187,7 +187,7 @@ class Characteristic:
         Change self.value to value and call callback.
         """
         logger.debug('client_update_value: %s to %s',
-                      self.display_name, value)
+                      self.name, value)
         self.value = value
         self.notify()
         if self.setter_callback:
@@ -212,7 +212,7 @@ class Characteristic:
         hap_rep = {
             HAP_REPR_IID: self.broker.iid_manager.get_iid(self),
             HAP_REPR_TYPE: str(self.type_id).upper(),
-            HAP_REPR_DESC: self.display_name,
+            HAP_REPR_DESC: self.name,
             HAP_REPR_PERM: self.properties[PROP_PERMISSIONS],
             HAP_REPR_FORMAT: self.properties[PROP_FORMAT],
         }

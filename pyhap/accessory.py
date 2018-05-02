@@ -4,9 +4,7 @@ import logging
 import struct
 import threading
 
-import base36
 import ed25519
-from pyqrcode import QRCode
 
 from pyhap import util
 from pyhap.const import (
@@ -30,16 +28,16 @@ class Accessory:
     category = CATEGORY_OTHER
 
     @classmethod
-    def create(cls, display_name, pincode, aid=STANDALONE_AID):
+    def create(cls, name, pincode, aid=STANDALONE_AID):
         mac = util.generate_mac()
-        return cls(display_name, aid=aid, mac=mac, pincode=pincode)
+        return cls(name, aid=aid, mac=mac, pincode=pincode)
 
-    def __init__(self, display_name, aid=None, mac=None, pincode=None,
+    def __init__(self, name, aid=None, mac=None, pincode=None,
                  iid_manager=None, setup_id=None):
         """Initialise with the given properties.
 
-        :param display_name: Name to be displayed in the Home app.
-        :type display_name: str
+        :param name: Name to be displayed in the Home app.
+        :type name: str
 
         :param aid: The accessory ID, uniquely identifying this accessory.
             `Accessories` that advertised on the network must have the
@@ -63,7 +61,7 @@ class Accessory:
             4 digit string 0-9 A-Z
         :type setup_id: str
         """
-        self.display_name = display_name
+        self.name = name
         self.aid = aid
         self.mac = mac
         self.config_version = 2
@@ -89,9 +87,8 @@ class Accessory:
 
     def __repr__(self):
         """Return the representation of the accessory."""
-        services = [s.display_name for s in self.services]
-        return "<accessory display_name='{}' services={}>" \
-            .format(self.display_name, services)
+        services = [s.name for s in self.services]
+        return "<accessory name={} services={}>".format(self.name, services)
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -126,7 +123,7 @@ class Accessory:
         May be overridden.
         """
         serv_info = get_serv_loader().get_service('AccessoryInformation')
-        serv_info.configure_char('Name', value=self.display_name)
+        serv_info.configure_char('Name', value=self.name)
         serv_info.configure_char('SerialNumber', value='default')
         self.add_service(serv_info)
 
@@ -147,7 +144,7 @@ class Accessory:
             else:
                 logger.warning(
                     "Couldn't add SerialNumber for %s. The SerialNumber must "
-                    "be at least one character long.", self.display_name)
+                    "be at least one character long.", self.name)
 
     def add_preload_service(self, service, chars=None):
         """Create a service with the given name and add it to this acc."""
@@ -218,14 +215,14 @@ class Accessory:
         A single Service is returned even if more than one Service with the same name
         are present.
 
-        :param name: The display_name of the Service to search for.
+        :param name: The name of the Service to search for.
         :type name: str
 
         :return: A Service with the given name or None if no such service exists in this
             Accessory.
         :rtype: Service
         """
-        return next((s for s in self.services if s.display_name == name), None)
+        return next((s for s in self.services if s.name == name), None)
 
     def set_driver(self, driver):
         self.driver = driver
@@ -253,12 +250,12 @@ class Accessory:
     def paired(self):
         return len(self.paired_clients) > 0
 
-    @property
     def xhm_uri(self):
         """Generates the X-HM:// uri (Setup Code URI)
 
         :rtype: str
         """
+        import base36
         buffer = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00')
 
         value_low = int(self.pincode.replace(b'-', b''), 10)
@@ -276,19 +273,6 @@ class Accessory:
         encoded_payload = encoded_payload.rjust(9, '0')
 
         return 'X-HM://' + encoded_payload + self.setup_id
-
-    @property
-    def qr_code(self):
-        """Generate a QR code for paring with this accessory.
-
-        :rtype: QRCode
-        """
-        return QRCode(self.xhm_uri)
-
-    def print_qr(self):
-        """Print the setup code in QR format to console.
-        """
-        print(self.qr_code.terminal(), flush=True)
 
     def get_characteristic(self, aid, iid):
         """Get the characteristic for the given IID.
@@ -323,10 +307,23 @@ class Accessory:
         }
 
     def setup_message(self):
-        print('Setup payload: %s' % self.xhm_uri, flush=True)
-        print('Scan this code with your HomeKit app on your iOS device:', flush=True)
-        self.print_qr()
-        print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
+        """Print setup message to console.
+
+        For QRCode `base36`, `pyqrcode` are required.
+        Installation through `pip install HAP-python[QRCode]`
+        """
+        try:
+            from pyqrcode import QRCode
+            xhm_uri = self.xhm_uri()
+            print('Setup payload: {}'.format(xhm_uri), flush=True)
+            print('Scan this code with your HomeKit app on your iOS device:',
+                  flush=True)
+            print(QRCode(xhm_uri).terminal(quiet_zone=2), flush=True)
+            print('Or enter this code in your HomeKit app on your iOS device: '
+                  '{}'.format(self.pincode.decode()))
+        except ImportError:
+            print('Enter this code in your HomeKit app on your iOS device: {}'
+                  .format(self.pincode.decode()))
 
     def run_at_interval(seconds):
         """Decorator that runs decorated method in a while loop, which repeats every
@@ -428,13 +425,13 @@ class Bridge(AsyncAccessory):
 
     category = CATEGORY_BRIDGE
 
-    def __init__(self, display_name, mac=None, pincode=None,
+    def __init__(self, name, mac=None, pincode=None,
                  iid_manager=None, setup_id=None):
         aid = STANDALONE_AID
         # A Bridge cannot be Bridge, hence talks directly to HAP clients.
         # Thus, we need a mac.
         mac = mac or util.generate_mac()
-        super().__init__(display_name, aid=aid, mac=mac, pincode=pincode,
+        super().__init__(name, aid=aid, mac=mac, pincode=pincode,
                          iid_manager=iid_manager, setup_id=setup_id)
         self.accessories = {}  # aid: acc
 

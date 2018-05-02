@@ -25,7 +25,7 @@ def test_repr():
     service = Service(uuid1(), 'TestService')
     service.characteristics = [get_chars()[0]]
     assert service.__repr__() == \
-        "<service display_name=TestService chars={'Char 1': 0}>"
+        "<service name=TestService chars={'Char 1': 0}>"
 
 
 def test_add_characteristic():
@@ -124,7 +124,7 @@ def test_from_dict():
     }
 
     service = Service.from_dict('Test Service', json_dict, mock_char_loader)
-    assert service.display_name == 'Test Service'
+    assert service.name == 'Test Service'
     assert service.type_id == uuid
     assert service.characteristics == chars
 
