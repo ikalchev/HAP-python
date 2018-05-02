@@ -12,7 +12,6 @@ import sensors.DHT22 as DHT22
 
 from pyhap.accessory import Accessory
 from pyhap.const import CATEGORY_SENSOR
-import pyhap.loader as loader
 
 
 class AM2302(Accessory):
@@ -23,24 +22,18 @@ class AM2302(Accessory):
         super().__init__(*args, **kwargs)
         self.pin = pin
 
-        self.temp_char = self.get_service("TemperatureSensor")\
-                             .get_characteristic("CurrentTemperature")
+        serv_temp = self.add_preload_service('TemperatureSensor')
+        serv_humidity = self.add_preload_service('HumiditySensor')
 
-        self.humidity_char = self.get_service("HumiditySensor")\
-                                 .get_characteristic("CurrentRelativeHumidity")
+        self.char_temp = serv_temp.get_characteristic('CurrentTemperature')
+        self.char_humidity = serv_humidity \
+            .get_characteristic('CurrentRelativeHumidity')
 
         self.sensor = DHT22.sensor(pigpio.pi(), pin)
 
-    def _set_services(self):
-        super()._set_services()
-        self.add_service(
-            loader.get_serv_loader().get_service("TemperatureSensor"))
-        self.add_service(
-            loader.get_serv_loader().get_service("HumiditySensor"))
-
     def __getstate__(self):
         state = super().__getstate__()
-        state["sensor"] = None
+        state['sensor'] = None
         return state
 
     def __setstate__(self, state):
@@ -53,5 +46,5 @@ class AM2302(Accessory):
             time.sleep(0.2)
             t = self.sensor.temperature()
             h = self.sensor.humidity()
-            self.temp_char.set_value(t)
-            self.humidity_char.set_value(h)
+            self.char_temp.set_value(t)
+            self.char_humidity.set_value(h)

@@ -3,7 +3,6 @@ import subprocess
 
 from pyhap.accessory import Accessory
 from pyhap.const import CATEGORY_SWITCH
-import pyhap.loader as loader
 
 
 def get_display_state():
@@ -29,14 +28,9 @@ class DisplaySwitch(Accessory):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.display = self.get_service("Switch")\
-                           .get_characteristic("On")
-        self.display.setter_callback = self.set_display
-
-    def _set_services(self):
-        super()._set_services()
-        self.add_service(
-            loader.get_serv_loader().get_service("Switch"))
+        serv_switch = self.add_preload_service('Switch')
+        self.display = serv_switch.configure_char(
+            'On', setter_callback=self.set_display)
 
     def run(self):
         while not self.run_sentinel.wait(1):

@@ -12,15 +12,20 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - New helper methods to run the `run` method repeatedly, until the driver is stopped. `Accessory.repeat(time)` or `AsyncAccessory.repeat(time)`. [#74](https://github.com/ikalchev/HAP-python/pull/74)
 - New helper method `service.configure_char`. Shortcut to configuring a characteristic. [#84](https://github.com/ikalchev/HAP-python/pull/84)
 - Characteristics and Services can now be created from a json dictionary with `from_dict`. [#85](https://github.com/ikalchev/HAP-python/pull/85)
+- Added helper method to enable easy override of the `AccessoryInformation` service. [#102](https://github.com/ikalchev/HAP-python/pull/102)
+- Added helper method to load a service and chars and add it to an accessory. [#102](https://github.com/ikalchev/HAP-python/pull/102)
 
 ### Changed
 - Accessory.run method is now called through an event loop. You can either inherit from `Accessory` like before: The `run` method will be wrapped in a thread. Or inherit from `AsyncAccessory` and implement `async def run`. This will lead to the execution in the event loop. [#74](https://github.com/ikalchev/HAP-python/pull/74)
 - Scripts are now located in a separate directory: `scripts`. [#81](https://github.com/ikalchev/HAP-python/pull/81)
 - `driver.start` starts the event loop with `loop.run_forever()`. [#83](https://github.com/ikalchev/HAP-python/pull/83)
 - Debug logs for `char.set_value` and `char.client_update_value`. [#99](https://github.com/ikalchev/HAP-python/pull/99)
+- Changed default values associated with the `AccessoryInformation` service. [#102](https://github.com/ikalchev/HAP-python/pull/102)
+- `Accessory._set_services` is now deprecated. Instead services should be initialized in the accessories `init` method. [#102](https://github.com/ikalchev/HAP-python/pull/102)
 
 ### Fixed
 - Overriding properties now checks that value is still a valid value, otherwise value will be set to the default value. [#82](https://github.com/ikalchev/HAP-python/pull/82)
+- The `AccessoryInformation` service will always have the `iid=1`. [#102](https://github.com/ikalchev/HAP-python/pull/102)
 
 ### Breaking Changes
 - With introduction of async methods the min required Python version changes to `3.5`. [#74](https://github.com/ikalchev/HAP-python/pull/74)

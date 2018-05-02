@@ -13,7 +13,7 @@ from pyhap.const import (
     STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_SERVICES,
     HAP_REPR_VALUE, CATEGORY_OTHER, CATEGORY_BRIDGE)
 from pyhap.iid_manager import IIDManager
-from pyhap.loader import get_serv_loader
+from pyhap.loader import get_serv_loader, get_char_loader
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,8 @@ class Accessory:
         self.services = []
         self.iid_manager = iid_manager or IIDManager()
 
+        self.add_info_service()
+
         self._set_services()
 
     def __repr__(self):
@@ -112,24 +114,53 @@ class Accessory:
     def _set_services(self):
         """Sets the services for this accessory.
 
-        The default implementation adds only the AccessoryInformation services
-        and sets its Name characteristic to the Accessory's display name.
-
-        .. note:: When inheriting from Accessory and overriding this method,
-            always call the base implementation first, as it reserves IID of
-            1 for the Accessory Information service (HAP requirement).
+        This method is now deprecated, initialize the service inside the
+        accessory `init` method.
         """
-        info_service = get_serv_loader().get_service("AccessoryInformation")
-        info_service.get_characteristic("Name")\
-                    .set_value(self.display_name, False)
-        info_service.get_characteristic("Manufacturer")\
-                    .set_value("Default-Manufacturer", False)
-        info_service.get_characteristic("Model")\
-                    .set_value("Default-Model", False)
-        info_service.get_characteristic("SerialNumber")\
-                    .set_value("Default-SerialNumber", False)
-        # FIXME: Need to ensure AccessoryInformation is with IID 1.
-        self.add_service(info_service)
+        logger.warning(
+            "The 'Accessory._set_services' method is deprecated. Initialize "
+            "the services inside the accessories 'init' method instead.")
+
+    def add_info_service(self):
+        """Helper method to add the required `AccessoryInformation` service.
+
+        Called in `__init__` to be sure that it is the first service added.
+        May be overridden.
+        """
+        serv_info = get_serv_loader().get_service('AccessoryInformation')
+        serv_info.configure_char('Name', value=self.display_name)
+        serv_info.configure_char('SerialNumber', value='default')
+        self.add_service(serv_info)
+
+    def set_info_service(self, firmware_revision=None, manufacturer=None,
+                         model=None, serial_number=None):
+        """Quick assign basic accessory information."""
+        serv_info = self.get_service('AccessoryInformation')
+        if firmware_revision:
+            serv_info.configure_char(
+                'FirmwareRevision', value=firmware_revision)
+        if manufacturer:
+            serv_info.configure_char('Manufacturer', value=manufacturer)
+        if model:
+            serv_info.configure_char('Model', value=model)
+        if serial_number:
+            if len(serial_number) >= 1:
+                serv_info.configure_char('SerialNumber', value=serial_number)
+            else:
+                logger.warning(
+                    "Couldn't add SerialNumber for %s. The SerialNumber must "
+                    "be at least one character long.", self.display_name)
+
+    def add_preload_service(self, service, chars=None):
+        """Create a service with the given name and add it to this acc."""
+        service = get_serv_loader().get_service(service)
+        if chars:
+            chars = chars if isinstance(chars, list) else [chars]
+            for char_name in chars:
+                char = get_char_loader().get_char(char_name)
+                service.add_characteristic(char)
+        self.add_service(service)
+        return service
 
     def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
         """Assign a run sentinel that can signal stopping.
