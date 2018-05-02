@@ -10,3 +10,16 @@ HAP_PYTHON_VERSION = (1, 1, 9)
 """
 HAP-python current version.
 """
+
+
+SUPPORT_QR_CODE = False
+try:
+    import base36 as _
+    import pyqrcode as _
+    SUPPORT_QR_CODE = True
+except ImportError:
+    pass
+"""
+Flag if QR Code dependencies are installed.
+Installation with `pip install HAP-python[QRCode]`.
+"""

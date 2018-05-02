@@ -6,12 +6,16 @@ import threading
 
 import ed25519
 
-from pyhap import util
+from pyhap import util, SUPPORT_QR_CODE
 from pyhap.const import (
     STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_SERVICES,
     HAP_REPR_VALUE, CATEGORY_OTHER, CATEGORY_BRIDGE)
 from pyhap.iid_manager import IIDManager
 from pyhap.loader import get_serv_loader, get_char_loader
+
+if SUPPORT_QR_CODE:
+    import base36
+    from pyqrcode import QRCode
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +262,6 @@ class Accessory:
 
         :rtype: str
         """
-        import base36
         buffer = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00')
 
         value_low = int(self.pincode.replace(b'-', b''), 10)
@@ -315,8 +318,7 @@ class Accessory:
         For QRCode `base36`, `pyqrcode` are required.
         Installation through `pip install HAP-python[QRCode]`
         """
-        try:
-            from pyqrcode import QRCode
+        if SUPPORT_QR_CODE:
             xhm_uri = self.xhm_uri()
             print('Setup payload: {}'.format(xhm_uri), flush=True)
             print('Scan this code with your HomeKit app on your iOS device:',
@@ -324,7 +326,9 @@ class Accessory:
             print(QRCode(xhm_uri).terminal(quiet_zone=2), flush=True)
             print('Or enter this code in your HomeKit app on your iOS device: '
                   '{}'.format(self.pincode.decode()))
-        except ImportError:
+        else:
+            print('To use the QR Code feature, use \'pip install '
+                  'HAP-python[QRCode]\'')
             print('Enter this code in your HomeKit app on your iOS device: {}'
                   .format(self.pincode.decode()))
 
