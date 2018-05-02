@@ -25,9 +25,9 @@ class TestAccessory(object):
                 super()._set_services()
                 s = loader.get_serv_loader().get_service("TemperatureSensor")
                 self.add_service(s)
-                assert(self.get_service("AccessoryInformation") is not None)
+                assert self.get_service("AccessoryInformation") is not None
         a = A("Test Accessory")
-        assert(a.get_service("TemperatureSensor") is not None)
+        assert a.get_service("TemperatureSensor") is not None
 
 class TestBridge(TestAccessory):
 
