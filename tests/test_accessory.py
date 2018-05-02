@@ -13,7 +13,7 @@ class TestAccessory(object):
 
     def test_publish_no_broker(self):
         acc = accessory.Accessory('Test Accessory')
-        service = loader.get_serv_loader().get_service('TemperatureSensor')
+        service = loader.get_loader().get_service('TemperatureSensor')
         char = service.get_characteristic('CurrentTemperature')
         acc.add_service(service)
         char.set_value(25, should_notify=True)
@@ -23,7 +23,7 @@ class TestAccessory(object):
         class A(accessory.Accessory):
             def _set_services(self):
                 super()._set_services()
-                s = loader.get_serv_loader().get_service("TemperatureSensor")
+                s = loader.get_loader().get_service("TemperatureSensor")
                 self.add_service(s)
                 assert self.get_service("AccessoryInformation") is not None
         a = A("Test Accessory")
