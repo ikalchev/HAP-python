@@ -114,12 +114,10 @@ class Accessory:
     def _set_services(self):
         """Sets the services for this accessory.
 
-        This method is now deprecated, initialize the service inside the
-        accessory `init` method.
+        .. deprecated:: 2.0
+           Initialize the service inside the accessory `init` method instead.
         """
-        logger.warning(
-            "The 'Accessory._set_services' method is deprecated. Initialize "
-            "the services inside the accessories 'init' method instead.")
+        pass
 
     def add_info_service(self):
         """Helper method to add the required `AccessoryInformation` service.
