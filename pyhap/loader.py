@@ -81,6 +81,7 @@ def get_char_loader(desc_file=None):
     """
     logger.warning(
         "'get_char_loader' is deprecated. Use 'get_loader' instead.")
+    return get_loader()
 
 
 def get_serv_loader(desc_file=None):
@@ -91,3 +92,4 @@ def get_serv_loader(desc_file=None):
     """
     logger.warning(
         "'get_serv_loader' is deprecated. Use 'get_loader' instead.")
+    return get_loader()
