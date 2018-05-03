@@ -6,24 +6,23 @@ import pytest
 from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
 from pyhap.characteristic import Characteristic
 from pyhap.service import Service
-from pyhap.loader import get_char_loader, get_serv_loader, TypeLoader
+from pyhap.loader import get_loader, Loader
 
 
 def test_loader_char():
-    with open(CHARACTERISTICS_FILE, 'r') as file:
-        loader = TypeLoader(file)
-    assert loader.types is not None
+    loader = Loader()
 
-    assert loader.get('Name') is not None
+    assert loader.get_char('Name') is not None
     with pytest.raises(KeyError):
-        loader.get('Not a char')
+        loader.get_char('Not a char')
 
     assert isinstance(loader.get_char('Name'), Characteristic)
 
 
 def test_loader_get_char_error():
-    loader = TypeLoader.__new__(TypeLoader)
-    loader.types = {'Char': None}
+    loader = Loader.from_dict(char_dict={'Char': None})
+    assert loader.char_types == {'Char': None}
+    assert loader.serv_types == {}
     json_dicts = (
         {'Format': 'int', 'Permissions': 'read'},
         {'Format': 'int', 'UUID': '123456'},
@@ -31,57 +30,48 @@ def test_loader_get_char_error():
     )
 
     for case in json_dicts:
-        loader.types['Char'] = case
+        loader.char_types['Char'] = case
         with pytest.raises(KeyError):
             loader.get_char('Char')
 
 
 def test_loader_service():
-    with open(SERVICES_FILE, 'r') as file:
-        loader = TypeLoader(file)
-    assert loader.types is not None
+    loader = Loader()
 
-    assert loader.get('AccessoryInformation') is not None
+    assert loader.get_service('AccessoryInformation') is not None
     with pytest.raises(KeyError):
-        loader.get('Not a service')
+        loader.get_service('Not a service')
 
     with patch('pyhap.service.Service.from_dict') as mock_service_from_dict:
-        service = loader.get_service('AccessoryInformation', Mock())
+        service = loader.get_service('AccessoryInformation')
         mock_service_from_dict.assert_called_with(
-            'AccessoryInformation', loader.get('AccessoryInformation'), ANY)
+            'AccessoryInformation', ANY, loader)
 
 
 def test_loader_service_error():
-    loader = TypeLoader.__new__(TypeLoader)
-    loader.types = {'Service': None}
+    loader = Loader.from_dict(serv_dict={'Service': None})
+    assert loader.char_types == {}
+    assert loader.serv_types == {'Service': None}
     json_dicts = (
         {'RequiredCharacteristics': ['Char 1', 'Char 2']},
         {'UUID': '123456'}
     )
 
     for case in json_dicts:
-        loader.types['Service'] = case
+        loader.serv_types['Service'] = case
         with pytest.raises(KeyError):
             loader.get_service('Service')
 
 
-def test_get_char_loader():
-    char_loader = get_char_loader()
-    assert isinstance(char_loader, TypeLoader)
+def test_get_loader():
+    loader = get_loader()
+    assert isinstance(loader, Loader)
+    assert loader.char_types is not ({} or None)
+    assert loader.serv_types is not ({} or None)
 
-    with open(CHARACTERISTICS_FILE, 'r') as file:
-        loader = TypeLoader(file)
-    assert char_loader.types == loader.types
+    loader2 = Loader(path_char=CHARACTERISTICS_FILE,
+                     path_service=SERVICES_FILE)
+    assert loader.char_types == loader2.char_types
+    assert loader.serv_types == loader2.serv_types
 
-    assert get_char_loader() == char_loader
-
-
-def test_get_serv_loader():
-    serv_loader = get_serv_loader()
-    assert isinstance(serv_loader, TypeLoader)
-
-    with open(SERVICES_FILE, 'r') as file:
-        loader = TypeLoader(file)
-    assert serv_loader.types == loader.types
-
-    assert get_serv_loader() == serv_loader
+    assert get_loader() == loader

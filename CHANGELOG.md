@@ -33,12 +33,13 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - Updated `Accessories` to work with changes. [#74](https://github.com/ikalchev/HAP-python/pull/74), [#89](https://github.com/ikalchev/HAP-python/pull/89)
 - Renamed `Accessory.broker` to `Accessory.Driver`. `acc.set_broker` is now `acc.set_driver`. [#104](https://github.com/ikalchev/HAP-python/pull/104)
 - QR Code is now optional. It requires `pip install HAP-python[QRCode]`. [#103](https://github.com/ikalchev/HAP-python/pull/103)
+- `Loader.get_serv_loader` and `Loader.get_char_loader` are replaced by `Loader.get_loader`, since it now handles loading chars and services in one class. [#108](https://github.com/ikalchev/HAP-python/pull/108)
 
 ### Developers
 - `to_HAP` methods don't require the `iid_manager` any more [#84](https://github.com/ikalchev/HAP-python/pull/84), [#85](https://github.com/ikalchev/HAP-python/pull/85)
 - `Service._add_chars` is now integrated in `Service.add_characteristic` [85](https://github.com/ikalchev/HAP-python/pull/85)
 - `driver.update_advertisment` is now `driver.update_advertisement` [85](https://github.com/ikalchev/HAP-python/pull/85)
-- `TypeLoader`, `CharLoader` and `ServiceLoader` are now combined into the `TypeLoader` with the new methods `get_char` and `get_service` to load new chars and services. [85](https://github.com/ikalchev/HAP-python/pull/85)
+- `TypeLoader`, `CharLoader` and `ServiceLoader` are now combined into the `Loader` with the new methods `get_char` and `get_service` to load new chars and services. [85](https://github.com/ikalchev/HAP-python/pull/85)
 - Moved some constants to `pyhap/const.py` and removed `HAP_FORMAT`, `HAP_UNITS` and `HAP_PERMISSIONS` in favor for `HAP_FORMAT_[OLD_FORMAT]`, etc. [#86](https://github.com/ikalchev/HAP-python/pull/86)
 - Updated tests and added new test dependency `pytest-timeout` [#88](https://github.com/ikalchev/HAP-python/pull/88)
 - Rewrote `IIDManager` and split `IIDManager.remove` into `remove_obj` and `remove_iid`. [#100](https://github.com/ikalchev/HAP-python/pull/100)

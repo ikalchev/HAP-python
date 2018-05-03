@@ -6,5 +6,5 @@ Loader
 
 Useful for creating a ``Service`` or ``Characteristic``.
 
-.. autoclass:: pyhap.loader.TypeLoader
+.. autoclass:: pyhap.loader.Loader
 	:members:
