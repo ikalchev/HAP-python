@@ -21,15 +21,17 @@ setup(
         "pyhap.accessories"
     ],
     install_requires=[
-        "base36",
         "curve25519-donna",
         "ed25519",
         "pycryptodome",
-        "pyqrcode",
         "tlslite-ng",
         "zeroconf",
     ],
     extras_require={
+        'QRCode': [
+            'base36',
+            'pyqrcode',
+        ],
         "dev": [
             "pytest",
             "tox",

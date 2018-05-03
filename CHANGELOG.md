@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - The `Accessory.Category` class was removed and the `Category` constants moved to `pyhap/const.py` with the naming: `CATEGORY_[OLD_NAME]` (e.g. `CATEGORY_OTHER`) [#86](https://github.com/ikalchev/HAP-python/pull/86)
 - Updated `Accessories` to work with changes. [#74](https://github.com/ikalchev/HAP-python/pull/74), [#89](https://github.com/ikalchev/HAP-python/pull/89)
 - Renamed `Accessory.broker` to `Accessory.Driver`. `acc.set_broker` is now `acc.set_driver`. [#104](https://github.com/ikalchev/HAP-python/pull/104)
+- QR Code is now optional. It requires `pip install HAP-python[QRCode]`. [#103](https://github.com/ikalchev/HAP-python/pull/103)
 
 ### Developers
 - `to_HAP` methods don't require the `iid_manager` any more [#84](https://github.com/ikalchev/HAP-python/pull/84), [#85](https://github.com/ikalchev/HAP-python/pull/85)
@@ -41,6 +42,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - Moved some constants to `pyhap/const.py` and removed `HAP_FORMAT`, `HAP_UNITS` and `HAP_PERMISSIONS` in favor for `HAP_FORMAT_[OLD_FORMAT]`, etc. [#86](https://github.com/ikalchev/HAP-python/pull/86)
 - Updated tests and added new test dependency `pytest-timeout` [#88](https://github.com/ikalchev/HAP-python/pull/88)
 - Rewrote `IIDManager` and split `IIDManager.remove` into `remove_obj` and `remove_iid`. [#100](https://github.com/ikalchev/HAP-python/pull/100)
+- `requirements.txt` file has been added for min, `requirements_all.txt` covers all requirements. [#103](https://github.com/ikalchev/HAP-python/pull/103)
 
 
 

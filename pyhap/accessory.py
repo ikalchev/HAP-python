@@ -4,16 +4,18 @@ import logging
 import struct
 import threading
 
-import base36
 import ed25519
-from pyqrcode import QRCode
 
-from pyhap import util
+from pyhap import util, SUPPORT_QR_CODE
 from pyhap.const import (
     STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_SERVICES,
     HAP_REPR_VALUE, CATEGORY_OTHER, CATEGORY_BRIDGE)
 from pyhap.iid_manager import IIDManager
 from pyhap.loader import get_serv_loader, get_char_loader
+
+if SUPPORT_QR_CODE:
+    import base36
+    from pyqrcode import QRCode
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +255,6 @@ class Accessory:
     def paired(self):
         return len(self.paired_clients) > 0
 
-    @property
     def xhm_uri(self):
         """Generates the X-HM:// uri (Setup Code URI)
 
@@ -276,19 +277,6 @@ class Accessory:
         encoded_payload = encoded_payload.rjust(9, '0')
 
         return 'X-HM://' + encoded_payload + self.setup_id
-
-    @property
-    def qr_code(self):
-        """Generate a QR code for paring with this accessory.
-
-        :rtype: QRCode
-        """
-        return QRCode(self.xhm_uri)
-
-    def print_qr(self):
-        """Print the setup code in QR format to console.
-        """
-        print(self.qr_code.terminal(), flush=True)
 
     def get_characteristic(self, aid, iid):
         """Get the characteristic for the given IID.
@@ -323,10 +311,24 @@ class Accessory:
         }
 
     def setup_message(self):
-        print('Setup payload: %s' % self.xhm_uri, flush=True)
-        print('Scan this code with your HomeKit app on your iOS device:', flush=True)
-        self.print_qr()
-        print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
+        """Print setup message to console.
+
+        For QRCode `base36`, `pyqrcode` are required.
+        Installation through `pip install HAP-python[QRCode]`
+        """
+        if SUPPORT_QR_CODE:
+            xhm_uri = self.xhm_uri()
+            print('Setup payload: {}'.format(xhm_uri), flush=True)
+            print('Scan this code with your HomeKit app on your iOS device:',
+                  flush=True)
+            print(QRCode(xhm_uri).terminal(quiet_zone=2), flush=True)
+            print('Or enter this code in your HomeKit app on your iOS device: '
+                  '{}'.format(self.pincode.decode()))
+        else:
+            print('To use the QR Code feature, use \'pip install '
+                  'HAP-python[QRCode]\'')
+            print('Enter this code in your HomeKit app on your iOS device: {}'
+                  .format(self.pincode.decode()))
 
     def run_at_interval(seconds):
         """Decorator that runs decorated method in a while loop, which repeats every
