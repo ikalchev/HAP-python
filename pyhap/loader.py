@@ -8,12 +8,14 @@ instance of it (as long as it is described in some
 json file).
 """
 import json
+import logging
 
 from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
 from pyhap.characteristic import Characteristic
 from pyhap.service import Service
 
 _loader = None
+logger = logging.getLogger(__name__)
 
 
 class Loader:
@@ -69,3 +71,23 @@ def get_loader():
     if _loader is None:
         _loader = Loader()
     return _loader
+
+
+def get_char_loader(desc_file=None):
+    """Get a CharacteristicLoader with characteristic descriptions in the given file.
+
+    .. deprecated:: 2.0
+       Use `get_loader` instead.
+    """
+    logger.warning(
+        "'get_char_loader' is deprecated. Use 'get_loader' instead.")
+
+
+def get_serv_loader(desc_file=None):
+    """Get a ServiceLoader with service descriptions in the given file.
+
+    .. deprecated:: 2.0
+       Use `get_loader` instead.
+    """
+    logger.warning(
+        "'get_serv_loader' is deprecated. Use 'get_loader' instead.")
