@@ -17,10 +17,11 @@ the Characteristic does not block waiting for the actual send to happen.
 
 When the AccessoryDriver is started, it spawns an event dispatch thread. The purpose of
 this thread is to get events from the event queue and send them to subscribed clients.
-Whenever a send fails, the client is unsubscribed, as it is assumed that the client left
+Whenever a send fails, the client is unsubscripted, as it is assumed that the client left
 or went to sleep before telling us. This concludes the publishing process from the
 AccessoryDriver.
 """
+import asyncio
 import os
 import logging
 import socket
@@ -29,20 +30,25 @@ import base64
 import time
 import threading
 import json
-import pickle
 import queue
 
 from zeroconf import ServiceInfo, Zeroconf
 
-from pyhap.accessory import get_topic, STANDALONE_AID
+from pyhap import util
+from pyhap.accessory import AsyncAccessory, get_topic, STANDALONE_AID
 from pyhap.characteristic import CharacteristicError
+from pyhap.const import (
+    STANDALONE_AID, HAP_PERMISSION_NOTIFY, HAP_REPR_ACCS, HAP_REPR_AID,
+    HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_STATUS, HAP_REPR_VALUE)
 from pyhap.params import get_srp_context
 from pyhap.hsrp import Server as SrpServer
 from pyhap.hap_server import HAPServer
-import pyhap.util as util
 from pyhap.encoder import AccessoryEncoder
 
 logger = logging.getLogger(__name__)
+
+CHAR_STAT_OK = 0
+SERVICE_COMMUNICATION_FAILURE = -70402
 
 
 class AccessoryMDNSServiceInfo(ServiceInfo):
@@ -51,12 +57,12 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
     def __init__(self, accessory, address, port):
         self.accessory = accessory
         hname = socket.gethostname()
-        pubname = hname + "." if hname.endswith(".local") else hname + ".local."
+        pubname = hname + '.' if hname.endswith('.local') else hname + '.local.'
 
         adv_data = self._get_advert_data()
-        super(AccessoryMDNSServiceInfo, self).__init__(
-             "_hap._tcp.local.",
-             self.accessory.display_name + "._hap._tcp.local.",
+        super().__init__(
+             '_hap._tcp.local.',
+             self.accessory.display_name + '._hap._tcp.local.',
              socket.inet_aton(address),
              port,
              0,
@@ -71,32 +77,25 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         return base64.b64encode(temp_hash.digest()[:4])
 
     def _get_advert_data(self):
-        """Generate advertisment data from the accessory."""
-        adv_data = {
-            "md": self.accessory.display_name,
-            "pv": "1.0",
-            "id": self.accessory.mac,
-            # represents the "configuration version" of an Accessory.
-            # Increasing this "version number" signals iOS devices to
+        """Generate advertisement data from the accessory."""
+        return {
+            'md': self.accessory.display_name,
+            'pv': '1.0',
+            'id': self.accessory.mac,
+            # represents the 'configuration version' of an Accessory.
+            # Increasing this 'version number' signals iOS devices to
             # re-fetch accessories data.
-            "c#": str(self.accessory.config_version),
-            "s#": "1",  # "accessory state"
-            "ff": "0",
-            "ci": str(self.accessory.category),
-            # "sf == 1" means "discoverable by HomeKit iOS clients"
-            "sf": "0" if self.accessory.paired else "1",
-            "sh": self._setup_hash()
+            'c#': str(self.accessory.config_version),
+            's#': '1',  # 'accessory state'
+            'ff': '0',
+            'ci': str(self.accessory.category),
+            # 'sf == 1' means "discoverable by HomeKit iOS clients"
+            'sf': '0' if self.accessory.paired else '1',
+            'sh': self._setup_hash()
         }
 
-        return adv_data
 
-
-class HAP_CONSTANTS:
-    CHAR_STAT_OK = 0
-    SERVICE_COMMUNICATION_FAILURE = -70402
-
-
-class AccessoryDriver(object):
+class AccessoryDriver:
     """
     An AccessoryDriver mediates between incoming requests from the HAPServer and
     the Accessory.
@@ -156,15 +155,17 @@ class AccessoryDriver(object):
             self.persist()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
+        self.event_loop = asyncio.new_event_loop()
+        self.aio_stop_event = asyncio.Event(loop=self.event_loop)
+        self.stop_event = threading.Event()
         self.event_queue = queue.Queue()  # (topic, bytes)
         self.send_event_thread = None  # the event dispatch thread
         self.sent_events = 0
         self.accumulated_qsize = 0
 
-        self.accessory.set_broker(self)
+        self.accessory.set_driver(self)
         self.mdns_service_info = None
         self.srp_verifier = None
-        self.run_sentinel = None
         self.accessory_thread = None
 
     def subscribe_client_topic(self, client, topic, subscribe=True):
@@ -206,11 +207,11 @@ class AccessoryDriver(object):
             "iid".
         :type data: dict
         """
-        topic = get_topic(data["aid"], data["iid"])
+        topic = get_topic(data[HAP_REPR_AID], data[HAP_REPR_IID])
         if topic not in self.topics:
             return
 
-        data = {"characteristics": [data]}
+        data = {HAP_REPR_CHARS: [data]}
         bytedata = json.dumps(data).encode()
         self.event_queue.put((topic, bytedata))
 
@@ -228,7 +229,7 @@ class AccessoryDriver(object):
         this is not run in a daemon thread or it is run on the main thread, the app will
         hang.
         """
-        while not self.run_sentinel.is_set():
+        while not self.event_loop.is_closed():
             # Maybe consider having a pool of worker threads, each performing a send in
             # order to increase throughput.
             topic, bytedata = self.event_queue.get()
@@ -254,13 +255,13 @@ class AccessoryDriver(object):
         """Notify the driver that the accessory's configuration has changed.
 
         Persists the accessory, so that the new configuration is available on
-        restart. Also, updates the mDNS advertisment, so that iOS clients know they need
+        restart. Also, updates the mDNS advertisement, so that iOS clients know they need
         to fetch new data.
         """
         self.persist()
-        self.update_advertisment()
+        self.update_advertisement()
 
-    def update_advertisment(self):
+    def update_advertisement(self):
         """Updates the mDNS service info for the accessory."""
         self.advertiser.unregister_service(self.mdns_service_info)
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory,
@@ -270,15 +271,13 @@ class AccessoryDriver(object):
         self.advertiser.register_service(self.mdns_service_info)
 
     def persist(self):
-        """Saves the state of the accessory.
-        """
-        with open(self.persist_file, "w") as fp:
+        """Saves the state of the accessory."""
+        with open(self.persist_file, 'w') as fp:
             self.encoder.persist(fp, self.accessory)
 
     def load(self):
-        """
-        """
-        with open(self.persist_file, "r") as fp:
+        """ """
+        with open(self.persist_file, 'r') as fp:
             self.encoder.load_into(fp, self.accessory)
 
     def pair(self, client_uuid, client_public):
@@ -302,7 +301,7 @@ class AccessoryDriver(object):
         logger.info("Paired with %s.", client_uuid)
         self.accessory.add_paired_client(client_uuid, client_public)
         self.persist()
-        self.update_advertisment()
+        self.update_advertisement()
         return True
 
     def unpair(self, client_uuid):
@@ -314,16 +313,16 @@ class AccessoryDriver(object):
         :param client_uuid: The client uuid.
         :type client_uuid: uuid.UUID
         """
-        logger.info("Unpairing client '%s'.", client_uuid)
+        logger.info("Unpairing client %s.", client_uuid)
         self.accessory.remove_paired_client(client_uuid)
         self.persist()
-        self.update_advertisment()
+        self.update_advertisement()
 
     def setup_srp_verifier(self):
         """Create an SRP verifier for the accessory's info."""
         # TODO: Move the below hard-coded values somewhere nice.
         ctx = get_srp_context(3072, hashlib.sha512, 16)
-        verifier = SrpServer(ctx, b"Pair-Setup", self.accessory.pincode)
+        verifier = SrpServer(ctx, b'Pair-Setup', self.accessory.pincode)
         self.srp_verifier = verifier
 
     def get_accessories(self):
@@ -354,7 +353,7 @@ class AccessoryDriver(object):
         hap_rep = self.accessory.to_HAP()
         if not isinstance(hap_rep, list):
             hap_rep = [hap_rep, ]
-        return {"accessories": hap_rep}
+        return {HAP_REPR_ACCS: hap_rep}
 
     def get_characteristics(self, char_ids):
         """Returns values for the required characteristics.
@@ -378,18 +377,18 @@ class AccessoryDriver(object):
         """
         chars = []
         for id in char_ids:
-            aid, iid = (int(i) for i in id.split("."))
-            rep = {"aid": aid, "iid": iid}
+            aid, iid = (int(i) for i in id.split('.'))
+            rep = {HAP_REPR_AID: aid, HAP_REPR_IID: iid}
             char = self.accessory.get_characteristic(aid, iid)
             try:
-                rep["value"] = char.value
-                rep["status"] = HAP_CONSTANTS.CHAR_STAT_OK
+                rep[HAP_REPR_VALUE] = char.value
+                rep[HAP_REPR_STATUS] = CHAR_STAT_OK
             except CharacteristicError:
                 logger.error("Error getting value for characteristic %s.", id)
-                rep["status"] = HAP_CONSTANTS.SERVICE_COMMUNICATION_FAILURE
+                rep[HAP_REPR_STATUS] = SERVICE_COMMUNICATION_FAILURE
 
             chars.append(rep)
-        return {"characteristics": chars}
+        return {HAP_REPR_CHARS: chars}
 
     def set_characteristics(self, chars_query, client_addr):
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.
@@ -403,7 +402,7 @@ class AccessoryDriver(object):
                  "aid": 1,
                  "iid": 2,
                  "value": False, # Value to set
-                 "ev": True # (Un)subscribe for events from this charactertics.
+                 "ev": True # (Un)subscribe for events from this characteristics.
               }]
            }
 
@@ -423,29 +422,30 @@ class AccessoryDriver(object):
 
         :rtype: dict
         """
-        chars_query = chars_query["characteristics"]
+        chars_query = chars_query[HAP_REPR_CHARS]
         chars_response = []
         for cq in chars_query:
-            aid, iid = cq["aid"], cq["iid"]
+            aid, iid = cq[HAP_REPR_AID], cq[HAP_REPR_IID]
             char = self.accessory.get_characteristic(aid, iid)
 
-            if "ev" in cq:
+            if HAP_PERMISSION_NOTIFY in cq:
                 char_topic = get_topic(aid, iid)
-                self.subscribe_client_topic(client_addr, char_topic, cq["ev"])
+                self.subscribe_client_topic(
+                    client_addr, char_topic, cq[HAP_PERMISSION_NOTIFY])
 
             response = {
-                "aid": aid,
-                "iid": iid,
-                "status": HAP_CONSTANTS.CHAR_STAT_OK,
+                HAP_REPR_AID: aid,
+                HAP_REPR_IID: iid,
+                HAP_REPR_STATUS: CHAR_STAT_OK,
             }
-            if "value" in cq:
+            if HAP_REPR_VALUE in cq:
                 # TODO: status needs to be based on success of set_value
-                char.client_update_value(cq["value"])
+                char.client_update_value(cq[HAP_REPR_VALUE])
                 if "r" in cq:
-                    response["value"] = char.value
+                    response[HAP_REPR_VALUE] = char.value
 
             chars_response.append(response)
-        return {"characteristics": chars_response}
+        return {HAP_REPR_CHARS: chars_response}
 
     def start(self):
         """Starts the accessory.
@@ -453,20 +453,14 @@ class AccessoryDriver(object):
         - Call the accessory's run method.
         - Start handling accessory events.
         - Start the HAP server.
-        - Publish a mDNS advertisment.
+        - Publish a mDNS advertisement.
         - Print the setup QR code if the accessory is not paired.
 
         All of the above are started in separate threads. Accessory thread is set as
         daemon.
         """
-        logger.info("Starting accessory '%s' on address '%s', port '%s'.",
+        logger.info("Starting accessory %s on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
-
-        # Start the accessory so it can do stuff.
-        self.run_sentinel = threading.Event()
-        self.accessory.set_sentinel(self.run_sentinel)
-        self.accessory_thread = threading.Thread(target=self.accessory.run)
-        self.accessory_thread.start()
 
         # Start sending events to clients. This is done in a daemon thread, because:
         # - if the queue is blocked waiting on an empty queue, then there is nothing left
@@ -492,6 +486,26 @@ class AccessoryDriver(object):
         if not self.accessory.paired:
             self.accessory.setup_message()
 
+        # Start the accessory so it can do stuff.
+        self.accessory.set_sentinel(self.stop_event, self.aio_stop_event,
+                                    self.event_loop)
+        if isinstance(self.accessory, AsyncAccessory):
+            self.accessory_task = self.event_loop.create_task(
+                self.accessory.run())
+        else:
+            self.accessory_task = self.event_loop.run_in_executor(
+                None, self.accessory.run)
+
+        logger.info("Starting event loop")
+        try:
+            self.event_loop.run_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.event_loop.close()
+            logger.info("Closed event loop.")
+
+
     def stop(self):
         """Stop the accessory.
 
@@ -502,12 +516,14 @@ class AccessoryDriver(object):
         """
         # TODO: This should happen in a different order - mDNS, server, accessory. Need
         # to ensure that sending with a closed server will not crash the app.
-        logger.info("Stoping accessory '%s' on address %s, port %s.",
+        logger.info("Stoping accessory %s on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
-        logger.debug("Setting run sentinel, stopping accessory and event sending")
-        self.run_sentinel.set()
+        logger.debug("Setting stop events, stopping accessory and event sending")
+        self.stop_event.set()
+        if not self.event_loop.is_closed():
+            self.event_loop.call_soon_threadsafe(self.aio_stop_event.set)
+            self.event_loop.stop()
         self.accessory.stop()
-        self.accessory_thread.join()
 
         logger.debug("Stopping mDNS advertising")
         self.advertiser.unregister_service(self.mdns_service_info)

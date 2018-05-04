@@ -1,6 +1,7 @@
 """
 Tests for pyhap.accessory_driver
 """
+import asyncio
 import os
 import tempfile
 from unittest.mock import patch, Mock
@@ -8,7 +9,7 @@ from unittest.mock import patch, Mock
 import pytest
 
 from pyhap.accessory import (Accessory,
-                             Bridge,
+                             AsyncAccessory,
                              STANDALONE_AID)
 from pyhap.accessory_driver import AccessoryDriver
 
@@ -47,3 +48,38 @@ def test_persist_load():
         assert driver.accessory.public_key == pk
     finally:
         os.remove(persist_file)
+
+
+@patch("pyhap.accessory_driver.Zeroconf", new=Mock())
+@patch("pyhap.accessory_driver.AccessoryDriver.persist")
+@patch("pyhap.accessory_driver.HAPServer", new=Mock())
+def test_start_stop_sync_acc(_persist):
+    class Acc(Accessory):
+        running = True
+        def run(self):
+            while self.run_sentinel.wait(0):
+                pass
+            self.running = False
+            driver.stop()
+        def setup_message(self): pass
+
+    acc = Acc("TestAcc")
+    driver = AccessoryDriver(acc, 51234, persist_file="foo")
+    driver.start()
+    assert not acc.running
+
+
+@patch("pyhap.accessory_driver.Zeroconf", new=Mock())
+@patch("pyhap.accessory_driver.AccessoryDriver.persist")
+@patch("pyhap.accessory_driver.HAPServer", new=Mock())
+def test_start_stop_async_acc(_persist):
+    class Acc(AsyncAccessory):
+        @AsyncAccessory.run_at_interval(0)
+        async def run(self):
+            driver.stop()
+        def setup_message(self): pass
+
+    acc = Acc("TestAcc")
+    driver = AccessoryDriver(acc, 51234, persist_file="foo")
+    driver.start()
+    assert driver.event_loop.is_closed()

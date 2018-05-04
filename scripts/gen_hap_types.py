@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Create a json representation from the HomeKit Accessory Simulator Types."""
 import plistlib
 import json
