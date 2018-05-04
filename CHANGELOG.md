@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+
+
+## [2.0.0] - 2018-05-04
+
 ### Added
 - New helper methods to run the `run` method repeatedly, until the driver is stopped. `Accessory.repeat(time)` or `AsyncAccessory.repeat(time)`. [#74](https://github.com/ikalchev/HAP-python/pull/74)
 - New helper method `service.configure_char`. Shortcut to configuring a characteristic. [#84](https://github.com/ikalchev/HAP-python/pull/84)
