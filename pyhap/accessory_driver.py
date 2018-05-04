@@ -516,7 +516,7 @@ class AccessoryDriver:
         """
         # TODO: This should happen in a different order - mDNS, server, accessory. Need
         # to ensure that sending with a closed server will not crash the app.
-        logger.info("Stoping accessory %s on address %s, port %s.",
+        logger.info("Stopping accessory %s on address %s, port %s.",
                     self.accessory.display_name, self.address, self.port)
         logger.debug("Setting stop events, stopping accessory and event sending")
         self.stop_event.set()
