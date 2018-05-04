@@ -156,7 +156,7 @@ def test_to_HAP_numberic():
         'format': 'int',
         'maxValue': 2,
         'minValue': 1,
-        'value': 1, 
+        'value': 1,
     }
 
 
