@@ -1,8 +1,9 @@
+#!/usr/bin/env python3
 """
 Convert from pickled state to an AccessoryEncoder state.
 
 Usage:
-    pickle_to_state.py accessory.pickle accessory.state
+    scripts/pickle_to_state.py accessory.pickle accessory.state
 
 The above will read the state from the pickle file and persist it into accessory.state.
 You can then pass accessory.state to the AccessoryDriver.

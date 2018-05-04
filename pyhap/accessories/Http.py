@@ -7,7 +7,8 @@ import threading
 import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from pyhap.accessory import Bridge, Category
+from pyhap.accessory import Bridge
+from pyhap.const import CATEGORY_OTHER
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class HttpBridgeHandler(BaseHTTPRequestHandler):
         """Create a handler that passes updates to the given HttpAccessory.
         """
         self.http_accessory = http_accessory
-        super(HttpBridgeHandler, self).__init__(sock, client_addr, server)
+        super().__init__(sock, client_addr, server)
 
     def respond_ok(self):
         """Reply with code 200 (OK) and close the connection.
@@ -65,7 +66,7 @@ class HttpBridgeHandler(BaseHTTPRequestHandler):
         try:
             # The below decode is necessary only for python <3.6, because loads prior 3.6
             # doesn't know bytes/bytearray.
-            content = self.rfile.read(length).decode("utf-8")
+            content = self.rfile.read(length).decode('utf-8')
             data = json.loads(content)
         except Exception as e:
             logger.error("Bad POST request; Error was: %s", str(e))
@@ -125,7 +126,7 @@ class HttpBridge(Bridge):
     After the above you can HTTP POST updates to the local address at port 51111.
     """
 
-    category = Category.OTHER
+    category = CATEGORY_OTHER
 
     def __init__(self, address, *args, **kwargs):
         """Initialise and add the given services.
@@ -135,7 +136,7 @@ class HttpBridge(Bridge):
 
         @param accessories:
         """
-        super(HttpBridge, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # For exclusive access to updates. Slight overkill...
         self.update_lock = None
@@ -155,18 +156,18 @@ class HttpBridge(Bridge):
         Also add the server address. All this is because we cannot pickle such
         objects and to allow to recover the server using the address.
         """
-        state = super(HttpBridge, self).__getstate__()
-        state["server"] = None
-        state["server_thread"] = None
-        state["update_lock"] = None
-        state["address"] = self.server.server_address
+        state = super().__getstate__()
+        state['server'] = None
+        state['server_thread'] = None
+        state['update_lock'] = None
+        state['address'] = self.server.server_address
         return state
 
     def __setstate__(self, state):
         """Load the state  and set up the server with the address in the state.
         """
         self.__dict__.update(state)
-        self._set_server(state["address"])
+        self._set_server(state['address'])
 
     def update_state(self, data):
         """Update the characteristics from the received data.
@@ -184,10 +185,10 @@ class HttpBridge(Bridge):
             }
         @type data: dict
         """
-        aid = data["aid"]
+        aid = data['aid']
         logger.debug("Got update from accessory with aid: %d", aid)
         accessory = self.accessories[aid]
-        service_data = data["services"]
+        service_data = data['services']
         for service, char_data in service_data.items():
             service_obj = accessory.get_service(service)
             for char, value in char_data.items():
@@ -198,7 +199,7 @@ class HttpBridge(Bridge):
     def stop(self):
         """Stop the server.
         """
-        super(HttpBridge, self).stop()
+        super().stop()
         logger.debug("Stopping HTTP bridge server.")
         self.server.shutdown()
         self.server.server_close()

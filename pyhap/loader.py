@@ -7,171 +7,89 @@ The idea is, give a name of a service and you get an
 instance of it (as long as it is described in some
 json file).
 """
-import uuid
 import json
+import logging
 
 from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
 from pyhap.characteristic import Characteristic
 from pyhap.service import Service
 
-# Because we are loading mostly from the characteristics.json
-# and services.json files, these loaders are "cached".
-_char_loader = None
-_serv_loader = None
+_loader = None
+logger = logging.getLogger(__name__)
 
 
-class TypeLoader(object):
+class Loader:
     """Looks up type descriptions based on a name.
-    """
 
-    def __init__(self, fp):
-        """Initialise with the type descriptions in the given file.
-
-        :param fp: File-like object to read from.
-        :type fp: input stream
-        """
-        self.types = json.load(fp)
-
-    def get(self, name):
-        """Get type description with the given name.
-
-        :rtype: dict
-        """
-        return self.types[name].copy()
-
-
-class CharLoader(TypeLoader):
-    """Creates Characteristic objects based on a description.
-
+    .. seealso:: pyhap/resources/services.json
     .. seealso:: pyhap/resources/characteristics.json
     """
 
-    def __init__(self, fp, char_class=Characteristic):
-        """Initialise to look into the given file for characteristics.
+    def __init__(self, path_char=CHARACTERISTICS_FILE,
+                 path_service=SERVICES_FILE):
+        """Initialize a new Loader instance."""
+        self.char_types = self._read_file(path_char)
+        self.serv_types = self._read_file(path_service)
 
-        :param fp: File-like object to read from.
-        :type fp: input stream
+    def _read_file(self, path):
+        """Read file and return a dict."""
+        with open(path, 'r') as file:
+            return json.load(file)
 
-        :param char_class: The class which to instantiate when creating Characteristics.
-            Defaults to `Characteristic`.
-        :type char_class: type
-        """
-        super(CharLoader, self).__init__(fp)
-        self.char_class = char_class
+    def get_char(self, name):
+        """Return new Characteristic object."""
+        char_dict = self.char_types[name].copy()
+        if 'Format' not in char_dict or \
+            'Permissions' not in char_dict or \
+                'UUID' not in char_dict:
+            raise KeyError('Could not load char {}!'.format(name))
+        return Characteristic.from_dict(name, char_dict)
 
-    def get(self, name, char_class=None):
-        """Instantiate and return a `char_class` with the given name.
+    def get_service(self, name):
+        """Return new service object."""
+        service_dict = self.serv_types[name].copy()
+        if 'RequiredCharacteristics' not in service_dict or \
+                'UUID' not in service_dict:
+            raise KeyError('Could not load service {}!'.format(name))
+        return Service.from_dict(name, service_dict, self)
 
-        This method looks into the json-described characteristics read during init
-        and attempts to find the description of a characteristic with the given name.
-        If successful, uses the description to instantiate `char_class` or, if not given,
-        `self.char_class`.
-
-        :param name: Name of the characteristic to look for.
-        :type name: str
-
-        :param char_class: The class which to instantiate when creating `Characteristics`.
-            Defaults to `None`, in which case `self.char_class`.
-        :type char_class: type
-
-        :return: Instantiated Characteristic.
-        :rtype: char_class or self.char_class
-
-        :raise: KeyError when no characteristic description can be found with the
-            given name.
-        """
-        char_info = super(CharLoader, self).get(name)
-        type_id = uuid.UUID(char_info["UUID"])
-        props = char_info
-        props.pop("UUID")
-        char_type = char_class or self.char_class
-        return char_type(name, type_id, props)
+    @classmethod
+    def from_dict(cls, char_dict=None, serv_dict=None):
+        """Create a new instance directly from json dicts."""
+        loader = cls.__new__(Loader)
+        loader.char_types = char_dict or {}
+        loader.serv_types = serv_dict or {}
+        return loader
 
 
-class ServiceLoader(TypeLoader):
-    """Creates Service objects based on a description.
+def get_loader():
+    """Get a service and char loader.
 
-    .. seealso:: pyhap/resources/services.json
+    If already initialized it returns the existing one.
     """
-
-    def __init__(self, fp, char_loader=None, service_class=Service):
-        """Initialise to look into the given file for services.
-
-        :param fp: File-like object to read from.
-        :type fp: input stream
-
-        :param char_loader: `TypeLoader` object to use when creating the
-            characteristics for adding to instantiated services.
-        :type char_loader: TypeLoader
-
-        :param service_class: The class which to instantiate when creating services.
-            Defaults to `Service`.
-        :type char_class: type
-        """
-        super(ServiceLoader, self).__init__(fp)
-        self.char_loader = char_loader or get_char_loader()
-        self.service_class = service_class
-
-    def get(self, name, service_class=None):
-        """Instantiate and return a `service_class` with the given name.
-
-        This method looks into the described services read during init
-        and attempts to find the description of a service with the given name.
-        If successful, uses the description to instantiate `service_class` or, if not given,
-        `self.service_class`. It then adds all required characteristics to the service, as
-        specified in the description for this `Service`.
-
-        :param name: Name of the service to look for.
-        :type name: str
-
-        :param char_class: The class which to instantiate when creating `Service`.
-            Defaults to `None`, in which case `self.service_class`.
-        :type char_class: type
-
-        :return: Instantiated Service.
-        :rtype: service_class or self.service_class
-
-        :raise KeyError: when no service description can be found with the
-            given name.
-        """
-        serv_info = super(ServiceLoader, self).get(name)
-        type_id = uuid.UUID(serv_info["UUID"])
-        service_type = service_class or self.service_class
-        s = service_type(type_id, name)
-        chars = [self.char_loader.get(c) for c in serv_info["RequiredCharacteristics"]]
-        s.add_characteristic(*chars)
-        return s
+    global _loader
+    if _loader is None:
+        _loader = Loader()
+    return _loader
 
 
-def get_char_loader(desc_file=CHARACTERISTICS_FILE):
+def get_char_loader(desc_file=None):
     """Get a CharacteristicLoader with characteristic descriptions in the given file.
 
-    Uses a "singleton" when the file is `CHARACTERISTICS_FILE`.
+    .. deprecated:: 2.0
+       Use `get_loader` instead.
     """
-    global _char_loader
-    if desc_file == CHARACTERISTICS_FILE:
-        if _char_loader is None:
-            with open(desc_file, "r") as fp:
-                _char_loader = CharLoader(fp)
-        return _char_loader
-
-    with open(desc_file, "r") as fp:
-        ld = CharLoader(fp)
-    return ld
+    logger.warning(
+        "'get_char_loader' is deprecated. Use 'get_loader' instead.")
+    return get_loader()
 
 
-def get_serv_loader(desc_file=SERVICES_FILE):
+def get_serv_loader(desc_file=None):
     """Get a ServiceLoader with service descriptions in the given file.
 
-    Uses a "singleton" when the file is `SERVICES_FILE`.
+    .. deprecated:: 2.0
+       Use `get_loader` instead.
     """
-    global _serv_loader
-    if desc_file == SERVICES_FILE:
-        if _serv_loader is None:
-            with open(desc_file, "r") as fp:
-                _serv_loader = ServiceLoader(fp)
-        return _serv_loader
-
-    with open(desc_file, "r") as fp:
-        ld = ServiceLoader(fp)
-    return ld
+    logger.warning(
+        "'get_serv_loader' is deprecated. Use 'get_loader' instead.")
+    return get_loader()
