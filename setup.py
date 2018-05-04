@@ -4,7 +4,7 @@ setup(
     name="HAP-python",
     description="HomeKit Accessory Protocol implementation in python3",
     author="Ivan Kalchev",
-    version="1.1.9",
+    version="2.0.0",
     url="https://github.com/ikalchev/HAP-python.git",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
