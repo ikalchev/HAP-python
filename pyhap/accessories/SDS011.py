@@ -57,7 +57,7 @@ class SDS011(Accessory):
         super().__init__(*args, **kwargs)
 
         # PM2.5
-        air_quality_pm25 = self.add_preload_serivce(
+        air_quality_pm25 = self.add_preload_service(
             'AirQualitySensor', chars=['Name', 'AirParticulateSize',
                                        'AirParticulateDensity'])
         air_quality_pm25.configure_char('AirParticulateSize', value=0)
@@ -67,7 +67,7 @@ class SDS011(Accessory):
             'AirParticulateDensity')
 
         # PM10
-        air_quality_pm10 = self.add_preload_serivce(
+        air_quality_pm10 = self.add_preload_service(
             'AirQualitySensor', chars=['Name', 'AirParticulateSize',
                                        'AirParticulateDensity'])
         air_quality_pm10.configure_char('AirParticulateSize', value=1)
