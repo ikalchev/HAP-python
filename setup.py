@@ -4,7 +4,7 @@ setup(
     name="HAP-python",
     description="HomeKit Accessory Protocol implementation in python3",
     author="Ivan Kalchev",
-    version="2.0.0",
+    version="2.0.1",
     url="https://github.com/ikalchev/HAP-python.git",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
@@ -18,7 +18,6 @@ setup(
     license="Apache-2.0",
     packages=[
         "pyhap",
-        "pyhap.accessories"
     ],
     install_requires=[
         "curve25519-donna",
