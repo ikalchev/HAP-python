@@ -31,13 +31,7 @@ class Accessory:
 
     category = CATEGORY_OTHER
 
-    @classmethod
-    def create(cls, display_name, pincode, aid=STANDALONE_AID):
-        mac = util.generate_mac()
-        return cls(display_name, aid=aid, mac=mac, pincode=pincode)
-
-    def __init__(self, display_name, aid=None, mac=None, pincode=None,
-                 iid_manager=None, setup_id=None):
+    def __init__(self, display_name, aid=None, mac=None, pincode=None):
         """Initialise with the given properties.
 
         :param display_name: Name to be displayed in the Home app.
@@ -71,7 +65,7 @@ class Accessory:
         self.config_version = 2
         self.reachable = True
         self._pincode = pincode
-        self._setup_id = setup_id
+        self._setup_id = None
         self.driver = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
@@ -83,7 +77,7 @@ class Accessory:
         self.public_key = vk
         self.paired_clients = {}
         self.services = []
-        self.iid_manager = iid_manager or IIDManager()
+        self.iid_manager = IIDManager()
 
         self.add_info_service()
 
@@ -431,14 +425,12 @@ class Bridge(AsyncAccessory):
 
     category = CATEGORY_BRIDGE
 
-    def __init__(self, display_name, mac=None, pincode=None,
-                 iid_manager=None, setup_id=None):
-        aid = STANDALONE_AID
+    def __init__(self, display_name, mac=None, pincode=None):
         # A Bridge cannot be Bridge, hence talks directly to HAP clients.
         # Thus, we need a mac.
         mac = mac or util.generate_mac()
-        super().__init__(display_name, aid=aid, mac=mac, pincode=pincode,
-                         iid_manager=iid_manager, setup_id=setup_id)
+        super().__init__(display_name, aid=STANDALONE_AID, mac=mac,
+                         pincode=pincode)
         self.accessories = {}  # aid: acc
 
     def set_sentinel(self, run_sentinel, aio_stop_event, loop):

@@ -106,8 +106,8 @@ class AccessoryDriver:
 
     NUM_EVENTS_BEFORE_STATS = 100
 
-    def __init__(self, accessory, port, address=None, persist_file="accessory.state",
-                 encoder=None):
+    def __init__(self, accessory, port, address=None,
+                 persist_file='accessory.state', encoder=None):
         """
         :param accessory: The `Accessory` to be managed by this driver. The `Accessory`
             must have the standalone AID (`pyhap.accessory.STANDALONE_AID`). If the
