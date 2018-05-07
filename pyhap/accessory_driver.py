@@ -385,7 +385,7 @@ class AccessoryDriver(object):
             rep = {HAP_REPR_AID: aid, HAP_REPR_IID: iid}
             char = self.accessory.get_characteristic(aid, iid)
             try:
-                rep[HAP_REPR_VALUE] = char.value
+                rep[HAP_REPR_VALUE] = char.get_value()
                 rep[HAP_REPR_STATUS] = CHAR_STAT_OK
             except CharacteristicError:
                 logger.error("Error getting value for characteristic %s.", id)
@@ -446,7 +446,7 @@ class AccessoryDriver(object):
                 # TODO: status needs to be based on success of set_value
                 char.client_update_value(cq[HAP_REPR_VALUE])
                 if "r" in cq:
-                    response[HAP_REPR_VALUE] = char.value
+                    response[HAP_REPR_VALUE] = char.get_value()
 
             chars_response.append(response)
         return {HAP_REPR_CHARS: chars_response}

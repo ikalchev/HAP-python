@@ -116,6 +116,10 @@ class Characteristic:
             return self.to_valid_value(value)
 
     def get_value(self):
+        """
+        This is to allow for calling `getter_callback`
+        :return: Current Characteristic Value
+        """
         if self.getter_callback:
             self.value = self.to_valid_value(value=self.getter_callback())
         return self.value
@@ -198,10 +202,6 @@ class Characteristic:
 
         Call set_value and call callback.
         """
-        logger.debug('%s: Client update value to %s',
-                     self.display_name, value)
-        # Set new value before anything else, then notify client
-
         self.value = value
         self.notify()
         # Call setter_callback
@@ -236,10 +236,10 @@ class Characteristic:
             hap_rep.update({k: self.properties[k] for k in
                             self.properties.keys() & PROP_NUMERIC})
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
-            if len(self.value) > 64:
-                hap_rep[HAP_REPR_MAX_LEN] = min(len(self.value), 256)
+            if len(self.get_value()) > 64:
+                hap_rep[HAP_REPR_MAX_LEN] = min(len(self.get_value()), 256)
         if HAP_PERMISSION_READ in self.properties[PROP_PERMISSIONS]:
-            hap_rep[HAP_REPR_VALUE] = self.value
+            hap_rep[HAP_REPR_VALUE] = self.get_value()
 
         return hap_rep
 
