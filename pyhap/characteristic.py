@@ -232,14 +232,16 @@ class Characteristic:
             HAP_REPR_FORMAT: self.properties[PROP_FORMAT],
         }
 
+        value = self.get_value()
+
         if self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
             hap_rep.update({k: self.properties[k] for k in
                             self.properties.keys() & PROP_NUMERIC})
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
-            if len(self.get_value()) > 64:
-                hap_rep[HAP_REPR_MAX_LEN] = min(len(self.get_value()), 256)
+            if len(value) > 64:
+                hap_rep[HAP_REPR_MAX_LEN] = min(len(value), 256)
         if HAP_PERMISSION_READ in self.properties[PROP_PERMISSIONS]:
-            hap_rep[HAP_REPR_VALUE] = self.get_value()
+            hap_rep[HAP_REPR_VALUE] = value
 
         return hap_rep
 
