@@ -199,14 +199,12 @@ class Characteristic:
 
     def client_update_value(self, value):
         """Called from broker for value change in Home app.
-
-        Call set_value and call callback.
+        Change self.value to value and call callback.
         """
         logger.debug('client_update_value: %s to %s',
                      self.display_name, value)
         self.value = value
         self.notify()
-        # Call setter_callback
         if self.setter_callback:
             self.setter_callback(value)
 
@@ -235,7 +233,6 @@ class Characteristic:
         }
 
         value = self.get_value()
-
         if self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
             hap_rep.update({k: self.properties[k] for k in
                             self.properties.keys() & PROP_NUMERIC})
