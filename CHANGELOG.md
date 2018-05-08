@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - New helper methods to run the `run` method repeatedly, until the driver is stopped. `Accessory.repeat(time)` or `AsyncAccessory.repeat(time)`. [#74](https://github.com/ikalchev/HAP-python/pull/74)
 - New helper method `service.configure_char`. Shortcut to configuring a characteristic. [#84](https://github.com/ikalchev/HAP-python/pull/84)
 - Characteristics and Services can now be created from a json dictionary with `from_dict`. [#85](https://github.com/ikalchev/HAP-python/pull/85)
+- Added `getter_callback` to Characteristics. [#90](https://github.com/ikalchev/HAP-python/pull/90)
 
 ### Changed
 - Accessory.run method is now called through an event loop. You can either inherit from `Accessory` like before: The `run` method will be wrapped in a thread. Or inherit from `AsyncAccessory` and implement `async def run`. This will lead to the execution in the event loop. [#74](https://github.com/ikalchev/HAP-python/pull/74)
