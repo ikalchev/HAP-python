@@ -4,21 +4,23 @@ import logging
 import struct
 import threading
 
-import base36
 import ed25519
-from pyqrcode import QRCode
 
-from pyhap import util
+from pyhap import util, SUPPORT_QR_CODE
 from pyhap.const import (
     STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_SERVICES,
     HAP_REPR_VALUE, CATEGORY_OTHER, CATEGORY_BRIDGE)
 from pyhap.iid_manager import IIDManager
-from pyhap.loader import get_serv_loader
+from pyhap.loader import get_loader
+
+if SUPPORT_QR_CODE:
+    import base36
+    from pyqrcode import QRCode
 
 logger = logging.getLogger(__name__)
 
 
-class Accessory(object):
+class Accessory:
     """A representation of a HAP accessory.
 
     Inherit from this class to build your own accessories.
@@ -29,13 +31,7 @@ class Accessory(object):
 
     category = CATEGORY_OTHER
 
-    @classmethod
-    def create(cls, display_name, pincode, aid=STANDALONE_AID):
-        mac = util.generate_mac()
-        return cls(display_name, aid=aid, mac=mac, pincode=pincode)
-
-    def __init__(self, display_name, aid=None, mac=None, pincode=None,
-                 iid_manager=None, setup_id=None):
+    def __init__(self, display_name, aid=None, mac=None, pincode=None):
         """Initialise with the given properties.
 
         :param display_name: Name to be displayed in the Home app.
@@ -69,11 +65,11 @@ class Accessory(object):
         self.config_version = 2
         self.reachable = True
         self._pincode = pincode
-        self._setup_id = setup_id
-        self.broker = None
+        self._setup_id = None
+        self.driver = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
-        self.event_loop = None
+        self.loop = None
         self.aio_stop_event = None
 
         sk, vk = ed25519.create_keypair()
@@ -81,7 +77,9 @@ class Accessory(object):
         self.public_key = vk
         self.paired_clients = {}
         self.services = []
-        self.iid_manager = iid_manager or IIDManager()
+        self.iid_manager = IIDManager()
+
+        self.add_info_service()
 
         self._set_services()
 
@@ -93,45 +91,73 @@ class Accessory(object):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state["broker"] = None
-        state["run_sentinel"] = None
+        state['driver'] = None
+        state['run_sentinel'] = None
         return state
 
     @property
     def setup_id(self):
-        if not getattr(self, '_setup_id', None):
+        if self._setup_id is None:
             self._setup_id = util.generate_setup_id()
         return self._setup_id
 
     @property
     def pincode(self):
-        if not getattr(self, '_pincode', None):
+        if self._pincode is None:
             self._pincode = util.generate_pincode()
         return self._pincode
 
     def _set_services(self):
         """Sets the services for this accessory.
 
-        The default implementation adds only the AccessoryInformation services
-        and sets its Name characteristic to the Accessory's display name.
-
-        .. note:: When inheriting from Accessory and overriding this method,
-            always call the base implementation first, as it reserves IID of
-            1 for the Accessory Information service (HAP requirement).
+        .. deprecated:: 2.0
+           Initialize the service inside the accessory `init` method instead.
         """
-        info_service = get_serv_loader().get_service("AccessoryInformation")
-        info_service.get_characteristic("Name")\
-                    .set_value(self.display_name, False)
-        info_service.get_characteristic("Manufacturer")\
-                    .set_value("Default-Manufacturer", False)
-        info_service.get_characteristic("Model")\
-                    .set_value("Default-Model", False)
-        info_service.get_characteristic("SerialNumber")\
-                    .set_value("Default-SerialNumber", False)
-        # FIXME: Need to ensure AccessoryInformation is with IID 1.
-        self.add_service(info_service)
+        pass
 
-    def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
+    def add_info_service(self):
+        """Helper method to add the required `AccessoryInformation` service.
+
+        Called in `__init__` to be sure that it is the first service added.
+        May be overridden.
+        """
+        serv_info = get_loader().get_service('AccessoryInformation')
+        serv_info.configure_char('Name', value=self.display_name)
+        serv_info.configure_char('SerialNumber', value='default')
+        self.add_service(serv_info)
+
+    def set_info_service(self, firmware_revision=None, manufacturer=None,
+                         model=None, serial_number=None):
+        """Quick assign basic accessory information."""
+        serv_info = self.get_service('AccessoryInformation')
+        if firmware_revision:
+            serv_info.configure_char(
+                'FirmwareRevision', value=firmware_revision)
+        if manufacturer:
+            serv_info.configure_char('Manufacturer', value=manufacturer)
+        if model:
+            serv_info.configure_char('Model', value=model)
+        if serial_number:
+            if len(serial_number) >= 1:
+                serv_info.configure_char('SerialNumber', value=serial_number)
+            else:
+                logger.warning(
+                    "Couldn't add SerialNumber for %s. The SerialNumber must "
+                    "be at least one character long.", self.display_name)
+
+    def add_preload_service(self, service, chars=None):
+        """Create a service with the given name and add it to this acc."""
+        loader = get_loader()
+        service = loader.get_service(service)
+        if chars:
+            chars = chars if isinstance(chars, list) else [chars]
+            for char_name in chars:
+                char = loader.get_char(char_name)
+                service.add_characteristic(char)
+        self.add_service(service)
+        return service
+
+    def set_sentinel(self, run_sentinel, aio_stop_event, loop):
         """Assign a run sentinel that can signal stopping.
 
         The run sentinel is a threading.Event object that can be used to manage
@@ -145,7 +171,7 @@ class Accessory(object):
         """
         self.run_sentinel = run_sentinel
         self.aio_stop_event = aio_stop_event
-        self.event_loop = event_loop
+        self.loop = loop
 
     def config_changed(self):
         """Notify the accessory about configuration changes.
@@ -153,7 +179,7 @@ class Accessory(object):
         These include new services or updated characteristic values, e.g.
         the Name of a service changed.
 
-        This method also notifies the broker about the change, so that it can
+        This method also notifies the driver about the change, so that it can
         publish the changes to the world.
 
         .. note:: If you are changing the configuration of a bridged accessory
@@ -162,7 +188,7 @@ class Accessory(object):
 
         """
         self.config_version += 1
-        self.broker.config_changed()
+        self.driver.config_changed()
 
     def add_service(self, *servs):
         """Add the given services to this Accessory.
@@ -198,8 +224,8 @@ class Accessory(object):
         """
         return next((s for s in self.services if s.display_name == name), None)
 
-    def set_broker(self, broker):
-        self.broker = broker
+    def set_driver(self, driver):
+        self.driver = driver
 
     def add_paired_client(self, client_uuid, client_public):
         """Adds the given client to the set of paired clients.
@@ -224,7 +250,6 @@ class Accessory(object):
     def paired(self):
         return len(self.paired_clients) > 0
 
-    @property
     def xhm_uri(self):
         """Generates the X-HM:// uri (Setup Code URI)
 
@@ -247,19 +272,6 @@ class Accessory(object):
         encoded_payload = encoded_payload.rjust(9, '0')
 
         return 'X-HM://' + encoded_payload + self.setup_id
-
-    @property
-    def qr_code(self):
-        """Generate a QR code for paring with this accessory.
-
-        :rtype: QRCode
-        """
-        return QRCode(self.xhm_uri)
-
-    def print_qr(self):
-        """Print the setup code in QR format to console.
-        """
-        print(self.qr_code.terminal(), flush=True)
 
     def get_characteristic(self, aid, iid):
         """Get the characteristic for the given IID.
@@ -294,10 +306,24 @@ class Accessory(object):
         }
 
     def setup_message(self):
-        print('Setup payload: %s' % self.xhm_uri, flush=True)
-        print('Scan this code with your HomeKit app on your iOS device:', flush=True)
-        self.print_qr()
-        print('Or enter this code in your HomeKit app on your iOS device: %s' % self.pincode.decode())
+        """Print setup message to console.
+
+        For QRCode `base36`, `pyqrcode` are required.
+        Installation through `pip install HAP-python[QRCode]`
+        """
+        if SUPPORT_QR_CODE:
+            xhm_uri = self.xhm_uri()
+            print('Setup payload: {}'.format(xhm_uri), flush=True)
+            print('Scan this code with your HomeKit app on your iOS device:',
+                  flush=True)
+            print(QRCode(xhm_uri).terminal(quiet_zone=2), flush=True)
+            print('Or enter this code in your HomeKit app on your iOS device: '
+                  '{}'.format(self.pincode.decode()))
+        else:
+            print('To use the QR Code feature, use \'pip install '
+                  'HAP-python[QRCode]\'')
+            print('Enter this code in your HomeKit app on your iOS device: {}'
+                  .format(self.pincode.decode()))
 
     def run_at_interval(seconds):
         """Decorator that runs decorated method in a while loop, which repeats every
@@ -333,14 +359,14 @@ class Accessory(object):
         """
         pass
 
-    # Broker
+    # Driver
 
     def publish(self, value, sender):
-        """Append AID and IID of the sender and forward it to the broker.
+        """Append AID and IID of the sender and forward it to the driver.
 
         Characteristics call this method to send updates.
 
-        .. note:: The method will not fail if the broker is not set - it will do nothing.
+        .. note:: The method will not fail if the driver is not set - it will do nothing.
 
         :param data: Data to publish, usually from a Characteristic.
         :type data: dict
@@ -348,7 +374,7 @@ class Accessory(object):
         :param sender: The Service or Characteristic from which the call originated.
         :type: Service or Characteristic
         """
-        if self.broker is None:
+        if self.driver is None:
             return
 
         acc_data = {
@@ -356,7 +382,7 @@ class Accessory(object):
             HAP_REPR_IID: self.iid_manager.get_iid(sender),
             HAP_REPR_VALUE: value,
         }
-        self.broker.publish(acc_data)
+        self.driver.publish(acc_data)
 
 
 class AsyncAccessory(Accessory):
@@ -380,7 +406,7 @@ class AsyncAccessory(Accessory):
             async def _wrapper(self, *args, **kwargs):
                 while not await util.event_wait(self.aio_stop_event,
                                                 seconds,
-                                                self.event_loop):
+                                                self.loop):
                     await func(self, *args, **kwargs)
             return _wrapper
         return _repeat
@@ -399,22 +425,19 @@ class Bridge(AsyncAccessory):
 
     category = CATEGORY_BRIDGE
 
-    def __init__(self, display_name, mac=None, pincode=None,
-                 iid_manager=None, setup_id=None):
-        aid = STANDALONE_AID
+    def __init__(self, display_name, mac=None, pincode=None):
         # A Bridge cannot be Bridge, hence talks directly to HAP clients.
         # Thus, we need a mac.
         mac = mac or util.generate_mac()
-        super(Bridge, self).__init__(display_name, aid=aid, mac=mac,
-                                     pincode=pincode, iid_manager=iid_manager,
-                                     setup_id=setup_id)
+        super().__init__(display_name, aid=STANDALONE_AID, mac=mac,
+                         pincode=pincode)
         self.accessories = {}  # aid: acc
 
-    def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
+    def set_sentinel(self, run_sentinel, aio_stop_event, loop):
         """Set the same sentinel to all contained accessories."""
-        super().set_sentinel(run_sentinel, aio_stop_event, event_loop)
+        super().set_sentinel(run_sentinel, aio_stop_event, loop)
         for acc in self.accessories.values():
-            acc.set_sentinel(run_sentinel, aio_stop_event, event_loop)
+            acc.set_sentinel(run_sentinel, aio_stop_event, loop)
 
     def add_accessory(self, acc):
         """Add the given ``Accessory`` to this ``Bridge``.
@@ -446,22 +469,17 @@ class Bridge(AsyncAccessory):
 
         self.accessories[acc.aid] = acc
 
-    def set_broker(self, broker):
-        super(Bridge, self).set_broker(broker)
+    def set_driver(self, driver):
+        super().set_driver(driver)
         for _, acc in self.accessories.items():
-            acc.broker = broker
+            acc.driver = driver
 
     def to_HAP(self):
         """Returns a HAP representation of itself and all contained accessories.
 
         .. seealso:: Accessory.to_HAP
         """
-        hap_rep = [super().to_HAP()]
-
-        for acc in self.accessories.values():
-            hap_rep.append(acc.to_HAP())
-
-        return hap_rep
+        return [acc.top_HAP() for acc in (super(), *self.accessories.values())]
 
     def get_characteristic(self, aid, iid):
         """.. seealso:: Accessory.to_HAP
@@ -478,7 +496,7 @@ class Bridge(AsyncAccessory):
     async def _wrap_in_thread(self, method):
         """Coroutine which starts the given method in a thread.
         """
-        # Not going through event_loop.run_in_executor, because this thread may never
+        # Not going through loop.run_in_executor, because this thread may never
         # terminate.
         threading.Thread(target=method).start()
 
@@ -488,18 +506,18 @@ class Bridge(AsyncAccessory):
         tasks = []
         for acc in self.accessories.values():
             if isinstance(acc, AsyncAccessory):
-                task = self.event_loop.create_task(acc.run())
+                task = self.loop.create_task(acc.run())
             else:
-                task = self.event_loop.create_task(self._wrap_in_thread(acc.run))
+                task = self.loop.create_task(self._wrap_in_thread(acc.run))
             tasks.append(task)
-        await asyncio.gather(*tasks, loop=self.event_loop)
+        await asyncio.gather(*tasks, loop=self.loop)
 
     def stop(self):
         """Calls stop() on all contained accessories."""
-        super(Bridge, self).stop()
+        super().stop()
         for acc in self.accessories.values():
             acc.stop()
 
 
 def get_topic(aid, iid):
-    return str(aid) + "." + str(iid)
+    return str(aid) + '.' + str(iid)

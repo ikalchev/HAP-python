@@ -5,7 +5,6 @@ import RPi.GPIO as GPIO
 
 from pyhap.accessory import Accessory
 from pyhap.const import CATEGORY_LIGHTBULB
-import pyhap.loader as loader
 
 
 class LightBulb(Accessory):
@@ -20,6 +19,11 @@ class LightBulb(Accessory):
 
     def __init__(self, *args, pin=11, **kwargs):
         super().__init__(*args, **kwargs)
+
+        serv_light = self.add_preload_service('Lightbulb')
+        self.char_on = serv_light.configure_char(
+            'On', setter_callback=self.set_bulb)
+
         self.pin = pin
         self._gpio_setup(pin)
 
@@ -32,13 +36,6 @@ class LightBulb(Accessory):
             GPIO.output(self.pin, GPIO.HIGH)
         else:
             GPIO.output(self.pin, GPIO.LOW)
-
-    def _set_services(self):
-        super()._set_services()
-
-        bulb_service = loader.get_serv_loader().get_service("Lightbulb")
-        self.add_service(bulb_service)
-        bulb_service.get_characteristic("On").setter_callback = self.set_bulb
 
     def stop(self):
         super().stop()

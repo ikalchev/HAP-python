@@ -4,7 +4,7 @@ An Accessory wrapper for the SDS011 air particulate density sensor.
 The density sensor implementation can be found here:
 https://github.com/ikalchev/py-sds011
 Place the file under a package named sensors in your python path,
-or change the import alltogether.
+or change the import altogether.
 """
 import time
 import logging
@@ -12,7 +12,6 @@ import logging
 from sensors.SDS011 import SDS011 as AirSensor
 from pyhap.accessory import Accessory
 from pyhap.const import CATEGORY_SENSOR
-import pyhap.loader as loader
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,7 @@ class SDS011(Accessory):
     SORTED_PM_QUALITY_MAP = ((200, 5), (150, 4), (100, 3), (50, 2), (0, 1))
     """
     Threshold-to-state tuples. These show the state for which the threshold is
-    lower boundry. Uses something like Air Quality Index (AQI).
+    lower boundary. Uses something like Air Quality Index (AQI).
 
     The UI shows:
         1 - Excellent
@@ -36,9 +35,9 @@ class SDS011(Accessory):
         5 - Poor
     """
 
-    def __init__(self, serial_port, *args, sleep_duration_s=15*60, calib_duration_s=15,
-                 **kwargs):
-        """Initialise and start SDS011 on the given port.
+    def __init__(self, serial_port, *args, sleep_duration_s=15*60,
+                 calib_duration_s=15, **kwargs):
+        """Initialize and start SDS011 on the given port.
 
         @param serial_port: The SDS011 port, e.g. /dev/ttyUSB0.
         @type serial_port: str
@@ -56,62 +55,49 @@ class SDS011(Accessory):
         self.pm10_quality = None
         self.pm10_density = None
         super().__init__(*args, **kwargs)
+
+        # PM2.5
+        air_quality_pm25 = self.add_preload_service(
+            'AirQualitySensor', chars=['Name', 'AirParticulateSize',
+                                       'AirParticulateDensity'])
+        air_quality_pm25.configure_char('AirParticulateSize', value=0)
+        air_quality_pm25.configure_char('Name', value='PM2.5')
+        self.pm25_quality = air_quality_pm25.configure_char('AirQuality')
+        self.pm25_density = air_quality_pm25.configure_char(
+            'AirParticulateDensity')
+
+        # PM10
+        air_quality_pm10 = self.add_preload_service(
+            'AirQualitySensor', chars=['Name', 'AirParticulateSize',
+                                       'AirParticulateDensity'])
+        air_quality_pm10.configure_char('AirParticulateSize', value=1)
+        air_quality_pm10.configure_char('Name', value='PM10')
+        self.pm25_quality = air_quality_pm10.configure_char('AirQuality')
+        self.pm25_density = air_quality_pm10.configure_char(
+            'AirParticulateDensity')
+
         self.sleep_duration_s = sleep_duration_s
         self.calib_duration_s = calib_duration_s
         self.serial_port = serial_port
         self.sensor = AirSensor(serial_port)
         self.sensor.sleep(sleep=False)
 
-    def _set_services(self):
-        """Add the AirQualitySensor services (one for PM2.5 and one for PM10).
-
-        Also adds and configures optional characteristics, such as Name,
-        AirParticulateSize, AirParticulateDensity.
-        """
-        super()._set_services()
-        char_loader = loader.get_char_loader()
-
-        # PM2.5
-        air_quality_pm25 = loader.get_serv_loader() \
-            .get_service("AirQualitySensor")
-        pm25_size = char_loader.get_char("AirParticulateSize")
-        pm25_size.set_value(0, should_notify=False)
-        self.pm25_density = char_loader.get_char("AirParticulateDensity")
-        pm25_name = char_loader.get_char("Name")
-        pm25_name.set_value("PM2.5", should_notify=False)
-        self.pm25_quality = air_quality_pm25.get_characteristic("AirQuality")
-        air_quality_pm25.add_characteristic(pm25_name, pm25_size, self.pm25_density)
-
-        # PM10
-        air_quality_pm10 = loader.get_serv_loader() \
-            .get_service("AirQualitySensor")
-        pm10_size = char_loader.get_char("AirParticulateSize")
-        pm10_size.set_value(1, should_notify=False)
-        self.pm10_density = char_loader.get_char("AirParticulateDensity")
-        pm10_name = char_loader.get_char("Name")
-        pm10_name.set_value("PM10", should_notify=False)
-        self.pm10_quality = air_quality_pm10.get_characteristic("AirQuality")
-        air_quality_pm10.add_characteristic(pm10_name, pm10_size, self.pm10_density)
-
-        self.add_service(air_quality_pm25)
-        self.add_service(air_quality_pm10)
-
     def __getstate__(self):
         """Get the state, less the sensor.
         """
         state = super(SDS011, self).__getstate__()
-        state["sensor"] = None
+        state['sensor'] = None
         return state
 
     def __setstate__(self, state):
-        """Set the state of this Accessory and initialise the sensor
+        """Set the state of this Accessory and initialize the sensor
             with the serial port in the state.
         """
         self.__dict__.update(state)
         self.sensor = AirSensor(self.serial_port)
 
     def get_quality_classification(self, pm, is_pm25=False):
-        """Get the air quality clasification based on the PM density.
+        """Get the air quality classification based on the PM density.
 
         Uses Air Quality Index (AQI), without averaging for an hour.
 

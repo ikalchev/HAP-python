@@ -12,7 +12,6 @@ import logging
 
 from pyhap.accessory import Accessory
 from pyhap.const import CATEGORY_SWITCH
-import pyhap.loader as loader
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +22,12 @@ class ShutdownSwitch(Accessory):
     category = CATEGORY_SWITCH
 
     def __init__(self, *args, **kwargs):
-        """Initialise and set a shutdown callback to the On characteristic."""
+        """Initialize and set a shutdown callback to the On characteristic."""
         super().__init__(*args, **kwargs)
-        on_char = self.get_service("Switch")\
-                      .get_characteristic("On")
-        on_char.setter_callback = self.execute_shutdown
 
-    def _set_services(self):
-        """Add the Switch service."""
-        super()._set_services()
-        service_loader = loader.get_serv_loader()
-        self.add_service(service_loader.get_service("Switch"))
+        serv_switch = self.add_preload_service('Switch')
+        self.char_on = serv_switch.configure_char(
+            'On', setter_callback=self.execute_shutdown)
 
     def execute_shutdown(self, _value):
         """Execute shutdown -h."""

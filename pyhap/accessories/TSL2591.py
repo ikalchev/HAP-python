@@ -5,7 +5,6 @@ import tsl2591
 
 from pyhap.accessory import Accessory
 from pyhap.const import CATEGORY_SENSOR
-import pyhap.loader as loader
 
 
 class TSL2591(Accessory):
@@ -14,15 +13,10 @@ class TSL2591(Accessory):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.lux_char = self.get_service("LightSensor") \
-            .get_characteristic("CurrentAmbientLightLevel")
+        serv_light = self.add_preload_service('LightSensor')
+        self.char_lux = serv_light.configure_char('CurrentAmbientLightLevel')
 
         self.tsl = tsl2591.Tsl2591()
-
-    def _set_services(self):
-        super()._set_services()
-        self.add_service(
-            loader.get_serv_loader().get_service("LightSensor"))
 
     def __getstate__(self):
         state = super().__getstate__()
@@ -37,5 +31,5 @@ class TSL2591(Accessory):
         while not self.run_sentinel.wait(10):
             full, ir = self.tsl.get_full_luminosity()
             lux = min(max(0.001, self.tsl.calculate_lux(full, ir)), 10000)
-            self.lux_char.set_value(lux)
+            self.char_lux.set_value(lux)
 

@@ -82,4 +82,4 @@ def test_start_stop_async_acc(_persist):
     acc = Acc("TestAcc")
     driver = AccessoryDriver(acc, 51234, persist_file="foo")
     driver.start()
-    assert driver.event_loop.is_closed()
+    assert driver.loop.is_closed()
