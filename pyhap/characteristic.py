@@ -202,6 +202,8 @@ class Characteristic:
 
         Call set_value and call callback.
         """
+        logger.debug('client_update_value: %s to %s',
+                     self.display_name, value)
         self.value = value
         self.notify()
         # Call setter_callback
