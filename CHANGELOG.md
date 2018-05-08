@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - Typo in log message in `accessory_driver.stop`. [#112](https://github.com/ikalchev/HAP-python/pull/112)
 
+### Breaking Changes
+- Removed unused method `accessory.create`. [#117](https://github.com/ikalchev/HAP-python/pull/117)
+- Removed `iid_manager` and `setup_id` parameter from `accessory` and `bridge` `init` calls. [#117](https://github.com/ikalchev/HAP-python/pull/117)
+
 ### Developers
 - The `driver` event loop name changed from `event_loop` to `loop`. [#107](https://github.com/ikalchev/HAP-python/pull/107)
 
