@@ -35,7 +35,7 @@ import queue
 from zeroconf import ServiceInfo, Zeroconf
 
 from pyhap import util
-from pyhap.accessory import AsyncAccessory, get_topic, STANDALONE_AID
+from pyhap.accessory import AsyncAccessory, get_topic
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import (
     STANDALONE_AID, HAP_PERMISSION_NOTIFY, HAP_REPR_ACCS, HAP_REPR_AID,
@@ -61,14 +61,9 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
 
         adv_data = self._get_advert_data()
         super().__init__(
-             '_hap._tcp.local.',
-             self.accessory.display_name + '._hap._tcp.local.',
-             socket.inet_aton(address),
-             port,
-             0,
-             0,
-             adv_data,
-             pubname)
+            '_hap._tcp.local.',
+            self.accessory.display_name + '._hap._tcp.local.',
+            socket.inet_aton(address), port, 0, 0, adv_data, pubname)
 
     def _setup_hash(self):
         setup_hash_material = self.accessory.setup_id + self.accessory.mac
@@ -109,6 +104,8 @@ class AccessoryDriver:
     def __init__(self, accessory, port, address=None,
                  persist_file='accessory.state', encoder=None):
         """
+        Initialize a new AccessoryDriver object.
+
         :param accessory: The `Accessory` to be managed by this driver. The `Accessory`
             must have the standalone AID (`pyhap.accessory.STANDALONE_AID`). If the
             AID of the `Accessory` is None, the standalone AID will be assigned to it.
@@ -504,7 +501,6 @@ class AccessoryDriver:
         finally:
             self.loop.close()
             logger.info("Closed event loop.")
-
 
     def stop(self):
         """Stop the accessory.

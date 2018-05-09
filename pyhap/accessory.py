@@ -1,3 +1,4 @@
+"""Module for the Accessory classes."""
 import asyncio
 import itertools
 import logging
@@ -108,7 +109,7 @@ class Accessory:
         return self._pincode
 
     def _set_services(self):
-        """Sets the services for this accessory.
+        """Set the services for this accessory.
 
         .. deprecated:: 2.0
            Initialize the service inside the accessory `init` method instead.
@@ -267,8 +268,9 @@ class Accessory:
         value_high = self.category >> 1
         struct.pack_into('>L', buffer, 0, value_high)
 
-        encoded_payload = base36.dumps(struct.unpack_from('>L', buffer, 4)[0]
-                                       + (struct.unpack_from('>L', buffer, 0)[0] * (1 << 32))).upper()
+        encoded_payload = base36.dumps(
+            struct.unpack_from('>L', buffer, 4)[0] +
+            (struct.unpack_from('>L', buffer, 0)[0] * (1 << 32))).upper()
         encoded_payload = encoded_payload.rjust(9, '0')
 
         return 'X-HM://' + encoded_payload + self.setup_id
@@ -325,9 +327,9 @@ class Accessory:
             print('Enter this code in your HomeKit app on your iOS device: {}'
                   .format(self.pincode.decode()))
 
+    @staticmethod
     def run_at_interval(seconds):
-        """Decorator that runs decorated method in a while loop, which repeats every
-        ``seconds`` until the ``Accessory.run_sentinel`` is set.
+        """Decorator that runs decorated method every x seconds, until stopped.
 
         .. code-block:: python
 
@@ -355,8 +357,7 @@ class Accessory:
         pass
 
     def stop(self):
-        """Called when the Accessory should stop what is doing and clean up any resources.
-        """
+        """Called when the Accessory should stop what is doing and clean up any resources."""
         pass
 
     # Driver
@@ -387,9 +388,9 @@ class Accessory:
 
 class AsyncAccessory(Accessory):
 
+    @staticmethod
     def run_at_interval(seconds):
-        """Decorator that runs decorated method in a while loop, which repeats every
-        ``seconds`` until the ``Accessory.aio_stop_event`` is set.
+        """Decorator that runs decorated method every x seconds, until stopped.
 
         .. code-block:: python
 
@@ -412,8 +413,7 @@ class AsyncAccessory(Accessory):
         return _repeat
 
     async def run(self):
-        """Override in the implementation if needed.
-        """
+        """Override in the implementation if needed."""
         pass
 
 
@@ -482,8 +482,7 @@ class Bridge(AsyncAccessory):
         return [acc.to_HAP() for acc in (super(), *self.accessories.values())]
 
     def get_characteristic(self, aid, iid):
-        """.. seealso:: Accessory.to_HAP
-        """
+        """.. seealso:: Accessory.to_HAP"""
         if self.aid == aid:
             return self.iid_manager.get_obj(iid)
 
@@ -494,15 +493,13 @@ class Bridge(AsyncAccessory):
         return acc.get_characteristic(aid, iid)
 
     async def _wrap_in_thread(self, method):
-        """Coroutine which starts the given method in a thread.
-        """
+        """Coroutine which starts the given method in a thread."""
         # Not going through loop.run_in_executor, because this thread may never
         # terminate.
         threading.Thread(target=method).start()
 
     async def run(self):
-        """Schedule tasks for each of the accessories' run method.
-        """
+        """Schedule tasks for each of the accessories' run method."""
         tasks = []
         for acc in self.accessories.values():
             if isinstance(acc, AsyncAccessory):

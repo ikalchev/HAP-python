@@ -1,3 +1,4 @@
+"""Module for the IIDManager class."""
 import logging
 
 logger = logging.getLogger(__name__)

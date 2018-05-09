@@ -68,12 +68,12 @@ class HAP_CRYPTO:
 
 
 def _pad_tls_nonce(nonce, total_len=HAP_CRYPTO.TLS_NONCE_LEN):
-    """ Pads a nonce with zeroes so that total_len is reached. """
+    """Pads a nonce with zeroes so that total_len is reached."""
     return nonce.rjust(total_len, b"\x00")
 
 
 def hap_hkdf(key, salt, info):
-    """ Just a shorthand. """
+    """Just a shorthand."""
     return HKDF(key, HAP_CRYPTO.HKDF_KEYLEN, salt, HAP_CRYPTO.HKDF_HASH, context=info)
 
 
@@ -86,11 +86,11 @@ class NotAllowedInStateException(Exception):
 
 
 class HAPServerHandler(BaseHTTPRequestHandler):
-    """ Manages HAP connection state and handles incoming HTTP requests. """
+    """Manages HAP connection state and handles incoming HTTP requests."""
 
     # Mapping from paths to methods that handle them.
     HANDLERS = {
-        "POST":  {
+        "POST": {
             "/pair-setup": "handle_pairing",
             "/pair-verify": "handle_pair_verify",
             "/pairings": "handle_pairings",
@@ -493,8 +493,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             raise UnprivilegedRequestException
 
         # Check that char exists and ...
-        params = parse_qs(
-                    urlparse(self.path).query)
+        params = parse_qs(urlparse(self.path).query)
         chars = self.accessory_handler.get_characteristics(params["id"][0].split(","))
 
         data = json.dumps(chars).encode("utf-8")
@@ -511,7 +510,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         data_len = int(self.headers["Content-Length"])
         assert data_len > 0
         requested_chars = json.loads(
-                              self.rfile.read(data_len).decode("utf-8"))
+            self.rfile.read(data_len).decode("utf-8"))
 
         chars = self.accessory_handler.set_characteristics(requested_chars,
                                                            self.client_address)
@@ -543,7 +542,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         client_public = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
         should_confirm = self.accessory_handler.pair(
-                             client_uuid, client_public)
+            client_uuid, client_public)
         if not should_confirm:
             self.send_response(500)
             return
@@ -680,14 +679,12 @@ class HAPSocket(socket.socket):
                 self.num_in_recv += actual_len
                 if self.num_in_recv == self.curr_in_total:
                     # We read a whole block. Decrypt it and append it to the result.
-                    nonce = _pad_tls_nonce(
-                                 struct.pack("Q", self.in_count))
+                    nonce = _pad_tls_nonce(struct.pack("Q", self.in_count))
                     # Note we are removing the mac length from the total length
                     block_length = self.curr_in_total - self.in_cipher.tagLength
                     plaintext = self.in_cipher.open(
-                                    nonce,
-                                    bytearray(self.curr_in_block),
-                                    struct.pack("H", block_length))
+                        nonce, bytearray(self.curr_in_block),
+                        struct.pack("H", block_length))
                     result += plaintext
                     self.in_count += 1
                     self.curr_in_block = None
@@ -713,10 +710,8 @@ class HAPSocket(socket.socket):
         while offset < total:
             length = min(total - offset, self.MAX_BLOCK_LENGTH)
             length_bytes = struct.pack("H", length)
-            block = bytearray(
-                         data[offset: offset + length])
-            nonce = _pad_tls_nonce(
-                       struct.pack("Q", self.out_count))
+            block = bytearray(data[offset: offset + length])
+            nonce = _pad_tls_nonce(struct.pack("Q", self.out_count))
             ciphertext = length_bytes \
                 + self.out_cipher.seal(nonce, block, length_bytes)
             offset += length

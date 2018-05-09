@@ -3,7 +3,6 @@
 # as a guideline.
 # TODO: make it a complete implementation.
 import os
-import struct
 
 #
 # s - bytes
@@ -60,8 +59,7 @@ def get_verifier(u, p, s, ctx):
 
 def get_k(ctx):
     hf = ctx["hashfunc"]()
-    hf.update(long_to_bytes(ctx["N"])
-              + padN(long_to_bytes(ctx["g"]), ctx))
+    hf.update(long_to_bytes(ctx["N"]) + padN(long_to_bytes(ctx["g"]), ctx))
     return int(hf.hexdigest(), 16)
 
 
@@ -98,8 +96,8 @@ class Server(object):
 
     def derive_premaster_secret(self):
         hf = self.ctx['hashfunc']()
-        hf.update(padN(long_to_bytes(self.A), self.ctx)
-                  + padN(long_to_bytes(self.B), self.ctx))
+        hf.update(padN(long_to_bytes(self.A), self.ctx) +
+                  padN(long_to_bytes(self.B), self.ctx))
         U = int(hf.hexdigest(), 16)
         Avu = self.A * pow(self.v, U, self.ctx["N"])
         return pow(Avu, self.b, self.ctx["N"])
@@ -116,10 +114,8 @@ class Server(object):
         hf.update(self.u)
         hU = hf.digest()
         hf = self.ctx['hashfunc']()
-        hf.update(hGroup + hU + self.s
-                  + long_to_bytes(self.A)
-                  + long_to_bytes(self.B)
-                  + long_to_bytes(self.K))
+        hf.update(hGroup + hU + self.s + long_to_bytes(self.A) +
+                  long_to_bytes(self.B) + long_to_bytes(self.K))
         return hf.digest()
 
     def verify(self, M):
@@ -130,9 +126,7 @@ class Server(object):
 
     def get_HAMK(self):
         hf = self.ctx['hashfunc']()
-        hf.update(long_to_bytes(self.A)
-                  + self.M
-                  + long_to_bytes(self.K))
+        hf.update(long_to_bytes(self.A) + self.M + long_to_bytes(self.K))
         return hf.digest()
 
     def get_session_key(self):

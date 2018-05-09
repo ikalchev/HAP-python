@@ -28,13 +28,12 @@ def encode(*args):
 def decode(data):
 
     objects = {}
-    remaining = len(data)
     current = 0
     while current < len(data):
         # The following hack is because bytes[x] is an int
         # and we want to keep the tag as a byte.
-        tag = data[current:current+1]
-        length = data[current+1]
+        tag = data[current: current + 1]
+        length = data[current + 1]
         value = data[current + 2: current + 2 + length]
         if tag in objects:
             objects[tag] = objects[tag] + value
