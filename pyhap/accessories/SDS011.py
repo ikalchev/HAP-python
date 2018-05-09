@@ -72,8 +72,8 @@ class SDS011(Accessory):
                                        'AirParticulateDensity'])
         air_quality_pm10.configure_char('AirParticulateSize', value=1)
         air_quality_pm10.configure_char('Name', value='PM10')
-        self.pm25_quality = air_quality_pm10.configure_char('AirQuality')
-        self.pm25_density = air_quality_pm10.configure_char(
+        self.pm10_quality = air_quality_pm10.configure_char('AirQuality')
+        self.pm10_density = air_quality_pm10.configure_char(
             'AirParticulateDensity')
 
         self.sleep_duration_s = sleep_duration_s
