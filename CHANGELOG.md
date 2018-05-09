@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added `getter_callback` to Characteristics. [#90](https://github.com/ikalchev/HAP-python/pull/90)
+
 ### Changed
 - Improved documentation for version `2.0.0`. [#114](https://github.com/ikalchev/HAP-python/pull/114)
 
