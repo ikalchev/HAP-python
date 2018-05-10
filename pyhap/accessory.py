@@ -479,7 +479,7 @@ class Bridge(AsyncAccessory):
 
         .. seealso:: Accessory.to_HAP
         """
-        return [acc.top_HAP() for acc in (super(), *self.accessories.values())]
+        return [acc.to_HAP() for acc in (super(), *self.accessories.values())]
 
     def get_characteristic(self, aid, iid):
         """.. seealso:: Accessory.to_HAP
