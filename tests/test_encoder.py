@@ -5,7 +5,7 @@ import uuid
 import ed25519
 
 from pyhap.util import generate_mac
-from pyhap.accessory import Accessory
+from pyhap.config import Config
 import pyhap.encoder as encoder
 
 
@@ -18,20 +18,19 @@ class TestAccessoryEncoder(object):
         """
         mac = generate_mac()
         _pk, sample_client_pk = ed25519.create_keypair()
-        acc = Accessory("Test Accessory", mac=mac)
-        acc.add_paired_client(uuid.uuid1(),
-                              sample_client_pk.to_bytes())
+        config = Config(loop=None, mac=mac)
+        config.add_paired_client(uuid.uuid1(), sample_client_pk.to_bytes())
 
-        acc_loaded = Accessory("Loaded Test Accessory")
-        acc_loaded.config_version += 2  # change the default state.
+        config_loaded = Config(loop=None)
+        config_loaded.config_version += 2  # change the default state.
         enc = encoder.AccessoryEncoder()
         with tempfile.TemporaryFile(mode="r+") as fp:
-            enc.persist(fp, acc)
+            enc.persist(fp, config)
             fp.seek(0)
-            enc.load_into(fp, acc_loaded)
+            enc.load_into(fp, config_loaded)
 
-        assert acc.mac == acc_loaded.mac
-        assert acc.private_key == acc_loaded.private_key
-        assert acc.public_key == acc_loaded.public_key
-        assert acc.config_version == acc_loaded.config_version
-        assert acc.paired_clients == acc_loaded.paired_clients
+        assert config.mac == config_loaded.mac
+        assert config.private_key == config_loaded.private_key
+        assert config.public_key == config_loaded.public_key
+        assert config.config_version == config_loaded.config_version
+        assert config.paired_clients == config_loaded.paired_clients

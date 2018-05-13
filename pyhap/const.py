@@ -4,6 +4,11 @@
 STANDALONE_AID = 1  # Standalone accessory ID (i.e. not bridged)
 
 
+# ### Default values ###
+DEFAULT_CONFIG_VERSION = 2
+DEFAULT_PORT = 51827
+
+
 # ### Category values ###
 # Category is a hint to iOS clients about what "type" of Accessory this
 # represents, for UI only.

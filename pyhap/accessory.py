@@ -5,8 +5,6 @@ import logging
 import struct
 import threading
 
-import ed25519
-
 from pyhap import util, SUPPORT_QR_CODE
 from pyhap.const import (
     STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_SERVICES,
@@ -44,39 +42,30 @@ class Accessory:
             will assign the standalone AID to this `Accessory`.
         :type aid: int
 
-        :param mac: The MAC address of this `Accessory`, needed by HAP clients.
-            Defaults to None, in which case the `AccessoryDriver`
-            will assign a random MAC address to this `Accessory`.
-        :type mac: str
+        :param mac: Deprecated.
 
-        :param pincode: The pincode that HAP clients must prove they know in order
-            to pair with this `Accessory`. Defaults to None, in which case a random
-            pincode is generated. The pincode has the format "xxx-xx-xxx", where x is
-            a digit.
-        :type pincode: bytearray
+        :param pincode: Deprecated.
 
         :param setup_id: Setup ID can be provided, although, per spec, should be random
             every time the instance is started. If not provided on init, will be random.
             4 digit string 0-9 A-Z
         :type setup_id: str
         """
+        if mac or pincode:
+            logger.warning(
+                "The 'mac' and 'pincode' parameter are now deprecated."
+                "Assign the 'pincode' to the driver instead.")
         self.display_name = display_name
         self.aid = aid
         self.mac = mac
-        self.config_version = 2
         self.reachable = True
         self._pincode = pincode
-        self._setup_id = None
         self.driver = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
         self.loop = None
         self.aio_stop_event = None
 
-        sk, vk = ed25519.create_keypair()
-        self.private_key = sk
-        self.public_key = vk
-        self.paired_clients = {}
         self.services = []
         self.iid_manager = IIDManager()
 
@@ -97,16 +86,20 @@ class Accessory:
         return state
 
     @property
-    def setup_id(self):
-        if self._setup_id is None:
-            self._setup_id = util.generate_setup_id()
-        return self._setup_id
+    def config_version(self):
+        """Deprecated."""
+        logger.warning(
+            'This parameter is now deprecated. Use \' '
+            'driver.config.config_version\' instead.')
+        return self.driver.config.config_version
 
     @property
     def pincode(self):
-        if self._pincode is None:
-            self._pincode = util.generate_pincode()
-        return self._pincode
+        """Deprecated."""
+        logger.warning(
+            'This parameter is now deprecated. Use \' '
+            'driver.config.pincode\' instead.')
+        return self.driver.config.pincode
 
     def _set_services(self):
         """Set the services for this accessory.
@@ -187,8 +180,11 @@ class Accessory:
            (i.e. an Accessory that is contained in a Bridge),
            you should call the `config_changed` method on the Bridge.
 
+        Deprecated. Use `driver.config_change()` instead.
         """
-        self.config_version += 1
+        logger.warning(
+            'This method is now deprecated. Use \' '
+            'driver.config_version\' instead.')
         self.driver.config_changed()
 
     def add_service(self, *servs):
@@ -227,29 +223,36 @@ class Accessory:
 
     def set_driver(self, driver):
         self.driver = driver
+        if self.mac or self._pincode:
+            self.driver.config.set_values(mac=self.mac, pincode=self._pincode)
 
     def add_paired_client(self, client_uuid, client_public):
         """Adds the given client to the set of paired clients.
 
-        :param client_uuid: The client's UUID.
-        :type client_uuid: uuid.UUID
-
-        :param client_public: The client's public key (not the session public key).
-        :type client_public: bytes
+        Deprecated.
         """
-        self.paired_clients[client_uuid] = client_public
+        logger.warning(
+            'This method is now deprecated. Use \' '
+            'driver.config.add_paired_client\' instead.')
+        self.driver.config.add_paired_client(client_uuid, client_public)
 
     def remove_paired_client(self, client_uuid):
         """Deletes the given client from the set of paired clients.
 
-        :param client_uuid: The client's UUID.
-        :type client_uuid: uuid.UUID
+        Deprecated.
         """
-        self.paired_clients.pop(client_uuid)
+        logger.warning(
+            'This parameter is now deprecated. Use \' '
+            'driver.config.remove_paired_client\' instead.')
+        self.driver.config.remove_paired_client(client_uuid)
 
     @property
     def paired(self):
-        return len(self.paired_clients) > 0
+        """Deprecated."""
+        logger.warning(
+            'This parameter is now deprecated. Use \' '
+            'driver.config.paired\' instead.')
+        return self.driver.config.paired
 
     def xhm_uri(self):
         """Generates the X-HM:// uri (Setup Code URI)
@@ -258,7 +261,7 @@ class Accessory:
         """
         buffer = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00')
 
-        value_low = int(self.pincode.replace(b'-', b''), 10)
+        value_low = int(self.driver.config.pincode.replace(b'-', b''), 10)
         value_low |= 1 << 28
         struct.pack_into('>L', buffer, 4, value_low)
 
@@ -273,7 +276,7 @@ class Accessory:
             (struct.unpack_from('>L', buffer, 0)[0] * (1 << 32))).upper()
         encoded_payload = encoded_payload.rjust(9, '0')
 
-        return 'X-HM://' + encoded_payload + self.setup_id
+        return 'X-HM://' + encoded_payload + self.driver.config.setup_id
 
     def get_characteristic(self, aid, iid):
         """Get the characteristic for the given IID.
@@ -313,6 +316,7 @@ class Accessory:
         For QRCode `base36`, `pyqrcode` are required.
         Installation through `pip install HAP-python[QRCode]`
         """
+        pincode = self.driver.config.pincode.decode()
         if SUPPORT_QR_CODE:
             xhm_uri = self.xhm_uri()
             print('Setup payload: {}'.format(xhm_uri), flush=True)
@@ -320,12 +324,12 @@ class Accessory:
                   flush=True)
             print(QRCode(xhm_uri).terminal(quiet_zone=2), flush=True)
             print('Or enter this code in your HomeKit app on your iOS device: '
-                  '{}'.format(self.pincode.decode()))
+                  '{}'.format(pincode))
         else:
             print('To use the QR Code feature, use \'pip install '
                   'HAP-python[QRCode]\'')
             print('Enter this code in your HomeKit app on your iOS device: {}'
-                  .format(self.pincode.decode()))
+                  .format(pincode))
 
     @staticmethod
     def run_at_interval(seconds):
@@ -426,9 +430,11 @@ class Bridge(AsyncAccessory):
     category = CATEGORY_BRIDGE
 
     def __init__(self, display_name, mac=None, pincode=None):
-        # A Bridge cannot be Bridge, hence talks directly to HAP clients.
-        # Thus, we need a mac.
-        mac = mac or util.generate_mac()
+        """
+        :param mac: Deprecated.
+
+        :param pincode: Deprecated.
+        """
         super().__init__(display_name, aid=STANDALONE_AID, mac=mac,
                          pincode=pincode)
         self.accessories = {}  # aid: acc

@@ -132,7 +132,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         @type accessory_handler: AccessoryDriver
         """
         self.accessory_handler = accessory_handler
-        self.accessory = self.accessory_handler.accessory
+        self.config = self.accessory_handler.config
         self.enc_context = None
         self.is_encrypted = False
         # Redirect separate handlers to the dispatch method
@@ -153,7 +153,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         @param client_public: The client's session public key.
         @type client_public: bytes
 
-        @param private_key: The accessory's session private key.
+        @param private_key: The config's session private key.
         @type private_key: bytes
 
         @param shared_key: The resulted session key.
@@ -211,7 +211,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
     def handle_pairing(self):
         """Handles arbitrary step of the pairing process."""
-        if self.accessory.paired:
+        if self.config.paired:
             raise NotAllowedInStateException
 
         length = int(self.headers["Content-Length"])
@@ -342,11 +342,11 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         output_key = hap_hkdf(long_to_bytes(session_key),
                               self.PAIRING_5_SALT, self.PAIRING_5_INFO)
 
-        server_public = self.accessory.public_key.to_bytes()
-        mac = self.accessory.mac.encode()
+        server_public = self.config.public_key.to_bytes()
+        mac = self.config.mac.encode()
 
         material = output_key + mac + server_public
-        private_key = self.accessory.private_key
+        private_key = self.config.private_key
         server_proof = private_key.sign(material)
 
         message = tlv.encode(HAP_TLV_TAGS.USERNAME, mac,
@@ -375,7 +375,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
         Pair verify is session negotiation.
         """
-        if not self.accessory.paired:
+        if not self.config.paired:
             raise NotAllowedInStateException
 
         length = int(self.headers["Content-Length"])
@@ -404,9 +404,9 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             # Key is hashed before being returned, we don't want it; This fixes that.
             lambda x: x)
 
-        mac = self.accessory.mac.encode()
+        mac = self.config.mac.encode()
         material = public_key.serialize() + mac + client_public
-        server_proof = self.accessory.private_key.sign(material)
+        server_proof = self.config.private_key.sign(material)
 
         output_key = hap_hkdf(shared_key, self.PVERIFY_1_SALT, self.PVERIFY_1_INFO)
 
@@ -445,7 +445,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             + self.enc_context["public_key"].serialize()
 
         client_uuid = uuid.UUID(str(client_username, "ascii"))
-        perm_client_public = self.accessory.paired_clients.get(client_uuid)
+        perm_client_public = self.config.paired_clients.get(client_uuid)
         if perm_client_public is None:
             logger.debug("Client %s attempted pair verify without being paired first.",
                          client_uuid)
@@ -506,7 +506,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         if not self.is_encrypted:
             raise UnprivilegedRequestException
 
-        # TODO: assert self.headers["authorization"] == accessory.pincode
+        # TODO: assert self.headers["authorization"] == config.pincode
         data_len = int(self.headers["Content-Length"])
         assert data_len > 0
         requested_chars = json.loads(
