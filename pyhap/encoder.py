@@ -10,6 +10,7 @@ import ed25519
 
 from pyhap.util import fromhex, tohex
 
+
 class AccessoryEncoder:
     """This class defines the Accessory encoder interface.
 
@@ -57,7 +58,7 @@ class AccessoryEncoder:
             'config_version': acc.config_version,
             'paired_clients': paired_clients,
             'private_key': tohex(acc.private_key.to_seed()),
-            'public_key':  tohex(acc.public_key.to_bytes()),
+            'public_key': tohex(acc.public_key.to_bytes()),
         }
         json.dump(config_state, fp)
 

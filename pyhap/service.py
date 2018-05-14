@@ -1,7 +1,6 @@
 """This module implements the HAP Service."""
 from uuid import UUID
 
-from pyhap.characteristic import Characteristic
 from pyhap.const import HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_TYPE
 
 
@@ -15,6 +14,7 @@ class Service:
     __slots__ = ('display_name', 'type_id', 'characteristics', 'broker')
 
     def __init__(self, type_id, display_name=None):
+        """Initialize a new Service object."""
         self.display_name = display_name
         self.type_id = type_id
         self.characteristics = []
@@ -30,7 +30,7 @@ class Service:
         """Add the given characteristics as "mandatory" for this Service."""
         for char in chars:
             if not any(char.type_id == original_char.type_id
-                    for original_char in self.characteristics):
+                       for original_char in self.characteristics):
                 self.characteristics.append(char)
 
     def get_characteristic(self, name):
@@ -63,6 +63,7 @@ class Service:
             char.getter_callback = getter_callback
         return char
 
+    # pylint: disable=invalid-name
     def to_HAP(self):
         """Create a HAP representation of this Service.
 
@@ -85,6 +86,6 @@ class Service:
         """
         type_id = UUID(json_dict.pop('UUID'))
         service = cls(type_id, name)
-        for name in json_dict['RequiredCharacteristics']:
-            service.add_characteristic(loader.get_char(name))
+        for char_name in json_dict['RequiredCharacteristics']:
+            service.add_characteristic(loader.get_char(char_name))
         return service

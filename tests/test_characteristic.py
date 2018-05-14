@@ -14,6 +14,7 @@ PROPERTIES = {
 
 
 def get_char(props, valid=None, min_value=None, max_value=None):
+    """Return a char object with given parameters."""
     if valid:
         props['ValidValues'] = valid
     if min_value:
@@ -25,6 +26,7 @@ def get_char(props, valid=None, min_value=None, max_value=None):
 
 
 def test_repr():
+    """Test representation of a characteristic."""
     char = get_char(PROPERTIES.copy())
     del char.properties['Permissions']
     assert char.__repr__() == \
@@ -33,11 +35,13 @@ def test_repr():
 
 
 def test_default_value():
+    """Test getting the default value for a specific format."""
     char = get_char(PROPERTIES.copy())
     assert char.value == HAP_FORMAT_DEFAULTS[PROPERTIES['Format']]
 
 
 def test_get_default_value():
+    """Test getting the default value for valid values."""
     valid_values = {'foo': 2, 'bar': 3}
     char = get_char(PROPERTIES.copy(), valid=valid_values)
     assert char.value == 2
@@ -47,6 +51,7 @@ def test_get_default_value():
 
 
 def test_to_valid_value():
+    """Test function to test if value is valid and saved correctly."""
     char = get_char(PROPERTIES.copy(), valid={'foo': 2, 'bar': 3},
                     min_value=2, max_value=7)
     with pytest.raises(ValueError):
@@ -73,6 +78,7 @@ def test_to_valid_value():
 
 
 def test_override_properties_properties():
+    """Test if overriding the properties works."""
     new_properties = {'minValue': 10, 'maxValue': 20, 'step': 1}
     char = get_char(PROPERTIES.copy(), min_value=0, max_value=1)
     char.override_properties(properties=new_properties)
@@ -82,6 +88,7 @@ def test_override_properties_properties():
 
 
 def test_override_properties_valid_values():
+    """Test if overriding the properties works for valid values."""
     new_valid_values = {'foo2': 2, 'bar2': 3}
     char = get_char(PROPERTIES.copy(), valid={'foo': 1, 'bar': 2})
     char.override_properties(valid_values=new_valid_values)
@@ -89,12 +96,14 @@ def test_override_properties_valid_values():
 
 
 def test_override_properties_error():
+    """Test that method throws an error if no arguments have been passed."""
     char = get_char(PROPERTIES.copy())
     with pytest.raises(ValueError):
         char.override_properties()
 
 
 def test_set_value():
+    """Test setting the value of a characteristic."""
     path = 'pyhap.characteristic.Characteristic.notify'
     char = get_char(PROPERTIES.copy(), min_value=3, max_value=7)
 
@@ -114,6 +123,7 @@ def test_set_value():
 
 
 def test_client_update_value():
+    """Test updating the characteristic value with call from the driver."""
     path_notify = 'pyhap.characteristic.Characteristic.notify'
     char = get_char(PROPERTIES.copy())
 
@@ -129,6 +139,7 @@ def test_client_update_value():
 
 
 def test_notify():
+    """Test if driver is notified correctly about a changed characteristic."""
     char = get_char(PROPERTIES.copy())
 
     char.value = 2
@@ -141,6 +152,7 @@ def test_notify():
 
 
 def test_to_HAP_numberic():
+    """Test created HAP representation for numeric formats."""
     char = get_char(PROPERTIES.copy(), min_value=1, max_value=2)
     with patch.object(char, 'broker') as mock_broker:
         mock_iid = mock_broker.iid_manager.get_iid
@@ -161,36 +173,39 @@ def test_to_HAP_numberic():
 
 
 def test_to_HAP_string():
+    """Test created HAP representation for strings."""
     char = get_char(PROPERTIES.copy())
     char.properties['Format'] = 'string'
     char.value = 'aaa'
-    with patch.object(char, 'broker') as mock_broker:
+    with patch.object(char, 'broker'):
         hap_repr = char.to_HAP()
     assert hap_repr['format'] == 'string'
     assert 'maxLen' not in hap_repr
 
     char.value = 'aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeee' \
         'ffffffffffgggggggggg'
-    with patch.object(char, 'broker') as mock_broker:
+    with patch.object(char, 'broker'):
         hap_repr = char.to_HAP()
     assert hap_repr['maxLen'] == 70
     assert hap_repr['value'] == char.value
 
 
 def test_to_HAP_bool():
+    """Test created HAP representation for booleans."""
     char = get_char(PROPERTIES.copy())
     char.properties['Format'] = 'bool'
-    with patch.object(char, 'broker') as mock_broker:
+    with patch.object(char, 'broker'):
         hap_repr = char.to_HAP()
     assert hap_repr['format'] == 'bool'
 
     char.properties['Permissions'] = []
-    with patch.object(char, 'broker') as mock_broker:
+    with patch.object(char, 'broker'):
         hap_repr = char.to_HAP()
     assert 'value' not in hap_repr
 
 
 def test_from_dict():
+    """Test creating a characteristic object from a dictionary."""
     uuid = uuid1()
     json_dict = {
         'UUID': str(uuid),

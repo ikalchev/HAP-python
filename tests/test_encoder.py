@@ -1,21 +1,16 @@
-"""
-Tests for pyhap.encoder
-"""
+"""Tests for pyhap.encoder."""
 import tempfile
 import uuid
 
-import pytest
 import ed25519
 
-from pyhap.util import generate_mac, tohex
+from pyhap.util import generate_mac
 from pyhap.accessory import Accessory
 import pyhap.encoder as encoder
 
 
 class TestAccessoryEncoder(object):
-    """
-    Tests for AccessoryEncoder.
-    """
+    """Tests for AccessoryEncoder."""
 
     def test_persist_and_load(self):
         """Stores an Accessory and then loads the stored state into another
