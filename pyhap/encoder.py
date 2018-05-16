@@ -43,7 +43,7 @@ class AccessoryEncoder:
     """
 
     @staticmethod
-    def persist(fp, config):
+    def persist(fp, state):
         """Persist the state of the given Accessory to the given file object.
 
         Persists:
@@ -53,27 +53,27 @@ class AccessoryEncoder:
             - Config version.
         """
         paired_clients = {str(client): tohex(key)
-                          for client, key in config.paired_clients.items()}
+                          for client, key in state.paired_clients.items()}
         config_state = {
-            'mac': config.mac,
-            'config_version': config.config_version,
+            'mac': state.mac,
+            'config_version': state.config_version,
             'paired_clients': paired_clients,
-            'private_key': tohex(config.private_key.to_seed()),
-            'public_key': tohex(config.public_key.to_bytes()),
+            'private_key': tohex(state.private_key.to_seed()),
+            'public_key': tohex(state.public_key.to_bytes()),
         }
         json.dump(config_state, fp)
 
     @staticmethod
-    def load_into(fp, config):
+    def load_into(fp, state):
         """Load the accessory state from the given file object into the given Accessory.
 
         @see: AccessoryEncoder.persist
         """
-        state = json.load(fp)
-        config.set_values(
-            mac=state['mac'], config_version=state['config_version'])
-        config.paired_clients = {uuid.UUID(client): fromhex(key)
-                                 for client, key in
-                                 state['paired_clients'].items()}
-        config.private_key = ed25519.SigningKey(fromhex(state['private_key']))
-        config.public_key = ed25519.VerifyingKey(fromhex(state['public_key']))
+        loaded = json.load(fp)
+        state.mac = loaded['mac']
+        state.config_version = loaded['config_version']
+        state.paired_clients = {uuid.UUID(client): fromhex(key)
+                                for client, key in
+                                loaded['paired_clients'].items()}
+        state.private_key = ed25519.SigningKey(fromhex(loaded['private_key']))
+        state.public_key = ed25519.VerifyingKey(fromhex(loaded['public_key']))

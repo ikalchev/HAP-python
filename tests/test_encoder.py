@@ -5,7 +5,7 @@ import uuid
 import ed25519
 
 from pyhap.util import generate_mac
-from pyhap.config import Config
+from pyhap.state import State
 import pyhap.encoder as encoder
 
 
@@ -18,19 +18,19 @@ class TestAccessoryEncoder(object):
         """
         mac = generate_mac()
         _pk, sample_client_pk = ed25519.create_keypair()
-        config = Config(loop=None, mac=mac)
-        config.add_paired_client(uuid.uuid1(), sample_client_pk.to_bytes())
+        state = State(mac=mac)
+        state.add_paired_client(uuid.uuid1(), sample_client_pk.to_bytes())
 
-        config_loaded = Config(loop=None)
+        config_loaded = State()
         config_loaded.config_version += 2  # change the default state.
         enc = encoder.AccessoryEncoder()
         with tempfile.TemporaryFile(mode="r+") as fp:
-            enc.persist(fp, config)
+            enc.persist(fp, state)
             fp.seek(0)
             enc.load_into(fp, config_loaded)
 
-        assert config.mac == config_loaded.mac
-        assert config.private_key == config_loaded.private_key
-        assert config.public_key == config_loaded.public_key
-        assert config.config_version == config_loaded.config_version
-        assert config.paired_clients == config_loaded.paired_clients
+        assert state.mac == config_loaded.mac
+        assert state.private_key == config_loaded.private_key
+        assert state.public_key == config_loaded.public_key
+        assert state.config_version == config_loaded.config_version
+        assert state.paired_clients == config_loaded.paired_clients

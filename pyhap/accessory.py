@@ -90,16 +90,16 @@ class Accessory:
         """Deprecated."""
         logger.warning(
             'This parameter is now deprecated. Use \' '
-            'driver.config.config_version\' instead.')
-        return self.driver.config.config_version
+            'driver.state.config_version\' instead.')
+        return self.driver.state.config_version
 
     @property
     def pincode(self):
         """Deprecated."""
         logger.warning(
             'This parameter is now deprecated. Use \' '
-            'driver.config.pincode\' instead.')
-        return self.driver.config.pincode
+            'driver.state.pincode\' instead.')
+        return self.driver.state.pincode
 
     def _set_services(self):
         """Set the services for this accessory.
@@ -180,12 +180,12 @@ class Accessory:
            (i.e. an Accessory that is contained in a Bridge),
            you should call the `config_changed` method on the Bridge.
 
-        Deprecated. Use `driver.config_change()` instead.
+        Deprecated. Use `driver.state_change()` instead.
         """
         logger.warning(
             'This method is now deprecated. Use \' '
-            'driver.config_version\' instead.')
-        self.driver.config_changed()
+            'driver.state_version\' instead.')
+        self.driver.state_changed()
 
     def add_service(self, *servs):
         """Add the given services to this Accessory.
@@ -223,8 +223,10 @@ class Accessory:
 
     def set_driver(self, driver):
         self.driver = driver
-        if self.mac or self._pincode:
-            self.driver.config.set_values(mac=self.mac, pincode=self._pincode)
+        if self.mac:
+            self.driver.state.mac = self.mac
+        if self._pincode:
+            self.driver.state.pincode = self._pincode
 
     def add_paired_client(self, client_uuid, client_public):
         """Adds the given client to the set of paired clients.
@@ -233,8 +235,8 @@ class Accessory:
         """
         logger.warning(
             'This method is now deprecated. Use \' '
-            'driver.config.add_paired_client\' instead.')
-        self.driver.config.add_paired_client(client_uuid, client_public)
+            'driver.state.add_paired_client\' instead.')
+        self.driver.state.add_paired_client(client_uuid, client_public)
 
     def remove_paired_client(self, client_uuid):
         """Deletes the given client from the set of paired clients.
@@ -243,16 +245,16 @@ class Accessory:
         """
         logger.warning(
             'This parameter is now deprecated. Use \' '
-            'driver.config.remove_paired_client\' instead.')
-        self.driver.config.remove_paired_client(client_uuid)
+            'driver.state.remove_paired_client\' instead.')
+        self.driver.state.remove_paired_client(client_uuid)
 
     @property
     def paired(self):
         """Deprecated."""
         logger.warning(
             'This parameter is now deprecated. Use \' '
-            'driver.config.paired\' instead.')
-        return self.driver.config.paired
+            'driver.state.paired\' instead.')
+        return self.driver.state.paired
 
     def xhm_uri(self):
         """Generates the X-HM:// uri (Setup Code URI)
@@ -261,7 +263,7 @@ class Accessory:
         """
         buffer = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00')
 
-        value_low = int(self.driver.config.pincode.replace(b'-', b''), 10)
+        value_low = int(self.driver.state.pincode.replace(b'-', b''), 10)
         value_low |= 1 << 28
         struct.pack_into('>L', buffer, 4, value_low)
 
@@ -276,7 +278,7 @@ class Accessory:
             (struct.unpack_from('>L', buffer, 0)[0] * (1 << 32))).upper()
         encoded_payload = encoded_payload.rjust(9, '0')
 
-        return 'X-HM://' + encoded_payload + self.driver.config.setup_id
+        return 'X-HM://' + encoded_payload + self.driver.state.setup_id
 
     def get_characteristic(self, aid, iid):
         """Get the characteristic for the given IID.
@@ -316,7 +318,7 @@ class Accessory:
         For QRCode `base36`, `pyqrcode` are required.
         Installation through `pip install HAP-python[QRCode]`
         """
-        pincode = self.driver.config.pincode.decode()
+        pincode = self.driver.state.pincode.decode()
         if SUPPORT_QR_CODE:
             xhm_uri = self.xhm_uri()
             print('Setup payload: {}'.format(xhm_uri), flush=True)

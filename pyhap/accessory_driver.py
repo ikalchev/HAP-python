@@ -36,14 +36,14 @@ from zeroconf import ServiceInfo, Zeroconf
 
 from pyhap.accessory import AsyncAccessory, get_topic
 from pyhap.characteristic import CharacteristicError
-from pyhap.config import Config
 from pyhap.const import (
     STANDALONE_AID, HAP_PERMISSION_NOTIFY, HAP_REPR_ACCS, HAP_REPR_AID,
     HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_STATUS, HAP_REPR_VALUE)
-from pyhap.params import get_srp_context
-from pyhap.hsrp import Server as SrpServer
-from pyhap.hap_server import HAPServer
 from pyhap.encoder import AccessoryEncoder
+from pyhap.hap_server import HAPServer
+from pyhap.hsrp import Server as SrpServer
+from pyhap.params import get_srp_context
+from pyhap.state import State
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +54,9 @@ SERVICE_COMMUNICATION_FAILURE = -70402
 class AccessoryMDNSServiceInfo(ServiceInfo):
     """A mDNS service info representation of an accessory."""
 
-    def __init__(self, accessory, config):
+    def __init__(self, accessory, state):
         self.accessory = accessory
-        self.config = config
+        self.state = state
         hname = socket.gethostname()
         pubname = hname + '.' if hname.endswith('.local') else hname + '.local.'
 
@@ -64,11 +64,11 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         super().__init__(
             '_hap._tcp.local.',
             self.accessory.display_name + '._hap._tcp.local.',
-            socket.inet_aton(self.config.address), self.config.port,
+            socket.inet_aton(self.state.address), self.state.port,
             0, 0, adv_data, pubname)
 
     def _setup_hash(self):
-        setup_hash_material = self.config.setup_id + self.config.mac
+        setup_hash_material = self.state.setup_id + self.state.mac
         temp_hash = hashlib.sha512()
         temp_hash.update(setup_hash_material.encode())
         return base64.b64encode(temp_hash.digest()[:4])
@@ -78,16 +78,16 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         return {
             'md': self.accessory.display_name,
             'pv': '1.0',
-            'id': self.config.mac,
+            'id': self.state.mac,
             # represents the 'configuration version' of an Accessory.
             # Increasing this 'version number' signals iOS devices to
             # re-fetch accessories data.
-            'c#': str(self.config.config_version),
+            'c#': str(self.state.config_version),
             's#': '1',  # 'accessory state'
             'ff': '0',
             'ci': str(self.accessory.category),
             # 'sf == 1' means "discoverable by HomeKit iOS clients"
-            'sf': '0' if self.config.paired else '1',
+            'sf': '0' if self.state.paired else '1',
             'sh': self._setup_hash()
         }
 
@@ -162,9 +162,8 @@ class AccessoryDriver:
         self.srp_verifier = None
         self.accessory_thread = None
 
-        self.config = Config(loop=self.loop, address=address,
-                             pincode=pincode, port=port)
-        network_tuple = (self.config.address, self.config.port)
+        self.state = State(address=address, pincode=pincode, port=port)
+        network_tuple = (self.state.address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
 
         if os.path.exists(self.persist_file):
@@ -264,7 +263,7 @@ class AccessoryDriver:
         restart. Also, updates the mDNS advertisement, so that iOS clients know they need
         to fetch new data.
         """
-        self.config.config_version += 1
+        self.state.config_version += 1
         self.persist()
         self.update_advertisement()
 
@@ -272,19 +271,19 @@ class AccessoryDriver:
         """Updates the mDNS service info for the accessory."""
         self.advertiser.unregister_service(self.mdns_service_info)
         self.mdns_service_info = AccessoryMDNSServiceInfo(
-            self.accessory, self.config)
+            self.accessory, self.state)
         time.sleep(0.1)  # Doing it right away can cause crashes.
         self.advertiser.register_service(self.mdns_service_info)
 
     def persist(self):
         """Saves the state of the accessory."""
         with open(self.persist_file, 'w') as fp:
-            self.encoder.persist(fp, self.config)
+            self.encoder.persist(fp, self.state)
 
     def load(self):
         """ """
         with open(self.persist_file, 'r') as fp:
-            self.encoder.load_into(fp, self.config)
+            self.encoder.load_into(fp, self.state)
 
     def pair(self, client_uuid, client_public):
         """Called when a client has paired with the accessory.
@@ -305,7 +304,7 @@ class AccessoryDriver:
         # let the accessory call config_changed, which will persist and update mDNS?
         # See also unpair.
         logger.info("Paired with %s.", client_uuid)
-        self.config.add_paired_client(client_uuid, client_public)
+        self.state.add_paired_client(client_uuid, client_public)
         self.persist()
         self.update_advertisement()
         return True
@@ -320,7 +319,7 @@ class AccessoryDriver:
         :type client_uuid: uuid.UUID
         """
         logger.info("Unpairing client %s.", client_uuid)
-        self.config.remove_paired_client(client_uuid)
+        self.state.remove_paired_client(client_uuid)
         self.persist()
         self.update_advertisement()
 
@@ -328,7 +327,7 @@ class AccessoryDriver:
         """Create an SRP verifier for the accessory's info."""
         # TODO: Move the below hard-coded values somewhere nice.
         ctx = get_srp_context(3072, hashlib.sha512, 16)
-        verifier = SrpServer(ctx, b'Pair-Setup', self.config.pincode)
+        verifier = SrpServer(ctx, b'Pair-Setup', self.state.pincode)
         self.srp_verifier = verifier
 
     def get_accessories(self):
@@ -466,8 +465,8 @@ class AccessoryDriver:
         daemon.
         """
         logger.info("Starting accessory %s on address %s, port %s.",
-                    self.accessory.display_name, self.config.address,
-                    self.config.port)
+                    self.accessory.display_name, self.state.address,
+                    self.state.port)
 
         # Start sending events to clients. This is done in a daemon thread, because:
         # - if the queue is blocked waiting on an empty queue, then there is nothing left
@@ -485,11 +484,11 @@ class AccessoryDriver:
 
         # Advertise the accessory as a mDNS service.
         self.mdns_service_info = AccessoryMDNSServiceInfo(
-            self.accessory, self.config)
+            self.accessory, self.state)
         self.advertiser.register_service(self.mdns_service_info)
 
         # Print accessory setup message
-        if not self.config.paired:
+        if not self.state.paired:
             self.accessory.setup_message()
 
         # Start the accessory so it can do stuff.
@@ -522,8 +521,8 @@ class AccessoryDriver:
         # TODO: This should happen in a different order - mDNS, server, accessory. Need
         # to ensure that sending with a closed server will not crash the app.
         logger.info("Stopping accessory %s on address %s, port %s.",
-                    self.accessory.display_name, self.config.address,
-                    self.config.port)
+                    self.accessory.display_name, self.state.address,
+                    self.state.port)
         logger.debug("Setting stop events, stopping accessory and event sending")
         self.stop_event.set()
         if not self.loop.is_closed():
