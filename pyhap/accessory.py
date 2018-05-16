@@ -85,22 +85,6 @@ class Accessory:
         state['run_sentinel'] = None
         return state
 
-    @property
-    def config_version(self):
-        """Deprecated."""
-        logger.warning(
-            'This parameter is now deprecated. Use \' '
-            'driver.state.config_version\' instead.')
-        return self.driver.state.config_version
-
-    @property
-    def pincode(self):
-        """Deprecated."""
-        logger.warning(
-            'This parameter is now deprecated. Use \' '
-            'driver.state.pincode\' instead.')
-        return self.driver.state.pincode
-
     def _set_services(self):
         """Set the services for this accessory.
 
@@ -227,34 +211,6 @@ class Accessory:
             self.driver.state.mac = self.mac
         if self._pincode:
             self.driver.state.pincode = self._pincode
-
-    def add_paired_client(self, client_uuid, client_public):
-        """Adds the given client to the set of paired clients.
-
-        Deprecated.
-        """
-        logger.warning(
-            'This method is now deprecated. Use \' '
-            'driver.state.add_paired_client\' instead.')
-        self.driver.state.add_paired_client(client_uuid, client_public)
-
-    def remove_paired_client(self, client_uuid):
-        """Deletes the given client from the set of paired clients.
-
-        Deprecated.
-        """
-        logger.warning(
-            'This parameter is now deprecated. Use \' '
-            'driver.state.remove_paired_client\' instead.')
-        self.driver.state.remove_paired_client(client_uuid)
-
-    @property
-    def paired(self):
-        """Deprecated."""
-        logger.warning(
-            'This parameter is now deprecated. Use \' '
-            'driver.state.paired\' instead.')
-        return self.driver.state.paired
 
     def xhm_uri(self):
         """Generates the X-HM:// uri (Setup Code URI)
