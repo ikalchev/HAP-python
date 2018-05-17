@@ -31,13 +31,7 @@ class Accessory:
 
     category = CATEGORY_OTHER
 
-    @classmethod
-    def create(cls, display_name, pincode, aid=STANDALONE_AID):
-        mac = util.generate_mac()
-        return cls(display_name, aid=aid, mac=mac, pincode=pincode)
-
-    def __init__(self, display_name, aid=None, mac=None, pincode=None,
-                 iid_manager=None, setup_id=None):
+    def __init__(self, display_name, aid=None, mac=None, pincode=None):
         """Initialise with the given properties.
 
         :param display_name: Name to be displayed in the Home app.
@@ -71,11 +65,11 @@ class Accessory:
         self.config_version = 2
         self.reachable = True
         self._pincode = pincode
-        self._setup_id = setup_id
+        self._setup_id = None
         self.driver = None
         # threading.Event that gets set when the Accessory should stop.
         self.run_sentinel = None
-        self.event_loop = None
+        self.loop = None
         self.aio_stop_event = None
 
         sk, vk = ed25519.create_keypair()
@@ -83,7 +77,7 @@ class Accessory:
         self.public_key = vk
         self.paired_clients = {}
         self.services = []
-        self.iid_manager = iid_manager or IIDManager()
+        self.iid_manager = IIDManager()
 
         self.add_info_service()
 
@@ -163,7 +157,7 @@ class Accessory:
         self.add_service(service)
         return service
 
-    def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
+    def set_sentinel(self, run_sentinel, aio_stop_event, loop):
         """Assign a run sentinel that can signal stopping.
 
         The run sentinel is a threading.Event object that can be used to manage
@@ -177,7 +171,7 @@ class Accessory:
         """
         self.run_sentinel = run_sentinel
         self.aio_stop_event = aio_stop_event
-        self.event_loop = event_loop
+        self.loop = loop
 
     def config_changed(self):
         """Notify the accessory about configuration changes.
@@ -412,7 +406,7 @@ class AsyncAccessory(Accessory):
             async def _wrapper(self, *args, **kwargs):
                 while not await util.event_wait(self.aio_stop_event,
                                                 seconds,
-                                                self.event_loop):
+                                                self.loop):
                     await func(self, *args, **kwargs)
             return _wrapper
         return _repeat
@@ -431,21 +425,19 @@ class Bridge(AsyncAccessory):
 
     category = CATEGORY_BRIDGE
 
-    def __init__(self, display_name, mac=None, pincode=None,
-                 iid_manager=None, setup_id=None):
-        aid = STANDALONE_AID
+    def __init__(self, display_name, mac=None, pincode=None):
         # A Bridge cannot be Bridge, hence talks directly to HAP clients.
         # Thus, we need a mac.
         mac = mac or util.generate_mac()
-        super().__init__(display_name, aid=aid, mac=mac, pincode=pincode,
-                         iid_manager=iid_manager, setup_id=setup_id)
+        super().__init__(display_name, aid=STANDALONE_AID, mac=mac,
+                         pincode=pincode)
         self.accessories = {}  # aid: acc
 
-    def set_sentinel(self, run_sentinel, aio_stop_event, event_loop):
+    def set_sentinel(self, run_sentinel, aio_stop_event, loop):
         """Set the same sentinel to all contained accessories."""
-        super().set_sentinel(run_sentinel, aio_stop_event, event_loop)
+        super().set_sentinel(run_sentinel, aio_stop_event, loop)
         for acc in self.accessories.values():
-            acc.set_sentinel(run_sentinel, aio_stop_event, event_loop)
+            acc.set_sentinel(run_sentinel, aio_stop_event, loop)
 
     def add_accessory(self, acc):
         """Add the given ``Accessory`` to this ``Bridge``.
@@ -487,12 +479,7 @@ class Bridge(AsyncAccessory):
 
         .. seealso:: Accessory.to_HAP
         """
-        hap_rep = [super().to_HAP()]
-
-        for acc in self.accessories.values():
-            hap_rep.append(acc.to_HAP())
-
-        return hap_rep
+        return [acc.top_HAP() for acc in (super(), *self.accessories.values())]
 
     def get_characteristic(self, aid, iid):
         """.. seealso:: Accessory.to_HAP
@@ -509,7 +496,7 @@ class Bridge(AsyncAccessory):
     async def _wrap_in_thread(self, method):
         """Coroutine which starts the given method in a thread.
         """
-        # Not going through event_loop.run_in_executor, because this thread may never
+        # Not going through loop.run_in_executor, because this thread may never
         # terminate.
         threading.Thread(target=method).start()
 
@@ -519,11 +506,11 @@ class Bridge(AsyncAccessory):
         tasks = []
         for acc in self.accessories.values():
             if isinstance(acc, AsyncAccessory):
-                task = self.event_loop.create_task(acc.run())
+                task = self.loop.create_task(acc.run())
             else:
-                task = self.event_loop.create_task(self._wrap_in_thread(acc.run))
+                task = self.loop.create_task(self._wrap_in_thread(acc.run))
             tasks.append(task)
-        await asyncio.gather(*tasks, loop=self.event_loop)
+        await asyncio.gather(*tasks, loop=self.loop)
 
     def stop(self):
         """Calls stop() on all contained accessories."""
