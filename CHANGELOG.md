@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to this project will be documented in this file (since version `1.1.8`).  
+All notable changes to this project will be documented in this file (since version `1.1.8`).
 If you notice that something is missing, please open an issue or submit a PR.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
@@ -15,12 +15,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 - Typo in log message in `accessory_driver.stop`. [#112](https://github.com/ikalchev/HAP-python/pull/112)
 
 ### Breaking Changes
+- Moved all accessories from `pyhap.accessories` to an `accessories` folder at the root
+of the project. [#115](https://github.com/ikalchev/HAP-python/pull/115)
 - Removed unused method `accessory.create`. [#117](https://github.com/ikalchev/HAP-python/pull/117)
 - Removed `iid_manager` and `setup_id` parameter from `accessory` and `bridge` `init` calls. [#117](https://github.com/ikalchev/HAP-python/pull/117)
 
 ### Developers
 - The `driver` event loop name changed from `event_loop` to `loop`. [#107](https://github.com/ikalchev/HAP-python/pull/107)
-
+- `pyhap.accessories` is now a native namespace package. See `pyhap/accessories/README.md`
+for details on how to integrate third party Accessories.
+[#115](https://github.com/ikalchev/HAP-python/pull/115)
 
 
 ## [2.0.0] - 2018-05-04
