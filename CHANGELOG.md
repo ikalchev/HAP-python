@@ -5,27 +5,45 @@ If you notice that something is missing, please open an issue or submit a PR.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/).
 
+<!--
+Sections
+### Added
+### Changed
+### Deprecated
+### Fixed
+### Breaking Changes
+### Developers
+-->
+
 
 ## [Unreleased]
 
+### Added
+- Added `getter_callback` to Characteristics. [#90](https://github.com/ikalchev/HAP-python/pull/90)
+- The `pincode` can now be assigned as a parameter for the driver. [#120](https://github.com/ikalchev/HAP-python/pull/120)
+
 ### Changed
 - Improved documentation for version `2.0.0`. [#114](https://github.com/ikalchev/HAP-python/pull/114)
+
+### Deprecated
+- The `accessory` and `bridge` parameter `mac` and `pincode` are now deprecated. [#120](https://github.com/ikalchev/HAP-python/pull/120)
+- `Accessory.config_changed`, use `driver.config_changed` instead. [#120](https://github.com/ikalchev/HAP-python/pull/120)
+- `Accessory.paired`, use `driver.state.paired` instead. [#120](https://github.com/ikalchev/HAP-python/pull/120)
 
 ### Fixed
 - Typo in log message in `accessory_driver.stop`. [#112](https://github.com/ikalchev/HAP-python/pull/112)
 
 ### Breaking Changes
-- Moved all accessories from `pyhap.accessories` to an `accessories` folder at the root
-of the project. [#115](https://github.com/ikalchev/HAP-python/pull/115)
+- Moved all accessories from `pyhap.accessories` to an `accessories` folder at the root of the project. [#115](https://github.com/ikalchev/HAP-python/pull/115)
 - Removed unused method `accessory.create`. [#117](https://github.com/ikalchev/HAP-python/pull/117)
 - Removed `iid_manager` and `setup_id` parameter from `accessory` and `bridge` `init` calls. [#117](https://github.com/ikalchev/HAP-python/pull/117)
 
 ### Developers
 - The `driver` event loop name changed from `event_loop` to `loop`. [#107](https://github.com/ikalchev/HAP-python/pull/107)
-- `pyhap.accessories` is now a native namespace package. See `pyhap/accessories/README.md`
-for details on how to integrate third party Accessories.
-[#115](https://github.com/ikalchev/HAP-python/pull/115)
-
+- `pyhap.accessories` is now a native namespace package. See `pyhap/accessories/README.md` for details on how to integrate third party Accessories. [#115](https://github.com/ikalchev/HAP-python/pull/115)
+- Added static code checks. To run them locally use `tox -e lint` and `tox -e pylint`. [#118](https://github.com/ikalchev/HAP-python/pull/118)
+- Added `State` helper class to keep track of (semi-)static information. [#120](https://github.com/ikalchev/HAP-python/pull/120)
+- Variables that are related to pairing and storing static information have been moved to `driver.state`. That includes from `accessory`: `config_version`, `mac`, `setup_id`, `private_key`, `public_key` and `paired_clients` as well as the `add_paired_client` and `removed_paired_client` methods. For `accessory_driver`: `address` and `port`. [#120](https://github.com/ikalchev/HAP-python/pull/120)
 
 ## [2.0.0] - 2018-05-04
 

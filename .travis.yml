@@ -8,11 +8,15 @@ branches:
     - /^\d\.\d+\.\d+(rc\d+|\.dev\d+)?$/
 matrix:
   include:
-    - python: 3.5
+    - python: "3.5"
+      env: TOXENV=lint
+    # - python: "3.5"
+    #   env: TOXENV=pylint
+    - python: "3.5"
       env: TOXENV=py35
-    - python: 3.6
+    - python: "3.6"
       env: TOXENV=py36
-    - python: 3.6
+    - python: "3.6"
       env: TOXENV=docs
 before-install:
   - sudo apt-get -qq update
