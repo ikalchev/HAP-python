@@ -18,7 +18,6 @@ setup(
     license="Apache-2.0",
     packages=[
         "pyhap",
-        "pyhap.accessories"
     ],
     install_requires=[
         "curve25519-donna",
