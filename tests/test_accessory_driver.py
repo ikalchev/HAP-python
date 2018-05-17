@@ -13,9 +13,9 @@ from pyhap.accessory_driver import AccessoryDriver
 @patch("pyhap.accessory_driver.HAPServer", new=Mock())
 def test_auto_add_aid_mac(_persist_mock):
     acc = Accessory("Test Accessory")
-    AccessoryDriver(acc, 51234, "192.168.1.1", "test.accessory")
+    driver = AccessoryDriver(acc, 51234, "192.168.1.1", "test.accessory")
     assert acc.aid == STANDALONE_AID
-    assert acc.mac is not None
+    assert driver.state.mac is not None
 
 
 @patch("pyhap.accessory_driver.AccessoryDriver.persist")
@@ -34,16 +34,14 @@ def test_persist_load():
     persist_file = fp.name
     fp.close()
     try:
-        acc = get_acc()
-        pk = acc.public_key
         # Create driver - state gets stored
-        driver = AccessoryDriver(acc, 51234, persist_file=persist_file)
+        driver = AccessoryDriver(get_acc(), 51234, persist_file=persist_file)
+        pk = driver.state.public_key
         # Re-start driver with a "new" accessory. State gets loaded into
         # the new accessory.
-        del driver
-        driver = AccessoryDriver(get_acc(), 51234, persist_file=persist_file)
+        driver_new = AccessoryDriver(get_acc(), 51234, persist_file=persist_file)
         # Check pk is the same, i.e. that the state is indeed loaded.
-        assert driver.accessory.public_key == pk
+        assert driver_new.state.public_key == pk
     finally:
         os.remove(persist_file)
 
