@@ -42,6 +42,7 @@ from pyhap.const import (
 from pyhap.encoder import AccessoryEncoder
 from pyhap.hap_server import HAPServer
 from pyhap.hsrp import Server as SrpServer
+from pyhap.loader import Loader
 from pyhap.params import get_srp_context
 from pyhap.state import State
 
@@ -105,7 +106,7 @@ class AccessoryDriver:
 
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
-                 encoder=None):
+                 encoder=None, loader=None):
         """
         Initialize a new AccessoryDriver object.
 
@@ -139,6 +140,7 @@ class AccessoryDriver:
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
+        self.loader = loader or Loader()
         self.loop = asyncio.new_event_loop()
         self.aio_stop_event = asyncio.Event(loop=self.loop)
         self.stop_event = threading.Event()

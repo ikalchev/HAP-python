@@ -8,14 +8,16 @@ instance of it (as long as it is described in some
 json file).
 """
 import json
-import logging
 
 from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
 from pyhap.characteristic import Characteristic
 from pyhap.service import Service
 
-_loader = None
-logger = logging.getLogger(__name__)
+
+def read_file(path):
+    """Read file and return a dict."""
+    with open(path, 'r') as file:
+        return json.load(file)
 
 
 class Loader:
@@ -28,13 +30,8 @@ class Loader:
     def __init__(self, path_char=CHARACTERISTICS_FILE,
                  path_service=SERVICES_FILE):
         """Initialize a new Loader instance."""
-        self.char_types = self._read_file(path_char)
-        self.serv_types = self._read_file(path_service)
-
-    def _read_file(self, path):
-        """Read file and return a dict."""
-        with open(path, 'r') as file:
-            return json.load(file)
+        self.char_types = read_file(path_char)
+        self.serv_types = read_file(path_service)
 
     def get_char(self, name):
         """Return new Characteristic object."""
@@ -60,38 +57,3 @@ class Loader:
         loader.char_types = char_dict or {}
         loader.serv_types = serv_dict or {}
         return loader
-
-
-def get_loader():
-    """Get a service and char loader.
-
-    If already initialized it returns the existing one.
-    """
-    global _loader
-    if _loader is None:
-        _loader = Loader()
-    return _loader
-
-
-# pylint: disable=unused-argument
-def get_char_loader(desc_file=None):
-    """Get a CharacteristicLoader with characteristic descriptions in the given file.
-
-    .. deprecated:: 2.0
-       Use `get_loader` instead.
-    """
-    logger.warning(
-        "'get_char_loader' is deprecated. Use 'get_loader' instead.")
-    return get_loader()
-
-
-# pylint: disable=unused-argument
-def get_serv_loader(desc_file=None):
-    """Get a ServiceLoader with service descriptions in the given file.
-
-    .. deprecated:: 2.0
-       Use `get_loader` instead.
-    """
-    logger.warning(
-        "'get_serv_loader' is deprecated. Use 'get_loader' instead.")
-    return get_loader()

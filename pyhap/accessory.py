@@ -10,7 +10,6 @@ from pyhap.const import (
     STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_SERVICES,
     HAP_REPR_VALUE, CATEGORY_OTHER, CATEGORY_BRIDGE)
 from pyhap.iid_manager import IIDManager
-from pyhap.loader import get_loader
 
 if SUPPORT_QR_CODE:
     import base36
@@ -30,7 +29,7 @@ class Accessory:
 
     category = CATEGORY_OTHER
 
-    def __init__(self, driver, display_name, *, aid=None):
+    def __init__(self, driver, display_name, aid=None):
         """Initialise with the given properties.
 
         :param display_name: Name to be displayed in the Home app.
@@ -83,7 +82,7 @@ class Accessory:
         Called in `__init__` to be sure that it is the first service added.
         May be overridden.
         """
-        serv_info = get_loader().get_service('AccessoryInformation')
+        serv_info = self.driver.loader.get_service('AccessoryInformation')
         serv_info.configure_char('Name', value=self.display_name)
         serv_info.configure_char('SerialNumber', value='default')
         self.add_service(serv_info)
@@ -109,12 +108,11 @@ class Accessory:
 
     def add_preload_service(self, service, chars=None):
         """Create a service with the given name and add it to this acc."""
-        loader = get_loader()
-        service = loader.get_service(service)
+        service = self.driver.loader.get_service(service)
         if chars:
             chars = chars if isinstance(chars, list) else [chars]
             for char_name in chars:
-                char = loader.get_char(char_name)
+                char = self.driver.loader.get_char(char_name)
                 service.add_characteristic(char)
         self.add_service(service)
         return service
