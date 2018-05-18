@@ -1,6 +1,4 @@
 """Tests for pyhap.loader."""
-from unittest.mock import patch, ANY, Mock
-
 import pytest
 
 from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
@@ -10,16 +8,19 @@ from pyhap.loader import get_loader, Loader
 
 
 def test_loader_char():
+    """Test if method returns a Characteristic object."""
     loader = Loader()
 
-    assert loader.get_char('Name') is not None
     with pytest.raises(KeyError):
         loader.get_char('Not a char')
 
-    assert isinstance(loader.get_char('Name'), Characteristic)
+    char_name = loader.get_char('Name')
+    assert char_name is not None
+    assert isinstance(char_name, Characteristic)
 
 
 def test_loader_get_char_error():
+    """Test if errors are thrown for invalid dictionary entries."""
     loader = Loader.from_dict(char_dict={'Char': None})
     assert loader.char_types == {'Char': None}
     assert loader.serv_types == {}
@@ -36,19 +37,19 @@ def test_loader_get_char_error():
 
 
 def test_loader_service():
+    """Test if method returns a Service object."""
     loader = Loader()
 
-    assert loader.get_service('AccessoryInformation') is not None
     with pytest.raises(KeyError):
         loader.get_service('Not a service')
 
-    with patch('pyhap.service.Service.from_dict') as mock_service_from_dict:
-        service = loader.get_service('AccessoryInformation')
-        mock_service_from_dict.assert_called_with(
-            'AccessoryInformation', ANY, loader)
+    serv_acc_info = loader.get_service('AccessoryInformation')
+    assert serv_acc_info is not None
+    assert isinstance(serv_acc_info, Service)
 
 
 def test_loader_service_error():
+    """Test if errors are thrown for invalid dictionary entries."""
     loader = Loader.from_dict(serv_dict={'Service': None})
     assert loader.char_types == {}
     assert loader.serv_types == {'Service': None}
@@ -64,6 +65,7 @@ def test_loader_service_error():
 
 
 def test_get_loader():
+    """Test if method returns the preloaded loader object."""
     loader = get_loader()
     assert isinstance(loader, Loader)
     assert loader.char_types is not ({} or None)

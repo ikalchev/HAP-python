@@ -64,6 +64,7 @@ def generate_mac():
 def generate_setup_id():
     """
     Generates a random Setup ID for an ``Accessory`` or ``Bridge``.
+
     Used in QR codes and the setup hash.
 
     :return: 4 digit alphanumeric code.
@@ -114,6 +115,7 @@ tohex = bytes.hex if sys.version_info >= (3, 5) else b2hex
 fromhex = bytes.fromhex if sys.version_info >= (3, 5) else hex2b
 """Python-version-agnostic fromhex function. Equivalent to bytes.fromhex in python 3.5+.
 """
+
 
 async def event_wait(event, timeout, loop=None):
     """Wait for the given event to be set or for the timeout to expire.

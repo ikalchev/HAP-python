@@ -66,7 +66,7 @@ PROP_NUMERIC = (PROP_MAX_VALUE, PROP_MIN_VALUE, PROP_MIN_STEP, PROP_UNIT)
 
 
 class CharacteristicError(Exception):
-    pass
+    """Generic exception class for characteristic errors."""
 
 
 class Characteristic:
@@ -79,27 +79,29 @@ class Characteristic:
     """
 
     __slots__ = ('display_name', 'type_id', 'properties', 'broker',
-                 'setter_callback', 'value')
+                 'value', 'getter_callback', 'setter_callback')
 
     def __init__(self, display_name, type_id, properties):
         """Initialise with the given properties.
 
-        :param display_name: Name that will be displayed for this characteristic, i.e.
-            the `description` in the HAP representation.
+        :param display_name: Name that will be displayed for this
+            characteristic, i.e. the `description` in the HAP representation.
         :type display_name: str
 
         :param type_id: UUID unique to this type of characteristic.
         :type type_id: uuid.UUID
 
-        :param properties: A dict of properties, such as Format, ValidValues, etc.
+        :param properties: A dict of properties, such as Format,
+            ValidValues, etc.
         :type properties: dict
         """
         self.display_name = display_name
         self.type_id = type_id
         self.properties = properties
         self.broker = None
-        self.setter_callback = None
         self.value = self._get_default_value()
+        self.getter_callback = None
+        self.setter_callback = None
 
     def __repr__(self):
         """Return the representation of the characteristic."""
@@ -107,15 +109,25 @@ class Characteristic:
             .format(self.display_name, self.value, self.properties)
 
     def _get_default_value(self):
-        """Helper method. Return default value for format."""
+        """Return default value for format."""
         if self.properties.get(PROP_VALID_VALUES):
             return min(self.properties[PROP_VALID_VALUES].values())
-        else:
-            value = HAP_FORMAT_DEFAULTS[self.properties[PROP_FORMAT]]
-            return self.to_valid_value(value)
+
+        value = HAP_FORMAT_DEFAULTS[self.properties[PROP_FORMAT]]
+        return self.to_valid_value(value)
+
+    def get_value(self):
+        """This is to allow for calling `getter_callback`
+
+        :return: Current Characteristic Value
+        """
+        if self.getter_callback:
+            # pylint: disable=not-callable
+            self.value = self.to_valid_value(value=self.getter_callback())
+        return self.value
 
     def to_valid_value(self, value):
-        """Perform validation and conversion to valid value"""
+        """Perform validation and conversion to valid value."""
         if self.properties.get(PROP_VALID_VALUES):
             if value not in self.properties[PROP_VALID_VALUES].values():
                 error_msg = '{}: value={} is an invalid value.' \
@@ -168,6 +180,12 @@ class Characteristic:
         If not set_value will be aborted and an error message will be
         displayed.
 
+        `Characteristic.setter_callback`
+        You may also define a `setter_callback` on the `Characteristic`.
+        This will be called with the value being set as the arg.
+
+        .. seealso:: Characteristic.value
+
         :param value: The value to assign as this Characteristic's value.
         :type value: Depends on properties["Format"]
 
@@ -187,10 +205,11 @@ class Characteristic:
         Change self.value to value and call callback.
         """
         logger.debug('client_update_value: %s to %s',
-                      self.display_name, value)
+                     self.display_name, value)
         self.value = value
         self.notify()
         if self.setter_callback:
+            # pylint: disable=not-callable
             self.setter_callback(value)
 
     def notify(self):
@@ -201,6 +220,7 @@ class Characteristic:
         """
         self.broker.publish(self.value, self)
 
+    # pylint: disable=invalid-name
     def to_HAP(self):
         """Create a HAP representation of this Characteristic.
 
@@ -217,14 +237,15 @@ class Characteristic:
             HAP_REPR_FORMAT: self.properties[PROP_FORMAT],
         }
 
+        value = self.get_value()
         if self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
             hap_rep.update({k: self.properties[k] for k in
                             self.properties.keys() & PROP_NUMERIC})
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
-            if len(self.value) > 64:
-                hap_rep[HAP_REPR_MAX_LEN] = min(len(self.value), 256)
+            if len(value) > 64:
+                hap_rep[HAP_REPR_MAX_LEN] = min(len(value), 256)
         if HAP_PERMISSION_READ in self.properties[PROP_PERMISSIONS]:
-            hap_rep[HAP_REPR_VALUE] = self.value
+            hap_rep[HAP_REPR_VALUE] = value
 
         return hap_rep
 
