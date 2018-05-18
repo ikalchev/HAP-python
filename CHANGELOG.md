@@ -16,7 +16,7 @@ Sections
 -->
 
 
-## [Unreleased]
+## [2.1.0] - 2018-05-18
 
 ### Added
 - Added `getter_callback` to Characteristics. [#90](https://github.com/ikalchev/HAP-python/pull/90)
@@ -44,6 +44,8 @@ Sections
 - Added static code checks. To run them locally use `tox -e lint` and `tox -e pylint`. [#118](https://github.com/ikalchev/HAP-python/pull/118)
 - Added `State` helper class to keep track of (semi-)static information. [#120](https://github.com/ikalchev/HAP-python/pull/120)
 - Variables that are related to pairing and storing static information have been moved to `driver.state`. That includes from `accessory`: `config_version`, `mac`, `setup_id`, `private_key`, `public_key` and `paired_clients` as well as the `add_paired_client` and `removed_paired_client` methods. For `accessory_driver`: `address` and `port`. [#120](https://github.com/ikalchev/HAP-python/pull/120)
+
+
 
 ## [2.0.0] - 2018-05-04
 
