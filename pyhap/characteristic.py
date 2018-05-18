@@ -78,7 +78,7 @@ class Characteristic:
     like format, min and max values, valid values and others.
     """
 
-    __slots__ = ('display_name', 'type_id', 'properties', 'broker',
+    __slots__ = ('broker', 'display_name', 'properties', 'type_id',
                  'value', 'getter_callback', 'setter_callback')
 
     def __init__(self, display_name, type_id, properties):
@@ -95,10 +95,10 @@ class Characteristic:
             ValidValues, etc.
         :type properties: dict
         """
-        self.display_name = display_name
-        self.type_id = type_id
-        self.properties = properties
         self.broker = None
+        self.display_name = display_name
+        self.properties = properties
+        self.type_id = type_id
         self.value = self._get_default_value()
         self.getter_callback = None
         self.setter_callback = None
