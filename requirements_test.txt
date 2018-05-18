@@ -1,3 +1,7 @@
+flake8-docstrings
+flake8
+pydocstyle
+pylint
 pytest
 pytest-cov
 pytest-timeout>=1.2.1

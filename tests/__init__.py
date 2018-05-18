@@ -7,8 +7,3 @@ if 'COV_CORE_CONFIG' in os.environ:
     os.environ['COVERAGE_FILE'] = os.path.join(_sourceroot, '.coverage')
     os.environ['COV_CORE_CONFIG'] = os.path.join(_sourceroot,
                                                  os.environ['COV_CORE_CONFIG'])
-
-try:
-    import unittest.mock as mock
-except ImportError:
-    import mock

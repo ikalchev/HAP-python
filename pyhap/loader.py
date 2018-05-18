@@ -73,6 +73,7 @@ def get_loader():
     return _loader
 
 
+# pylint: disable=unused-argument
 def get_char_loader(desc_file=None):
     """Get a CharacteristicLoader with characteristic descriptions in the given file.
 
@@ -84,6 +85,7 @@ def get_char_loader(desc_file=None):
     return get_loader()
 
 
+# pylint: disable=unused-argument
 def get_serv_loader(desc_file=None):
     """Get a ServiceLoader with service descriptions in the given file.
 

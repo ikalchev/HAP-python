@@ -1,15 +1,14 @@
-"""
-Tests for pyhap.accessory
-"""
+"""Tests for pyhap.accessory."""
 import pytest
 
 import pyhap.accessory as accessory
 import pyhap.loader as loader
 
-class TestAccessory(object):
+
+class TestAccessory:
 
     def test_init(self):
-        acc = accessory.Accessory('Test Accessory')
+        accessory.Accessory('Test Accessory')
 
     def test_publish_no_broker(self):
         acc = accessory.Accessory('Test Accessory')
@@ -19,7 +18,7 @@ class TestAccessory(object):
         char.set_value(25, should_notify=True)
 
     def test_set_services_compatible(self):
-        """Test that _set_services still works and has access to the info services"""
+        """Test deprecated method _set_services."""
         class A(accessory.Accessory):
             def _set_services(self):
                 super()._set_services()
@@ -29,10 +28,11 @@ class TestAccessory(object):
         a = A("Test Accessory")
         assert a.get_service("TemperatureSensor") is not None
 
+
 class TestBridge(TestAccessory):
 
     def test_init(self):
-        bridge = accessory.Bridge('Test Bridge')
+        accessory.Bridge('Test Bridge')
 
     def test_add_accessory(self):
         bridge = accessory.Bridge('Test Bridge')
@@ -40,12 +40,12 @@ class TestBridge(TestAccessory):
         bridge.add_accessory(acc)
         acc2 = accessory.Accessory('Test Accessory 2')
         bridge.add_accessory(acc2)
-        assert (acc2.aid != accessory.STANDALONE_AID
-                and acc2.aid != acc.aid)
+        assert acc2.aid != accessory.STANDALONE_AID and acc2.aid != acc.aid
 
     def test_n_add_accessory_bridge_aid(self):
         bridge = accessory.Bridge('Test Bridge')
-        acc = accessory.Accessory('Test Accessory', aid=accessory.STANDALONE_AID)
+        acc = accessory.Accessory(
+            'Test Accessory', aid=accessory.STANDALONE_AID)
         with pytest.raises(ValueError):
             bridge.add_accessory(acc)
 
