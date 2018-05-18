@@ -1,10 +1,9 @@
 """Tests for pyhap.loader."""
 import pytest
 
-from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
 from pyhap.characteristic import Characteristic
 from pyhap.service import Service
-from pyhap.loader import get_loader, Loader
+from pyhap.loader import Loader
 
 
 def test_loader_char():
@@ -62,18 +61,3 @@ def test_loader_service_error():
         loader.serv_types['Service'] = case
         with pytest.raises(KeyError):
             loader.get_service('Service')
-
-
-def test_get_loader():
-    """Test if method returns the preloaded loader object."""
-    loader = get_loader()
-    assert isinstance(loader, Loader)
-    assert loader.char_types is not ({} or None)
-    assert loader.serv_types is not ({} or None)
-
-    loader2 = Loader(path_char=CHARACTERISTICS_FILE,
-                     path_service=SERVICES_FILE)
-    assert loader.char_types == loader2.char_types
-    assert loader.serv_types == loader2.serv_types
-
-    assert get_loader() == loader
