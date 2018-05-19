@@ -25,9 +25,6 @@ Sections
 ### Changed
 - The `loader` object is now stored in the `driver` and can be accessed through `driver.loader`. [#105](https://github.com/ikalchev/HAP-python/pull/105)
 
-### Removed
-- The `Loader` methods `get_loader`, `get_char_loader` and `get_serv_loader` have bee removed. To add a service to an accessory, use `acc.add_preload_service()` instead. [#105](https://github.com/ikalchev/HAP-python/pull/105)
-
 ### Breaking Changes
 - The `driver` doesn't take the top `accessory` anymore. Instead it's added through `driver.add_accessory()` after the initialization. [#105](https://github.com/ikalchev/HAP-python/pull/105)
 - All `driver` init parameter are now required to be passed as keywords. [#105](https://github.com/ikalchev/HAP-python/pull/105)
