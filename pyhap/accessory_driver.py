@@ -42,6 +42,7 @@ from pyhap.const import (
 from pyhap.encoder import AccessoryEncoder
 from pyhap.hap_server import HAPServer
 from pyhap.hsrp import Server as SrpServer
+from pyhap.loader import Loader
 from pyhap.params import get_srp_context
 from pyhap.state import State
 
@@ -103,17 +104,11 @@ class AccessoryDriver:
 
     NUM_EVENTS_BEFORE_STATS = 100
 
-    def __init__(self, accessory, port, address=None,
-                 persist_file='accessory.state', encoder=None, pincode=None):
+    def __init__(self, *, address=None, port=51234,
+                 persist_file='accessory.state', pincode=None,
+                 encoder=None, loader=None):
         """
         Initialize a new AccessoryDriver object.
-
-        :param accessory: The `Accessory` to be managed by this driver. The `Accessory`
-            must have the standalone AID (`pyhap.accessory.STANDALONE_AID`). If the
-            AID of the `Accessory` is None, the standalone AID will be assigned to it.
-            Also, if the mac of the `Accessory` is None, a randomly-generated one
-            will be assigned to it.
-        :type accessory: Accessory
 
         :param pincode: The pincode that HAP clients must prove they know in order
             to pair with this `Accessory`. Defaults to None, in which case a random
@@ -138,17 +133,14 @@ class AccessoryDriver:
         :param encoder: The encoder to use when persisting/loading the Accessory state.
         :type encoder: AccessoryEncoder
         """
-        if accessory.aid is None:
-            accessory.aid = STANDALONE_AID
-        elif accessory.aid != STANDALONE_AID:
-            raise ValueError("Top-level accessory must have the standalone AID.")
-        self.accessory = accessory
+        self.accessory = None
         self.http_server_thread = None
         self.advertiser = Zeroconf()
         self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
+        self.loader = loader or Loader()
         self.loop = asyncio.new_event_loop()
         self.aio_stop_event = asyncio.Event(loop=self.loop)
         self.stop_event = threading.Event()
@@ -157,7 +149,6 @@ class AccessoryDriver:
         self.sent_events = 0
         self.accumulated_qsize = 0
 
-        self.accessory.set_driver(self)
         self.mdns_service_info = None
         self.srp_verifier = None
         self.accessory_thread = None
@@ -166,6 +157,13 @@ class AccessoryDriver:
         network_tuple = (self.state.address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
 
+    def add_accessory(self, accessory):
+        """Add top level accessory to driver."""
+        self.accessory = accessory
+        if accessory.aid is None:
+            accessory.aid = STANDALONE_AID
+        elif accessory.aid != STANDALONE_AID:
+            raise ValueError("Top-level accessory must have the AID == 1.")
         if os.path.exists(self.persist_file):
             logger.info("Loading Accessory state from `%s`", self.persist_file)
             self.load()
@@ -464,6 +462,9 @@ class AccessoryDriver:
         All of the above are started in separate threads. Accessory thread is set as
         daemon.
         """
+        if self.accessory is None:
+            raise ValueError("You must assign an accessory to the driver, "
+                             "before you can start it.")
         logger.info("Starting accessory %s on address %s, port %s.",
                     self.accessory.display_name, self.state.address,
                     self.state.port)
@@ -492,8 +493,6 @@ class AccessoryDriver:
             self.accessory.setup_message()
 
         # Start the accessory so it can do stuff.
-        self.accessory.set_sentinel(self.stop_event, self.aio_stop_event,
-                                    self.loop)
         if isinstance(self.accessory, AsyncAccessory):
             self.accessory_task = self.loop.create_task(
                 self.accessory.run())

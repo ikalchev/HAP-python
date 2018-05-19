@@ -10,7 +10,6 @@ from pyhap.const import (
     STANDALONE_AID, HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_SERVICES,
     HAP_REPR_VALUE, CATEGORY_OTHER, CATEGORY_BRIDGE)
 from pyhap.iid_manager import IIDManager
-from pyhap.loader import get_loader
 
 if SUPPORT_QR_CODE:
     import base36
@@ -30,7 +29,7 @@ class Accessory:
 
     category = CATEGORY_OTHER
 
-    def __init__(self, display_name, aid=None, mac=None, pincode=None):
+    def __init__(self, driver, display_name, aid=None):
         """Initialise with the given properties.
 
         :param display_name: Name to be displayed in the Home app.
@@ -42,35 +41,19 @@ class Accessory:
             will assign the standalone AID to this `Accessory`.
         :type aid: int
 
-        :param mac: Deprecated.
-
-        :param pincode: Deprecated.
-
         :param setup_id: Setup ID can be provided, although, per spec, should be random
             every time the instance is started. If not provided on init, will be random.
             4 digit string 0-9 A-Z
         :type setup_id: str
         """
-        if mac or pincode:
-            logger.warning(
-                "The 'mac' and 'pincode' parameter are now deprecated."
-                "Assign the 'pincode' to the driver instead.")
-        self.display_name = display_name
         self.aid = aid
-        self.mac = mac
+        self.display_name = display_name
+        self.driver = driver
         self.reachable = True
-        self._pincode = pincode
-        self.driver = None
-        # threading.Event that gets set when the Accessory should stop.
-        self.run_sentinel = None
-        self.loop = None
-        self.aio_stop_event = None
-
         self.services = []
         self.iid_manager = IIDManager()
 
         self.add_info_service()
-
         self._set_services()
 
     def __repr__(self):
@@ -99,7 +82,7 @@ class Accessory:
         Called in `__init__` to be sure that it is the first service added.
         May be overridden.
         """
-        serv_info = get_loader().get_service('AccessoryInformation')
+        serv_info = self.driver.loader.get_service('AccessoryInformation')
         serv_info.configure_char('Name', value=self.display_name)
         serv_info.configure_char('SerialNumber', value='default')
         self.add_service(serv_info)
@@ -125,31 +108,14 @@ class Accessory:
 
     def add_preload_service(self, service, chars=None):
         """Create a service with the given name and add it to this acc."""
-        loader = get_loader()
-        service = loader.get_service(service)
+        service = self.driver.loader.get_service(service)
         if chars:
             chars = chars if isinstance(chars, list) else [chars]
             for char_name in chars:
-                char = loader.get_char(char_name)
+                char = self.driver.loader.get_char(char_name)
                 service.add_characteristic(char)
         self.add_service(service)
         return service
-
-    def set_sentinel(self, run_sentinel, aio_stop_event, loop):
-        """Assign a run sentinel that can signal stopping.
-
-        The run sentinel is a threading.Event object that can be used to manage
-        continuous running of the Accessory, e.g. a loop reading from a sensor every 3
-        seconds. The sentinel is "set" typically by the AccessoryDriver just before
-        Accessory.stop is called.
-
-        Example usage in the run method:
-        >>> while not self.run_sentinel.wait(3): # If not set, every 3 seconds
-        ...    sensor.readTemperature()
-        """
-        self.run_sentinel = run_sentinel
-        self.aio_stop_event = aio_stop_event
-        self.loop = loop
 
     def config_changed(self):
         """Notify the accessory about configuration changes.
@@ -204,13 +170,6 @@ class Accessory:
         :rtype: Service
         """
         return next((s for s in self.services if s.display_name == name), None)
-
-    def set_driver(self, driver):
-        self.driver = driver
-        if self.mac:
-            self.driver.state.mac = self.mac
-        if self._pincode:
-            self.driver.state.pincode = self._pincode
 
     def xhm_uri(self):
         """Generates the X-HM:// uri (Setup Code URI)
@@ -306,7 +265,7 @@ class Accessory:
         # decorator returns a decorator with the argument it got
         def _repeat(func):
             def _wrapper(self, *args, **kwargs):
-                while not self.run_sentinel.wait(seconds):
+                while not self.driver.stop_event.wait(seconds):
                     func(self, *args, **kwargs)
             return _wrapper
         return _repeat
@@ -329,17 +288,12 @@ class Accessory:
 
         Characteristics call this method to send updates.
 
-        .. note:: The method will not fail if the driver is not set - it will do nothing.
-
         :param data: Data to publish, usually from a Characteristic.
         :type data: dict
 
         :param sender: The Service or Characteristic from which the call originated.
         :type: Service or Characteristic
         """
-        if self.driver is None:
-            return
-
         acc_data = {
             HAP_REPR_AID: self.aid,
             HAP_REPR_IID: self.iid_manager.get_iid(sender),
@@ -367,9 +321,9 @@ class AsyncAccessory(Accessory):
         # decorator returns a decorator with the argument it got
         def _repeat(func):
             async def _wrapper(self, *args, **kwargs):
-                while not await util.event_wait(self.aio_stop_event,
+                while not await util.event_wait(self.driver.aio_stop_event,
                                                 seconds,
-                                                self.loop):
+                                                self.driver.loop):
                     await func(self, *args, **kwargs)
             return _wrapper
         return _repeat
@@ -387,21 +341,9 @@ class Bridge(AsyncAccessory):
 
     category = CATEGORY_BRIDGE
 
-    def __init__(self, display_name, mac=None, pincode=None):
-        """
-        :param mac: Deprecated.
-
-        :param pincode: Deprecated.
-        """
-        super().__init__(display_name, aid=STANDALONE_AID, mac=mac,
-                         pincode=pincode)
+    def __init__(self, driver, display_name):
+        super().__init__(driver, display_name, aid=STANDALONE_AID)
         self.accessories = {}  # aid: acc
-
-    def set_sentinel(self, run_sentinel, aio_stop_event, loop):
-        """Set the same sentinel to all contained accessories."""
-        super().set_sentinel(run_sentinel, aio_stop_event, loop)
-        for acc in self.accessories.values():
-            acc.set_sentinel(run_sentinel, aio_stop_event, loop)
 
     def add_accessory(self, acc):
         """Add the given ``Accessory`` to this ``Bridge``.
@@ -433,11 +375,6 @@ class Bridge(AsyncAccessory):
 
         self.accessories[acc.aid] = acc
 
-    def set_driver(self, driver):
-        super().set_driver(driver)
-        for _, acc in self.accessories.items():
-            acc.driver = driver
-
     def to_HAP(self):
         """Returns a HAP representation of itself and all contained accessories.
 
@@ -467,11 +404,11 @@ class Bridge(AsyncAccessory):
         tasks = []
         for acc in self.accessories.values():
             if isinstance(acc, AsyncAccessory):
-                task = self.loop.create_task(acc.run())
+                task = self.driver.loop.create_task(acc.run())
             else:
-                task = self.loop.create_task(self._wrap_in_thread(acc.run))
+                task = self.driver.loop.create_task(self._wrap_in_thread(acc.run))
             tasks.append(task)
-        await asyncio.gather(*tasks, loop=self.loop)
+        await asyncio.gather(*tasks, loop=self.driver.loop)
 
     def stop(self):
         """Calls stop() on all contained accessories."""

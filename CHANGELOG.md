@@ -10,10 +10,29 @@ Sections
 ### Added
 ### Changed
 ### Deprecated
+### Removed
 ### Fixed
 ### Breaking Changes
 ### Developers
 -->
+
+## [Unreleased]
+
+### Added
+- Option to pass custom loader object to `driver` with parameter `loader`. [#105](https://github.com/ikalchev/HAP-python/pull/105)
+- Default port for `accessory_driver.port = 51234`. [#105](https://github.com/ikalchev/HAP-python/pull/105)
+
+### Changed
+- The `loader` object is now stored in the `driver` and can be accessed through `driver.loader`. [#105](https://github.com/ikalchev/HAP-python/pull/105)
+
+### Breaking Changes
+- The `driver` doesn't take the top `accessory` anymore. Instead it's added through `driver.add_accessory()` after the initialization. [#105](https://github.com/ikalchev/HAP-python/pull/105)
+- All `driver` init parameter are now required to be passed as keywords. [#105](https://github.com/ikalchev/HAP-python/pull/105)
+- Any `accessory` needs the `driver` object for its initialization, passed as first argument. [#105](https://github.com/ikalchev/HAP-python/pull/105)
+
+### Developers
+- Removed `acc.set_driver()` and `acc.set_sentinel()` methods. `acc.run_sentinel`, `acc.aio_stop_event` and `acc.loop` are now accessed through `acc.driver.xxx`. `run_sentinel` is changed to `stop_event`. [#105](https://github.com/ikalchev/HAP-python/pull/105)
+
 
 
 ## [2.1.0] - 2018-05-18
