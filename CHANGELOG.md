@@ -32,6 +32,7 @@ Sections
 
 ### Developers
 - Removed `acc.set_driver()` and `acc.set_sentinel()` methods. `acc.run_sentinel`, `acc.aio_stop_event` and `acc.loop` are now accessed through `acc.driver.xxx`. `run_sentinel` is changed to `stop_event`. [#105](https://github.com/ikalchev/HAP-python/pull/105)
+- Added scripts for `setup` and `release`.  [#125](https://github.com/ikalchev/HAP-python/pull/125)
 
 
 

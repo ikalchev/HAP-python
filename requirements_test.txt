@@ -1,5 +1,5 @@
-flake8-docstrings
 flake8
+flake8-docstrings
 pydocstyle
 pylint
 pytest
