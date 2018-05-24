@@ -24,6 +24,7 @@ Sections
 
 ### Changed
 - The `loader` object is now stored in the `driver` and can be accessed through `driver.loader`. [#105](https://github.com/ikalchev/HAP-python/pull/105)
+- Use the `Accessory.run_at_interval` decorator for the `run` method, instead of `while True: sleep(x); do_stuff()`. [#124](https://github.com/ikalchev/HAP-python/pull/124)
 
 ### Breaking Changes
 - The `driver` doesn't take the top `accessory` anymore. Instead it's added through `driver.add_accessory()` after the initialization. [#105](https://github.com/ikalchev/HAP-python/pull/105)

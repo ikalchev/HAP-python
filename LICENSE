@@ -28,7 +28,6 @@ pyhap/accessory_driver.py
     Original file:
       https://github.com/home-assistant/home-assistant/blob/master/homeassistant/core.py
 
-
 setup.py
     Inspired from: Home Assistant [1]
     Original file:
