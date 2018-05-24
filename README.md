@@ -45,17 +45,16 @@ $ pip3 uninstall HAP-python
 ## API <a name="API"></a>
 
 A typical flow for using HAP-python starts with implementing an Accessory. This is done by
-subclassing [AsyncAccessory](pyhap/accessory.py) and putting in place a few details
+subclassing [Accessory](pyhap/accessory.py) and putting in place a few details
 (see below). After that, you give your accessory to an AccessoryDriver to manage. This
 will take care of advertising it on the local network, setting a HAP server and
 running the Accessory. Take a look at [main.py](main.py) for a quick start on that.
 
 ```python
-from pyhap.accessory import Accessory, AsyncAccessory, Category
+from pyhap.accessory import Accessory, Category
 import pyhap.loader as loader
 
-### Async accessory - run method is run asynchronously in the event loop
-class TemperatureSensor(AsyncAccessory):
+class TemperatureSensor(Accessory):
     """Implementation of a mock temperature sensor accessory."""
 
     category = Category.SENSOR  # This is for the icon in the iOS Home app.
@@ -81,8 +80,9 @@ class TemperatureSensor(AsyncAccessory):
         """
         print('Temperature changed to: ', value)
 
-    @AsyncAcessory.run_at_interval(3)  # Run this method every 3 seconds
-    async def run(self):
+    @Acessory.run_at_interval(3)  # Run this method every 3 seconds
+    # The `run` method can be `async` as well
+    def run(self):
         """We override this method to implement what the accessory will do when it is
         started.
 
@@ -91,21 +91,12 @@ class TemperatureSensor(AsyncAccessory):
         """
         self.temp_char.set_value(random.randint(18, 26))
 
+    # The `stop` method can be `async` as well
     def stop(self):
         """We override this method to clean up any resources or perform final actions, as
         this is called by the AccessoryDriver when the Accessory is being stopped.
         """
         print('Stopping accessory.')
-
-### Synchronouse accessory - run method is in a thread
-class SyncTemperatureSensor(Accessory):
-    """Everything is same as in the TemperatureSensor, apart from the run method which is
-    not async.
-    """
-
-    @Accessory.run_at_interval(3)
-    def run(self):
-        self.temp_char.set_value(random.randint(18, 26))
 ```
 
 ## Integrating non-compatible devices <a name="HttpAcc"></a>
