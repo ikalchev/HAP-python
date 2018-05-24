@@ -1,0 +1,17 @@
+#!/bin/sh
+# Setup development environment
+
+# Stop on errors
+set -e
+
+cd "$(dirname "$0")/.."
+
+echo "=============================="
+echo "=   Installing dependencies  ="
+echo "=============================="
+pip install -e .[qrcode]
+
+echo "==================================="
+echo "=   Installing test dependencies  ="
+echo "==================================="
+python3 -m pip install -r requirements_test.txt
