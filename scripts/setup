@@ -1,4 +1,5 @@
 #!/bin/sh
+# Setup development environment
 
 # Stop on errors
 set -e
@@ -13,5 +14,4 @@ pip install -e .[qrcode]
 echo "==================================="
 echo "=   Installing test dependencies  ="
 echo "==================================="
-python3 -m pip install tox
 python3 -m pip install -r requirements_test.txt

@@ -1,4 +1,5 @@
 #!/bin/sh
+# Run to build distribution packages and upload them to pypi
 
 # Stop on errors
 set -e
