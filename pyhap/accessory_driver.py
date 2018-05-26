@@ -129,12 +129,6 @@ class AccessoryDriver:
             a digit.
         :type pincode: bytearray
 
-        :param pincode: The pincode that HAP clients must prove they know in order
-            to pair with this `Accessory`. Defaults to None, in which case a random
-            pincode is generated. The pincode has the format "xxx-xx-xxx", where x is
-            a digit.
-        :type pincode: bytearray
-
         :param port: The local port on which the accessory will be accessible.
             In other words, this is the port of the HAPServer.
         :type port: int

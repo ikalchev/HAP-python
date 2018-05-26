@@ -45,7 +45,7 @@ $ pip3 uninstall HAP-python
 ## API <a name="API"></a>
 
 A typical flow for using HAP-python starts with implementing an Accessory. This is done by
-subclassing [AsyncAccessory](pyhap/accessory.py) and putting in place a few details
+subclassing [Accessory](pyhap/accessory.py) and putting in place a few details
 (see below). After that, you give your accessory to an AccessoryDriver to manage. This
 will take care of advertising it on the local network, setting a HAP server and
 running the Accessory. Take a look at [main.py](main.py) for a quick start on that.
