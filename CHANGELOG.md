@@ -16,7 +16,7 @@ Sections
 ### Developers
 -->
 
-## [Unreleased]
+## [2.2.0] - 2018-05-26
 
 ### Added
 - Option to pass custom loader object to `driver` with parameter `loader`. [#105](https://github.com/ikalchev/HAP-python/pull/105)
