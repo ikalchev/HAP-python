@@ -15,7 +15,7 @@
 import os
 import sys
 sys.path.insert(0, os.path.abspath('../../'))
-from pyhap import HAP_PYTHON_VERSION
+from pyhap.const import __version__
 
 
 # -- Project information -----------------------------------------------------
@@ -27,7 +27,7 @@ author = 'Ivan Kalchev'
 # The short X.Y version
 version = ''
 # The full version, including alpha/beta/rc tags
-release = '.'.join(map(str, HAP_PYTHON_VERSION))
+release = '.'.join(map(str, __version__))
 
 
 # -- General configuration ---------------------------------------------------

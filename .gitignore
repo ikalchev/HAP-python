@@ -28,6 +28,9 @@ lib64
 pyvenv.cfg
 share
 
+# pip
+pip-selfcheck.json
+
 # HAP-python-generated files
 accessory.pickle
 accessory.state

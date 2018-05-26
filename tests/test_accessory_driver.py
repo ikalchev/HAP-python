@@ -1,87 +1,77 @@
 """Tests for pyhap.accessory_driver."""
-import os
 import tempfile
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 import pytest
 
-from pyhap.accessory import Accessory, AsyncAccessory, STANDALONE_AID
+from pyhap.accessory import Accessory, STANDALONE_AID
 from pyhap.accessory_driver import AccessoryDriver
 
 
-@patch("pyhap.accessory_driver.AccessoryDriver.persist")
-@patch("pyhap.accessory_driver.HAPServer", new=Mock())
-def test_auto_add_aid_mac(_persist_mock):
-    acc = Accessory("Test Accessory")
-    driver = AccessoryDriver(acc, 51234, "192.168.1.1", "test.accessory")
+@pytest.fixture
+def driver():
+    with patch('pyhap.accessory_driver.HAPServer'), \
+        patch('pyhap.accessory_driver.Zeroconf'), \
+            patch('pyhap.accessory_driver.AccessoryDriver.persist'):
+        yield AccessoryDriver()
+
+
+def test_auto_add_aid_mac(driver):
+    acc = Accessory(driver, 'Test Accessory')
+    driver.add_accessory(acc)
     assert acc.aid == STANDALONE_AID
     assert driver.state.mac is not None
 
 
-@patch("pyhap.accessory_driver.AccessoryDriver.persist")
-@patch("pyhap.accessory_driver.HAPServer", new=Mock())
-def test_not_standalone_aid(_persist_mock):
-    acc = Accessory("Test Accessory", aid=STANDALONE_AID + 1)
+def test_not_standalone_aid(driver):
+    acc = Accessory(driver, 'Test Accessory', aid=STANDALONE_AID + 1)
     with pytest.raises(ValueError):
-        AccessoryDriver(acc, 51234, "192.168.1.1", "test.accessory")
+        driver.add_accessory(acc)
 
 
-@patch("pyhap.accessory_driver.HAPServer", new=Mock())
 def test_persist_load():
-    def get_acc():
-        return Accessory("Test Accessory")
-    fp = tempfile.NamedTemporaryFile(mode="r+")
-    persist_file = fp.name
-    fp.close()
-    try:
-        # Create driver - state gets stored
-        driver = AccessoryDriver(get_acc(), 51234, persist_file=persist_file)
-        pk = driver.state.public_key
-        # Re-start driver with a "new" accessory. State gets loaded into
-        # the new accessory.
-        driver_new = AccessoryDriver(get_acc(), 51234, persist_file=persist_file)
-        # Check pk is the same, i.e. that the state is indeed loaded.
-        assert driver_new.state.public_key == pk
-    finally:
-        os.remove(persist_file)
+    with tempfile.NamedTemporaryFile(mode='r+') as file:
+        with patch('pyhap.accessory_driver.HAPServer'), \
+                patch('pyhap.accessory_driver.Zeroconf'):
+            driver = AccessoryDriver(port=51234, persist_file=file.name)
+            driver.persist()
+            pk = driver.state.public_key
+            # Re-start driver with a "new" accessory. State gets loaded into
+            # the new accessory.
+            driver = AccessoryDriver(port=51234, persist_file=file.name)
+            driver.load()
+    assert driver.state.public_key == pk
 
 
-@patch("pyhap.accessory_driver.Zeroconf", new=Mock())
-@patch("pyhap.accessory_driver.AccessoryDriver.persist")
-@patch("pyhap.accessory_driver.HAPServer", new=Mock())
-def test_start_stop_sync_acc(_persist):
+def test_start_stop_sync_acc(driver):
     class Acc(Accessory):
         running = True
 
+        @Accessory.run_at_interval(0)
         def run(self):
-            while self.run_sentinel.wait(0):
-                pass
             self.running = False
             driver.stop()
 
         def setup_message(self):
             pass
 
-    acc = Acc("TestAcc")
-    driver = AccessoryDriver(acc, 51234, persist_file="foo")
+    acc = Acc(driver, 'TestAcc')
+    driver.add_accessory(acc)
     driver.start()
     assert not acc.running
 
 
-@patch("pyhap.accessory_driver.Zeroconf", new=Mock())
-@patch("pyhap.accessory_driver.AccessoryDriver.persist")
-@patch("pyhap.accessory_driver.HAPServer", new=Mock())
-def test_start_stop_async_acc(_persist):
-    class Acc(AsyncAccessory):
+def test_start_stop_async_acc(driver):
+    class Acc(Accessory):
 
-        @AsyncAccessory.run_at_interval(0)
+        @Accessory.run_at_interval(0)
         async def run(self):
             driver.stop()
 
         def setup_message(self):
             pass
 
-    acc = Acc("TestAcc")
-    driver = AccessoryDriver(acc, 51234, persist_file="foo")
+    acc = Acc(driver, 'TestAcc')
+    driver.add_accessory(acc)
     driver.start()
     assert driver.loop.is_closed()

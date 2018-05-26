@@ -22,11 +22,13 @@ or went to sleep before telling us. This concludes the publishing process from t
 AccessoryDriver.
 """
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import os
 import logging
 import socket
 import hashlib
 import base64
+import sys
 import time
 import threading
 import json
@@ -34,7 +36,7 @@ import queue
 
 from zeroconf import ServiceInfo, Zeroconf
 
-from pyhap.accessory import AsyncAccessory, get_topic
+from pyhap.accessory import get_topic
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import (
     STANDALONE_AID, HAP_PERMISSION_NOTIFY, HAP_REPR_ACCS, HAP_REPR_AID,
@@ -42,6 +44,7 @@ from pyhap.const import (
 from pyhap.encoder import AccessoryEncoder
 from pyhap.hap_server import HAPServer
 from pyhap.hsrp import Server as SrpServer
+from pyhap.loader import Loader
 from pyhap.params import get_srp_context
 from pyhap.state import State
 
@@ -49,6 +52,17 @@ logger = logging.getLogger(__name__)
 
 CHAR_STAT_OK = 0
 SERVICE_COMMUNICATION_FAILURE = -70402
+
+
+def callback(func):
+    """Decorator for non blocking functions."""
+    setattr(func, '_pyhap_callback', True)
+    return func
+
+
+def is_callback(func):
+    """Check if function is callback."""
+    return '_pyhap_callback' in getattr(func, '__dict__', {})
 
 
 class AccessoryMDNSServiceInfo(ServiceInfo):
@@ -103,17 +117,17 @@ class AccessoryDriver:
 
     NUM_EVENTS_BEFORE_STATS = 100
 
-    def __init__(self, accessory, port, address=None,
-                 persist_file='accessory.state', encoder=None, pincode=None):
+    def __init__(self, *, address=None, port=51234,
+                 persist_file='accessory.state', pincode=None,
+                 encoder=None, loader=None, loop=None):
         """
         Initialize a new AccessoryDriver object.
 
-        :param accessory: The `Accessory` to be managed by this driver. The `Accessory`
-            must have the standalone AID (`pyhap.accessory.STANDALONE_AID`). If the
-            AID of the `Accessory` is None, the standalone AID will be assigned to it.
-            Also, if the mac of the `Accessory` is None, a randomly-generated one
-            will be assigned to it.
-        :type accessory: Accessory
+        :param pincode: The pincode that HAP clients must prove they know in order
+            to pair with this `Accessory`. Defaults to None, in which case a random
+            pincode is generated. The pincode has the format "xxx-xx-xxx", where x is
+            a digit.
+        :type pincode: bytearray
 
         :param pincode: The pincode that HAP clients must prove they know in order
             to pair with this `Accessory`. Defaults to None, in which case a random
@@ -138,18 +152,26 @@ class AccessoryDriver:
         :param encoder: The encoder to use when persisting/loading the Accessory state.
         :type encoder: AccessoryEncoder
         """
-        if accessory.aid is None:
-            accessory.aid = STANDALONE_AID
-        elif accessory.aid != STANDALONE_AID:
-            raise ValueError("Top-level accessory must have the standalone AID.")
-        self.accessory = accessory
+        if sys.platform == 'win32':
+            self.loop = loop or asyncio.ProactorEventLoop()
+        else:
+            self.loop = loop or asyncio.new_event_loop()
+
+        executer_opts = {'max_workers': None}
+        if sys.version_info >= (3, 6):
+            executer_opts['thread_name_prefix'] = 'SyncWorker'
+
+        self.executer = ThreadPoolExecutor(**executer_opts)
+        self.loop.set_default_executor(self.executer)
+
+        self.accessory = None
         self.http_server_thread = None
         self.advertiser = Zeroconf()
         self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
-        self.loop = asyncio.new_event_loop()
+        self.loader = loader or Loader()
         self.aio_stop_event = asyncio.Event(loop=self.loop)
         self.stop_event = threading.Event()
         self.event_queue = queue.Queue()  # (topic, bytes)
@@ -157,7 +179,6 @@ class AccessoryDriver:
         self.sent_events = 0
         self.accumulated_qsize = 0
 
-        self.accessory.set_driver(self)
         self.mdns_service_info = None
         self.srp_verifier = None
         self.accessory_thread = None
@@ -166,6 +187,150 @@ class AccessoryDriver:
         network_tuple = (self.state.address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
 
+    def start(self):
+        """Start the event loop and call `_do_start`.
+
+        Pyhap will be stopped gracefully on a KeyBoardInterrupt.
+        """
+        try:
+            logger.info('Starting the event loop')
+            self.add_job(self._do_start)
+            self.loop.run_forever()
+        except KeyboardInterrupt:
+            self.loop.call_soon_threadsafe(
+                self.loop.create_task, self.async_stop())
+            self.loop.run_forever()
+        finally:
+            self.loop.close()
+            logger.info('Closed the event loop')
+
+    def _do_start(self):
+        """Starts the accessory.
+
+        - Call the accessory's run method.
+        - Start handling accessory events.
+        - Start the HAP server.
+        - Publish a mDNS advertisement.
+        - Print the setup QR code if the accessory is not paired.
+
+        All of the above are started in separate threads. Accessory thread is set as
+        daemon.
+        """
+        if self.accessory is None:
+            raise ValueError("You must assign an accessory to the driver, "
+                             "before you can start it.")
+        logger.info("Starting accessory %s on address %s, port %s.",
+                    self.accessory.display_name, self.state.address,
+                    self.state.port)
+
+        # Start sending events to clients. This is done in a daemon thread, because:
+        # - if the queue is blocked waiting on an empty queue, then there is nothing left
+        #   for clean up.
+        # - if the queue is currently sending an event to the client, then, when it has
+        #   finished, it will check the run sentinel, see that it is set and break the
+        #   loop. Alternatively, the server's server_close method will shutdown and close
+        #   the socket, while sending is in progress, which will result abort the sending.
+        self.send_event_thread = threading.Thread(daemon=True, target=self.send_events)
+        self.send_event_thread.start()
+
+        # Start listening for requests
+        self.http_server_thread = threading.Thread(target=self.http_server.serve_forever)
+        self.http_server_thread.start()
+
+        # Advertise the accessory as a mDNS service.
+        self.mdns_service_info = AccessoryMDNSServiceInfo(
+            self.accessory, self.state)
+        self.advertiser.register_service(self.mdns_service_info)
+
+        # Print accessory setup message
+        if not self.state.paired:
+            self.accessory.setup_message()
+
+        # Start the accessory so it can do stuff.
+        self.add_job(self.accessory.run)
+        logger.debug('AccessoryDriver started successfully')
+
+    def stop(self):
+        """Method to stop pyhap."""
+        self.loop.call_soon_threadsafe(
+            self.loop.create_task, self.async_stop())
+
+    async def async_stop(self):
+        """Stops the AccessoryDriver and shutdown all remaining tasks."""
+        await self.async_add_job(self._do_stop)
+        logger.debug('Shutdown executers')
+        self.executer.shutdown()
+        self.loop.stop()
+
+    def _do_stop(self):
+        """Stop the accessory.
+
+        1. Set the run sentinel.
+        2. Call the stop method of the Accessory and wait for its thread to finish.
+        3. Stop mDNS advertising.
+        4. Stop HAP server.
+        """
+        # TODO: This should happen in a different order - mDNS, server, accessory. Need
+        # to ensure that sending with a closed server will not crash the app.
+        logger.info("Stopping accessory %s on address %s, port %s.",
+                    self.accessory.display_name, self.state.address,
+                    self.state.port)
+        logger.debug("Setting stop events, stopping accessory and event sending")
+        self.stop_event.set()
+        self.loop.call_soon_threadsafe(self.aio_stop_event.set)
+        self.add_job(self.accessory.stop)
+
+        logger.debug("Stopping mDNS advertising")
+        self.advertiser.unregister_service(self.mdns_service_info)
+        self.advertiser.close()
+
+        logger.debug("Stopping HAP server")
+        self.http_server.shutdown()
+        self.http_server.server_close()
+        self.http_server_thread.join()
+
+        logger.debug("AccessoryDriver stopped successfully")
+
+    def add_job(self, target, *args):
+        """Add job to executer pool."""
+        if target is None:
+            raise ValueError("Don't call add_job with None.")
+        self.loop.call_soon_threadsafe(self.async_add_job, target, *args)
+
+    @callback
+    def async_add_job(self, target, *args):
+        """Add job from within the event loop."""
+        task = None
+
+        if asyncio.iscoroutine(target):
+            task = self.loop.create_task(target)
+        elif is_callback(target):
+            self.loop.call_soon(target, *args)
+        elif asyncio.iscoroutinefunction(target):
+            task = self.loop.create_task(target(*args))
+        else:
+            task = self.loop.run_in_executor(None, target, *args)
+
+        return task
+
+    @callback
+    def async_run_job(self, target, *args):
+        """Run job from within the event loop.
+
+        In contract to `async_add_job`, `callbacks` get called immediately.
+        """
+        if not asyncio.iscoroutine(target) and is_callback(target):
+            target(*args)
+        else:
+            self.async_add_job(target, *args)
+
+    def add_accessory(self, accessory):
+        """Add top level accessory to driver."""
+        self.accessory = accessory
+        if accessory.aid is None:
+            accessory.aid = STANDALONE_AID
+        elif accessory.aid != STANDALONE_AID:
+            raise ValueError("Top-level accessory must have the AID == 1.")
         if os.path.exists(self.persist_file):
             logger.info("Loading Accessory state from `%s`", self.persist_file)
             self.load()
@@ -451,95 +616,6 @@ class AccessoryDriver:
 
             chars_response.append(response)
         return {HAP_REPR_CHARS: chars_response}
-
-    def start(self):
-        """Starts the accessory.
-
-        - Call the accessory's run method.
-        - Start handling accessory events.
-        - Start the HAP server.
-        - Publish a mDNS advertisement.
-        - Print the setup QR code if the accessory is not paired.
-
-        All of the above are started in separate threads. Accessory thread is set as
-        daemon.
-        """
-        logger.info("Starting accessory %s on address %s, port %s.",
-                    self.accessory.display_name, self.state.address,
-                    self.state.port)
-
-        # Start sending events to clients. This is done in a daemon thread, because:
-        # - if the queue is blocked waiting on an empty queue, then there is nothing left
-        #   for clean up.
-        # - if the queue is currently sending an event to the client, then, when it has
-        #   finished, it will check the run sentinel, see that it is set and break the
-        #   loop. Alternatively, the server's server_close method will shutdown and close
-        #   the socket, while sending is in progress, which will result abort the sending.
-        self.send_event_thread = threading.Thread(daemon=True, target=self.send_events)
-        self.send_event_thread.start()
-
-        # Start listening for requests
-        self.http_server_thread = threading.Thread(target=self.http_server.serve_forever)
-        self.http_server_thread.start()
-
-        # Advertise the accessory as a mDNS service.
-        self.mdns_service_info = AccessoryMDNSServiceInfo(
-            self.accessory, self.state)
-        self.advertiser.register_service(self.mdns_service_info)
-
-        # Print accessory setup message
-        if not self.state.paired:
-            self.accessory.setup_message()
-
-        # Start the accessory so it can do stuff.
-        self.accessory.set_sentinel(self.stop_event, self.aio_stop_event,
-                                    self.loop)
-        if isinstance(self.accessory, AsyncAccessory):
-            self.accessory_task = self.loop.create_task(
-                self.accessory.run())
-        else:
-            self.accessory_task = self.loop.run_in_executor(
-                None, self.accessory.run)
-
-        logger.info("Starting event loop")
-        try:
-            self.loop.run_forever()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            self.loop.close()
-            logger.info("Closed event loop.")
-
-    def stop(self):
-        """Stop the accessory.
-
-        1. Set the run sentinel.
-        2. Call the stop method of the Accessory and wait for its thread to finish.
-        3. Stop mDNS advertising.
-        4. Stop HAP server.
-        """
-        # TODO: This should happen in a different order - mDNS, server, accessory. Need
-        # to ensure that sending with a closed server will not crash the app.
-        logger.info("Stopping accessory %s on address %s, port %s.",
-                    self.accessory.display_name, self.state.address,
-                    self.state.port)
-        logger.debug("Setting stop events, stopping accessory and event sending")
-        self.stop_event.set()
-        if not self.loop.is_closed():
-            self.loop.call_soon_threadsafe(self.aio_stop_event.set)
-            self.loop.stop()
-        self.accessory.stop()
-
-        logger.debug("Stopping mDNS advertising")
-        self.advertiser.unregister_service(self.mdns_service_info)
-        self.advertiser.close()
-
-        logger.debug("Stopping HAP server")
-        self.http_server.shutdown()
-        self.http_server.server_close()
-        self.http_server_thread.join()
-
-        logger.debug("AccessoryDriver stopped successfully")
 
     def signal_handler(self, _signal, _frame):
         """Stops the AccessoryDriver for a given signal.

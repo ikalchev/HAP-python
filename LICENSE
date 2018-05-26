@@ -1,3 +1,75 @@
+HAP-python is licensed under the Apache License, version 2.0.
+
+This package/repository contains code from the HAP-python project as well as
+some open-source works.
+
+File Copyrights
+===============
+
+All fines not explicitly mentioned below
+    What: HAP-python
+    Source URL: https://github.com/ikalchev/HAP-python
+    Copyright: HAP-python Authors (see AUTHORS file)
+    License: Apache License 2.0
+    License text: See below
+
+pyhap/accessory_driver.py
+    What: Async helper methods
+    Methods:
+      callback
+      is_callback
+      AccessoryDriver.start
+      AccessoryDriver.stop
+      AccessoryDriver.async_stop
+      AccessoryDriver.add_job
+      AccessoryDriver.async_add_job
+      AccessoryDriver.async_run_job
+    Inspired from: Home Assistant [1]
+    Original file:
+      https://github.com/home-assistant/home-assistant/blob/master/homeassistant/core.py
+
+setup.py
+    Inspired from: Home Assistant [1]
+    Original file:
+      https://github.com/home-assistant/home-assistant/blob/master/setup.py
+
+scripts/release
+    Inspired from: Home Assistant [1]
+    File: script/release
+      https://github.com/home-assistant/home-assistant/blob/master/script/release
+
+scripts/setup
+    Inspired from: Home Assistant [1]
+    File: script/setup
+      https://github.com/home-assistant/home-assistant/blob/master/script/setup
+
+Credit
+======
+
+Some HAP know-how
+    What: HAP-NodeJS
+    Source URL: https://github.com/KhaosT/HAP-NodeJS
+    Copyright: Khaos Tian
+    License: Apache License 2.0
+    License URL: https://github.com/KhaosT/HAP-NodeJS/blob/master/LICENSE
+
+Some Async know-how
+    What: Home Assistant [1]
+
+HomeKit Accessory Protocol Specification
+  Source URL: https://developer.apple.com/homekit/specification/
+
+Footnotes
+=========
+
+[1] Home Assistant
+    Source URL: https://github.com/home-assistant/home-assistant
+    Copyright: The Home Assistant Authors
+    License: Apache License 2.0
+    License URL: https://github.com/home-assistant/home-assistant/blob/dev/LICENSE.md
+
+===============================================================================
+
                                  Apache License
                            Version 2.0, January 2004
                         http://www.apache.org/licenses/

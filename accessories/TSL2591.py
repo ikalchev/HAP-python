@@ -27,9 +27,8 @@ class TSL2591(Accessory):
         self.__dict__.update(state)
         self.tsl = tsl2591.Tsl2591()
 
+    @Accessory.run_at_interval(10)
     def run(self):
-        while not self.run_sentinel.wait(10):
-            full, ir = self.tsl.get_full_luminosity()
-            lux = min(max(0.001, self.tsl.calculate_lux(full, ir)), 10000)
-            self.char_lux.set_value(lux)
-
+        full, ir = self.tsl.get_full_luminosity()
+        lux = min(max(0.001, self.tsl.calculate_lux(full, ir)), 10000)
+        self.char_lux.set_value(lux)

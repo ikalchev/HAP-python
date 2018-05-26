@@ -126,7 +126,7 @@ class SDS011(Accessory):
         self.pm10_quality.set_value(
             self.get_quality_classification(pm10, is_pm25=False))
         self.sensor.sleep()
-        while not self.run_sentinel.wait(self.sleep_duration_s):
+        while not self.driver.stop_event.wait(self.sleep_duration_s):
             logger.debug("Waking up sensor.")
             self.sensor.sleep(sleep=False)
             time.sleep(self.calib_duration_s)

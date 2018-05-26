@@ -40,11 +40,11 @@ class AM2302(Accessory):
         self.__dict__.update(state)
         self.sensor = DHT22.sensor(pigpio.pi(), self.pin)
 
+    @Accessory.run_at_interval(10)
     def run(self):
-        while not self.run_sentinel.wait(10):
-            self.sensor.trigger()
-            time.sleep(0.2)
-            t = self.sensor.temperature()
-            h = self.sensor.humidity()
-            self.char_temp.set_value(t)
-            self.char_humidity.set_value(h)
+        self.sensor.trigger()
+        time.sleep(0.2)
+        t = self.sensor.temperature()
+        h = self.sensor.humidity()
+        self.char_temp.set_value(t)
+        self.char_humidity.set_value(h)
