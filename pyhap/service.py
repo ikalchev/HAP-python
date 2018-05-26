@@ -11,14 +11,14 @@ class Service:
     TemperatureSensor service has the characteristic CurrentTemperature.
     """
 
-    __slots__ = ('display_name', 'type_id', 'characteristics', 'broker')
+    __slots__ = ('broker', 'characteristics', 'display_name', 'type_id')
 
     def __init__(self, type_id, display_name=None):
         """Initialize a new Service object."""
+        self.broker = None
+        self.characteristics = []
         self.display_name = display_name
         self.type_id = type_id
-        self.characteristics = []
-        self.broker = None
 
     def __repr__(self):
         """Return the representation of the service."""

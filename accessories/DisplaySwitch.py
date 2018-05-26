@@ -32,14 +32,14 @@ class DisplaySwitch(Accessory):
         self.display = serv_switch.configure_char(
             'On', setter_callback=self.set_display)
 
+    @Accessory.run_at_interval(1)
     def run(self):
-        while not self.run_sentinel.wait(1):
-            # We can't just use .set_value(state), because that will
-            # trigger our listener.
-            state = get_display_state()
-            if self.display.value != state:
-                self.display.value = state
-                self.display.notify()
+        # We can't just use .set_value(state), because that will
+        # trigger our listener.
+        state = get_display_state()
+        if self.display.value != state:
+            self.display.value = state
+            self.display.notify()
 
     def set_display(self, state):
         if get_display_state() != state:

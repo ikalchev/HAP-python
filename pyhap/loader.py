@@ -31,7 +31,8 @@ class Loader:
         self.char_types = self._read_file(path_char)
         self.serv_types = self._read_file(path_service)
 
-    def _read_file(self, path):
+    @staticmethod
+    def _read_file(path):
         """Read file and return a dict."""
         with open(path, 'r') as file:
             return json.load(file)
@@ -67,6 +68,7 @@ def get_loader():
 
     If already initialized it returns the existing one.
     """
+    # pylint: disable=global-statement
     global _loader
     if _loader is None:
         _loader = Loader()

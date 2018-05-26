@@ -6,11 +6,6 @@ _RESOURCE_DIR = os.path.join(_ROOT, "resources")
 CHARACTERISTICS_FILE = os.path.join(_RESOURCE_DIR, "characteristics.json")
 SERVICES_FILE = os.path.join(_RESOURCE_DIR, "services.json")
 
-HAP_PYTHON_VERSION = (2, 1, 0)
-"""
-HAP-python current version.
-"""
-
 
 # Flag if QR Code dependencies are installed.
 # Installation with `pip install HAP-python[QRCode]`.
