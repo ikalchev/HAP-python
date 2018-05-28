@@ -16,7 +16,14 @@ Sections
 ### Developers
 -->
 
-## [2.2.0] - 2018-05-26
+## [2.2.1] - 2018-05-29
+
+### Fixed
+- Package data is now included again. [#128](https://github.com/ikalchev/HAP-python/pull/128)
+
+
+
+## [2.2.0] - 2018-05-26 - Broken
 
 ### Added
 - Option to pass custom loader object to `driver` with parameter `loader`. [#105](https://github.com/ikalchev/HAP-python/pull/105)
