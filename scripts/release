@@ -6,12 +6,9 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-# Install missing dependencies
-if [ -z "$(python3 -m pip list | grep 'wheel')" ]; then
-	python3 -m pip install wheel
-fi
-if [ -z "$(python3 -m pip list | grep 'twine')" ]; then
-	python3 -m pip install twine
+# Remove previous build
+if [ -n "$(ls | grep 'build')" ]; then
+  rm -r build/
 fi
 
 echo "====================================="

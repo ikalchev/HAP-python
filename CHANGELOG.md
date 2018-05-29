@@ -16,7 +16,14 @@ Sections
 ### Developers
 -->
 
-## [2.2.1] - 2018-05-29
+## [2.2.2] - 2018-05-29
+
+### Fixed
+- Spelling mistake in `setup.cfg` that caused broken builds. [#130](https://github.com/ikalchev/HAP-python/pull/130)
+
+
+
+## [2.2.1] - 2018-05-29 - Broken
 
 ### Fixed
 - Package data is now included again. [#128](https://github.com/ikalchev/HAP-python/pull/128)
