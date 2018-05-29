@@ -8,18 +8,7 @@ cd "$(dirname "$0")/.."
 
 # Remove previous build
 if [ -n "$(ls | grep 'build')" ]; then
-	rm -r build/
-fi
-
-# Upgrade setuptools to the latest version
-python3 -m pip install --upgrade setuptools
-
-# Install missing dependencies
-if [ -z "$(python3 -m pip list | grep 'wheel')" ]; then
-	python3 -m pip install wheel
-fi
-if [ -z "$(python3 -m pip list | grep 'twine')" ]; then
-	python3 -m pip install twine
+  rm -r build/
 fi
 
 echo "====================================="
