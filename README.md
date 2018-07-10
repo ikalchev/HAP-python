@@ -106,7 +106,6 @@ to be bridged by means of communicating with an HTTP server - the [HttpBridge](p
 For example, the bellow snippet creates an Http Accessory that listens on port 51800
 for updates on the TemperatureSensor service:
 ```python
-import pyhap.util as util
 import pyhap.loader as loader
 from pyhap.accessories.Http import HttpBridge
 from pyhap.accessory import Accessory
