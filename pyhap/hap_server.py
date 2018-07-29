@@ -94,6 +94,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             "/pair-setup": "handle_pairing",
             "/pair-verify": "handle_pair_verify",
             "/pairings": "handle_pairings",
+            "/resource": "handle_resource",
         },
 
         "GET": {
@@ -512,7 +513,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         assert data_len > 0
         requested_chars = json.loads(
                               self.rfile.read(data_len).decode("utf-8"))
-
+        logger.debug("Requested chars %s", requested_chars)
         chars = self.accessory_handler.set_characteristics(requested_chars,
                                                            self.client_address)
 
@@ -564,6 +565,16 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
         self.end_response(data)
+
+    def handle_resource(self):
+        #self.send_response(405)
+        data_len = int(self.headers["Content-Length"])
+        image_size = json.loads(
+                        self.rfile.read(data_len).decode("utf-8"))
+        image = self.accessory.get_snapshot(image_size)
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/jpeg')
+        self.end_response(image)
 
 
 class HAPSocket(socket.socket):

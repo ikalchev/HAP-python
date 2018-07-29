@@ -14,23 +14,53 @@ from pyhap.accessories.TemperatureSensor import TemperatureSensor
 from pyhap.accessory import Bridge
 from pyhap.accessory_driver import AccessoryDriver
 import pyhap.loader as loader
+from pyhap import camera
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 
 
-def get_bridge():
-    """Call this method to get a Bridge instead of a standalone accessory."""
-    bridge = Bridge(display_name="Bridge")
-    temp_sensor = TemperatureSensor("Sensor 2")
-    temp_sensor2 = TemperatureSensor("Sensor 1")
-    bridge.add_accessory(temp_sensor)
-    bridge.add_accessory(temp_sensor2)
-
-    # Uncomment if you have RPi module and want a LED LightBulb service on pin 16.
-    # from pyhap.accessories.LightBulb import LightBulb
-    # bulb = LightBulb("Desk LED", pin=16)
-    # bridge.add_accessory(bulb)
-    return bridge
+options = {
+    "video": {
+        "codec": {
+            "profiles": [
+                camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["BASELINE"],
+                camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["MAIN"],
+                camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["HIGH"]
+            ],
+            "levels": [
+                camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE3_1'],
+                camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE3_2'],
+                camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE4_0'],
+            ],
+        },
+        "resolutions": [
+            [320, 240, 15],  # Width, Height, framerate
+            [1280, 960, 30],
+            [1280, 720, 30],
+            [1024, 768, 30],
+            [640, 480, 30],
+            [640, 360, 30],
+            [480, 360, 30],
+            [480, 270, 30],
+            [320, 240, 30],
+            [320, 180, 30]
+        ],
+    },
+    "audio": {
+        "codecs": [
+            {
+                'type': 'OPUS',
+                'samplerate': 24,
+            },
+            {
+                'type': 'AAC-eld',
+                'samplerate': 16
+            }
+        ],
+    },
+    "srtp": False,
+    "address": {"192.168.1.226"},
+}
 
 
 def get_accessory():
@@ -39,7 +69,7 @@ def get_accessory():
     return acc
 
 
-acc = get_accessory()  # Change to get_bridge() if you want to run a Bridge.
+acc = camera.CameraAccessory(options, "Camera")  # Change to get_bridge() if you want to run a Bridge.
 
 # Start the accessory on port 51826
 driver = AccessoryDriver(acc, port=51826)

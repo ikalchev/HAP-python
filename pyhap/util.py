@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import socket
 import random
 import binascii
@@ -114,6 +115,18 @@ tohex = bytes.hex if sys.version_info >= (3, 5) else b2hex
 fromhex = bytes.fromhex if sys.version_info >= (3, 5) else hex2b
 """Python-version-agnostic fromhex function. Equivalent to bytes.fromhex in python 3.5+.
 """
+
+
+def toBase64Str(bytesInput) -> str:
+    """
+    :param bytesInput: The bytes to encode.
+    :type bytesInput: bytes
+
+    :return: A base64-encoded str.
+    :rtype: str
+    """
+    return base64.b64encode(bytesInput).decode('utf-8')
+
 
 async def event_wait(event, timeout, loop=None):
     """Wait for the given event to be set or for the timeout to expire.

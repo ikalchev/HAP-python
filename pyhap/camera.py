@@ -7,177 +7,179 @@ import logging
 import struct
 import subprocess
 
-from .accessory import Accessory
-import loader
-import tlv
+from pyhap import RESOURCE_DIR
+from pyhap.accessory import Accessory
+from pyhap import loader
+from pyhap import tlv
+from pyhap.util import toBase64Str
 
 
 logger = logging.getLogger(__name__)
 
 
 SETUP_TYPES = {
-    'SESSION_ID': 0x01,
-    'STATUS': 0x02,
-    'ADDRESS': 0x03,
-    'VIDEO_SRTP_PARAM': 0x04,
-    'AUDIO_SRTP_PARAM': 0x05,
-    'VIDEO_SSRC': 0x06,
-    'AUDIO_SSRC': 0x07
+    'SESSION_ID': b'\x01',
+    'STATUS': b'\x02',
+    'ADDRESS': b'\x03',
+    'VIDEO_SRTP_PARAM': b'\x04',
+    'AUDIO_SRTP_PARAM': b'\x05',
+    'VIDEO_SSRC': b'\x06',
+    'AUDIO_SSRC': b'\x07'
 }
 
 
 SETUP_STATUS = {
-    'SUCCESS': 0x00,
-    'BUSY': 0x01,
-    'ERROR': 0x02
+    'SUCCESS': b'\x00',
+    'BUSY': b'\x01',
+    'ERROR': b'\x02'
 }
 
 
 SETUP_IPV = {
-    'IPV4': 0x00,
-    'IPV6': 0x01
+    'IPV4': b'\x00',
+    'IPV6': b'\x01'
 }
 
 
 SETUP_ADDR_INFO = {
-    'ADDRESS_VER': 0x01,
-    'ADDRESS': 0x02,
-    'VIDEO_RTP_PORT': 0x03,
-    'AUDIO_RTP_PORT': 0x04
+    'ADDRESS_VER': b'\x01',
+    'ADDRESS': b'\x02',
+    'VIDEO_RTP_PORT': b'\x03',
+    'AUDIO_RTP_PORT': b'\x04'
 }
 
 
 SETUP_SRTP_PARAM = {
-    'CRYPTO': 0x01,
-    'MASTER_KEY': 0x02,
-    'MASTER_SALT': 0x03
+    'CRYPTO': b'\x01',
+    'MASTER_KEY': b'\x02',
+    'MASTER_SALT': b'\x03'
 }
 
 
 STREAMING_STATUS = {
-    'AVAILABLE': 0x00,
-    'STREAMING': 0x01,
-    'BUSY': 0x02
+    'AVAILABLE': b'\x00',
+    'STREAMING': b'\x01',
+    'BUSY': b'\x02'
 }
 
 
 RTP_CONFIG_TYPES = {
-    'CRYPTO': 0x02
+    'CRYPTO': b'\x02'
 }
 
 
 SRTP_CRYPTO_SUITES = {
-    'AES_CM_128_HMAC_SHA1_80': 0x00,
-    'AES_CM_256_HMAC_SHA1_80': 0x01,
-    'NONE': 0x02
+    'AES_CM_128_HMAC_SHA1_80': b'\x00',
+    'AES_CM_256_HMAC_SHA1_80': b'\x01',
+    'NONE': b'\x02'
 }
 
 
 VIDEO_TYPES = {
-    'CODEC': 0x01,
-    'CODEC_PARAM': 0x02,
-    'ATTRIBUTES': 0x03,
-    'RTP_PARAM': 0x04
+    'CODEC': b'\x01',
+    'CODEC_PARAM': b'\x02',
+    'ATTRIBUTES': b'\x03',
+    'RTP_PARAM': b'\x04'
 }
 
 
 VIDEO_CODEC_TYPES = {
-    'H264': 0x00
+    'H264': b'\x00'
 }
 
 
 VIDEO_CODEC_PARAM_TYPES = {
-    'PROFILE_ID': 0x01,
-    'LEVEL': 0x02,
-    'PACKETIZATION_MODE': 0x03,
-    'CVO_ENABLED': 0x04,
-    'CVO_ID': 0x05
+    'PROFILE_ID': b'\x01',
+    'LEVEL': b'\x02',
+    'PACKETIZATION_MODE': b'\x03',
+    'CVO_ENABLED': b'\x04',
+    'CVO_ID': b'\x05'
 }
 
 
 VIDEO_CODEC_PARAM_CVO_TYPES = {
-    'UNSUPPORTED': 0x01,
-    'SUPPORTED': 0x02
+    'UNSUPPORTED': b'\x01',
+    'SUPPORTED': b'\x02'
 }
 
 
 VIDEO_CODEC_PARAM_PROFILE_ID_TYPES = {
-    'BASELINE': 0x00,
-    'MAIN': 0x01,
-    'HIGH': 0x02
+    'BASELINE': b'\x00',
+    'MAIN': b'\x01',
+    'HIGH': b'\x02'
 }
 
 
 VIDEO_CODEC_PARAM_LEVEL_TYPES = {
-    'TYPE3_1': 0x00,
-    'TYPE3_2': 0x01,
-    'TYPE4_0': 0x02
+    'TYPE3_1': b'\x00',
+    'TYPE3_2': b'\x01',
+    'TYPE4_0': b'\x02'
 }
 
 
 VIDEO_CODEC_PARAM_PACKETIZATION_MODE_TYPES = {
-    'NON_INTERLEAVED': 0x00
+    'NON_INTERLEAVED': b'\x00'
 }
 
 
 VIDEO_ATTRIBUTES_TYPES = {
-    'IMAGE_WIDTH': 0x01,
-    'IMAGE_HEIGHT': 0x02,
-    'FRAME_RATE': 0x03
+    'IMAGE_WIDTH': b'\x01',
+    'IMAGE_HEIGHT': b'\x02',
+    'FRAME_RATE': b'\x03'
 }
 
 
 SELECTED_STREAM_CONFIGURATION_TYPES = {
-    'SESSION': 0x01,
-    'VIDEO': 0x02,
-    'AUDIO': 0x03
+    'SESSION': b'\x01',
+    'VIDEO': b'\x02',
+    'AUDIO': b'\x03'
 }
 
 
 RTP_PARAM_TYPES = {
-    'PAYLOAD_TYPE': 0x01,
-    'SYNCHRONIZATION_SOURCE': 0x02,
-    'MAX_BIT_RATE': 0x03,
-    'RTCP_SEND_INTERVAL': 0x04,
-    'MAX_MTU': 0x05,
-    'COMFORT_NOISE_PAYLOAD_TYPE': 0x06
+    'PAYLOAD_TYPE': b'\x01',
+    'SYNCHRONIZATION_SOURCE': b'\x02',
+    'MAX_BIT_RATE': b'\x03',
+    'RTCP_SEND_INTERVAL': b'\x04',
+    'MAX_MTU': b'\x05',
+    'COMFORT_NOISE_PAYLOAD_TYPE': b'\x06'
 }
 
 
 AUDIO_TYPES = {
-    'CODEC': 0x01,
-    'CODEC_PARAM': 0x02,
-    'RTP_PARAM': 0x03,
-    'COMFORT_NOISE': 0x04
+    'CODEC': b'\x01',
+    'CODEC_PARAM': b'\x02',
+    'RTP_PARAM': b'\x03',
+    'COMFORT_NOISE': b'\x04'
 }
 
 
 AUDIO_CODEC_TYPES = {
-    'PCMU': 0x00,
-    'PCMA': 0x01,
-    'AACELD': 0x02,
-    'OPUS': 0x03
+    'PCMU': b'\x00',
+    'PCMA': b'\x01',
+    'AACELD': b'\x02',
+    'OPUS': b'\x03'
 }
 
 
 AUDIO_CODEC_PARAM_TYPES = {
-    'CHANNEL': 0x01,
-    'BIT_RATE': 0x02,
-    'SAMPLE_RATE': 0x03,
-    'PACKET_TIME': 0x04
+    'CHANNEL': b'\x01',
+    'BIT_RATE': b'\x02',
+    'SAMPLE_RATE': b'\x03',
+    'PACKET_TIME': b'\x04'
 }
 
 
 AUDIO_CODEC_PARAM_BIT_RATE_TYPES = {
-    'VARIABLE': 0x00,
-    'CONSTANT': 0x01
+    'VARIABLE': b'\x00',
+    'CONSTANT': b'\x01'
 }
 
 
 AUDIO_CODEC_PARAM_SAMPLE_RATE_TYPES = {
-    'KHZ_8': 0x00,
-    'KHZ_16': 0x01,
-    'KHZ_24': 0x02
+    'KHZ_8': b'\x00',
+    'KHZ_16': b'\x01',
+    'KHZ_24': b'\x02'
 }
 
 
@@ -210,15 +212,14 @@ class CameraAccessory(Accessory):
             crypto = SRTP_CRYPTO_SUITES['AES_CM_128_HMAC_SHA1_80']
         else:
             crypto = SRTP_CRYPTO_SUITES['NONE']
-        return tlv.encode(RTP_CONFIG_TYPES['CRYPTO'], crypto)
+        return toBase64Str(
+                tlv.encode(RTP_CONFIG_TYPES['CRYPTO'], crypto))
 
     @staticmethod
     def get_supported_video_stream_config(video_params):
         '''XXX
         Expected video parameters:
             - codec
-            - profiles
-            - levels
             - resolutions
         '''
         codec_params_tlv = tlv.encode(
@@ -237,15 +238,16 @@ class CameraAccessory(Accessory):
         attr_tlv = b''
         for resolution in video_params['resolutions']:
             res_tlv = tlv.encode(
-                VIDEO_ATTRIBUTES_TYPES['IMAGE_WIDTH'], struct.pack('<B', resolution[0]),
-                VIDEO_ATTRIBUTES_TYPES['IMAGE_HEIGHT'], struct.pack('<B', resolution[1]),
-                VIDEO_ATTRIBUTES_TYPES['FRAME_RATE'], struct.pack('<B', resolution[2]))
+                VIDEO_ATTRIBUTES_TYPES['IMAGE_WIDTH'], struct.pack('<H', resolution[0]),
+                VIDEO_ATTRIBUTES_TYPES['IMAGE_HEIGHT'], struct.pack('<H', resolution[1]),
+                VIDEO_ATTRIBUTES_TYPES['FRAME_RATE'], struct.pack('<H', resolution[2]))
             attr_tlv += tlv.encode(VIDEO_TYPES['ATTRIBUTES'], res_tlv)
 
         config_tlv = tlv.encode(VIDEO_TYPES['CODEC'], VIDEO_CODEC_TYPES['H264'],
                                 VIDEO_TYPES['CODEC_PARAM'], codec_params_tlv)
 
-        return tlv.encode(b'\x01', config_tlv + attr_tlv)
+        return toBase64Str(
+                tlv.encode(b'\x01', config_tlv + attr_tlv))
 
     @staticmethod
     def get_supported_audio_stream_config(audio_params):
@@ -254,7 +256,7 @@ class CameraAccessory(Accessory):
 
         Expected audio parameters:
         - codecs
-        - comfort noise
+        - comfort_noise
         '''
         has_supported_codec = False
         configs = b''
@@ -264,7 +266,7 @@ class CameraAccessory(Accessory):
                 has_supported_codec = True
                 codec = AUDIO_CODEC_TYPES['OPUS']
                 bitrate = AUDIO_CODEC_PARAM_BIT_RATE_TYPES['VARIABLE']
-            elif param_type == 'ACC-eld':
+            elif param_type == 'AAC-eld':
                 has_supported_codec = True
                 codec = AUDIO_CODEC_TYPES['AACELD']
                 bitrate = AUDIO_CODEC_PARAM_BIT_RATE_TYPES['VARIABLE']
@@ -307,8 +309,10 @@ class CameraAccessory(Accessory):
 
             configs = tlv.encode(b'\x01', config_tlv)
 
-        comfort_noise = b'\x01' if audio_params['comfort_noise'] else b'\x00'
-        return configs + tlv.encode(b'\x02', comfort_noise)
+        comfort_noise = b'\x01' if audio_params.get('comfort_noise', False) else b'\x00'
+        audio_config = toBase64Str(
+                        configs + tlv.encode(b'\x02', comfort_noise))
+        return audio_config
 
     def __init__(self, options, *args, **kwargs):
         '''
@@ -318,8 +322,6 @@ class CameraAccessory(Accessory):
         - srtp
         - address
         '''
-        super(CameraAccessory, self).__init__(*args, **kwargs)
-
         self.streaming_status = STREAMING_STATUS['AVAILABLE']
         self.support_srtp = options.get('srtp', False)
         self.supported_rtp_config = self.get_supported_rtp_config(self.support_srtp)
@@ -341,21 +343,25 @@ class CameraAccessory(Accessory):
         self.session_id = None
         self.management_service = None
 
+        super(CameraAccessory, self).__init__(*args, **kwargs)
+        print(self.iid_manager.get_iid(self.management_service.get_characteristic('StreamingStatus')))
+        print("Streaming status", self.management_service.get_characteristic('StreamingStatus'))
+        print("Supported RTP config", self.management_service.get_characteristic('SupportedRTPConfiguration'))
+        print("Supported video config", self.management_service.get_characteristic('SupportedVideoStreamConfiguration'))
+        print("Supported audio config", self.management_service.get_characteristic('SupportedAudioStreamConfiguration'))
+
     def _set_services(self):
         '''
         '''
         super(CameraAccessory, self)._set_services()
 
         serv_loader = loader.get_serv_loader()
-        self.add_service(
-            serv_loader.get('CameraControl'))
 
-        self.management_service = serv_loader.get('CameraRTPStreamManagement')
+        self.management_service = serv_loader.get_service('CameraRTPStreamManagement')
         self.add_service(self.management_service)
 
         self.management_service.get_characteristic('StreamingStatus')\
-                               .set_value(
-                                    tlv.encode(b'\x01', self.streaming_status))  #TODO
+                               .set_value(self._get_streaimg_status())
 
         self.management_service.get_characteristic('SupportedRTPConfiguration')\
                                .set_value(self.supported_rtp_config)
@@ -367,7 +373,7 @@ class CameraAccessory(Accessory):
                                .set_value(self.supported_audio_config)
 
         selected_stream = \
-            self.management_service.get_characteristic('SelectedStreamConfiguration')
+            self.management_service.get_characteristic('SelectedRTPStreamConfiguration')
         selected_stream.set_value(self.selected_config)
         selected_stream.setter_callback = self.set_selected_stream_configuration
 
@@ -450,6 +456,10 @@ class CameraAccessory(Accessory):
         self.current_sessions[session_id] = subprocess.Popen(cmd)
         del self.pending_sessions[session_id]
 
+    def _get_streaimg_status(self):
+        return toBase64Str(
+                tlv.encode(b'\x01', self.streaming_status))
+
     def _stop_stream(self, objs):
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
         session_id = session_objs[b'\x01']
@@ -460,6 +470,7 @@ class CameraAccessory(Accessory):
     def set_selected_stream_configuration(self, value):
         '''XXX Called from iOS to select a stream configuration.
         '''
+        logger.debug('set_selected_stream_config - value - %s', value)
         self.selected_config = value
         objs = tlv.decode(value)
         if SELECTED_STREAM_CONFIGURATION_TYPES['SESSION'] not in objs:
@@ -567,3 +578,14 @@ class CameraAccessory(Accessory):
 
         endpoints = self.management_service.get_characteristic('SetupEndpoints')
         endpoints.set_value(response_tlv)
+
+    def get_snapshot(self, image_size):
+        with open(os.path.join(RESOURCE_DIR, 'snapshot.jpg'), 'rb') as fp:
+            return fp.read()
+
+
+    def _run(self):
+        import time
+        time.sleep(3)
+        self.streaming_status = STREAMING_STATUS["STREAMING"]
+        self.management_service.get_characteristic("StreamingStatus").set_value(self._get_streaimg_status())
