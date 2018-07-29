@@ -398,10 +398,12 @@ class AccessoryDriver:
             # order to increase throughput.
             topic, bytedata = self.event_queue.get()
             subscribed_clients = self.topics.get(topic, [])
+            logger.debug('Send event: topic(%s), data(%s)', topic, bytedata)
             for client_addr in subscribed_clients.copy():
+                logger.debug('Sending event to client: %s', client_addr)
                 pushed = self.http_server.push_event(bytedata, client_addr)
                 if not pushed:
-                    logger.debug("Could not send event to %s, probably stale socket.",
+                    logger.debug('Could not send event to %s, probably stale socket.',
                                  client_addr)
                     # Maybe consider removing the client_addr from every topic?
                     self.subscribe_client_topic(client_addr, topic, False)
@@ -410,7 +412,7 @@ class AccessoryDriver:
             self.accumulated_qsize += self.event_queue.qsize()
 
             if self.sent_events > self.NUM_EVENTS_BEFORE_STATS:
-                logger.debug("Average queue size for the past %s events: %.2f",
+                logger.debug('Average queue size for the past %s events: %.2f',
                              self.sent_events, self.accumulated_qsize / self.sent_events)
                 self.sent_events = 0
                 self.accumulated_qsize = 0
@@ -571,24 +573,9 @@ class AccessoryDriver:
            }
 
         :type chars_query: dict
-
-        :return: Response status for each characteristic. For example:
-
-        .. code-block:: python
-
-           {
-              "characteristics": [{
-                 "aid": 1,
-                 "iid": 2,
-                 "status": 0,
-              }]
-           }
-
-        :rtype: dict
         """
-        chars_query = chars_query[HAP_REPR_CHARS]
-        chars_response = []
-        for cq in chars_query:
+        # TODO: Add support for chars that do no support notifications.
+        for cq in chars_query[HAP_REPR_CHARS]:
             aid, iid = cq[HAP_REPR_AID], cq[HAP_REPR_IID]
             char = self.accessory.get_characteristic(aid, iid)
 
@@ -597,19 +584,9 @@ class AccessoryDriver:
                 self.subscribe_client_topic(
                     client_addr, char_topic, cq[HAP_PERMISSION_NOTIFY])
 
-            response = {
-                HAP_REPR_AID: aid,
-                HAP_REPR_IID: iid,
-                HAP_REPR_STATUS: CHAR_STAT_OK,
-            }
             if HAP_REPR_VALUE in cq:
                 # TODO: status needs to be based on success of set_value
                 char.client_update_value(cq[HAP_REPR_VALUE])
-                if "r" in cq:
-                    response[HAP_REPR_VALUE] = char.get_value()
-
-            chars_response.append(response)
-        return {HAP_REPR_CHARS: chars_response}
 
     def signal_handler(self, _signal, _frame):
         """Stops the AccessoryDriver for a given signal.

@@ -5,6 +5,7 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 The HAPSocket is a socket implementation that manages the "TLS" of the connection.
 """
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from http import HTTPStatus
 import logging
 import socket
 import struct
@@ -483,6 +484,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
         hap_rep = self.accessory_handler.get_accessories()
         data = json.dumps(hap_rep).encode("utf-8")
+        logger.debug('Sending acc data: %s', data)
         self.send_response(200)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(data)
@@ -504,21 +506,25 @@ class HAPServerHandler(BaseHTTPRequestHandler):
     def handle_set_characteristics(self):
         """Handles a client request to update certain characteristics."""
         if not self.is_encrypted:
-            raise UnprivilegedRequestException
+            logger.warning('Attemp to access unauthorised content from %s',
+                           self.client_address)
+            self.send_response(HTTPStatus.UNAUTHORIZED)
 
-        # TODO: assert self.headers["authorization"] == state.pincode
-        data_len = int(self.headers["Content-Length"])
-        assert data_len > 0
+        data_len = int(self.headers['Content-Length'])
         requested_chars = json.loads(
-            self.rfile.read(data_len).decode("utf-8"))
+            self.rfile.read(data_len).decode('utf-8'))
+        logger.debug('Set characteristics content: %s', requested_chars)
 
-        chars = self.accessory_handler.set_characteristics(requested_chars,
-                                                           self.client_address)
-
-        data = json.dumps(chars).encode("utf-8")
-        self.send_response(207)
-        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(data)
+        # TODO: Outline how chars return errors on set_chars.
+        try:
+            self.accessory_handler.set_characteristics(requested_chars,
+                                                       self.client_address)
+        except Exception as e:
+            logger.exception('Exception in set_characteristics: %s', e)
+            self.send_response(HTTPStatus.BAD_REQUEST)
+        else:
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.close_connection = 0
 
     def handle_pairings(self):
         """Handles a client request to update or remove a pairing."""
