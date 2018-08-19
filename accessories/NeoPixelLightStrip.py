@@ -85,8 +85,9 @@ class NeoPixelLightStrip(Accessory):
             self.__hue = value
             rgb_tuple = self.hsv_to_rgb(
                 self.__hue, self.__saturation, self.__brightness)
-            self.Update_NeoPixel_With_Color(
-                rgb_tuple[0], rgb_tuple[1], rgb_tuple[2])
+            if len(rgb_tuple) == 3:
+                self.Update_NeoPixel_With_Color(
+                    rgb_tuple[0], rgb_tuple[1], rgb_tuple[2])
         else:
             self.__hue = value
 
