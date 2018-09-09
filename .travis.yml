@@ -18,6 +18,10 @@ matrix:
       env: TOXENV=py36
     - python: "3.6"
       env: TOXENV=docs
+    - python: "3.6"
+      env: TOXENV=bandit
+    - python: "3.6"
+      env: TOXENV=mypy
 before-install:
   - sudo apt-get -qq update
   - sudo apt-get install -y libavahi-compat-libdnssd-dev
