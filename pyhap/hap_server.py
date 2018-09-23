@@ -509,6 +509,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             logger.warning('Attemp to access unauthorised content from %s',
                            self.client_address)
             self.send_response(HTTPStatus.UNAUTHORIZED)
+            self.end_response(b'', close_connection=True)
 
         data_len = int(self.headers['Content-Length'])
         requested_chars = json.loads(
@@ -524,7 +525,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             self.send_response(HTTPStatus.BAD_REQUEST)
         else:
             self.send_response(HTTPStatus.NO_CONTENT)
-            self.close_connection = 0
+            self.end_response(b'')
 
     def handle_pairings(self):
         """Handles a client request to update or remove a pairing."""
