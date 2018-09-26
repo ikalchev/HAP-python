@@ -1,5 +1,5 @@
 """Tests for pyhap.service."""
-from uuid import uuid1, UUID
+from uuid import uuid1
 from unittest.mock import call, patch, Mock
 
 import pytest
@@ -14,13 +14,16 @@ CHAR_PROPS = {
     PROP_PERMISSIONS: HAP_PERMISSION_READ,
 }
 
+
 def get_chars():
+    """Return example char objects."""
     c1 = Characteristic('Char 1', uuid1(), CHAR_PROPS)
     c2 = Characteristic('Char 2', uuid1(), CHAR_PROPS)
     return [c1, c2]
 
 
 def test_repr():
+    """Test service representation."""
     service = Service(uuid1(), 'TestService')
     service.characteristics = [get_chars()[0]]
     assert service.__repr__() == \
@@ -28,6 +31,7 @@ def test_repr():
 
 
 def test_add_characteristic():
+    """Test adding characteristics to a service."""
     service = Service(uuid1(), 'Test Service')
     chars = get_chars()
     service.add_characteristic(*chars)
@@ -39,6 +43,7 @@ def test_add_characteristic():
 
 
 def test_get_characteristic():
+    """Test getting a characteristic from a service."""
     service = Service(uuid1(), 'Test Service')
     chars = get_chars()
     service.characteristics = chars
@@ -48,6 +53,7 @@ def test_get_characteristic():
 
 
 def test_configure_char():
+    """Test preconfiguring a characteristic from a service."""
     pyhap_char = 'pyhap.characteristic.Characteristic'
 
     service = Service(uuid1(), 'Test Service')
@@ -63,7 +69,7 @@ def test_configure_char():
         service.configure_char('Char 1')
         mock_override_prop.assert_not_called()
         mock_set_value.assert_not_called()
-        assert service.get_characteristic('Char 1').setter_callback == None
+        assert service.get_characteristic('Char 1').setter_callback is None
 
     with patch(pyhap_char + '.override_properties') as mock_override_prop:
         new_properties = {'Format': 'string'}
@@ -88,6 +94,7 @@ def test_configure_char():
 
 
 def test_to_HAP():
+    """Test created HAP representation of a service."""
     uuid = uuid1()
     pyhap_char_to_HAP = 'pyhap.characteristic.Characteristic.to_HAP'
 
@@ -100,7 +107,7 @@ def test_to_HAP():
         mock_char_HAP.side_effect = ('Char 1', 'Char 2')
         hap_repr = service.to_HAP()
         mock_iid.assert_called_with(service)
-    
+
     assert hap_repr == {
         'iid': 2,
         'type': str(uuid).upper(),
@@ -109,6 +116,7 @@ def test_to_HAP():
 
 
 def test_from_dict():
+    """Test creating a service from a dictionary."""
     uuid = uuid1()
     chars = get_chars()
     mock_char_loader = Mock()

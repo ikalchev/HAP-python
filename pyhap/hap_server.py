@@ -5,6 +5,7 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 The HAPSocket is a socket implementation that manages the "TLS" of the connection.
 """
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from http import HTTPStatus
 import logging
 import socket
 import struct
@@ -68,12 +69,12 @@ class HAP_CRYPTO:
 
 
 def _pad_tls_nonce(nonce, total_len=HAP_CRYPTO.TLS_NONCE_LEN):
-    """ Pads a nonce with zeroes so that total_len is reached. """
+    """Pads a nonce with zeroes so that total_len is reached."""
     return nonce.rjust(total_len, b"\x00")
 
 
 def hap_hkdf(key, salt, info):
-    """ Just a shorthand. """
+    """Just a shorthand."""
     return HKDF(key, HAP_CRYPTO.HKDF_KEYLEN, salt, HAP_CRYPTO.HKDF_HASH, context=info)
 
 
@@ -86,11 +87,11 @@ class NotAllowedInStateException(Exception):
 
 
 class HAPServerHandler(BaseHTTPRequestHandler):
-    """ Manages HAP connection state and handles incoming HTTP requests. """
+    """Manages HAP connection state and handles incoming HTTP requests."""
 
     # Mapping from paths to methods that handle them.
     HANDLERS = {
-        "POST":  {
+        "POST": {
             "/pair-setup": "handle_pairing",
             "/pair-verify": "handle_pair_verify",
             "/pairings": "handle_pairings",
@@ -133,7 +134,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         @type accessory_handler: AccessoryDriver
         """
         self.accessory_handler = accessory_handler
-        self.accessory = self.accessory_handler.accessory
+        self.state = self.accessory_handler.state
         self.enc_context = None
         self.is_encrypted = False
         # Redirect separate handlers to the dispatch method
@@ -154,7 +155,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         @param client_public: The client's session public key.
         @type client_public: bytes
 
-        @param private_key: The accessory's session private key.
+        @param private_key: The state's session private key.
         @type private_key: bytes
 
         @param shared_key: The resulted session key.
@@ -212,7 +213,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
     def handle_pairing(self):
         """Handles arbitrary step of the pairing process."""
-        if self.accessory.paired:
+        if self.state.paired:
             raise NotAllowedInStateException
 
         length = int(self.headers["Content-Length"])
@@ -343,11 +344,11 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         output_key = hap_hkdf(long_to_bytes(session_key),
                               self.PAIRING_5_SALT, self.PAIRING_5_INFO)
 
-        server_public = self.accessory.public_key.to_bytes()
-        mac = self.accessory.mac.encode()
+        server_public = self.state.public_key.to_bytes()
+        mac = self.state.mac.encode()
 
         material = output_key + mac + server_public
-        private_key = self.accessory.private_key
+        private_key = self.state.private_key
         server_proof = private_key.sign(material)
 
         message = tlv.encode(HAP_TLV_TAGS.USERNAME, mac,
@@ -376,7 +377,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
         Pair verify is session negotiation.
         """
-        if not self.accessory.paired:
+        if not self.state.paired:
             raise NotAllowedInStateException
 
         length = int(self.headers["Content-Length"])
@@ -405,9 +406,9 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             # Key is hashed before being returned, we don't want it; This fixes that.
             lambda x: x)
 
-        mac = self.accessory.mac.encode()
+        mac = self.state.mac.encode()
         material = public_key.serialize() + mac + client_public
-        server_proof = self.accessory.private_key.sign(material)
+        server_proof = self.state.private_key.sign(material)
 
         output_key = hap_hkdf(shared_key, self.PVERIFY_1_SALT, self.PVERIFY_1_INFO)
 
@@ -446,7 +447,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             + self.enc_context["public_key"].serialize()
 
         client_uuid = uuid.UUID(str(client_username, "ascii"))
-        perm_client_public = self.accessory.paired_clients.get(client_uuid)
+        perm_client_public = self.state.paired_clients.get(client_uuid)
         if perm_client_public is None:
             logger.debug("Client %s attempted pair verify without being paired first.",
                          client_uuid)
@@ -484,6 +485,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
         hap_rep = self.accessory_handler.get_accessories()
         data = json.dumps(hap_rep).encode("utf-8")
+        logger.debug('Sending acc data: %s', data)
         self.send_response(200)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(data)
@@ -494,8 +496,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             raise UnprivilegedRequestException
 
         # Check that char exists and ...
-        params = parse_qs(
-                    urlparse(self.path).query)
+        params = parse_qs(urlparse(self.path).query)
         chars = self.accessory_handler.get_characteristics(params["id"][0].split(","))
 
         data = json.dumps(chars).encode("utf-8")
@@ -506,21 +507,26 @@ class HAPServerHandler(BaseHTTPRequestHandler):
     def handle_set_characteristics(self):
         """Handles a client request to update certain characteristics."""
         if not self.is_encrypted:
-            raise UnprivilegedRequestException
+            logger.warning('Attemp to access unauthorised content from %s',
+                           self.client_address)
+            self.send_response(HTTPStatus.UNAUTHORIZED)
+            self.end_response(b'', close_connection=True)
 
-        # TODO: assert self.headers["authorization"] == accessory.pincode
-        data_len = int(self.headers["Content-Length"])
-        assert data_len > 0
+        data_len = int(self.headers['Content-Length'])
         requested_chars = json.loads(
-                              self.rfile.read(data_len).decode("utf-8"))
-        logger.debug("Requested chars %s", requested_chars)
-        chars = self.accessory_handler.set_characteristics(requested_chars,
-                                                           self.client_address)
+            self.rfile.read(data_len).decode('utf-8'))
+        logger.debug('Set characteristics content: %s', requested_chars)
 
-        data = json.dumps(chars).encode("utf-8")
-        self.send_response(207)
-        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(data)
+        # TODO: Outline how chars return errors on set_chars.
+        try:
+            self.accessory_handler.set_characteristics(requested_chars,
+                                                       self.client_address)
+        except Exception as e:
+            logger.exception('Exception in set_characteristics: %s', e)
+            self.send_response(HTTPStatus.BAD_REQUEST)
+        else:
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.end_response(b'')
 
     def handle_pairings(self):
         """Handles a client request to update or remove a pairing."""
@@ -544,7 +550,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         client_public = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
         should_confirm = self.accessory_handler.pair(
-                             client_uuid, client_public)
+            client_uuid, client_public)
         if not should_confirm:
             self.send_response(500)
             return
@@ -691,14 +697,12 @@ class HAPSocket(socket.socket):
                 self.num_in_recv += actual_len
                 if self.num_in_recv == self.curr_in_total:
                     # We read a whole block. Decrypt it and append it to the result.
-                    nonce = _pad_tls_nonce(
-                                 struct.pack("Q", self.in_count))
+                    nonce = _pad_tls_nonce(struct.pack("Q", self.in_count))
                     # Note we are removing the mac length from the total length
                     block_length = self.curr_in_total - self.in_cipher.tagLength
                     plaintext = self.in_cipher.open(
-                                    nonce,
-                                    bytearray(self.curr_in_block),
-                                    struct.pack("H", block_length))
+                        nonce, bytearray(self.curr_in_block),
+                        struct.pack("H", block_length))
                     result += plaintext
                     self.in_count += 1
                     self.curr_in_block = None
@@ -724,10 +728,8 @@ class HAPSocket(socket.socket):
         while offset < total:
             length = min(total - offset, self.MAX_BLOCK_LENGTH)
             length_bytes = struct.pack("H", length)
-            block = bytearray(
-                         data[offset: offset + length])
-            nonce = _pad_tls_nonce(
-                       struct.pack("Q", self.out_count))
+            block = bytearray(data[offset: offset + length])
+            nonce = _pad_tls_nonce(struct.pack("Q", self.out_count))
             ciphertext = length_bytes \
                 + self.out_cipher.seal(nonce, block, length_bytes)
             offset += length

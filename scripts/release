@@ -1,0 +1,27 @@
+#!/bin/sh
+# Run to build distribution packages and upload them to pypi
+
+# Stop on errors
+set -e
+
+cd "$(dirname "$0")/.."
+
+# Remove previous build
+if [ -n "$(ls | grep 'build')" ]; then
+  rm -r build/
+fi
+
+echo "====================================="
+echo "=   Generation source distribution  ="
+echo "====================================="
+python3 setup.py sdist
+
+echo "===================================="
+echo "=   Generation build distribution  ="
+echo "===================================="
+python3 setup.py bdist_wheel
+
+echo "====================="
+echo "=   Upload to pypi  ="
+echo "====================="
+python3 -m twine upload dist/* --skip-existing

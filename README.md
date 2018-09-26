@@ -1,11 +1,10 @@
 [![PyPI version](https://badge.fury.io/py/HAP-python.svg)](https://badge.fury.io/py/HAP-python) [![Build Status](https://travis-ci.org/ikalchev/HAP-python.svg?branch=master)](https://travis-ci.org/ikalchev/HAP-python) [![codecov](https://codecov.io/gh/ikalchev/HAP-python/branch/master/graph/badge.svg)](https://codecov.io/gh/ikalchev/HAP-python) [![Documentation Status](https://readthedocs.org/projects/hap-python/badge/?version=latest)](http://hap-python.readthedocs.io/en/latest/?badge=latest)
 # HAP-python
 
-HomeKit Accessory Protocol implementation in python 3 (tested with 3.4, 3.5 and 3.6).
-With this project, you can integrate your own accessories and add them to your
+HomeKit Accessory Protocol implementation in python 3.
+With this project, you can integrate your own smart devices (called accessories) and add them to your
 iOS Home app. Since Siri is integrated with the Home app, you can start voice-control your
-accessories right away - e.g. "What is the temperature in my bedroom." and "Turn on the
-lights in the Dining Room."
+accessories right away - e.g. "What is the temperature in my bedroom".
 
 The project was developed for a Raspberry Pi, but it should work on other platforms. You
 can even integrate with HAP-python remotely using HTTP (see below). To kick-start things,
@@ -13,13 +12,7 @@ you can open `main.py`, where you can find out how to launch a mock temperature 
 Just run `python3 main.py` and you should see it in the Home app (be sure to be in the same network).
 Stop it by hitting Ctrl+C.
 
-There are example accessories in [the accessories folder](pyhap/accessories):
-
-- AM2302 (DHT22) temperature and humidity sensor.
-- SDS011 air particulate density sensor.
-- TSL2591 light sensor.
-
-It's very easy to add your own.
+There are example accessories in [the accessories folder](pyhap/accessories).
 
 ## Table of Contents
 1. [API](#API)
@@ -30,6 +23,10 @@ It's very easy to add your own.
 
 ## Installation <a name="Installation"></a>
 
+As of version 2.0.0, HAP-python no longer supports python older than 3.5, because we
+are moving to asyncio. If your platform does not have a compatible python out of the
+box, you can install it manually or just use an older version of HAP-python.
+
 As a prerequisite, you will need Avahi/Bonjour installed (due to zeroconf package).
 On a Raspberry Pi, you can get it with:
 ```
@@ -37,7 +34,7 @@ $ sudo apt-get install libavahi-compat-libdnssd-dev
 ```
 `avahi-utils` may also fit the bill. Then, you can install with `pip3` (you will need `sudo` or `--user` for the install):
 ```sh
-$ pip3 install HAP-python
+$ pip3 install HAP-python[QRCode]
 ```
 
 This will install HAP-python in your python packages, so that you can import it as `pyhap`. To uninstall, just do:
@@ -54,11 +51,10 @@ will take care of advertising it on the local network, setting a HAP server and
 running the Accessory. Take a look at [main.py](main.py) for a quick start on that.
 
 ```python
-from pyhap.accessory import Accessory, AsyncAccessory, Category
+from pyhap.accessory import Accessory, Category
 import pyhap.loader as loader
 
-### Async accessory - run method is run asynchronously in the event loop
-class TemperatureSensor(AsyncAccessory):
+class TemperatureSensor(Accessory):
     """Implementation of a mock temperature sensor accessory."""
 
     category = Category.SENSOR  # This is for the icon in the iOS Home app.
@@ -67,63 +63,40 @@ class TemperatureSensor(AsyncAccessory):
         """Here, we just store a reference to the current temperature characteristic and
         add a method that will be executed every time its value changes.
         """
-        # If overriding this method, be sure to call the super's implementation first,
-        # because it calls _set_services and performs some other important actions.
-        super(TemperatureSensor, self).__init__(*args, **kwargs)
+        # If overriding this method, be sure to call the super's implementation first.
+        super().__init__(*args, **kwargs)
 
-        self.temp_char = self.get_service("TemperatureSensor")\
-                             .get_characteristic("CurrentTemperature")
+        # Add the services that this Accessory will support with add_preload_service here
+        temp_service = self.add_preload_service('TemperatureSensor')
+        self.temp_char = temp_service.get_characteristic('CurrentTemperature')
+
         # Having a callback is optional, but you can use it to add functionality.
         self.temp_char.setter_callback = self.temperature_changed
 
     def temperature_changed(self, value):
-        """This will be called every time the value of the CurrentTemperature Characteristic
+        """This will be called every time the value of the CurrentTemperature
         is changed. Use setter_callbacks to react to user actions, e.g. setting the
         lights On could fire some GPIO code to turn on a LED (see pyhap/accessories/LightBulb.py).
-
-        NOTE: no need to set the value yourself, this is done for you, before the callback
-        is called.
         """
-        print("Temperature changed to: ", value)
+        print('Temperature changed to: ', value)
 
-    def _set_services(self):
-        """We override this method to add the services that we want our accessory to
-        support. Services have "mandatory" characteristics and optional
-        characteristics. Mandatory characteristics are automatically added
-        to your selected service, but you must add optional characteristics yourself.
-        Take a look at pyhap/accessories/FakeFan.py for an example of how to do that.
-        """
-        super(TemperatureSensor, self)._set_services()  # Adds some neccessary characteristics.
-        # A loader creates Service and Characteristic objects based on json representation
-        # such as the Apple-defined ones in pyhap/resources/.
-        temp_sensor_service = loader.get_serv_loader().get("TemperatureSensor")
-        self.add_service(temp_sensor_service)
-
-    @AsyncAcessory.run_at_interval(3)  # Run this method every 3 seconds
-    async def run(self):
+    @Acessory.run_at_interval(3)  # Run this method every 3 seconds
+    # The `run` method can be `async` as well
+    def run(self):
         """We override this method to implement what the accessory will do when it is
-        started. An accessory is started and stopped from the AccessoryDriver.
+        started.
 
         We set the current temperature to a random number. The decorator runs this method
         every 3 seconds.
         """
         self.temp_char.set_value(random.randint(18, 26))
 
+    # The `stop` method can be `async` as well
     def stop(self):
         """We override this method to clean up any resources or perform final actions, as
         this is called by the AccessoryDriver when the Accessory is being stopped.
         """
-        print("Stopping accessory.")
-
-### Synchronouse accessory - run method is in a thread
-class SyncTemperatureSensor(Accessory):
-    """Everything is same as in the TemperatureSensor, apart from the run method which is
-    not async.
-    """
-
-    @Accessory.run_at_interval(3)
-    def run(self):
-        self.temp_char.set_value(random.randint(18, 26))
+        print('Stopping accessory.')
 ```
 
 ## Integrating non-compatible devices <a name="HttpAcc"></a>
@@ -133,7 +106,6 @@ to be bridged by means of communicating with an HTTP server - the [HttpBridge](p
 For example, the bellow snippet creates an Http Accessory that listens on port 51800
 for updates on the TemperatureSensor service:
 ```python
-import pyhap.util as util
 import pyhap.loader as loader
 from pyhap.accessories.Http import HttpBridge
 from pyhap.accessory import Accessory

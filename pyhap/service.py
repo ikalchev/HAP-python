@@ -1,7 +1,6 @@
 """This module implements the HAP Service."""
 from uuid import UUID
 
-from pyhap.characteristic import Characteristic
 from pyhap.const import HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_TYPE
 
 
@@ -12,13 +11,14 @@ class Service:
     TemperatureSensor service has the characteristic CurrentTemperature.
     """
 
-    __slots__ = ('display_name', 'type_id', 'characteristics', 'broker')
+    __slots__ = ('broker', 'characteristics', 'display_name', 'type_id')
 
     def __init__(self, type_id, display_name=None):
+        """Initialize a new Service object."""
+        self.broker = None
+        self.characteristics = []
         self.display_name = display_name
         self.type_id = type_id
-        self.characteristics = []
-        self.broker = None
 
     def __repr__(self):
         """Return the representation of the service."""
@@ -30,7 +30,7 @@ class Service:
         """Add the given characteristics as "mandatory" for this Service."""
         for char in chars:
             if not any(char.type_id == original_char.type_id
-                    for original_char in self.characteristics):
+                       for original_char in self.characteristics):
                 self.characteristics.append(char)
 
     def get_characteristic(self, name):
@@ -50,7 +50,7 @@ class Service:
         raise ValueError('Characteristic not found')
 
     def configure_char(self, char_name, properties=None, valid_values=None,
-                       value=None, setter_callback=None):
+                       value=None, setter_callback=None, getter_callback=None):
         """Helper method to return fully configured characteristic."""
         char = self.get_characteristic(char_name)
         if properties or valid_values:
@@ -59,8 +59,11 @@ class Service:
             char.set_value(value, should_notify=False)
         if setter_callback:
             char.setter_callback = setter_callback
+        if getter_callback:
+            char.getter_callback = getter_callback
         return char
 
+    # pylint: disable=invalid-name
     def to_HAP(self):
         """Create a HAP representation of this Service.
 
@@ -74,7 +77,7 @@ class Service:
         }
 
     @classmethod
-    def from_dict(cls, name, json_dict, char_loader):
+    def from_dict(cls, name, json_dict, loader):
         """Initialize a service object from a dict.
 
         :param json_dict: Dictionary containing at least the keys `UUID` and
@@ -83,6 +86,6 @@ class Service:
         """
         type_id = UUID(json_dict.pop('UUID'))
         service = cls(type_id, name)
-        for name in json_dict['RequiredCharacteristics']:
-            service.add_characteristic(char_loader.get_char(name))
+        for char_name in json_dict['RequiredCharacteristics']:
+            service.add_characteristic(loader.get_char(char_name))
         return service

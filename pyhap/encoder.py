@@ -10,7 +10,8 @@ import ed25519
 
 from pyhap.util import fromhex, tohex
 
-class AccessoryEncoder(object):
+
+class AccessoryEncoder:
     """This class defines the Accessory encoder interface.
 
     The AccessoryEncoder is used by the AccessoryDriver to persist and restore the
@@ -41,7 +42,8 @@ class AccessoryEncoder(object):
     @see: AccessoryDriver.persist AccessoryDriver.load AccessoryDriver.__init__
     """
 
-    def persist(self, fp, acc):
+    @staticmethod
+    def persist(fp, state):
         """Persist the state of the given Accessory to the given file object.
 
         Persists:
@@ -51,25 +53,27 @@ class AccessoryEncoder(object):
             - Config version.
         """
         paired_clients = {str(client): tohex(key)
-                          for client, key in acc.paired_clients.items()}
+                          for client, key in state.paired_clients.items()}
         config_state = {
-            "mac": acc.mac,
-            "config_version": acc.config_version,
-            "paired_clients": paired_clients,
-            "private_key": tohex(acc.private_key.to_seed()),
-            "public_key":  tohex(acc.public_key.to_bytes()),
+            'mac': state.mac,
+            'config_version': state.config_version,
+            'paired_clients': paired_clients,
+            'private_key': tohex(state.private_key.to_seed()),
+            'public_key': tohex(state.public_key.to_bytes()),
         }
         json.dump(config_state, fp)
 
-    def load_into(self, fp, acc):
+    @staticmethod
+    def load_into(fp, state):
         """Load the accessory state from the given file object into the given Accessory.
 
         @see: AccessoryEncoder.persist
         """
-        state = json.load(fp)
-        acc.mac = state["mac"]
-        acc.config_version = state["config_version"]
-        acc.paired_clients = {uuid.UUID(client): fromhex(key)
-                              for client, key in state["paired_clients"].items()}
-        acc.private_key = ed25519.SigningKey(fromhex(state["private_key"]))
-        acc.public_key = ed25519.VerifyingKey(fromhex(state["public_key"]))
+        loaded = json.load(fp)
+        state.mac = loaded['mac']
+        state.config_version = loaded['config_version']
+        state.paired_clients = {uuid.UUID(client): fromhex(key)
+                                for client, key in
+                                loaded['paired_clients'].items()}
+        state.private_key = ed25519.SigningKey(fromhex(loaded['private_key']))
+        state.public_key = ed25519.VerifyingKey(fromhex(loaded['public_key']))

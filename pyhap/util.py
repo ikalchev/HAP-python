@@ -65,6 +65,7 @@ def generate_mac():
 def generate_setup_id():
     """
     Generates a random Setup ID for an ``Accessory`` or ``Bridge``.
+
     Used in QR codes and the setup hash.
 
     :return: 4 digit alphanumeric code.
@@ -115,17 +116,6 @@ tohex = bytes.hex if sys.version_info >= (3, 5) else b2hex
 fromhex = bytes.fromhex if sys.version_info >= (3, 5) else hex2b
 """Python-version-agnostic fromhex function. Equivalent to bytes.fromhex in python 3.5+.
 """
-
-
-def toBase64Str(bytesInput) -> str:
-    """
-    :param bytesInput: The bytes to encode.
-    :type bytesInput: bytes
-
-    :return: A base64-encoded str.
-    :rtype: str
-    """
-    return base64.b64encode(bytesInput).decode('utf-8')
 
 
 async def event_wait(event, timeout, loop=None):
