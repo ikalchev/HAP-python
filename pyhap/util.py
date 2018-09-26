@@ -118,6 +118,23 @@ fromhex = bytes.fromhex if sys.version_info >= (3, 5) else hex2b
 """
 
 
+def toBase64Str(bytesInput) -> str:
+    """
+    :param bytesInput: The bytes to encode.
+    :type bytesInput: bytes
+
+    :return: A base64-encoded str.
+    :rtype: str
+    """
+    return base64.b64encode(bytesInput).decode('utf-8')
+
+
+def base64ToBytes(strInput) -> bytes:
+    """
+    """
+    return base64.b64decode(strInput.encode('utf-8'))
+
+
 async def event_wait(event, timeout, loop=None):
     """Wait for the given event to be set or for the timeout to expire.
 

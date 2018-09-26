@@ -583,6 +583,8 @@ class AccessoryDriver:
 
             if HAP_PERMISSION_NOTIFY in cq:
                 char_topic = get_topic(aid, iid)
+                logger.debug('Subscribed client %s to topic %s',
+                             client_addr, char_topic)
                 self.subscribe_client_topic(
                     client_addr, char_topic, cq[HAP_PERMISSION_NOTIFY])
 

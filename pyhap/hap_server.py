@@ -577,7 +577,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         data_len = int(self.headers["Content-Length"])
         image_size = json.loads(
                         self.rfile.read(data_len).decode("utf-8"))
-        image = self.accessory.get_snapshot(image_size)
+        image = self.accessory_handler.accessory.get_snapshot(image_size)
         self.send_response(200)
         self.send_header('Content-Type', 'image/jpeg')
         self.end_response(image)
