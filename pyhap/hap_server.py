@@ -485,7 +485,6 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
         hap_rep = self.accessory_handler.get_accessories()
         data = json.dumps(hap_rep).encode("utf-8")
-        logger.debug('Sending acc data: %s', data)
         self.send_response(200)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(data)

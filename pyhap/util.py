@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import socket
+import struct
 import random
 import binascii
 import sys
@@ -118,21 +119,20 @@ fromhex = bytes.fromhex if sys.version_info >= (3, 5) else hex2b
 """
 
 
-def toBase64Str(bytesInput) -> str:
-    """
-    :param bytesInput: The bytes to encode.
-    :type bytesInput: bytes
-
-    :return: A base64-encoded str.
-    :rtype: str
-    """
-    return base64.b64encode(bytesInput).decode('utf-8')
+def to_base64_str(bytes_input) -> str:
+    return base64.b64encode(bytes_input).decode('utf-8')
 
 
-def base64ToBytes(strInput) -> bytes:
-    """
-    """
-    return base64.b64decode(strInput.encode('utf-8'))
+def base64_to_bytes(str_input) -> bytes:
+    return base64.b64decode(str_input.encode('utf-8'))
+
+
+def decode_ushort(bytes_input):
+    return struct.unpack('<H', bytes_input)[0]
+
+
+def encode_ushort(ushort):
+    return struct.pack('<H', ushort)
 
 
 async def event_wait(event, timeout, loop=None):

@@ -24,13 +24,13 @@ options = {
         "codec": {
             "profiles": [
                 camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["BASELINE"],
-                camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["MAIN"],
-                camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["HIGH"]
+                #camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["MAIN"],
+                #camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["HIGH"]
             ],
             "levels": [
                 camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE3_1'],
-                camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE3_2'],
-                camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE4_0'],
+                #camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE3_2'],
+                #camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE4_0'],
             ],
         },
         "resolutions": [
@@ -60,7 +60,7 @@ options = {
         ],
     },
     "srtp": True,
-    "address": "192.168.1.111",
+    "address": "192.168.1.226",
 }
 
 

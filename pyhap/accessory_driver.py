@@ -519,7 +519,7 @@ class AccessoryDriver:
         hap_rep = self.accessory.to_HAP()
         if not isinstance(hap_rep, list):
             hap_rep = [hap_rep, ]
-        logger.debug("Get acc:%s", hap_rep)
+        logger.debug('Get accessories response:\n%s', json.dumps(hap_rep, indent=3))
         return {HAP_REPR_ACCS: hap_rep}
 
     def get_characteristics(self, char_ids):
@@ -555,7 +555,7 @@ class AccessoryDriver:
                 rep[HAP_REPR_STATUS] = SERVICE_COMMUNICATION_FAILURE
 
             chars.append(rep)
-        logger.debug("GEt Chars: %s", chars)
+        logger.debug("Get chars response: %s", json.dumps(chars, indent=3))
         return {HAP_REPR_CHARS: chars}
 
     def set_characteristics(self, chars_query, client_addr):
