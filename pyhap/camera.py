@@ -16,6 +16,7 @@ streaming.
 [5. At some point the client can reconfigure or stop the stream similarly to step 3.]
 '''
 
+import json
 import os
 import ipaddress
 import logging
@@ -26,8 +27,7 @@ from uuid import UUID
 from pyhap import RESOURCE_DIR
 from pyhap.accessory import Accessory
 from pyhap.const import CATEGORY_CAMERA
-from pyhap.util import to_base64_str
-from pyhap import loader
+from pyhap.util import to_base64_str, byte_bool
 from pyhap import tlv
 
 
@@ -200,8 +200,11 @@ AUDIO_CODEC_PARAM_SAMPLE_RATE_TYPES = {
 }
 
 
+SUPPORTED_AUDIO_CODECS_TAG = b'\x01'
+SUPPORTED_COMFORT_NOISE_TAG = b'\x02'
 SUPPORTED_AUDIO_CONFIG_TAG = b'\x02'
 
+SET_CONFIG_REQUEST_TAG = b'\x02'
 
 SESSION_ID = b'\x01'
 
@@ -213,27 +216,28 @@ NO_SRTP = b'\x01\x01\x02\x02\x00\x03\x00'
 '''Configuration value for no SRTP.'''
 
 
-FFMPEG_CMD = ('ffmpeg -re -f avfoundation -r 29.970000 -i {camera_source} -threads 0 '
-'-pix_fmt uyvy422 -vcodec libx264 -an -r {fps} -f rawvideo -tune zerolatency '
-'-vf scale={width}:{height} -b:v {bitrate}k -bufsize {bitrate}k -g 300 '
-'-payload_type 99 -ssrc {video_ssrc} -f rtp '
-'-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params {video_srtp_key} '
-'srtp://{address}:{video_port}?rtcpport={video_port}'
-'&localrtcpport={video_port}&pkt_size=1378'
+FFMPEG_CMD = (
+'ffmpeg -re -f avfoundation -r 29.970000 -i 0:0 -threads 0 '
+'-pix_fmt uyvy422 -vcodec libx264 -an -r {v_fps} -f rawvideo -tune zerolatency '
+'-vf scale={v_width}:{v_height} -b:v {v_bitrate}k -bufsize {v_bitrate}k -g 300 '
+'-payload_type 99 -ssrc {v_ssrc} -f rtp '
+'-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params {v_srtp_params} '
+'srtp://{address}:{v_port}?rtcpport={v_port}'
+'&localrtcpport={v_port}&pkt_size=1378'
 )
 '''Template for the ffmpeg command.'''
 
 FFMPEG_AUDIO_CMD = ('-map 0:1 -acodec libmp3lame '
-    '-profile:a aac_eld -flags +global_header -f null -ar {sample_rate}k '
-    '-b:a {bit_rate}k -bufsize {bit_rate}k -ac 1 -payload_type 110 '
-    '-ssrc {ssrc} -f rtp -srtp_out_suite AES_CM_128_HMAC_SHA1_80 '
-    '-srtp_out_params {audio_key} '
-    'srtp://{address}:{audio_port}?rtcpport={audio_port}'
-    '&localrtcpport={local_audio_port}&pkt_size={pkt_size}'
+    '-profile:a aac_eld -flags +global_header -f null -ar {a_sample_rate}k '
+    '-b:a {a_bitrate}k -bufsize {a_bitrate}k -ac 1 -payload_type 110 '
+    '-ssrc {a_ssrc} -f rtp -srtp_out_suite AES_CM_128_HMAC_SHA1_80 '
+    '-srtp_out_params {a_srtp_params} '
+    'srtp://{address}:{a_port}?rtcpport={a_port}'
+    '&localrtcpport={a_port}&pkt_size=1316'
 )
 
 
-class CameraAccessory(Accessory):
+class Camera(Accessory):
     '''An Accessory that can negotiated camera stream settings with iOS and start a
     stream.
     '''
@@ -297,12 +301,16 @@ class CameraAccessory(Accessory):
 
     @staticmethod
     def get_supported_audio_stream_config(audio_params):
-        '''XXX
+        '''Return a tlv representation of the supported audio stream configuration.
+
         iOS supports only AACELD and OPUS
 
         Expected audio parameters:
         - codecs
         - comfort_noise
+
+        :param audio_params: Supported audio configurations
+        :type audio_params: dict
         '''
         has_supported_codec = False
         configs = b''
@@ -336,7 +344,7 @@ class CameraAccessory(Accessory):
                                    AUDIO_CODEC_PARAM_TYPES['SAMPLE_RATE'], samplerate)
             config_tlv = tlv.encode(AUDIO_TYPES['CODEC'], codec,
                                     AUDIO_TYPES['CODEC_PARAM'], param_tlv)
-            configs += tlv.encode(b'\x01', config_tlv)
+            configs += tlv.encode(SUPPORTED_AUDIO_CODECS_TAG, config_tlv)
 
         if not has_supported_codec:
             logging.warning('Client does not support any audio codec that iOS supports.')
@@ -353,11 +361,12 @@ class CameraAccessory(Accessory):
             config_tlv = tlv.encode(AUDIO_TYPES['CODEC'], codec,
                                     AUDIO_TYPES['CODEC_PARAM'], param_tlv)
 
-            configs = tlv.encode(b'\x01', config_tlv)
+            configs = tlv.encode(SUPPORTED_AUDIO_CODECS_TAG, config_tlv)
 
-        comfort_noise = b'\x01' if audio_params.get('comfort_noise', False) else b'\x00'
+        comfort_noise = byte_bool(
+                            audio_params.get('comfort_noise', False))
         audio_config = to_base64_str(
-                        configs + tlv.encode(b'\x02', comfort_noise))
+                        configs + tlv.encode(SUPPORTED_COMFORT_NOISE_TAG, comfort_noise))
         return audio_config
 
     def __init__(self, options, *args, **kwargs):
@@ -462,101 +471,89 @@ class CameraAccessory(Accessory):
         video_tlv = objs.get(SELECTED_STREAM_CONFIGURATION_TYPES['VIDEO'])
         audio_tlv = objs.get(SELECTED_STREAM_CONFIGURATION_TYPES['AUDIO'])
 
+        opts = {}
+
         if video_tlv:
             video_objs = tlv.decode(video_tlv)
 
             video_codec_params = video_objs.get(VIDEO_TYPES['CODEC_PARAM'])
             if video_codec_params:
                 video_codec_param_objs = tlv.decode(video_codec_params)
-                profile_id = \
+                opts['v_profile_id'] = \
                     video_codec_param_objs[VIDEO_CODEC_PARAM_TYPES['PROFILE_ID']]
-                level = video_codec_param_objs[VIDEO_CODEC_PARAM_TYPES['LEVEL']]
+                opts['v_level'] = \
+                    video_codec_param_objs[VIDEO_CODEC_PARAM_TYPES['LEVEL']]
 
             video_attrs = video_objs.get(VIDEO_TYPES['ATTRIBUTES'])
             if video_attrs:
                 video_attr_objs = tlv.decode(video_attrs)
-                width = struct.unpack('<H',
+
+                opts['v_width'] = struct.unpack('<H',
                             video_attr_objs[VIDEO_ATTRIBUTES_TYPES['IMAGE_WIDTH']])[0]
-                height = struct.unpack('<H',
+                opts['v_height'] = struct.unpack('<H',
                             video_attr_objs[VIDEO_ATTRIBUTES_TYPES['IMAGE_HEIGHT']])[0]
-                fps = struct.unpack('<B',
+                opts['v_fps'] = struct.unpack('<B',
                                 video_attr_objs[VIDEO_ATTRIBUTES_TYPES['FRAME_RATE']])[0]
 
             video_rtp_param = video_objs.get(VIDEO_TYPES['RTP_PARAM'])
             if video_rtp_param:
                 video_rtp_param_objs = tlv.decode(video_rtp_param)
-                # XXX: Optionals, handle the case where they are missing
-                video_ssrc = 1 or struct.unpack('<I',
+                opts['v_ssrc'] = 1 or struct.unpack('<I',
                     video_rtp_param_objs.get(
                         RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']))[0]
-                video_payload_type = \
+                opts['v_payload_type'] = \
                     video_rtp_param_objs.get(RTP_PARAM_TYPES['PAYLOAD_TYPE'])
-                video_max_bitrate = struct.unpack('<H',
+                opts['v_bitrate'] = struct.unpack('<H',
                     video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_BIT_RATE']))[0]
-                video_rtcp_interval = \
+                opts['v_rtcp_interval'] = \
                     video_rtp_param_objs.get(RTP_PARAM_TYPES['RTCP_SEND_INTERVAL'])
-                video_max_mtu = video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_MTU'])
+                opts['v_max_mtu'] = \
+                    video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_MTU'])
 
         if audio_tlv:
             audio_objs = tlv.decode(audio_tlv)
-            audio_codec = audio_objs[AUDIO_TYPES['CODEC']]
+            opts['a_codec'] = audio_objs[AUDIO_TYPES['CODEC']]
             audio_codec_param_objs = tlv.decode(
                                         audio_objs[AUDIO_TYPES['CODEC_PARAM']])
             audio_rtp_param_objs = tlv.decode(
                                         audio_objs[AUDIO_TYPES['RTP_PARAM']])
-            audio_comfort_noise = audio_objs[AUDIO_TYPES['COMFORT_NOISE']]
+            opts['a_comfort_noise'] = audio_objs[AUDIO_TYPES['COMFORT_NOISE']]
 
             # XXX: handle audio codec
-            audio_channel = audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['CHANNEL']]
-            audio_bitrate = audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['BIT_RATE']]
-            audio_sample_rate = \
+            opts['a_channel'] = \
+                audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['CHANNEL']]
+            opts['a_bitrate'] = \
+                audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['BIT_RATE']]
+            opts['a_sample_rate'] = \
                 audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['SAMPLE_RATE']]
-            audio_packet_time = \
+            opts['a_packet_time'] = \
                 audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['PACKET_TIME']]
 
-            audio_ssrc = audio_rtp_param_objs[RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']]
-            audio_payload_type = audio_rtp_param_objs[RTP_PARAM_TYPES['PAYLOAD_TYPE']]
-            audio_max_bitrate = audio_rtp_param_objs[RTP_PARAM_TYPES['MAX_BIT_RATE']]
-            audio_rtcp_interval = \
+            opts['a_ssrc'] = 1 or \
+                audio_rtp_param_objs[RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']]
+            opts['a_payload_type'] = \
+                audio_rtp_param_objs[RTP_PARAM_TYPES['PAYLOAD_TYPE']]
+            opts['a_bitrate'] = audio_rtp_param_objs[RTP_PARAM_TYPES['MAX_BIT_RATE']]
+            opts['a_rtcp_interval'] = \
                 audio_rtp_param_objs[RTP_PARAM_TYPES['RTCP_SEND_INTERVAL']]
-            audio_comfort_payload_type = \
+            opts['a_comfort_payload_type'] = \
                 audio_rtp_param_objs[RTP_PARAM_TYPES['COMFORT_NOISE_PAYLOAD_TYPE']]
 
+        opts.setdefault('v_width', 1280)
+        opts.setdefault('v_height', 720)
+        opts.setdefault('v_bitrate', 300)
+        opts.setdefault('v_fps', 30)
+
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
-        session_id = UUID(bytes=session_objs[b'\x01'])
+        session_id = UUID(bytes=session_objs[SETUP_TYPES['SESSION_ID']])
         session_info = self.sessions[session_id]
-        width = width or 1280
-        height = height or 720
-        video_max_bitrate = video_max_bitrate or 300
-        fps = min(fps, 30)
 
-        video_cmd = FFMPEG_CMD.format(
-            camera_source='0:0',
-            address=session_info['address'],
-            video_port=session_info['video_port'],
-            video_srtp_key=to_base64_str(session_info['video_srtp_key']
-                                         + session_info['video_srtp_salt']),
-            video_ssrc=video_ssrc,  # XXX: this param is optional, check before adding
-            fps=fps,
-            width=width,
-            height=height,
-            bitrate=video_max_bitrate,
-            local_video_port=session_info['video_port']
-        ).split()
+        opts.update(session_info)
+        opts.pop('process', None)
 
-        audio_cmd = FFMPEG_AUDIO_CMD.format(
-            sample_rate='16',
-            bit_rate='32',
-            bufsize='32',
-            ssrc='1',
-            audio_key=to_base64_str(session_info['audio_srtp_key']
-                                    + session_info['audio_srtp_salt']),
-            address=session_info['address'],
-            audio_port=session_info['audio_port'],
-            local_audio_port=session_info['audio_port'],
-            pkt_size='1316',
-        ).split()
+        logging.debug('Starting stream with the following parameters: %s', opts)
 
+        video_cmd = self.start_stream_cmd.format(**opts).split()
         cmd = video_cmd # + audio_cmd XXX
         logging.debug('Executing start stream command: "%s"', ' '.join(cmd))
         try:
@@ -584,7 +581,7 @@ class CameraAccessory(Accessory):
         :param objs: ``dict``
         """
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
-        session_id = UUID(bytes=session_objs[b'\x01'])
+        session_id = UUID(bytes=session_objs[SETUP_TYPES['SESSION_ID']])
 
         ffmpeg_process = self.sessions.pop(session_id).get('process')
         if ffmpeg_process:
@@ -609,7 +606,7 @@ class CameraAccessory(Accessory):
 
         session_info = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
 
-        request_type = session_info[b'\x02'][0]
+        request_type = session_info[SET_CONFIG_REQUEST_TAG][0]
         logging.debug('Set stream config request: %d', request_type)
         if request_type == 1:
             self._start_stream(objs, reconfigure=False)
@@ -657,15 +654,15 @@ class CameraAccessory(Accessory):
         audio_master_salt = audio_info_objs[SETUP_SRTP_PARAM['MASTER_SALT']]
 
         logging.debug('Received endpoint configuration:'
-                     '\nsession_id: %s\naddress: %s\nis_ipv6: %s'
-                     '\ntarget_video_port: %s\ntarget_audio_port: %s'
-                     '\nvideo_crypto_suite: %s\nvideo_srtp: %s'
-                     '\naudio_crypto_suite: %s\naudio_srtp: %s',
-                     session_id, address, is_ipv6, target_video_port, target_audio_port,
-                     video_crypto_suite,
-                     to_base64_str(video_master_key + video_master_salt),
-                     audio_crypto_suite,
-                     to_base64_str(audio_master_key + audio_master_salt))
+                      '\nsession_id: %s\naddress: %s\nis_ipv6: %s'
+                      '\ntarget_video_port: %s\ntarget_audio_port: %s'
+                      '\nvideo_crypto_suite: %s\nvideo_srtp: %s'
+                      '\naudio_crypto_suite: %s\naudio_srtp: %s',
+                      session_id, address, is_ipv6, target_video_port, target_audio_port,
+                      video_crypto_suite,
+                      to_base64_str(video_master_key + video_master_salt),
+                      audio_crypto_suite,
+                      to_base64_str(audio_master_key + audio_master_salt))
 
         # Configure the SetupEndpoints response
 
@@ -705,14 +702,14 @@ class CameraAccessory(Accessory):
 
         self.sessions[session_id] = {
             'address': address,
-            'video_port': target_video_port,
-            'video_srtp_key': video_master_key,
-            'video_srtp_salt': video_master_salt,
-            'video_ssrc': video_ssrc,
-            'audio_port': target_audio_port,
-            'audio_srtp_key': audio_master_key,
-            'audio_srtp_salt': audio_master_salt,
-            'audio_ssrc': audio_ssrc,
+            'v_port': target_video_port,
+            'v_srtp_params': to_base64_str(video_master_key + video_master_salt),
+            # XXX: these are sent when SetSelectedConfiguration is set,
+            # do we need to keep them here?
+            #'v_ssrc': video_ssrc,
+            'a_port': target_audio_port,
+            'a_srtp_params': to_base64_str(audio_master_key + audio_master_salt),
+            #'a_ssrc': audio_ssrc,
             'process': None
         }
 

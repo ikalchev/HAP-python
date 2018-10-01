@@ -127,12 +127,8 @@ def base64_to_bytes(str_input) -> bytes:
     return base64.b64decode(str_input.encode('utf-8'))
 
 
-def decode_ushort(bytes_input):
-    return struct.unpack('<H', bytes_input)[0]
-
-
-def encode_ushort(ushort):
-    return struct.pack('<H', ushort)
+def byte_bool(boolv):
+    return b'\x01' if boolv else b'\x00'
 
 
 async def event_wait(event, timeout, loop=None):
