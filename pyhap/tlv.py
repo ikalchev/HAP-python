@@ -1,4 +1,4 @@
-'''Encodes and decodes Tag-Length-Value (tlv8) data.'''
+"""Encodes and decodes Tag-Length-Value (tlv8) data."""
 import struct
 
 from pyhap import util

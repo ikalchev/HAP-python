@@ -572,7 +572,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         self.end_response(data)
 
     def handle_resource(self):
-        #self.send_response(405)
+        """Get a snapshot from the camera."""
         data_len = int(self.headers["Content-Length"])
         image_size = json.loads(
                         self.rfile.read(data_len).decode("utf-8"))

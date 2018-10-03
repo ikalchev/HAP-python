@@ -1,4 +1,4 @@
-'''Contains the Camera accessory and related.
+"""Contains the Camera accessory and related.
 
 When a HAP client (e.g. iOS) wants to start a video stream it does the following:
 [0. Read supported RTP configuration]
@@ -14,9 +14,8 @@ camera of its prefered audio and video configuration and to initiate the start o
 streaming.
 4. The camera starts the streaming with the above configuration.
 [5. At some point the client can reconfigure or stop the stream similarly to step 3.]
-'''
+"""
 
-import json
 import os
 import ipaddress
 import logging
@@ -209,7 +208,7 @@ SET_CONFIG_REQUEST_TAG = b'\x02'
 SESSION_ID = b'\x01'
 
 
-### Non-HAP constants
+# Non-HAP constants
 
 
 NO_SRTP = b'\x01\x01\x02\x02\x00\x03\x00'
@@ -238,22 +237,21 @@ FFMPEG_AUDIO_CMD = ('-map 0:1 -acodec libmp3lame '
 
 
 class Camera(Accessory):
-    '''An Accessory that can negotiated camera stream settings with iOS and start a
+    """An Accessory that can negotiated camera stream settings with iOS and start a
     stream.
-    '''
+    """
 
     category = CATEGORY_CAMERA
 
-
     @staticmethod
     def get_supported_rtp_config(support_srtp):
-        '''Return a tlv representation of the RTP configuration we support.
+        """Return a tlv representation of the RTP configuration we support.
 
         SRTP support allows only the AES_CM_128_HMAC_SHA1_80 cipher for now.
 
         :param support_srtp: True if SRTP is supported, False otherwise.
         :type support_srtp: bool
-        '''
+        """
         if support_srtp:
             # XXX: Add support for other suites
             crypto = SRTP_CRYPTO_SUITES['AES_CM_128_HMAC_SHA1_80']
@@ -263,7 +261,7 @@ class Camera(Accessory):
 
     @staticmethod
     def get_supported_video_stream_config(video_params):
-        '''Return a tlv representation of the supported video stream configuration.
+        """Return a tlv representation of the supported video stream configuration.
 
         Expected video parameters:
             - codec
@@ -271,7 +269,7 @@ class Camera(Accessory):
 
         :param video_params: Supported video configurations
         :type video_params: dict
-        '''
+        """
         codec_params_tlv = tlv.encode(
             VIDEO_CODEC_PARAM_TYPES['PACKETIZATION_MODE'],
             VIDEO_CODEC_PARAM_PACKETIZATION_MODE_TYPES['NON_INTERLEAVED'])
@@ -301,7 +299,7 @@ class Camera(Accessory):
 
     @staticmethod
     def get_supported_audio_stream_config(audio_params):
-        '''Return a tlv representation of the supported audio stream configuration.
+        """Return a tlv representation of the supported audio stream configuration.
 
         iOS supports only AACELD and OPUS
 
@@ -311,7 +309,7 @@ class Camera(Accessory):
 
         :param audio_params: Supported audio configurations
         :type audio_params: dict
-        '''
+        """
         has_supported_codec = False
         configs = b''
         for codec_param in audio_params['codecs']:
@@ -370,7 +368,7 @@ class Camera(Accessory):
         return audio_config
 
     def __init__(self, options, *args, **kwargs):
-        '''Initialize a camera accessory with the given options.
+        """Initialize a camera accessory with the given options.
 
         :param options: Describes the supported video and audio configuration
             of this camera. Expected values are video, audio, srtp and address.
@@ -429,7 +427,7 @@ class Camera(Accessory):
                 - target_address - The address to which the camera should stream
 
         :type options: ``dict``
-        '''
+        """
         self.streaming_status = STREAMING_STATUS['AVAILABLE']
         self.has_srtp = options.get('srtp', False)
         self.start_stream_cmd = options.get('start_stream_cmd', FFMPEG_CMD)

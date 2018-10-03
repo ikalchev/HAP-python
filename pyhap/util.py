@@ -1,7 +1,6 @@
 import asyncio
 import base64
 import socket
-import struct
 import random
 import binascii
 import sys
