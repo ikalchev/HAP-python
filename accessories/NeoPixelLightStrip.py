@@ -1,27 +1,27 @@
-# An Accessory for Adafruit NeoPixels attached to GPIO Pin18
-# Tested using Python 3.6 Raspberry Pi
-# This device uses all available services for the Homekit Lightbulb API
-# Note: set your neopixels settings under the #NeoPixel constructor arguments
-# Note: RPi GPIO must be PWM. Neopixels.py will warn if wrong GPIO is used
-#       at runtime
-# Note: This Class requires the installation of rpi_ws281x lib
-#       Follow the instllation instructions;
-#           git clone https://github.com/jgarff/rpi_ws281x.git
-#           cd rpi_ws281x
-#           scons
-#
-#           cd python
-#           sudo python3.6 setup.py install
-# https://learn.adafruit.com/neopixels-on-raspberry-pi/software
+"""
+An Accessory for Adafruit NeoPixels attached to GPIO Pin18
+ Tested using Python 3.5/3.6 Raspberry Pi
+ This device uses all available services for the Homekit Lightbulb API
+ Note: RPi GPIO must be PWM. Neopixels.py will warn if wrong GPIO is used
+       at runtime
+ Note: This Class requires the installation of rpi_ws281x lib
+       Follow the instllation instructions;
+           git clone https://github.com/jgarff/rpi_ws281x.git
+           cd rpi_ws281x
+           scons
 
-# Apple Homekit API Call Order
-# User changes light settings on iOS device
-# Changing Brightness - State - Hue - Brightness
-# Changing Color      - Saturation - Hue
-# Changing Temp/Sat   - Saturation - Hue
-# Changing State      - State
+           cd python
+           sudo python3.6 setup.py install
+ https://learn.adafruit.com/neopixels-on-raspberry-pi/software
 
-# import logging
+ Apple Homekit API Call Order
+ User changes light settings on iOS device
+ Changing Brightness - State - Hue - Brightness
+ Changing Color      - Saturation - Hue
+ Changing Temp/Sat   - Saturation - Hue
+ Changing State      - State
+"""
+
 from neopixel import *
 
 from pyhap.accessory import Accessory
@@ -32,22 +32,22 @@ class NeoPixelLightStrip(Accessory):
 
     category = CATEGORY_LIGHTBULB
 
-    __accessoryState = 0  # State of the neo light On/Off
-    __hue = 0  # Hue Value 0 - 360 Homekit API
-    __saturation = 100  # Saturation Values 0 - 100 Homekit API
-    __brightness = 100  # Brightness value 0 - 100 Homekit API
+    def __init__(self, LED_count, is_GRB, LED_pin,
+                 LED_freq_hz, LED_DMA, LED_brightness,
+                 LED_invert, *args, **kwargs):
 
-    # NeoPixel constructor arguments
-    LED_COUNT = 8
-    LED_PIN = 18
-    LED_FREQ_HZ = 800000
-    LED_DMA = 10
-    LED_BRIGHTNESS = 255  # Note this is for the neopixel object construct only
-    LED_INVERT = False
-    __neo_strip = Adafruit_NeoPixel(LED_COUNT, LED_PIN, LED_FREQ_HZ,
-                                    LED_DMA, LED_INVERT, LED_BRIGHTNESS)
+        """
+        LED_Count - the number of LEDs in the array
+        is_GRB - most neopixels are GRB format - Normal:True
+        LED_pin - must be PWM pin 18 - Normal:18
+        LED_freq_hz - frequency of the neopixel leds - Normal:800000
+        LED_DMA - Normal:10
+        LED_Brightness - overall brightness - Normal:255
+        LED_invert - Normal:False
+        For more information regarding these settings
+            please review rpi_ws281x source code
+        """
 
-    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         # Set our neopixel API services up using Lightbulb base
@@ -60,63 +60,71 @@ class NeoPixelLightStrip(Accessory):
         self.char_saturation = serv_light.configure_char(
             'Saturation', setter_callback=self.set_saturation)
         self.char_on = serv_light.configure_char(
-            'On', setter_callback=self.set_bulb)
+            'On', setter_callback=self.set_state)
         self.char_on = serv_light.configure_char(
             'Brightness', setter_callback=self.set_brightness)
 
-        # Must be called before any colors can be applied to neoPixels
-        self.__neo_strip.begin()
+        # Set our instance variables
+        self.accessory_state = 0  # State of the neo light On/Off
+        self.hue = 0  # Hue Value 0 - 360 Homekit API
+        self.saturation = 100  # Saturation Values 0 - 100 Homekit API
+        self.brightness = 100  # Brightness value 0 - 100 Homekit API
 
-    # def __setstate__(self, state):
-    #     print("___ setstate ___")
-    #     self.__dict__.update(state)
+        self.is_GRB = is_GRB  # Most neopixels are Green Red Blue
+        self.LED_count = LED_count
 
-    def set_bulb(self, value):
-        self.__accessoryState = value
+        self.neo_strip = Adafruit_NeoPixel(LED_count, LED_pin, LED_freq_hz,
+                                           LED_DMA, LED_invert, LED_brightness)
+        self.neo_strip.begin()
+
+    def set_state(self, value):
+        self.accessory_state = value
         if value == 1:  # On
-            self.set_hue(self.__hue)
+            self.set_hue(self.hue)
         else:
-            self.Update_NeoPixel_With_Color(0, 0, 0)  # Off
+            self.update_neopixel_with_color(0, 0, 0)  # Off
 
     def set_hue(self, value):
         # Lets only write the new RGB values if the power is on
         # otherwise update the hue value only
-        if self.__accessoryState == 1:
-            self.__hue = value
+        if self.accessory_state == 1:
+            self.hue = value
             rgb_tuple = self.hsv_to_rgb(
-                self.__hue, self.__saturation, self.__brightness)
+                self.hue, self.saturation, self.brightness)
             if len(rgb_tuple) == 3:
-                self.Update_NeoPixel_With_Color(
+                self.update_neopixel_with_color(
                     rgb_tuple[0], rgb_tuple[1], rgb_tuple[2])
         else:
-            self.__hue = value
+            self.hue = value
 
     def set_brightness(self, value):
-        self.__brightness = value
-        self.set_hue(self.__hue)
+        self.brightness = value
+        self.set_hue(self.hue)
 
     def set_saturation(self, value):
-        self.__saturation = value
-        self.set_hue(self.__hue)
+        self.saturation = value
+        self.set_hue(self.hue)
 
-    def Update_NeoPixel_With_Color(self, red, green, blue):
-        # For some reason the neopixels I have are G-R-B
-        # or it could be the neopixel.py library
-        # Change the setPixelColor inputs for yourself below
-        for i in range(self.LED_COUNT):
-            self.__neo_strip.setPixelColor(
-                i, Color(int(green), int(red), int(blue)))
+    def update_neopixel_with_color(self, red, green, blue):
+        for i in range(self.LED_count):
+            if(self.is_GRB):
+                self.neo_strip.setPixelColor(i, Color(int(green),
+                                                      int(red),
+                                                      int(blue)))
+            else:
+                self.neo_strip.setPixelColor(i, Color(int(red),
+                                                      int(green),
+                                                      int(blue)))
 
-        self.__neo_strip.show()
-
-    def stop(self):
-        super().stop()
+        self.neo_strip.show()
 
     def hsv_to_rgb(self, h, s, v):
-        # This function takes
-        # h - 0 - 360 Deg
-        # s - 0 - 100 %
-        # v - 0 - 100 %
+        """
+        This function takes
+         h - 0 - 360 Deg
+         s - 0 - 100 %
+         v - 0 - 100 %
+        """
 
         hPri = h / 60
         s = s / 100
@@ -146,4 +154,5 @@ class NeoPixelLightStrip(Accessory):
             RGB_Pri = [0, 0, 0]
 
         m = v - C
-        return int((RGB_Pri[0] + m) * 255), int((RGB_Pri[1] + m) * 255), int((RGB_Pri[2] + m) * 255)  
+
+        return int((RGB_Pri[0] + m) * 255), int((RGB_Pri[1] + m) * 255), int((RGB_Pri[2] + m) * 255)
