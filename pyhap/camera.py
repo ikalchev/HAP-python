@@ -216,7 +216,7 @@ NO_SRTP = b'\x01\x01\x02\x02\x00\x03\x00'
 
 
 FFMPEG_CMD = (
-# pylint: disable=bad-continuation
+    # pylint: disable=bad-continuation
     'ffmpeg -re -f avfoundation -r 29.970000 -i 0:0 -threads 0 '
     '-pix_fmt uyvy422 -vcodec libx264 -an -r {v_fps} -f rawvideo -tune zerolatency '
     '-vf scale={v_width}:{v_height} -b:v {v_bitrate}k -bufsize {v_bitrate}k -g 300 '
@@ -228,7 +228,7 @@ FFMPEG_CMD = (
 '''Template for the ffmpeg command.'''
 
 FFMPEG_AUDIO_CMD = (
-# pylint: disable=bad-continuation
+    # pylint: disable=bad-continuation
     '-map 0:1 -acodec libmp3lame '
     '-profile:a aac_eld -flags +global_header -f null -ar {a_sample_rate}k '
     '-b:a {a_bitrate}k -bufsize {a_bitrate}k -ac 1 -payload_type 110 '
