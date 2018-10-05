@@ -573,9 +573,12 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
     def handle_resource(self):
         """Get a snapshot from the camera."""
-        data_len = int(self.headers["Content-Length"])
+        if not hasattr(self.accessory_handler.accessory, 'get_snapshot'):
+            raise ValueError('Got a request for snapshot, but the Accessory '
+                             'does not define a "get_snapshot" method')
+        data_len = int(self.headers['Content-Length'])
         image_size = json.loads(
-                        self.rfile.read(data_len).decode("utf-8"))
+                        self.rfile.read(data_len).decode('utf-8'))
         image = self.accessory_handler.accessory.get_snapshot(image_size)
         self.send_response(200)
         self.send_header('Content-Type', 'image/jpeg')

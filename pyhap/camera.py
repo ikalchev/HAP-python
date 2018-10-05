@@ -216,17 +216,20 @@ NO_SRTP = b'\x01\x01\x02\x02\x00\x03\x00'
 
 
 FFMPEG_CMD = (
-'ffmpeg -re -f avfoundation -r 29.970000 -i 0:0 -threads 0 '
-'-pix_fmt uyvy422 -vcodec libx264 -an -r {v_fps} -f rawvideo -tune zerolatency '
-'-vf scale={v_width}:{v_height} -b:v {v_bitrate}k -bufsize {v_bitrate}k -g 300 '
-'-payload_type 99 -ssrc {v_ssrc} -f rtp '
-'-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params {v_srtp_params} '
-'srtp://{address}:{v_port}?rtcpport={v_port}'
-'&localrtcpport={v_port}&pkt_size=1378'
+# pylint: disable=bad-continuation
+    'ffmpeg -re -f avfoundation -r 29.970000 -i 0:0 -threads 0 '
+    '-pix_fmt uyvy422 -vcodec libx264 -an -r {v_fps} -f rawvideo -tune zerolatency '
+    '-vf scale={v_width}:{v_height} -b:v {v_bitrate}k -bufsize {v_bitrate}k -g 300 '
+    '-payload_type 99 -ssrc {v_ssrc} -f rtp '
+    '-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params {v_srtp_params} '
+    'srtp://{address}:{v_port}?rtcpport={v_port}'
+    '&localrtcpport={v_port}&pkt_size=1378'
 )
 '''Template for the ffmpeg command.'''
 
-FFMPEG_AUDIO_CMD = ('-map 0:1 -acodec libmp3lame '
+FFMPEG_AUDIO_CMD = (
+# pylint: disable=bad-continuation
+    '-map 0:1 -acodec libmp3lame '
     '-profile:a aac_eld -flags +global_header -f null -ar {a_sample_rate}k '
     '-b:a {a_bitrate}k -bufsize {a_bitrate}k -ac 1 -payload_type 110 '
     '-ssrc {a_ssrc} -f rtp -srtp_out_suite AES_CM_128_HMAC_SHA1_80 '
@@ -460,11 +463,17 @@ class Camera(Accessory):
         management.configure_char('SetupEndpoints',
                                   setter_callback=self.set_endpoints)
 
-    def _start_stream(self, objs, reconfigure):
+    def _start_stream(self, objs, reconfigure):  # pylint: disable=unused-argument
         """Start or reconfigure video streaming for the given session.
+
+        No support for reconfigure currently.
 
         :param objs: TLV-decoded SelectedRTPStreamConfiguration
         :type objs: ``dict``
+
+        :param reconfigure: Whether the stream should be reconfigured instead of
+            started.
+        :type reconfigure: bool
         """
         video_tlv = objs.get(SELECTED_STREAM_CONFIGURATION_TYPES['VIDEO'])
         audio_tlv = objs.get(SELECTED_STREAM_CONFIGURATION_TYPES['AUDIO'])
@@ -551,12 +560,11 @@ class Camera(Accessory):
 
         logging.debug('Starting stream with the following parameters: %s', opts)
 
-        video_cmd = self.start_stream_cmd.format(**opts).split()
-        cmd = video_cmd # + audio_cmd XXX
+        cmd = self.start_stream_cmd.format(**opts).split()
         logging.debug('Executing start stream command: "%s"', ' '.join(cmd))
         try:
             process = subprocess.Popen(cmd)
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             logging.error('Failed to start streaming process because of error: %s', e)
             return
 
@@ -588,7 +596,7 @@ class Camera(Accessory):
         else:
             logging.debug('No process for session ID %s', session_id)
 
-        self.streaming_status = False
+        self.streaming_status = STREAMING_STATUS['AVAILABLE']
 
     def set_selected_stream_configuration(self, value):
         """Set the selected stream configuration.
@@ -679,8 +687,8 @@ class Camera(Accessory):
             audio_srtp_tlv = NO_SRTP
 
         # XXX use urandom, but make fit it in the allowed range
-        video_ssrc = b'\x00\x00\x00\x01'  #os.urandom(4)
-        audio_ssrc = b'\x00\x00\x00\x01'  #os.urandom(4)
+        video_ssrc = b'\x00\x00\x00\x01'
+        audio_ssrc = b'\x00\x00\x00\x01'
 
         res_address_tlv = tlv.encode(
             SETUP_ADDR_INFO['ADDRESS_VER'], is_ipv6,
@@ -704,10 +712,10 @@ class Camera(Accessory):
             'v_srtp_params': to_base64_str(video_master_key + video_master_salt),
             # XXX: these are sent when SetSelectedConfiguration is set,
             # do we need to keep them here?
-            #'v_ssrc': video_ssrc,
+            # 'v_ssrc': video_ssrc,
             'a_port': target_audio_port,
             'a_srtp_params': to_base64_str(audio_master_key + audio_master_salt),
-            #'a_ssrc': audio_ssrc,
+            # 'a_ssrc': audio_ssrc,
             'process': None
         }
 
@@ -715,7 +723,7 @@ class Camera(Accessory):
             .get_characteristic('SetupEndpoints')\
             .set_value(response_tlv)
 
-    def get_snapshot(self, image_size):
+    def get_snapshot(self, image_size):  # pylint: disable=unused-argument, no-self-use
         """Return a jpeg of a snapshot from the camera.
 
         Overwrite to implement getting snapshots from your camera.
