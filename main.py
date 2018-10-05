@@ -11,6 +11,7 @@ import signal
 from pyhap.accessory import Bridge
 from pyhap.accessory_driver import AccessoryDriver
 import pyhap.loader as loader
+from pyhap import camera
 
 # The below package can be found in the HAP-python github repo under accessories/
 from accessories.TemperatureSensor import TemperatureSensor

@@ -95,6 +95,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             "/pair-setup": "handle_pairing",
             "/pair-verify": "handle_pair_verify",
             "/pairings": "handle_pairings",
+            "/resource": "handle_resource",
         },
 
         "GET": {
@@ -484,7 +485,6 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
         hap_rep = self.accessory_handler.get_accessories()
         data = json.dumps(hap_rep).encode("utf-8")
-        logger.debug('Sending acc data: %s', data)
         self.send_response(200)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(data)
@@ -570,6 +570,19 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
         self.end_response(data)
+
+    def handle_resource(self):
+        """Get a snapshot from the camera."""
+        if not hasattr(self.accessory_handler.accessory, 'get_snapshot'):
+            raise ValueError('Got a request for snapshot, but the Accessory '
+                             'does not define a "get_snapshot" method')
+        data_len = int(self.headers['Content-Length'])
+        image_size = json.loads(
+                        self.rfile.read(data_len).decode('utf-8'))
+        image = self.accessory_handler.accessory.get_snapshot(image_size)
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/jpeg')
+        self.end_response(image)
 
 
 class HAPSocket(socket.socket):
