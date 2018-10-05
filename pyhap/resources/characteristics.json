@@ -843,7 +843,8 @@
       "UUID": "000000C9-0000-1000-8000-0026BB765291",
       "maxValue": 100,
       "minStep": 1,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "percentage"
    },
    "RelativeHumidityHumidifierThreshold": {
       "Format": "float",
@@ -1403,6 +1404,7 @@
       ],
       "UUID": "000000B5-0000-1000-8000-0026BB765291",
       "maxValue": 100,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "percentage"
    }
 }
