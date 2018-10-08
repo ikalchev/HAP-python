@@ -1,5 +1,5 @@
 """Tests for pyhap.camera."""
-from unittest.mock import patch, Mock, MagicMock
+from unittest.mock import patch
 from uuid import UUID
 
 from pyhap import camera
