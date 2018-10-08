@@ -558,20 +558,16 @@ class Camera(Accessory):
         opts.update(session_info)
         opts.pop('process', None)
 
-        logging.debug('Starting stream with the following parameters: %s', opts)
+        success = self.reconfigure_stream(session_info, opts) if reconfigure \
+            else self.start_stream(session_info, opts)
 
-        cmd = self.start_stream_cmd.format(**opts).split()
-        logging.debug('Executing start stream command: "%s"', ' '.join(cmd))
-        try:
-            process = subprocess.Popen(cmd)
-        except Exception as e:  # pylint: disable=broad-except
-            logging.error('Failed to start streaming process because of error: %s', e)
-            return
-
-        self.sessions[session_id]['process'] = process
-
-        logging.info('Started stream process - PID %d', process.pid)
-        self.streaming_status = STREAMING_STATUS['STREAMING']
+        if success:
+            self.streaming_status = STREAMING_STATUS['STREAMING']
+        else:
+            logging.error('[%s] Faled to start/reconfigure stream, deleting session.',
+                          session_id)
+            del self.sessions[session_id]
+            self.streaming_status = STREAMING_STATUS['AVAILABLE']
 
     def get_streaimg_status(self):
         """Get the streaming status in TLV format.
@@ -588,13 +584,15 @@ class Camera(Accessory):
         """
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
         session_id = UUID(bytes=session_objs[SETUP_TYPES['SESSION_ID']])
+        session_info = self.sessions.get(session_id)
 
-        ffmpeg_process = self.sessions.pop(session_id).get('process')
-        if ffmpeg_process:
-            logging.info('Stopping process for session ID %s', session_id)
-            ffmpeg_process.kill()
-        else:
-            logging.debug('No process for session ID %s', session_id)
+        if not session_info:
+            logging.error('Requested to stop stream for session %s, but no '
+                          'such session was found', session_id)
+            return
+
+        self.stop_stream(session_info)
+        del self.sessions[session_id]
 
         self.streaming_status = STREAMING_STATUS['AVAILABLE']
 
@@ -686,7 +684,7 @@ class Camera(Accessory):
             video_srtp_tlv = NO_SRTP
             audio_srtp_tlv = NO_SRTP
 
-        # XXX use urandom, but make fit it in the allowed range
+        # XXX use urandom, but fit it in the allowed range
         video_ssrc = b'\x00\x00\x00\x01'
         audio_ssrc = b'\x00\x00\x00\x01'
 
@@ -707,6 +705,7 @@ class Camera(Accessory):
             to_base64=True)
 
         self.sessions[session_id] = {
+            'id': session_id,
             'address': address,
             'v_port': target_video_port,
             'v_srtp_params': to_base64_str(video_master_key + video_master_salt),
@@ -722,6 +721,116 @@ class Camera(Accessory):
         self.get_service('CameraRTPStreamManagement')\
             .get_characteristic('SetupEndpoints')\
             .set_value(response_tlv)
+
+    # ### For client extensions ###
+
+    def start_stream(self, session_info, stream_config):
+        """Start a new stream with the given configuration.
+
+        This method can be implemented to start a new stream. Any specific information
+        about the started stream can be persisted in the ``session_info`` argument.
+        The same will be passed to ``stop_stream`` when the stream for this session
+        needs to be stopped.
+
+        The default implementation starts a new process with the command in
+        ``self.start_stream_cmd``, formatted with the ``stream_config``.
+
+        :param session_info: Contains information about the current session. Can be used
+            for session storage. Available keys:
+            - id - The session ID.
+        :type session_info: ``dict``
+
+        :param stream_config: Stream configuration, as negotiated with the HAP client.
+            Implementations can only use part of these. Available keys:
+
+            General configuration:
+                - address - The IP address from which the camera will stream
+                - v_port - Remote port to which to stream video
+                - v_srtp_params - Base64-encoded key and salt value for the
+                    AES_CM_128_HMAC_SHA1_80 cipher to use when streaming video.
+                    The key and the salt are concatenated before encoding
+                - a_port - Remote audio port to which to stream audio
+                - a_srtp_params - As v_srtp_params, but for the audio stream.
+
+            Video configuration:
+                - v_profile_id - The profile ID for the H.264 codec, e.g. baseline
+                - v_level - The level in the profile ID, e.g. 3:1
+                - v_width - Video width
+                - v_height - Video height
+                - v_fps - Video frame rate
+                - v_ssrc - Video synchronisation source
+                - v_payload_type - Type of the video codec
+                - v_bitrate - Maximum bit rate generated by the codec in kbps
+                    and averaged over 1 second
+                - v_rtcp_interval - Minimum RTCP interval in seconds
+                - v_max_mtu - MTU that the IP camera must use to transmit
+                    Video RTP packets.
+
+            Audio configuration:
+                - a_bitrate - Whether the bitrate is variable or constant
+                - a_codec - Audio codec
+                - a_comfort_noise - Wheter to use a comfort noise codec
+                - a_channel - Number of audio channels
+                - a_sample_rate - Audio sample rate in KHz
+                - a_packet_time - Length of time represented by the media in a packet
+                - a_ssrc - Audio synchronisation source
+                - a_payload_type - Type of the audio codec
+                - a_max_bitrate - Maximum bit rate generated by the codec in kbps
+                    and averaged over 1 second
+                - a_rtcp_interval - Minimum RTCP interval in seconds
+                - a_comfort_payload_type - The type of codec for comfort noise
+
+        :return: True if and only if starting the stream command was successful.
+        :rtype: ``bool``
+        """
+        logging.debug('[%s] Starting stream with the following parameters: %s',
+                      session_info['id'], stream_config)
+
+        cmd = self.start_stream_cmd.format(**stream_config).split()
+        logging.debug('Executing start stream command: "%s"', ' '.join(cmd))
+        try:
+            process = subprocess.Popen(cmd)
+        except Exception as e:  # pylint: disable=broad-except
+            logging.error('Failed to start streaming process because of error: %s', e)
+            return False
+
+        session_info['process'] = process
+
+        logging.info('Started stream process - PID %d', process.pid)
+
+        return True
+
+    def stop_stream(self, session_info):
+        """Stop the stream for the given ``session_id``.
+
+        This method can be implemented if custom stop stream commands are needed. The
+        default implementation gets the ``process`` value from the ``session_info``
+        object and kills it (assumes it is a ``subprocess.Popen`` object).
+
+        :param session_info: The session info object. Available keys:
+            - id - The session ID.
+        :type session_info: ``dict``
+        """
+        session_id = session_info['id']
+        ffmpeg_process = session_info.get('process')
+        if ffmpeg_process:
+            logging.info('[%s] Stopping stream.', session_id)
+            ffmpeg_process.kill()
+        else:
+            logging.warning('No process for session ID %s', session_id)
+
+    def reconfigure_stream(self, session_info, stream_config):
+        """Reconfigure the stream so that it uses the given ``stream_config``.
+
+        :param session_info: The session object for the session that needs to
+            be reconfigured. Available keys:
+            - id - The session id.
+        :type session_id: ``dict``
+
+        :return: True if and only if the reconfiguration is successful.
+        :rtype: ``bool``
+        """
+        return self.start_stream(session_info, stream_config)
 
     def get_snapshot(self, image_size):  # pylint: disable=unused-argument, no-self-use
         """Return a jpeg of a snapshot from the camera.

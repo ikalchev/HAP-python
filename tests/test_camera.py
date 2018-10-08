@@ -1,5 +1,5 @@
 """Tests for pyhap.camera."""
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, MagicMock
 from uuid import UUID
 
 from pyhap import camera
@@ -79,13 +79,16 @@ def test_setup_endpoints(mock_driver):
     assert setup_endpoints.get_value() == set_endpoint_res
 
 
-def test_set_selected_stream_start(mock_driver):
+def test_set_selected_stream_start_stop(mock_driver):
     """Test starting a stream request"""
     selected_config_req = ('ARUCAQEBEKzMbMEFY0UVjal0tFCQBpECNAEBAAIJAQEAAgEAAwEAAwsBAoAC'
                            'AgJoAQMBHgQXAQFjAgQr66FSAwKEAAQEAAAAPwUCYgUDLAEBAgIMAQEBAgEA'
                            'AwEBBAEeAxYBAW4CBMUInmQDAhgABAQAAKBABgENBAEA')
 
+    session_id = UUID('accc6cc1-0563-4515-8da9-74b450900691')
+
     session_info = {
+        'id': session_id,
         'address': '192.168.1.114',
         'v_port': 50483,
         'v_srtp_params': '2JZgpMkwWUH8ahUtzp8VThtBmbk26hCPJqeWpYDR',
@@ -94,18 +97,23 @@ def test_set_selected_stream_start(mock_driver):
         'process': None
     }
 
-    session_id = UUID('accc6cc1-0563-4515-8da9-74b450900691')
-
     acc = camera.Camera(_OPTIONS, mock_driver, 'Camera')
     acc.sessions[session_id] = session_info
 
     selected_config = acc.get_service('CameraRTPStreamManagement')\
                          .get_characteristic('SelectedRTPStreamConfiguration')
 
-    with patch('subprocess.Popen') as popen_patch:
-        popen_obj = Mock()
-        popen_obj.pid = 42
-        popen_patch.return_value = popen_obj
-        selected_config.client_update_value(selected_config_req)
+    patcher = patch('subprocess.Popen', spec=True)
+    patched_popen = patcher.start()
+    patched_popen.return_value.pid = 42
+    selected_config.client_update_value(selected_config_req)
+    patcher.stop()
 
     assert acc.streaming_status == camera.STREAMING_STATUS['STREAMING']
+
+    selected_config_stop_req = 'ARUCAQABEKzMbMEFY0UVjal0tFCQBpE='
+    selected_config.client_update_value(selected_config_stop_req)
+
+    assert session_id not in acc.sessions
+    assert patched_popen.return_value.kill.called
+    assert acc.streaming_status == camera.STREAMING_STATUS['AVAILABLE']
