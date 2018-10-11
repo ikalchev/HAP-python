@@ -480,7 +480,8 @@ class AccessoryDriver:
         logger.info("Paired with %s.", client_uuid)
         self.state.add_paired_client(client_uuid, client_public)
         self.persist()
-        self.update_advertisement()
+        # TODO: Figure out why update_advertisement after pairing causes issues
+        # self.update_advertisement()
         return True
 
     def unpair(self, client_uuid):
@@ -495,7 +496,8 @@ class AccessoryDriver:
         logger.info("Unpairing client %s.", client_uuid)
         self.state.remove_paired_client(client_uuid)
         self.persist()
-        self.update_advertisement()
+        # TODO: Figure out why update_advertisement after unpairing causes issues
+        # self.update_advertisement()
 
     def setup_srp_verifier(self):
         """Create an SRP verifier for the accessory's info."""
