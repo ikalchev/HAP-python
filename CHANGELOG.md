@@ -22,6 +22,9 @@ Sections
 - Added `NeoPixelsLightStrip` accessory. [#144](https://github.com/ikalchev/HAP-python/pull/144)
 - Added new Accessory categories. [Commit](https://github.com/ikalchev/HAP-python/commit/dbf1d5d8fea814af52098f3a2f3cd5a47cd889c1)
 
+### Changed
+- Spelling fix - executor (accessory_driver). [#159](https://github.com/ikalchev/HAP-python/pull/159)
+
 ### Fixed
 - Updated README. [#138](https://github.com/ikalchev/HAP-python/pull/138)
 - Accessory return codes for characteristics. [#143](https://github.com/ikalchev/HAP-python/pull/143)
