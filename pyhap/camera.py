@@ -193,8 +193,8 @@ class CameraAccessory(Accessory):
     NO_SRTP = b'\x01\x01\x02\x02\x00\x03\x00'
     '''Configuration value for no SRTP.'''
 
-    FFMPEG_CMD = ('ffmpeg -re -f avfoundation -r 29.970000 -i {camera_source} -threads 0 '
-        '-vcodec libx264 -an -pix_fmt uyvy422 -r {fps} -f rawvideo -tune zerolatency '
+    FFMPEG_CMD = ('ffmpeg -re -f avfoundation -i {camera_source} -threads 0 '
+        '-vcodec libx264 -an -pix_fmt yuv420p -r {fps} -f rawvideo -tune zerolatency '
         '-vf scale={width}:{height} -b:v {bitrate}k -bufsize {bitrate}k '
         '-payload_type 99 -ssrc {video_ssrc} -f rtp '
         '-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params {video_srtp_key} '
