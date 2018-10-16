@@ -1,20 +1,33 @@
-'''Contains the Camera accessory and related.
-'''
+"""Contains the Camera accessory and related.
+
+When a HAP client (e.g. iOS) wants to start a video stream it does the following:
+[0. Read supported RTP configuration]
+[0. Read supported video configuration]
+[0. Read supported audio configuration]
+[0. Read the current streaming status]
+1. Sets the SetupEndpoints characteristic to notify the camera about its IP address,
+selected security parameters, etc.
+2. The camera responds to the above by setting the SetupEndpoints with its IP address,
+etc.
+3. The client sets the SelectedRTPStreamConfiguration characteristic to notify the
+camera of its prefered audio and video configuration and to initiate the start of the
+streaming.
+4. The camera starts the streaming with the above configuration.
+[5. At some point the client can reconfigure or stop the stream similarly to step 3.]
+"""
 
 import os
 import ipaddress
 import logging
 import struct
 import subprocess
+from uuid import UUID
 
 from pyhap import RESOURCE_DIR
 from pyhap.accessory import Accessory
-from pyhap import loader
+from pyhap.const import CATEGORY_CAMERA
+from pyhap.util import to_base64_str, byte_bool
 from pyhap import tlv
-from pyhap.util import toBase64Str, base64ToBytes
-
-
-logger = logging.getLogger(__name__)
 
 
 SETUP_TYPES = {
@@ -129,6 +142,9 @@ VIDEO_ATTRIBUTES_TYPES = {
 }
 
 
+SUPPORTED_VIDEO_CONFIG_TAG = b'\x01'
+
+
 SELECTED_STREAM_CONFIGURATION_TYPES = {
     'SESSION': b'\x01',
     'VIDEO': b'\x02',
@@ -183,24 +199,32 @@ AUDIO_CODEC_PARAM_SAMPLE_RATE_TYPES = {
 }
 
 
+SUPPORTED_AUDIO_CODECS_TAG = b'\x01'
+SUPPORTED_COMFORT_NOISE_TAG = b'\x02'
+SUPPORTED_AUDIO_CONFIG_TAG = b'\x02'
+SET_CONFIG_REQUEST_TAG = b'\x02'
 SESSION_ID = b'\x01'
+
+
+NO_SRTP = b'\x01\x01\x02\x02\x00\x03\x00'
+'''Configuration value for no SRTP.'''
+
+
+FFMPEG_CMD = ('ffmpeg -re -f avfoundation -i {camera_source} -threads 0 '
+    '-vcodec libx264 -an -pix_fmt yuv420p -r {fps} -f rawvideo -tune zerolatency '
+    '-vf scale={width}:{height} -b:v {bitrate}k -bufsize {bitrate}k '
+    '-payload_type 99 -ssrc {video_ssrc} -f rtp '
+    '-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params {video_srtp_key} '
+    'srtp://{address}:{video_port}?rtcpport={video_port}&'
+    'localrtcpport={local_video_port}&pkt_size=1378')
+'''Template for the ffmpeg command.'''
+
 
 class CameraAccessory(Accessory):
     '''An Accessory that can negotiated camera stream settings with iOS and start a
     stream.
     '''
 
-    NO_SRTP = b'\x01\x01\x02\x02\x00\x03\x00'
-    '''Configuration value for no SRTP.'''
-
-    FFMPEG_CMD = ('ffmpeg -re -f avfoundation -i {camera_source} -threads 0 '
-        '-vcodec libx264 -an -pix_fmt yuv420p -r {fps} -f rawvideo -tune zerolatency '
-        '-vf scale={width}:{height} -b:v {bitrate}k -bufsize {bitrate}k '
-        '-payload_type 99 -ssrc {video_ssrc} -f rtp '
-        '-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params {video_srtp_key} '
-        'srtp://{address}:{video_port}?rtcpport={video_port}&'
-        'localrtcpport={local_video_port}&pkt_size=1378')
-    '''Template for the ffmpeg command.'''
 
     @staticmethod
     def get_supported_rtp_config(support_srtp):
@@ -212,8 +236,7 @@ class CameraAccessory(Accessory):
             crypto = SRTP_CRYPTO_SUITES['AES_CM_128_HMAC_SHA1_80']
         else:
             crypto = SRTP_CRYPTO_SUITES['NONE']
-        return toBase64Str(
-                tlv.encode(RTP_CONFIG_TYPES['CRYPTO'], crypto))
+        return tlv.encode(RTP_CONFIG_TYPES['CRYPTO'], crypto, to_base64=True)
 
     @staticmethod
     def get_supported_video_stream_config(video_params):
@@ -246,18 +269,22 @@ class CameraAccessory(Accessory):
         config_tlv = tlv.encode(VIDEO_TYPES['CODEC'], VIDEO_CODEC_TYPES['H264'],
                                 VIDEO_TYPES['CODEC_PARAM'], codec_params_tlv)
 
-        return toBase64Str(
-                tlv.encode(b'\x01', config_tlv + attr_tlv))
+        return tlv.encode(SUPPORTED_VIDEO_CONFIG_TAG, config_tlv + attr_tlv,
+                          to_base64=True)
 
     @staticmethod
     def get_supported_audio_stream_config(audio_params):
-        '''XXX
+        """Return a tlv representation of the supported audio stream configuration.
+
         iOS supports only AACELD and OPUS
 
         Expected audio parameters:
         - codecs
         - comfort_noise
-        '''
+
+        :param audio_params: Supported audio configurations
+        :type audio_params: dict
+        """
         has_supported_codec = False
         configs = b''
         for codec_param in audio_params['codecs']:
@@ -271,7 +298,7 @@ class CameraAccessory(Accessory):
                 codec = AUDIO_CODEC_TYPES['AACELD']
                 bitrate = AUDIO_CODEC_PARAM_BIT_RATE_TYPES['VARIABLE']
             else:
-                logger.warning('Unsupported codec %s', param_type)
+                logging.warning('Unsupported codec %s', param_type)
                 continue
 
             param_samplerate = codec_param['samplerate']
@@ -282,7 +309,7 @@ class CameraAccessory(Accessory):
             elif param_samplerate == 24:
                 samplerate = AUDIO_CODEC_PARAM_SAMPLE_RATE_TYPES['KHZ_24']
             else:
-                logger.warning('Unsupported sample rate %s', param_samplerate)
+                logging.warning('Unsupported sample rate %s', param_samplerate)
                 continue
 
             param_tlv = tlv.encode(AUDIO_CODEC_PARAM_TYPES['CHANNEL'], b'\x01',
@@ -290,10 +317,10 @@ class CameraAccessory(Accessory):
                                    AUDIO_CODEC_PARAM_TYPES['SAMPLE_RATE'], samplerate)
             config_tlv = tlv.encode(AUDIO_TYPES['CODEC'], codec,
                                     AUDIO_TYPES['CODEC_PARAM'], param_tlv)
-            configs += tlv.encode(b'\x01', config_tlv)
+            configs += tlv.encode(SUPPORTED_AUDIO_CODECS_TAG, config_tlv)
 
         if not has_supported_codec:
-            logger.warning('Client does not support any audio codec that iOS supports.')
+            logging.warning('Client does not support any audio codec that iOS supports.')
 
             codec = AUDIO_CODEC_TYPES['OPUS']
             bitrate = AUDIO_CODEC_PARAM_BIT_RATE_TYPES['VARIABLE']
@@ -307,28 +334,78 @@ class CameraAccessory(Accessory):
             config_tlv = tlv.encode(AUDIO_TYPES['CODEC'], codec,
                                     AUDIO_TYPES['CODEC_PARAM'], param_tlv)
 
-            configs = tlv.encode(b'\x01', config_tlv)
+            configs = tlv.encode(SUPPORTED_AUDIO_CODECS_TAG, config_tlv)
 
-        comfort_noise = b'\x01' if audio_params.get('comfort_noise', False) else b'\x00'
-        audio_config = toBase64Str(
-                        configs + tlv.encode(b'\x02', comfort_noise))
+        comfort_noise = byte_bool(
+                            audio_params.get('comfort_noise', False))
+        audio_config = to_base64_str(
+                        configs + tlv.encode(SUPPORTED_COMFORT_NOISE_TAG, comfort_noise))
         return audio_config
 
     def __init__(self, options, *args, **kwargs):
-        '''
-        Expected options:
-        - video
-        - audio
-        - srtp
-        - address
-        '''
+        """Initialize a camera accessory with the given options.
+
+        :param options: Describes the supported video and audio configuration
+            of this camera. Expected values are video, audio, srtp and address.
+            Example configuration:
+
+            .. code-block:: python
+
+            {
+                "video": {
+                    "codec": {
+                        "profiles": [
+                            camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["BASELINE"],
+                        ],
+                        "levels": [
+                            camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE3_1'],
+                        ],
+                    },
+                    "resolutions": [
+                        [320, 240, 15],  # Width, Height, framerate
+                        [1024, 768, 30],
+                        [640, 480, 30],
+                        [640, 360, 30],
+                        [480, 360, 30],
+                        [480, 270, 30],
+                        [320, 240, 30],
+                        [320, 180, 30],
+                    ],
+                },
+                "audio": {
+                    "codecs": [
+                        {
+                            'type': 'OPUS',
+                            'samplerate': 24,
+                        },
+                        {
+                            'type': 'AAC-eld',
+                            'samplerate': 16
+                        }
+                    ],
+                },
+                "address": "192.168.1.226",  # Address from which the camera will stream
+            }
+
+            Additional optional values are:
+            - srtp - boolean, defaults to False. Whether the camera supports SRTP.
+            - start_stream_cmd - string specifying the command to be executed to start
+                the stream. The string can contain the keywords, corresponding to the
+                video and audio configuration that was negotiated between the camera
+                and the client. The keywords will be substituted before the command
+                is ran:
+                - fps - Frames per second
+                - width, height
+                - bitrate
+                - ssrc - synchronisation source
+                - video_srtp_key - Video cipher key
+                - target_address - The address to which the camera should stream
+
+        :type options: ``dict``
+        """
         self.streaming_status = STREAMING_STATUS['AVAILABLE']
-        self.support_srtp = options.get('srtp', False)
-        self.supported_rtp_config = self.get_supported_rtp_config(self.support_srtp)
-        self.supported_video_config = \
-            self.get_supported_video_stream_config(options['video'])
-        self.supported_audio_config = \
-            self.get_supported_audio_stream_config(options['audio'])
+        self.has_srtp = options.get('srtp', False)
+        self.start_stream_cmd = options.get('start_stream_cmd', FFMPEG_CMD)
 
         self.stream_address = options['address']
         try:
@@ -337,53 +414,39 @@ class CameraAccessory(Accessory):
         except ValueError:
             self.stream_address_isv6 = b'\x01'
         self.sessions = {}
-        self.selected_config = None
-        self.setup_response = None
-        self.session_id = None
-        self.management_service = None
 
-        super(CameraAccessory, self).__init__(*args, **kwargs)
-        print(self.iid_manager.get_iid(self.management_service.get_characteristic('StreamingStatus')))
-        print("Streaming status", self.management_service.get_characteristic('StreamingStatus'))
-        print("Supported RTP config", self.management_service.get_characteristic('SupportedRTPConfiguration'))
-        print("Supported video config", self.management_service.get_characteristic('SupportedVideoStreamConfiguration'))
-        print("Supported audio config", self.management_service.get_characteristic('SupportedAudioStreamConfiguration'))
+        super().__init__(*args, **kwargs)
 
-    def _set_services(self):
-        '''
-        '''
-        super(CameraAccessory, self)._set_services()
+        self.add_preload_service('Microphone')
+        management = self.add_preload_service('CameraRTPStreamManagement')
+        management.configure_char('StreamingStatus',
+                                  getter_callback=self._get_streaimg_status)
+        management.configure_char('SupportedRTPConfiguration',
+                                  value=self.get_supported_rtp_config(
+                                                options.get('srtp', False)))
+        management.configure_char('SupportedVideoStreamConfiguration',
+                                  value=self.get_supported_video_stream_config(
+                                                options['video']))
+        management.configure_char('SupportedAudioStreamConfiguration',
+                                  value=self.get_supported_audio_stream_config(
+                                                options['audio']))
+        management.configure_char('SelectedRTPStreamConfiguration',
+                                  setter_callback=self.set_selected_stream_configuration)
+        management.configure_char('SetupEndpoints',
+                                  setter_callback=self.set_endpoints)
 
-        serv_loader = loader.get_serv_loader()
+    def _start_stream(self, objs, reconfigure):  # pylint: disable=unused-argument
+        """Start or reconfigure video streaming for the given session.
 
-        self.management_service = serv_loader.get_service('CameraRTPStreamManagement')
-        self.add_service(self.management_service)
+        No support for reconfigure currently.
 
-        self.management_service.get_characteristic('StreamingStatus')\
-                               .set_value(self._get_streaimg_status())
+        :param objs: TLV-decoded SelectedRTPStreamConfiguration
+        :type objs: ``dict``
 
-        self.management_service.get_characteristic('SupportedRTPConfiguration')\
-                               .set_value(self.supported_rtp_config)
-
-        self.management_service.get_characteristic('SupportedVideoStreamConfiguration')\
-                               .set_value(self.supported_video_config)
-
-        self.management_service.get_characteristic('SupportedAudioStreamConfiguration')\
-                               .set_value(self.supported_audio_config)
-
-        selected_stream = \
-            self.management_service.get_characteristic('SelectedRTPStreamConfiguration')
-        selected_stream.set_value(self.selected_config)
-        selected_stream.setter_callback = self.set_selected_stream_configuration
-
-        endpoints = self.management_service.get_characteristic('SetupEndpoints')
-        endpoints.set_value(self.setup_response)
-        endpoints.setter_callback = self.set_endpoints
-
-        # microphone
-        self.add_service(serv_loader.get_service('Microphone'))
-
-    def _start_stream(self, objs, reconfigure):
+        :param reconfigure: Whether the stream should be reconfigured instead of
+            started.
+        :type reconfigure: bool
+        """
         video_tlv = objs.get(SELECTED_STREAM_CONFIGURATION_TYPES['VIDEO'])
         audio_tlv = objs.get(SELECTED_STREAM_CONFIGURATION_TYPES['AUDIO'])
 
@@ -455,12 +518,12 @@ class CameraAccessory(Accessory):
         video_max_bitrate = video_max_bitrate or 300
         fps = min(fps, 30)
 
-        cmd = self.FFMPEG_CMD.format(
+        cmd = self.start_stream_cmd.format(
             camera_source='0:0',
             address=session_info['address'],
             video_port=session_info['video_port'],
-            video_srtp_key=toBase64Str(session_info['video_srtp_key']
-                                       + session_info['video_srtp_salt']),
+            video_srtp_key=to_base64_str(session_info['video_srtp_key']
+                                         + session_info['video_srtp_salt']),
             video_ssrc=video_ssrc,  # TODO: this param is optional, check before adding
             fps=fps,
             width=width,
@@ -474,12 +537,9 @@ class CameraAccessory(Accessory):
         self.sessions[session_id]['process'] = subprocess.Popen(cmd)
         logging.debug('Started ffmpeg')
         self.streaming_status = STREAMING_STATUS['STREAMING']
-        self.management_service.get_characteristic('StreamingStatus')\
-                               .set_value(self._get_streaimg_status())
 
     def _get_streaimg_status(self):
-        return toBase64Str(
-                tlv.encode(b'\x01', self.streaming_status))
+        return tlv.encode(b'\x01', self.streaming_status, to_base64=True)
 
     def _stop_stream(self, objs):
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
@@ -492,11 +552,11 @@ class CameraAccessory(Accessory):
     def set_selected_stream_configuration(self, value):
         '''XXX Called from iOS to select a stream configuration.
         '''
-        logger.debug('set_selected_stream_config - value - %s', value)
+        logging.debug('set_selected_stream_config - value - %s', value)
         self.selected_config = value
-        objs = tlv.decode(base64ToBytes(value))
+        objs = tlv.decode(value, from_base64=True)
         if SELECTED_STREAM_CONFIGURATION_TYPES['SESSION'] not in objs:
-            logger.error('Bad request to set selected stream configuration.')
+            logging.error('Bad request to set selected stream configuration.')
             return
 
         session = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
@@ -510,14 +570,18 @@ class CameraAccessory(Accessory):
         elif request_type == 4:
             self._start_stream(objs, reconfigure=True)
         else:
-            logger.error('Unknown request type %d', request_type)
+            logging.error('Unknown request type %d', request_type)
 
     def set_endpoints(self, value):
-        '''Configure streaming endpoints.
+        """Configure streaming endpoints.
 
-        Called when iOS sets the SetupEndpoints Characteristic.
-        '''
-        objs = tlv.decode(base64ToBytes(value))
+        Called when iOS sets the SetupEndpoints ``Characteristic``. The endpoint
+        information for the camera should be set as the current value of SetupEndpoints.
+
+        :param value: The base64-encoded stream session details in TLV format.
+        :param value: ``str``
+        """
+        objs = tlv.decode(value, from_base64=True)
         session_id = objs[SETUP_TYPES['SESSION_ID']]
 
         # Extract address info
@@ -544,22 +608,20 @@ class CameraAccessory(Accessory):
         audio_master_key = audio_info_objs[SETUP_SRTP_PARAM['MASTER_KEY']]
         audio_master_salt = audio_info_objs[SETUP_SRTP_PARAM['MASTER_SALT']]
 
-        logger.debug('Received endpoint configuration:'
-                     '\nsession_id: %s'
-                     '\naddress: %s'
-                     '\ntarget_video_port: %s'
-                     '\ntarget_audio_port: %s'
-                     '\nvideo_crypto_suite: %s'
-                     '\nvideo_master_key: %s'
-                     '\nvideo_master_salt: %s'
-                     '\naudio_crypto_suite: %s'
-                     '\naudio_master_key: %s'
-                     '\naudio_master_salt: %s',
-                     session_id, address, target_video_port, target_audio_port,
-                     video_crypto_suite, video_master_key, video_master_salt,
-                     audio_crypto_suite, audio_master_key, audio_master_salt)
+        logging.debug('Received endpoint configuration:'
+                      '\nsession_id: %s\naddress: %s\nis_ipv6: %s'
+                      '\ntarget_video_port: %s\ntarget_audio_port: %s'
+                      '\nvideo_crypto_suite: %s\nvideo_srtp: %s'
+                      '\naudio_crypto_suite: %s\naudio_srtp: %s',
+                      session_id, address, is_ipv6, target_video_port, target_audio_port,
+                      video_crypto_suite,
+                      to_base64_str(video_master_key + video_master_salt),
+                      audio_crypto_suite,
+                      to_base64_str(audio_master_key + audio_master_salt))
 
-        if self.support_srtp:
+        # Configure the SetupEndpoints response
+
+        if self.has_srtp:
             video_srtp_tlv = tlv.encode(
                 SETUP_SRTP_PARAM['CRYPTO'], SRTP_CRYPTO_SUITES['AES_CM_128_HMAC_SHA1_80'],
                 SETUP_SRTP_PARAM['MASTER_KEY'], video_master_key,
@@ -570,8 +632,8 @@ class CameraAccessory(Accessory):
                 SETUP_SRTP_PARAM['MASTER_KEY'], audio_master_key,
                 SETUP_SRTP_PARAM['MASTER_SALT'], audio_master_salt)
         else:
-            video_srtp_tlv = self.NO_SRTP
-            audio_srtp_tlv = self.NO_SRTP
+            video_srtp_tlv = NO_SRTP
+            audio_srtp_tlv = NO_SRTP
 
         video_ssrc = b'\x01'  #os.urandom(4)
         audio_ssrc = b'\x01'  #os.urandom(4)
@@ -589,7 +651,8 @@ class CameraAccessory(Accessory):
             SETUP_TYPES['VIDEO_SRTP_PARAM'], video_srtp_tlv,
             SETUP_TYPES['AUDIO_SRTP_PARAM'], audio_srtp_tlv,
             SETUP_TYPES['VIDEO_SSRC'], video_ssrc,
-            SETUP_TYPES['AUDIO_SSRC'], audio_ssrc)
+            SETUP_TYPES['AUDIO_SSRC'], audio_ssrc,
+            to_base64=True)
 
         self.sessions[session_id] = {
             'address': address,
@@ -603,16 +666,10 @@ class CameraAccessory(Accessory):
             'audio_ssrc': audio_ssrc
         }
 
-        endpoints = self.management_service.get_characteristic('SetupEndpoints')
-        endpoints.set_value(toBase64Str(response_tlv))
+        self.get_service('CameraRTPStreamManagement')\
+            .get_characteristic('SetupEndpoints')\
+            .set_value(response_tlv)
 
     def get_snapshot(self, image_size):
         with open(os.path.join(RESOURCE_DIR, 'snapshot.jpg'), 'rb') as fp:
             return fp.read()
-
-
-    def _run(self):
-        import time
-        time.sleep(3)
-        self.streaming_status = STREAMING_STATUS["STREAMING"]
-        self.management_service.get_characteristic("StreamingStatus").set_value(self._get_streaimg_status())
