@@ -210,13 +210,16 @@ NO_SRTP = b'\x01\x01\x02\x02\x00\x03\x00'
 '''Configuration value for no SRTP.'''
 
 
-FFMPEG_CMD = ('ffmpeg -re -f avfoundation -i {camera_source} -threads 0 '
+FFMPEG_CMD = (
+    # pylint: disable=bad-continuation
+    'ffmpeg -re -f avfoundation -i {camera_source} -threads 0 '
     '-vcodec libx264 -an -pix_fmt yuv420p -r {fps} -f rawvideo -tune zerolatency '
     '-vf scale={width}:{height} -b:v {bitrate}k -bufsize {bitrate}k '
     '-payload_type 99 -ssrc {video_ssrc} -f rtp '
     '-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params {video_srtp_key} '
     'srtp://{address}:{video_port}?rtcpport={video_port}&'
-    'localrtcpport={local_video_port}&pkt_size=1378')
+    'localrtcpport={local_video_port}&pkt_size=1378'
+)
 '''Template for the ffmpeg command.'''
 
 
@@ -225,13 +228,17 @@ class CameraAccessory(Accessory):
     stream.
     '''
 
+    category = CATEGORY_CAMERA
 
     @staticmethod
     def get_supported_rtp_config(support_srtp):
-        '''XXX
+        """Return a tlv representation of the RTP configuration we support.
+
+        SRTP support allows only the AES_CM_128_HMAC_SHA1_80 cipher for now.
+
         :param support_srtp: True if SRTP is supported, False otherwise.
         :type support_srtp: bool
-        '''
+        """
         if support_srtp:
             crypto = SRTP_CRYPTO_SUITES['AES_CM_128_HMAC_SHA1_80']
         else:
@@ -240,11 +247,15 @@ class CameraAccessory(Accessory):
 
     @staticmethod
     def get_supported_video_stream_config(video_params):
-        '''XXX
+        """Return a tlv representation of the supported video stream configuration.
+
         Expected video parameters:
             - codec
             - resolutions
-        '''
+
+        :param video_params: Supported video configurations
+        :type video_params: dict
+        """
         codec_params_tlv = tlv.encode(
             VIDEO_CODEC_PARAM_TYPES['PACKETIZATION_MODE'],
             VIDEO_CODEC_PARAM_PACKETIZATION_MODE_TYPES['NON_INTERLEAVED'])
@@ -539,9 +550,18 @@ class CameraAccessory(Accessory):
         self.streaming_status = STREAMING_STATUS['STREAMING']
 
     def _get_streaimg_status(self):
+        """Get the streaming status in TLV format.
+
+        Called when iOS reads the StreaminStatus ``Characteristic``.
+        """
         return tlv.encode(b'\x01', self.streaming_status, to_base64=True)
 
     def _stop_stream(self, objs):
+        """Stop the stream for the specified session.
+
+        :param objs: TLV-decoded SelectedRTPStreamConfiguration value.
+        :param objs: ``dict``
+        """
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
         session_id = session_objs[b'\x01']
         ffmpeg_process = self.sessions.pop(session_id).get('process')
@@ -550,8 +570,13 @@ class CameraAccessory(Accessory):
         self.session_id = None
 
     def set_selected_stream_configuration(self, value):
-        '''XXX Called from iOS to select a stream configuration.
-        '''
+        """Set the selected stream configuration.
+
+        Called from iOS to set the SelectedRTPStreamConfiguration ``Characteristic``.
+
+        :param value: base64-encoded selected configuration in TLV format
+        :type value: ``str``
+        """
         logging.debug('set_selected_stream_config - value - %s', value)
         self.selected_config = value
         objs = tlv.decode(value, from_base64=True)
@@ -670,6 +695,15 @@ class CameraAccessory(Accessory):
             .get_characteristic('SetupEndpoints')\
             .set_value(response_tlv)
 
-    def get_snapshot(self, image_size):
+    # ### For client extensions ###
+
+    def get_snapshot(self, image_size):  # pylint: disable=unused-argument, no-self-use
+        """Return a jpeg of a snapshot from the camera.
+
+        Overwrite to implement getting snapshots from your camera.
+
+        :param image_size: ``dict`` describing the requested image size. Contains the
+            keys "image-width" and "image-height"
+        """
         with open(os.path.join(RESOURCE_DIR, 'snapshot.jpg'), 'rb') as fp:
             return fp.read()
