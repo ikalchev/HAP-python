@@ -68,7 +68,7 @@ options = {
 
 # Start the accessory on port 51826
 driver = AccessoryDriver(port=51826)
-acc = camera.CameraAccessory(options, driver, "Camera")
+acc = camera.Camera(options, driver, "Camera")
 driver.add_accessory(accessory=acc)
 
 # We want KeyboardInterrupts and SIGTERM (kill) to be handled by the driver itself,

@@ -212,18 +212,18 @@ NO_SRTP = b'\x01\x01\x02\x02\x00\x03\x00'
 
 FFMPEG_CMD = (
     # pylint: disable=bad-continuation
-    'ffmpeg -re -f avfoundation -i {camera_source} -threads 0 '
+    'ffmpeg -re -f avfoundation -i 0:0 -threads 0 '
     '-vcodec libx264 -an -pix_fmt yuv420p -r {fps} -f rawvideo -tune zerolatency '
-    '-vf scale={width}:{height} -b:v {bitrate}k -bufsize {bitrate}k '
-    '-payload_type 99 -ssrc {video_ssrc} -f rtp '
-    '-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params {video_srtp_key} '
-    'srtp://{address}:{video_port}?rtcpport={video_port}&'
-    'localrtcpport={local_video_port}&pkt_size=1378'
+    '-vf scale={width}:{height} -b:v {v_max_bitrate}k -bufsize {v_max_bitrate}k '
+    '-payload_type 99 -ssrc {v_ssrc} -f rtp '
+    '-srtp_out_suite AES_CM_128_HMAC_SHA1_80 -srtp_out_params {v_srtp_key} '
+    'srtp://{address}:{v_port}?rtcpport={v_port}&'
+    'localrtcpport={v_port}&pkt_size=1378'
 )
 '''Template for the ffmpeg command.'''
 
 
-class CameraAccessory(Accessory):
+class Camera(Accessory):
     '''An Accessory that can negotiated camera stream settings with iOS and start a
     stream.
     '''
@@ -461,93 +461,84 @@ class CameraAccessory(Accessory):
         video_tlv = objs.get(SELECTED_STREAM_CONFIGURATION_TYPES['VIDEO'])
         audio_tlv = objs.get(SELECTED_STREAM_CONFIGURATION_TYPES['AUDIO'])
 
+        opts = {}
+
         if video_tlv:
             video_objs = tlv.decode(video_tlv)
 
             video_codec_params = video_objs.get(VIDEO_TYPES['CODEC_PARAM'])
             if video_codec_params:
                 video_codec_param_objs = tlv.decode(video_codec_params)
-                profile_id = \
+                opts['v_profile_id'] = \
                     video_codec_param_objs[VIDEO_CODEC_PARAM_TYPES['PROFILE_ID']]
-                level = video_codec_param_objs[VIDEO_CODEC_PARAM_TYPES['LEVEL']]
+                opts['v_level'] = \
+                    video_codec_param_objs[VIDEO_CODEC_PARAM_TYPES['LEVEL']]
 
             video_attrs = video_objs.get(VIDEO_TYPES['ATTRIBUTES'])
             if video_attrs:
                 video_attr_objs = tlv.decode(video_attrs)
-                width = struct.unpack('<H',
+                opts['width'] = struct.unpack('<H',
                             video_attr_objs[VIDEO_ATTRIBUTES_TYPES['IMAGE_WIDTH']])[0]
-                height = struct.unpack('<H',
+                opts['height'] = struct.unpack('<H',
                             video_attr_objs[VIDEO_ATTRIBUTES_TYPES['IMAGE_HEIGHT']])[0]
-                fps = struct.unpack('<B',
+                opts['fps'] = struct.unpack('<B',
                                 video_attr_objs[VIDEO_ATTRIBUTES_TYPES['FRAME_RATE']])[0]
 
             video_rtp_param = video_objs.get(VIDEO_TYPES['RTP_PARAM'])
             if video_rtp_param:
                 video_rtp_param_objs = tlv.decode(video_rtp_param)
                 #TODO: Optionals, handle the case where they are missing
-                video_ssrc = 1 or struct.unpack('<I',
+                opts['v_ssrc'] = 1 or struct.unpack('<I',
                     video_rtp_param_objs.get(
                         RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']))[0]
-                video_payload_type = \
+                opts['v_payload_type'] = \
                     video_rtp_param_objs.get(RTP_PARAM_TYPES['PAYLOAD_TYPE'])
-                video_max_bitrate = struct.unpack('<H',
+                opts['v_max_bitrate'] = struct.unpack('<H',
                     video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_BIT_RATE']))[0]
-                video_rtcp_interval = \
+                opts['v_rtcp_interval'] = \
                     video_rtp_param_objs.get(RTP_PARAM_TYPES['RTCP_SEND_INTERVAL'])
-                video_max_mtu = video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_MTU'])
+                opts['v_max_mtu'] = video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_MTU'])
 
         if audio_tlv:
             audio_objs = tlv.decode(audio_tlv)
-            audio_codec = audio_objs[AUDIO_TYPES['CODEC']]
+            opts['a_codec'] = audio_objs[AUDIO_TYPES['CODEC']]
             audio_codec_param_objs = tlv.decode(
                                         audio_objs[AUDIO_TYPES['CODEC_PARAM']])
             audio_rtp_param_objs = tlv.decode(
                                         audio_objs[AUDIO_TYPES['RTP_PARAM']])
-            audio_comfort_noise = audio_objs[AUDIO_TYPES['COMFORT_NOISE']]
+            opts['a_comfort_noise'] = audio_objs[AUDIO_TYPES['COMFORT_NOISE']]
 
             # TODO handle audio codec
-            audio_channel = audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['CHANNEL']]
-            audio_bitrate = audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['BIT_RATE']]
-            audio_sample_rate = \
+            opts['a_channel'] = audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['CHANNEL']]
+            opts['a_bitrate'] = audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['BIT_RATE']]
+            opts['a_sample_rate'] = \
                 audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['SAMPLE_RATE']]
-            audio_packet_time = \
+            opts['a_packet_time'] = \
                 audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['PACKET_TIME']]
 
-            audio_ssrc = audio_rtp_param_objs[RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']]
-            audio_payload_type = audio_rtp_param_objs[RTP_PARAM_TYPES['PAYLOAD_TYPE']]
-            audio_max_bitrate = audio_rtp_param_objs[RTP_PARAM_TYPES['MAX_BIT_RATE']]
-            audio_rtcp_interval = \
+            opts['a_ssrc'] = audio_rtp_param_objs[RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']]
+            opts['a_payload_type'] = audio_rtp_param_objs[RTP_PARAM_TYPES['PAYLOAD_TYPE']]
+            opts['a_max_bitrate'] = audio_rtp_param_objs[RTP_PARAM_TYPES['MAX_BIT_RATE']]
+            opts['a_rtcp_interval'] = \
                 audio_rtp_param_objs[RTP_PARAM_TYPES['RTCP_SEND_INTERVAL']]
-            audio_comfort_payload_type = \
+            opts['a_comfort_payload_type'] = \
                 audio_rtp_param_objs[RTP_PARAM_TYPES['COMFORT_NOISE_PAYLOAD_TYPE']]
 
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
         session_id = session_objs[b'\x01']
         session_info = self.sessions[session_id]
-        width = width or 1280
-        height = height or 720
-        video_max_bitrate = video_max_bitrate or 300
-        fps = min(fps, 30)
 
-        cmd = self.start_stream_cmd.format(
-            camera_source='0:0',
-            address=session_info['address'],
-            video_port=session_info['video_port'],
-            video_srtp_key=to_base64_str(session_info['video_srtp_key']
-                                         + session_info['video_srtp_salt']),
-            video_ssrc=video_ssrc,  # TODO: this param is optional, check before adding
-            fps=fps,
-            width=width,
-            height=height,
-            bitrate=video_max_bitrate,
-            local_video_port=session_info['video_port']
-        ).split()
+        opts.update(session_info)
+        success = self.reconfigure_stream(session_info, opts) if reconfigure \
+            else self.start_stream(session_info, opts)
 
-        logging.debug('Starting ffmpeg command: %s', cmd)
-        print(" ".join(cmd))
-        self.sessions[session_id]['process'] = subprocess.Popen(cmd)
-        logging.debug('Started ffmpeg')
-        self.streaming_status = STREAMING_STATUS['STREAMING']
+        if success:
+            self.streaming_status = STREAMING_STATUS['STREAMING']
+        else:
+            logging.error('[%s] Faled to start/reconfigure stream, deleting session.',
+                          session_id)
+            del self.sessions[session_id]
+            self.streaming_status = STREAMING_STATUS['AVAILABLE']
 
     def _get_streaimg_status(self):
         """Get the streaming status in TLV format.
@@ -564,10 +555,18 @@ class CameraAccessory(Accessory):
         """
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
         session_id = session_objs[b'\x01']
-        ffmpeg_process = self.sessions.pop(session_id).get('process')
-        if ffmpeg_process:
-            ffmpeg_process.kill()
-        self.session_id = None
+
+        session_info = self.sessions.get(session_id)
+
+        if not session_info:
+            logging.error('Requested to stop stream for session %s, but no '
+                          'such session was found', session_id)
+            return
+
+        self.stop_stream(session_info)
+        del self.sessions[session_id]
+
+        self.streaming_status = STREAMING_STATUS['AVAILABLE']
 
     def set_selected_stream_configuration(self, value):
         """Set the selected stream configuration.
@@ -680,12 +679,12 @@ class CameraAccessory(Accessory):
             to_base64=True)
 
         self.sessions[session_id] = {
+            'id': session_id,
             'address': address,
-            'video_port': target_video_port,
-            'video_srtp_key': video_master_key,
-            'video_srtp_salt': video_master_salt,
-            'video_ssrc': video_ssrc,
-            'audio_port': target_audio_port,
+            'v_port': target_video_port,
+            'v_srtp_key': to_base64_str(video_master_key + video_master_salt),
+            #'v_ssrc': video_ssrc,
+            'a_port': target_audio_port,
             'audio_srtp_key': audio_master_key,
             'audio_srtp_salt': audio_master_salt,
             'audio_ssrc': audio_ssrc
@@ -696,6 +695,100 @@ class CameraAccessory(Accessory):
             .set_value(response_tlv)
 
     # ### For client extensions ###
+
+    def start_stream(self, session_info, stream_config):
+        """Start a new stream with the given configuration.
+
+        This method can be implemented to start a new stream. Any specific information
+        about the started stream can be persisted in the ``session_info`` argument.
+        The same will be passed to ``stop_stream`` when the stream for this session
+        needs to be stopped.
+
+        The default implementation starts a new process with the command in
+        ``self.start_stream_cmd``, formatted with the ``stream_config``.
+
+        :param session_info: Contains information about the current session. Can be used
+            for session storage. Available keys:
+            - id - The session ID.
+        :type session_info: ``dict``
+        :param stream_config: Stream configuration, as negotiated with the HAP client.
+            Implementations can only use part of these. Available keys:
+            General configuration:
+                - address - The IP address from which the camera will stream
+                - v_port - Remote port to which to stream video
+                - v_srtp_params - Base64-encoded key and salt value for the
+                    AES_CM_128_HMAC_SHA1_80 cipher to use when streaming video.
+                    The key and the salt are concatenated before encoding
+                - a_port - Remote audio port to which to stream audio
+                - a_srtp_params - As v_srtp_params, but for the audio stream.
+            Video configuration:
+                - v_profile_id - The profile ID for the H.264 codec, e.g. baseline
+                - v_level - The level in the profile ID, e.g. 3:1
+                - v_width - Video width
+                - v_height - Video height
+                - v_fps - Video frame rate
+                - v_ssrc - Video synchronisation source
+                - v_payload_type - Type of the video codec
+                - v_bitrate - Maximum bit rate generated by the codec in kbps
+                    and averaged over 1 second
+                - v_rtcp_interval - Minimum RTCP interval in seconds
+                - v_max_mtu - MTU that the IP camera must use to transmit
+                    Video RTP packets.
+            Audio configuration:
+                - a_bitrate - Whether the bitrate is variable or constant
+                - a_codec - Audio codec
+                - a_comfort_noise - Wheter to use a comfort noise codec
+                - a_channel - Number of audio channels
+                - a_sample_rate - Audio sample rate in KHz
+                - a_packet_time - Length of time represented by the media in a packet
+                - a_ssrc - Audio synchronisation source
+                - a_payload_type - Type of the audio codec
+                - a_max_bitrate - Maximum bit rate generated by the codec in kbps
+                    and averaged over 1 second
+                - a_rtcp_interval - Minimum RTCP interval in seconds
+                - a_comfort_payload_type - The type of codec for comfort noise
+
+        :return: True if and only if starting the stream command was successful.
+        :rtype: ``bool``
+        """
+        logging.debug('[%s] Starting stream with the following parameters: %s',
+                      session_info['id'], stream_config)
+
+        cmd = self.start_stream_cmd.format(**stream_config).split()
+        logging.debug('Executing start stream command: "%s"', ' '.join(cmd))
+        try:
+            process = subprocess.Popen(cmd)
+        except Exception as e:  # pylint: disable=broad-except
+            logging.error('Failed to start streaming process because of error: %s', e)
+            return False
+
+        session_info['process'] = process
+
+        logging.info('Started stream process - PID %d', process.pid)
+
+        return True
+
+    def stop_stream(self, session_info):
+        """Stop the stream for the given ``session_id``.
+
+        This method can be implemented if custom stop stream commands are needed. The
+        default implementation gets the ``process`` value from the ``session_info``
+        object and kills it (assumes it is a ``subprocess.Popen`` object).
+
+        :param session_info: The session info object. Available keys:
+            - id - The session ID.
+        :type session_info: ``dict``
+        """
+        session_id = session_info['id']
+        ffmpeg_process = session_info.get('process')
+        if ffmpeg_process:
+            logging.info('[%s] Stopping stream.', session_id)
+            ffmpeg_process.kill()
+        else:
+            logging.warning('No process for session ID %s', session_id)
+
+    def reconfigure_stream(self, session_info, stream_config):
+        return self.start_stream(session_info, stream_config)
 
     def get_snapshot(self, image_size):  # pylint: disable=unused-argument, no-self-use
         """Return a jpeg of a snapshot from the camera.
