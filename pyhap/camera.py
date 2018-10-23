@@ -495,8 +495,8 @@ class Camera(Accessory):
                     video_rtp_param_objs.get(RTP_PARAM_TYPES['PAYLOAD_TYPE'])
                 opts['v_max_bitrate'] = struct.unpack('<H',
                     video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_BIT_RATE']))[0]
-                opts['v_rtcp_interval'] = \
-                    video_rtp_param_objs.get(RTP_PARAM_TYPES['RTCP_SEND_INTERVAL'])
+                opts['v_rtcp_interval'] = struct.unpack('<f',
+                    video_rtp_param_objs.get(RTP_PARAM_TYPES['RTCP_SEND_INTERVAL']))[0]
                 opts['v_max_mtu'] = video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_MTU'])
 
         if audio_tlv:
@@ -508,19 +508,22 @@ class Camera(Accessory):
                                         audio_objs[AUDIO_TYPES['RTP_PARAM']])
             opts['a_comfort_noise'] = audio_objs[AUDIO_TYPES['COMFORT_NOISE']]
 
-            # TODO: handle audio codec
-            opts['a_channel'] = audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['CHANNEL']]
-            opts['a_bitrate'] = audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['BIT_RATE']]
-            opts['a_sample_rate'] = \
-                audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['SAMPLE_RATE']]
-            opts['a_packet_time'] = \
-                audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['PACKET_TIME']]
+            opts['a_channel'] = \
+                audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['CHANNEL']][0]
+            opts['a_bitrate'] = struct.unpack('?',
+                audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['BIT_RATE']])[0]
+            opts['a_sample_rate'] = 8 * (1 +
+                audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['SAMPLE_RATE']][0])
+            opts['a_packet_time'] = struct.unpack('<B',
+                audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['PACKET_TIME']])[0]
 
-            opts['a_ssrc'] = audio_rtp_param_objs[RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']]
+            opts['a_ssrc'] = struct.unpack('<I',
+                audio_rtp_param_objs[RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']])[0]
             opts['a_payload_type'] = audio_rtp_param_objs[RTP_PARAM_TYPES['PAYLOAD_TYPE']]
-            opts['a_max_bitrate'] = audio_rtp_param_objs[RTP_PARAM_TYPES['MAX_BIT_RATE']]
-            opts['a_rtcp_interval'] = \
-                audio_rtp_param_objs[RTP_PARAM_TYPES['RTCP_SEND_INTERVAL']]
+            opts['a_max_bitrate'] = struct.unpack('<H',
+                audio_rtp_param_objs[RTP_PARAM_TYPES['MAX_BIT_RATE']])[0]
+            opts['a_rtcp_interval'] = struct.unpack('<f',
+                audio_rtp_param_objs[RTP_PARAM_TYPES['RTCP_SEND_INTERVAL']])[0]
             opts['a_comfort_payload_type'] = \
                 audio_rtp_param_objs[RTP_PARAM_TYPES['COMFORT_NOISE_PAYLOAD_TYPE']]
 
@@ -611,7 +614,8 @@ class Camera(Accessory):
         # Extract address info
         address_tlv = objs[SETUP_TYPES['ADDRESS']]
         address_info_objs = tlv.decode(address_tlv)
-        is_ipv6 = address_info_objs[SETUP_ADDR_INFO['ADDRESS_VER']][0]  # TODO:
+        is_ipv6 = struct.unpack('?',
+            address_info_objs[SETUP_ADDR_INFO['ADDRESS_VER']])[0]
         address = address_info_objs[SETUP_ADDR_INFO['ADDRESS']].decode('utf8')
         target_video_port = struct.unpack(
             '<H', address_info_objs[SETUP_ADDR_INFO['VIDEO_RTP_PORT']])[0]
@@ -686,9 +690,8 @@ class Camera(Accessory):
             'v_srtp_key': to_base64_str(video_master_key + video_master_salt),
             # TODO: 'v_ssrc': video_ssrc,
             'a_port': target_audio_port,
-            'audio_srtp_key': audio_master_key,
-            'audio_srtp_salt': audio_master_salt,
-            'audio_ssrc': audio_ssrc
+            'audio_srtp_key': to_base64_str(audio_master_key + audio_master_salt),
+            'a_ssrc': audio_ssrc
         }
 
         self.get_service('CameraRTPStreamManagement')\
@@ -717,20 +720,22 @@ class Camera(Accessory):
             General configuration:
                 - address - The IP address from which the camera will stream
                 - v_port - Remote port to which to stream video
-                - v_srtp_params - Base64-encoded key and salt value for the
+                - v_srtp_key - Base64-encoded key and salt value for the
                     AES_CM_128_HMAC_SHA1_80 cipher to use when streaming video.
                     The key and the salt are concatenated before encoding
                 - a_port - Remote audio port to which to stream audio
-                - a_srtp_params - As v_srtp_params, but for the audio stream.
+                - a_srtp_key - As v_srtp_params, but for the audio stream.
             Video configuration:
-                - v_profile_id - The profile ID for the H.264 codec, e.g. baseline
-                - v_level - The level in the profile ID, e.g. 3:1
-                - v_width - Video width
-                - v_height - Video height
-                - v_fps - Video frame rate
+                - v_profile_id - The profile ID for the H.264 codec, e.g. baseline.
+                    Refer to ``VIDEO_CODEC_PARAM_PROFILE_ID_TYPES``.
+                - v_level - The level in the profile ID, e.g. 3:1.
+                    Refer to ``VIDEO_CODEC_PARAM_LEVEL_TYPES``.
+                - width - Video width
+                - height - Video height
+                - fps - Video frame rate
                 - v_ssrc - Video synchronisation source
                 - v_payload_type - Type of the video codec
-                - v_bitrate - Maximum bit rate generated by the codec in kbps
+                - v_max_bitrate - Maximum bit rate generated by the codec in kbps
                     and averaged over 1 second
                 - v_rtcp_interval - Minimum RTCP interval in seconds
                 - v_max_mtu - MTU that the IP camera must use to transmit
