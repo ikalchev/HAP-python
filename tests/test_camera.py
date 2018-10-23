@@ -69,7 +69,7 @@ def test_setup_endpoints(mock_driver):
 
     set_endpoint_res = ('ARCszGzBBWNFFY2pdLRQkAaRAgEAAxoBAQACDTE5Mi4xNjguMS4yMjYDAjPFBAK'
                         's1gQlAQEAAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QUlAQEAAh'
-                        'AKRPSRVaqGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQYEAAAAAQcEAAAAAQ==')
+                        'AKRPSRVaqGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQYBAQcBAQ==')
 
     acc = camera.Camera(_OPTIONS, mock_driver, 'Camera')
     setup_endpoints = acc.get_service('CameraRTPStreamManagement')\
@@ -91,9 +91,9 @@ def test_set_selected_stream_start_stop(mock_driver):
         'id': session_id,
         'address': '192.168.1.114',
         'v_port': 50483,
-        'v_srtp_params': '2JZgpMkwWUH8ahUtzp8VThtBmbk26hCPJqeWpYDR',
+        'v_srtp_key': '2JZgpMkwWUH8ahUtzp8VThtBmbk26hCPJqeWpYDR',
         'a_port': 54956,
-        'a_srtp_params': 'CkT0kVWqhnjZhEkyKI8TYvxaSNMu0a/TBpacuj2B',
+        'a_srtp_key': 'CkT0kVWqhnjZhEkyKI8TYvxaSNMu0a/TBpacuj2B',
         'process': None
     }
 
