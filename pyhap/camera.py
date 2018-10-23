@@ -224,9 +224,9 @@ FFMPEG_CMD = (
 
 
 class Camera(Accessory):
-    '''An Accessory that can negotiated camera stream settings with iOS and start a
+    """An Accessory that can negotiated camera stream settings with iOS and start a
     stream.
-    '''
+    """
 
     category = CATEGORY_CAMERA
 
@@ -487,7 +487,7 @@ class Camera(Accessory):
             video_rtp_param = video_objs.get(VIDEO_TYPES['RTP_PARAM'])
             if video_rtp_param:
                 video_rtp_param_objs = tlv.decode(video_rtp_param)
-                #TODO: Optionals, handle the case where they are missing
+                # TODO: Optionals, handle the case where they are missing
                 opts['v_ssrc'] = 1 or struct.unpack('<I',
                     video_rtp_param_objs.get(
                         RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']))[0]
@@ -508,7 +508,7 @@ class Camera(Accessory):
                                         audio_objs[AUDIO_TYPES['RTP_PARAM']])
             opts['a_comfort_noise'] = audio_objs[AUDIO_TYPES['COMFORT_NOISE']]
 
-            # TODO handle audio codec
+            # TODO: handle audio codec
             opts['a_channel'] = audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['CHANNEL']]
             opts['a_bitrate'] = audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['BIT_RATE']]
             opts['a_sample_rate'] = \
@@ -525,7 +525,7 @@ class Camera(Accessory):
                 audio_rtp_param_objs[RTP_PARAM_TYPES['COMFORT_NOISE_PAYLOAD_TYPE']]
 
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
-        session_id = session_objs[b'\x01']
+        session_id = UUID(bytes=session_objs[SETUP_TYPES['SESSION_ID']])
         session_info = self.sessions[session_id]
 
         opts.update(session_info)
@@ -554,7 +554,7 @@ class Camera(Accessory):
         :param objs: ``dict``
         """
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
-        session_id = session_objs[b'\x01']
+        session_id = UUID(bytes=session_objs[SETUP_TYPES['SESSION_ID']])
 
         session_info = self.sessions.get(session_id)
 
@@ -577,7 +577,7 @@ class Camera(Accessory):
         :type value: ``str``
         """
         logging.debug('set_selected_stream_config - value - %s', value)
-        self.selected_config = value
+
         objs = tlv.decode(value, from_base64=True)
         if SELECTED_STREAM_CONFIGURATION_TYPES['SESSION'] not in objs:
             logging.error('Bad request to set selected stream configuration.')
@@ -606,12 +606,12 @@ class Camera(Accessory):
         :param value: ``str``
         """
         objs = tlv.decode(value, from_base64=True)
-        session_id = objs[SETUP_TYPES['SESSION_ID']]
+        session_id = UUID(bytes=objs[SETUP_TYPES['SESSION_ID']])
 
         # Extract address info
         address_tlv = objs[SETUP_TYPES['ADDRESS']]
         address_info_objs = tlv.decode(address_tlv)
-        is_ipv6 = address_info_objs[SETUP_ADDR_INFO['ADDRESS_VER']][0]  #TODO
+        is_ipv6 = address_info_objs[SETUP_ADDR_INFO['ADDRESS_VER']][0]  # TODO:
         address = address_info_objs[SETUP_ADDR_INFO['ADDRESS']].decode('utf8')
         target_video_port = struct.unpack(
             '<H', address_info_objs[SETUP_ADDR_INFO['VIDEO_RTP_PORT']])[0]
@@ -659,8 +659,9 @@ class Camera(Accessory):
             video_srtp_tlv = NO_SRTP
             audio_srtp_tlv = NO_SRTP
 
-        video_ssrc = b'\x01'  #os.urandom(4)
-        audio_ssrc = b'\x01'  #os.urandom(4)
+        # TODO: Use os.urandom(4) but within the allowed value bounds
+        video_ssrc = b'\x01'
+        audio_ssrc = b'\x01'
 
         res_address_tlv = tlv.encode(
             SETUP_ADDR_INFO['ADDRESS_VER'], self.stream_address_isv6,
@@ -669,7 +670,7 @@ class Camera(Accessory):
             SETUP_ADDR_INFO['AUDIO_RTP_PORT'], struct.pack('<H', target_audio_port))
 
         response_tlv = tlv.encode(
-            SETUP_TYPES['SESSION_ID'], session_id,
+            SETUP_TYPES['SESSION_ID'], session_id.bytes,
             SETUP_TYPES['STATUS'], SETUP_STATUS['SUCCESS'],
             SETUP_TYPES['ADDRESS'], res_address_tlv,
             SETUP_TYPES['VIDEO_SRTP_PARAM'], video_srtp_tlv,
@@ -683,7 +684,7 @@ class Camera(Accessory):
             'address': address,
             'v_port': target_video_port,
             'v_srtp_key': to_base64_str(video_master_key + video_master_salt),
-            #'v_ssrc': video_ssrc,
+            # TODO: 'v_ssrc': video_ssrc,
             'a_port': target_audio_port,
             'audio_srtp_key': audio_master_key,
             'audio_srtp_salt': audio_master_salt,
@@ -768,7 +769,7 @@ class Camera(Accessory):
 
         return True
 
-    def stop_stream(self, session_info):
+    def stop_stream(self, session_info):  # pylint: disable=no-self-use
         """Stop the stream for the given ``session_id``.
 
         This method can be implemented if custom stop stream commands are needed. The
@@ -788,6 +789,16 @@ class Camera(Accessory):
             logging.warning('No process for session ID %s', session_id)
 
     def reconfigure_stream(self, session_info, stream_config):
+        """Reconfigure the stream so that it uses the given ``stream_config``.
+
+        :param session_info: The session object for the session that needs to
+            be reconfigured. Available keys:
+            - id - The session id.
+        :type session_id: ``dict``
+
+        :return: True if and only if the reconfiguration is successful.
+        :rtype: ``bool``
+        """
         return self.start_stream(session_info, stream_config)
 
     def get_snapshot(self, image_size):  # pylint: disable=unused-argument, no-self-use
