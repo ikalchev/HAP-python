@@ -24,7 +24,7 @@ Sections
 
 ### Changed
 - Spelling fix - executor (accessory_driver). [#159](https://github.com/ikalchev/HAP-python/pull/159)
-- Char.update_client_value now ignores call if value is already set. This could happen during automations. [#162](https://github.com/ikalchev/HAP-python/pull/162)
+- Char.client_update_value now ignores call if value is already set. This could happen during automations. [#162](https://github.com/ikalchev/HAP-python/pull/162)
 
 ### Fixed
 - Updated README. [#138](https://github.com/ikalchev/HAP-python/pull/138)
