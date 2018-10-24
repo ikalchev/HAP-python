@@ -135,7 +135,7 @@ class WindowCovering(Accessory):
         
         # Add the WindowCovering service. Also add optional characteristics to it.
         serv_cover = self.add_preload_service(
-            'WindowCovering', chars=['CurrentPosition', 'TargetPosition', 'PositionState', 'ObstructionDetected', 'HoldPosition'])
+            'WindowCovering', chars=['ObstructionDetected')
 
         self.char_target_pos = serv_cover.configure_char(
             'TargetPosition', setter_callback=self.set_target_position)
@@ -145,7 +145,10 @@ class WindowCovering(Accessory):
             
         self.char_cur_pos = serv_cover.configure_char(
             'CurrentPosition', setter_callback=self.set_current_position)
-
+                                     
+        #serv_cover.configure_char('PositionState', value=2) # STOPPED
+        #serv_cover.configure_char('ObstructionDetected', value=1)
+                                     
     def set_target_position(self, value):
         logging.info("WindowCovering TargetPosition value: %s", value)
         self.get_service('WindowCovering')\
