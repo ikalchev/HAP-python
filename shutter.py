@@ -1,4 +1,4 @@
-"""Starts a fake fan, lightbulb, garage door and a TemperatureSensor
+"""Starts a fake fan, lightbulb, garage door, shutter and a TemperatureSensor
 """
 import logging
 import signal
@@ -179,15 +179,15 @@ def get_bridge(driver):
     bridge = Bridge(driver, 'Bridge')
     bridge.set_info_service(firmware_revision=1,  manufacturer="Brand",
                 model="model", serial_number="0123456789")
-    #bridge.add_accessory(LightBulb(driver, 'Lightbulb'))
-    #bridge.add_accessory(FakeFan(driver, 'Big Fan'))
-    #bridge.add_accessory(GarageDoor(driver, 'Garage'))
+    bridge.add_accessory(LightBulb(driver, 'Lightbulb'))
+    bridge.add_accessory(FakeFan(driver, 'Big Fan'))
+    bridge.add_accessory(GarageDoor(driver, 'Garage'))
     bridge.add_accessory(WindowCovering(driver, 'Shutter'))
-    #bridge.add_accessory(TemperatureSensor(driver, 'Sensor'))
+    bridge.add_accessory(TemperatureSensor(driver, 'Sensor'))
     
     return bridge
 
-driver = AccessoryDriver(port=51800, persist_file='shutter.state')
+driver = AccessoryDriver(port=51826, persist_file='shutter.state')
 driver.add_accessory(accessory=get_bridge(driver))
 signal.signal(signal.SIGTERM, driver.signal_handler)
 driver.start()
