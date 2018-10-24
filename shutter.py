@@ -173,6 +173,8 @@ class WindowCovering(Accessory):
     
 def get_bridge(driver):
     bridge = Bridge(driver, 'Bridge')
+    bridge.set_info_service(firmware_revision=1,  manufacturer="Brand",
+                model="model", serial_number="0123456789")
     #bridge.add_accessory(LightBulb(driver, 'Lightbulb'))
     #bridge.add_accessory(FakeFan(driver, 'Big Fan'))
     #bridge.add_accessory(GarageDoor(driver, 'Garage'))
