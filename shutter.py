@@ -3,6 +3,7 @@
 import logging
 import signal
 import random
+import time
 
 from pyhap.accessory import Accessory, Bridge
 from pyhap.accessory_driver import AccessoryDriver
@@ -128,39 +129,30 @@ class WindowCovering(Accessory):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        '''
-        self.add_preload_service('WindowCovering')\
-            .configure_char(
-                'TargetPosition', setter_callback=self.change_state)
-        
-        self.char_cur = self.configure_char('CurrentPosition')
-        self.char_cur = self.configure_char('PositionState')
-        '''
-
         # Add the fan service. Also add optional characteristics to it.
         serv_cover = self.add_preload_service(
-            'WindowCovering', chars=['CurrentPosition', 'TargetPosition', 'PositionState'])
+            'WindowCovering', chars=['CurrentPosition', 'TargetPosition', 'PositionState', 'ObstructionDetected', 'HoldPosition'])
 
-        self.char_rotation_speed = serv_cover.configure_char(
+        self.char_target_pos = serv_cover.configure_char(
             'TargetPosition', setter_callback=self.set_target_position)
             
         self.char_state = serv_cover.configure_char(
             'PositionState', setter_callback=self.set_position_state)
             
-        self.char_rotation_direction = serv_cover.configure_char(
+        self.char_cur_pos = serv_cover.configure_char(
             'CurrentPosition', setter_callback=self.set_current_position)
 
-    '''
-    def change_state(self, value):
-        logging.info("WindowCovering CurrentPosition value: %s", value)
-        self.get_service('WindowCovering')\
-            .get_characteristic('CurrentPosition')\
-            .set_value(value)
-    '''
     def set_target_position(self, value):
         logging.info("WindowCovering TargetPosition value: %s", value)
         self.get_service('WindowCovering')\
             .get_characteristic('TargetPosition')\
+            .set_value(value)
+
+        time.sleep(5)   # Delays for 5 seconds closing the shutter.
+
+        logging.info("WindowCovering CurrentPosition value: %s", value)
+        self.get_service('WindowCovering')\
+            .get_characteristic('CurrentPosition')\
             .set_value(value)
 
     # The value property of PositionState must be one of the following:
@@ -178,23 +170,16 @@ class WindowCovering(Accessory):
         self.get_service('WindowCovering')\
             .get_characteristic('CurrentPosition')\
             .set_value(value)
-            
-             
-
+    
 def get_bridge(driver):
     bridge = Bridge(driver, 'Bridge')
-
-    '''
-    bridge.add_accessory(LightBulb(driver, 'Lightbulb'))
-    '''
-    bridge.add_accessory(FakeFan(driver, 'Big Fan'))
-    bridge.add_accessory(GarageDoor(driver, 'Garage'))
+    #bridge.add_accessory(LightBulb(driver, 'Lightbulb'))
+    #bridge.add_accessory(FakeFan(driver, 'Big Fan'))
+    #bridge.add_accessory(GarageDoor(driver, 'Garage'))
     bridge.add_accessory(WindowCovering(driver, 'Shutter'))
     #bridge.add_accessory(TemperatureSensor(driver, 'Sensor'))
     
-
     return bridge
-
 
 driver = AccessoryDriver(port=51800, persist_file='shutter.state')
 driver.add_accessory(accessory=get_bridge(driver))
