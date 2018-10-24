@@ -135,7 +135,7 @@ class WindowCovering(Accessory):
         
         # Add the WindowCovering service. Also add optional characteristics to it.
         serv_cover = self.add_preload_service(
-            'WindowCovering', chars=['ObstructionDetected')
+            'WindowCovering', chars=['ObstructionDetected'])
 
         self.char_target_pos = serv_cover.configure_char(
             'TargetPosition', setter_callback=self.set_target_position)
