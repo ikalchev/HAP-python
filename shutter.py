@@ -129,7 +129,11 @@ class WindowCovering(Accessory):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Add the fan service. Also add optional characteristics to it.
+        """Quick assign basic accessory information."""
+        self.set_info_service(firmware_revision=2,  manufacturer="Brand",
+                model="Shutter", serial_number="0123456789")
+        
+        # Add the WindowCovering service. Also add optional characteristics to it.
         serv_cover = self.add_preload_service(
             'WindowCovering', chars=['CurrentPosition', 'TargetPosition', 'PositionState', 'ObstructionDetected', 'HoldPosition'])
 
