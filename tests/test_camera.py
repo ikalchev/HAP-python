@@ -1,5 +1,5 @@
 """Tests for pyhap.camera."""
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from uuid import UUID
 
 from pyhap import camera
@@ -106,6 +106,7 @@ def test_set_selected_stream_start_stop(mock_driver):
     patcher = patch('subprocess.Popen', spec=True)
     patched_popen = patcher.start()
     patched_popen.return_value.pid = 42
+    patched_popen.return_value.stderr = Mock(return_value='Process stderr')
     selected_config.client_update_value(selected_config_req)
     patcher.stop()
 
@@ -115,5 +116,5 @@ def test_set_selected_stream_start_stop(mock_driver):
     selected_config.client_update_value(selected_config_stop_req)
 
     assert session_id not in acc.sessions
-    assert patched_popen.return_value.kill.called
+    assert patched_popen.return_value.terminate.called
     assert acc.streaming_status == camera.STREAMING_STATUS['AVAILABLE']
