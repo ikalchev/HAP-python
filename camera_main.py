@@ -14,6 +14,8 @@ from pyhap import camera
 logging.basicConfig(level=logging.INFO, format="[%(module)s] %(message)s")
 
 
+# Specify the audio and video configuration that your device can support
+# The HAP client will choose from these when negotiating a session.
 options = {
     "video": {
         "codec": {

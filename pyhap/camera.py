@@ -403,14 +403,7 @@ class Camera(Accessory):
             - start_stream_cmd - string specifying the command to be executed to start
                 the stream. The string can contain the keywords, corresponding to the
                 video and audio configuration that was negotiated between the camera
-                and the client. The keywords will be substituted before the command
-                is ran:
-                - fps - Frames per second
-                - width, height
-                - bitrate
-                - ssrc - synchronisation source
-                - video_srtp_key - Video cipher key
-                - target_address - The address to which the camera should stream
+                and the client. See the ``start`` method for a full list of parameters.
 
         :type options: ``dict``
         """

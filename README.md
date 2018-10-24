@@ -112,15 +112,19 @@ class TemperatureSensor(Accessory):
 ## Setting up a camera <a name="Camera"></a>
 
 The [Camera accessory](pyhap/camera.py) implements the HomeKit Protocol for negotiating stream settings,
-such as the picture width and height, number of audio channels and others. However,
-starting a video and/or audio stream is very platform specific. By default, HAP-python
-will execute the `ffmpeg` command with the negotiated parameters when the stream should
-be started and will `kill` the started process when the stream should be stopped.
+such as the picture width and height, number of audio channels and others.
+Starting a video and/or audio stream is very platform specific. Because of this,
+you need to figure out what video and audio settings your camera supports and set them
+in the `options` parameter that is passed to the `Camera` Accessory. Refer to the
+documentation for the `Camera` contructor for the settings you need to specify.
 
+By default, HAP-python will execute the `ffmpeg` command with the negotiated parameters
+when the stream should be started and will `terminate` the started process when the
+stream should be stopped (see the default: `Camera.FFMPEG_CMD`).
 If the default command is not supported or correctly formatted for your platform,
 the streaming can fail.
 
-Because of this, HAP-python has hooks so that you can insert your own command or implement
+For these cases, HAP-python has hooks so that you can insert your own command or implement
 the logic for starting or stopping the stream. There are two options:
 
 1. Pass your own command that will be executed when the stream should be started.
