@@ -278,11 +278,11 @@
    },
    "LightSensor": {
       "OptionalCharacteristics": [
+         "Name",
          "StatusActive",
          "StatusFault",
          "StatusTampered",
-         "StatusLowBattery",
-         "Name"
+         "StatusLowBattery"
       ],
       "RequiredCharacteristics": [
          "CurrentAmbientLightLevel"
@@ -330,10 +330,10 @@
    },
    "Microphone": {
       "OptionalCharacteristics": [
-         "Volume",
          "Name"
       ],
       "RequiredCharacteristics": [
+         "Volume",
          "Mute"
       ],
       "UUID": "00000112-0000-1000-8000-0026BB765291"
@@ -353,11 +353,11 @@
    },
    "OccupancySensor": {
       "OptionalCharacteristics": [
+         "Name",
          "StatusActive",
          "StatusFault",
          "StatusTampered",
-         "StatusLowBattery",
-         "Name"
+         "StatusLowBattery"
       ],
       "RequiredCharacteristics": [
          "OccupancyDetected"
@@ -424,8 +424,8 @@
    },
    "Speaker": {
       "OptionalCharacteristics": [
-         "Volume",
-         "Name"
+         "Name",
+         "Volume"
       ],
       "RequiredCharacteristics": [
          "Mute"

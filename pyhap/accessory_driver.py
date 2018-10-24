@@ -151,12 +151,12 @@ class AccessoryDriver:
         else:
             self.loop = loop or asyncio.new_event_loop()
 
-        executer_opts = {'max_workers': None}
+        executor_opts = {'max_workers': None}
         if sys.version_info >= (3, 6):
-            executer_opts['thread_name_prefix'] = 'SyncWorker'
+            executor_opts['thread_name_prefix'] = 'SyncWorker'
 
-        self.executer = ThreadPoolExecutor(**executer_opts)
-        self.loop.set_default_executor(self.executer)
+        self.executor = ThreadPoolExecutor(**executor_opts)
+        self.loop.set_default_executor(self.executor)
 
         self.accessory = None
         self.http_server_thread = None
@@ -252,8 +252,8 @@ class AccessoryDriver:
     async def async_stop(self):
         """Stops the AccessoryDriver and shutdown all remaining tasks."""
         await self.async_add_job(self._do_stop)
-        logger.debug('Shutdown executers')
-        self.executer.shutdown()
+        logger.debug('Shutdown executors')
+        self.executor.shutdown()
         self.loop.stop()
 
     def _do_stop(self):
@@ -286,7 +286,7 @@ class AccessoryDriver:
         logger.debug("AccessoryDriver stopped successfully")
 
     def add_job(self, target, *args):
-        """Add job to executer pool."""
+        """Add job to executor pool."""
         if target is None:
             raise ValueError("Don't call add_job with None.")
         self.loop.call_soon_threadsafe(self.async_add_job, target, *args)
@@ -398,10 +398,12 @@ class AccessoryDriver:
             # order to increase throughput.
             topic, bytedata = self.event_queue.get()
             subscribed_clients = self.topics.get(topic, [])
+            logger.debug('Send event: topic(%s), data(%s)', topic, bytedata)
             for client_addr in subscribed_clients.copy():
+                logger.debug('Sending event to client: %s', client_addr)
                 pushed = self.http_server.push_event(bytedata, client_addr)
                 if not pushed:
-                    logger.debug("Could not send event to %s, probably stale socket.",
+                    logger.debug('Could not send event to %s, probably stale socket.',
                                  client_addr)
                     # Maybe consider removing the client_addr from every topic?
                     self.subscribe_client_topic(client_addr, topic, False)
@@ -410,7 +412,7 @@ class AccessoryDriver:
             self.accumulated_qsize += self.event_queue.qsize()
 
             if self.sent_events > self.NUM_EVENTS_BEFORE_STATS:
-                logger.debug("Average queue size for the past %s events: %.2f",
+                logger.debug('Average queue size for the past %s events: %.2f',
                              self.sent_events, self.accumulated_qsize / self.sent_events)
                 self.sent_events = 0
                 self.accumulated_qsize = 0
@@ -517,6 +519,7 @@ class AccessoryDriver:
         hap_rep = self.accessory.to_HAP()
         if not isinstance(hap_rep, list):
             hap_rep = [hap_rep, ]
+        logger.debug("Get accessories response: %s", hap_rep)
         return {HAP_REPR_ACCS: hap_rep}
 
     def get_characteristics(self, char_ids):
@@ -552,6 +555,7 @@ class AccessoryDriver:
                 rep[HAP_REPR_STATUS] = SERVICE_COMMUNICATION_FAILURE
 
             chars.append(rep)
+        logger.debug("Get chars response: %s", chars)
         return {HAP_REPR_CHARS: chars}
 
     def set_characteristics(self, chars_query, client_addr):
@@ -571,45 +575,22 @@ class AccessoryDriver:
            }
 
         :type chars_query: dict
-
-        :return: Response status for each characteristic. For example:
-
-        .. code-block:: python
-
-           {
-              "characteristics": [{
-                 "aid": 1,
-                 "iid": 2,
-                 "status": 0,
-              }]
-           }
-
-        :rtype: dict
         """
-        chars_query = chars_query[HAP_REPR_CHARS]
-        chars_response = []
-        for cq in chars_query:
+        # TODO: Add support for chars that do no support notifications.
+        for cq in chars_query[HAP_REPR_CHARS]:
             aid, iid = cq[HAP_REPR_AID], cq[HAP_REPR_IID]
             char = self.accessory.get_characteristic(aid, iid)
 
             if HAP_PERMISSION_NOTIFY in cq:
                 char_topic = get_topic(aid, iid)
+                logger.debug('Subscribed client %s to topic %s',
+                             client_addr, char_topic)
                 self.subscribe_client_topic(
                     client_addr, char_topic, cq[HAP_PERMISSION_NOTIFY])
 
-            response = {
-                HAP_REPR_AID: aid,
-                HAP_REPR_IID: iid,
-                HAP_REPR_STATUS: CHAR_STAT_OK,
-            }
             if HAP_REPR_VALUE in cq:
                 # TODO: status needs to be based on success of set_value
                 char.client_update_value(cq[HAP_REPR_VALUE])
-                if "r" in cq:
-                    response[HAP_REPR_VALUE] = char.get_value()
-
-            chars_response.append(response)
-        return {HAP_REPR_CHARS: chars_response}
 
     def signal_handler(self, _signal, _frame):
         """Stops the AccessoryDriver for a given signal.

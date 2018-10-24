@@ -128,12 +128,11 @@ class Accessory:
            (i.e. an Accessory that is contained in a Bridge),
            you should call the `config_changed` method on the Bridge.
 
-        Deprecated. Use `driver.state_change()` instead.
+        Deprecated. Use `driver.config_changed()` instead.
         """
         logger.warning(
-            'This method is now deprecated. Use \' '
-            'driver.state_version\' instead.')
-        self.driver.state_changed()
+            'This method is now deprecated. Use \'driver.config_changed\' instead.')
+        self.driver.config_changed()
 
     def add_service(self, *servs):
         """Add the given services to this Accessory.

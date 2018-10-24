@@ -7,15 +7,31 @@ This is:
 """
 import logging
 import signal
+import random
 
-from pyhap.accessory import Bridge
+from pyhap.accessory import Accessory, Bridge
 from pyhap.accessory_driver import AccessoryDriver
 import pyhap.loader as loader
+from pyhap import camera
+from pyhap.const import CATEGORY_SENSOR
 
-# The below package can be found in the HAP-python github repo under accessories/
-from accessories.TemperatureSensor import TemperatureSensor
+logging.basicConfig(level=logging.INFO, format="[%(module)s] %(message)s")
 
-logging.basicConfig(level=logging.INFO)
+
+class TemperatureSensor(Accessory):
+    """Fake Temperature sensor, measuring every 3 seconds."""
+
+    category = CATEGORY_SENSOR
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        serv_temp = self.add_preload_service('TemperatureSensor')
+        self.char_temp = serv_temp.configure_char('CurrentTemperature')
+
+    @Accessory.run_at_interval(3)
+    async def run(self):
+        self.char_temp.set_value(random.randint(18, 26))
 
 
 def get_bridge(driver):
@@ -40,7 +56,7 @@ driver = AccessoryDriver(port=51826)
 # Change `get_accessory` to `get_bridge` if you want to run a Bridge.
 driver.add_accessory(accessory=get_accessory(driver))
 
-# We want SIGTERM (kill) to be handled by the driver itself,
+# We want SIGTERM (terminate) to be handled by the driver itself,
 # so that it can gracefully stop the accessory, server and advertising.
 signal.signal(signal.SIGTERM, driver.signal_handler)
 

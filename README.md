@@ -2,22 +2,32 @@
 # HAP-python
 
 HomeKit Accessory Protocol implementation in python 3.
-With this project, you can integrate your own smart devices (called accessories) and add them to your
+With this project, you can integrate your own smart devices and add them to your
 iOS Home app. Since Siri is integrated with the Home app, you can start voice-control your
-accessories right away - e.g. "What is the temperature in my bedroom".
+accessories right away.
 
-The project was developed for a Raspberry Pi, but it should work on other platforms. You
-can even integrate with HAP-python remotely using HTTP (see below). To kick-start things,
-you can open `main.py`, where you can find out how to launch a mock temperature sensor.
-Just run `python3 main.py` and you should see it in the Home app (be sure to be in the same network).
+Main features:
+
+* Camera - HAP-python supports the camera accessory from version 2.3.0!
+* asyncio support - You can run various tasks or accessories in the event loop.
+* Out of the box support for Apple-defined services - see them in [the resources folder](pyhap/resources).
+* Secure pairing by just scannig the QR code.
+* Integrated with the home automation framework [Home Assistant](https://github.com/home-assistant/home-assistant).
+
+The project was developed for a Raspberry Pi, but it should work on other platforms. To kick-start things,
+you can open `main.py` or `busy_home.py`, where you will find some fake accessories.
+Just run one of them, for example `python3 busy_home.py`, and you can add it in
+the Home app (be sure to be in the same network).
 Stop it by hitting Ctrl+C.
 
-There are example accessories in [the accessories folder](pyhap/accessories).
+There are example accessories as well as integrations with real products
+in [the accessories folder](accessories). See how to configure your camera in
+[camera_main.py](camera_main.py).
 
 ## Table of Contents
 1. [API](#API)
 2. [Installation](#Installation)
-3. [Integrating non-compatible devices](#HttpAcc)
+3. [Setting up a camera](#Camera)
 4. [Run at boot (and a Switch to shutdown your device)](#AtBoot)
 5. [Notice](#Notice)
 
@@ -99,59 +109,46 @@ class TemperatureSensor(Accessory):
         print('Stopping accessory.')
 ```
 
-## Integrating non-compatible devices <a name="HttpAcc"></a>
-HAP-python may not be available for many IoT devices. For them, HAP-python allows devices
-to be bridged by means of communicating with an HTTP server - the [HttpBridge](pyhap/accessories/Http.py). You can add as many remote accessories as you like.
+## Setting up a camera <a name="Camera"></a>
 
-For example, the bellow snippet creates an Http Accessory that listens on port 51800
-for updates on the TemperatureSensor service:
-```python
-import pyhap.util as util
-import pyhap.loader as loader
-from pyhap.accessories.Http import HttpBridge
-from pyhap.accessory import Accessory
-from pyhap.accessory_driver import AccessoryDriver
+The [Camera accessory](pyhap/camera.py) implements the HomeKit Protocol for negotiating stream settings,
+such as the picture width and height, number of audio channels and others.
+Starting a video and/or audio stream is very platform specific. Because of this,
+you need to figure out what video and audio settings your camera supports and set them
+in the `options` parameter that is passed to the `Camera` Accessory. Refer to the
+documentation for the `Camera` contructor for the settings you need to specify.
 
-# get loaders
-service_loader = loader.get_serv_loader()
-char_loader = loader.get_char_loader()
+By default, HAP-python will execute the `ffmpeg` command with the negotiated parameters
+when the stream should be started and will `terminate` the started process when the
+stream should be stopped (see the default: `Camera.FFMPEG_CMD`).
+If the default command is not supported or correctly formatted for your platform,
+the streaming can fail.
 
-# Create an accessory with the temperature sensor service.
-# Also, add an optional characteristic StatusLowBattery to that service.
-remote_accessory = Accessory("foo", aid=2)
-tservice = service_loader.get("TemperatureSensor")
-tservice.add_opt_characteristic(
-    char_loader.get("StatusLowBattery"))
-remote_accessory.add_service(tservice)
+For these cases, HAP-python has hooks so that you can insert your own command or implement
+the logic for starting or stopping the stream. There are two options:
 
-# Create the HTTP Bridge and add the accessory to it.
-address = ("", 51111)
-http_bridge = HttpBridge(address=address,
-                         display_name="HTTP Bridge",
-                         pincode=b"203-23-999")
-http_bridge.add_accessory(remote_accessory)
+1. Pass your own command that will be executed when the stream should be started.
 
-# Add to driver and run.
-driver = AccessoryDriver(http_bridge, 51826)
-driver.start()
-```
-Now, remote accessories can do an HTTP POST to the address of the device where the
-accessory is running (port 51111) with the following content:
-```json
-{
-    "aid": 2,
-    "services": {
-        "TemperatureSensor": {
-            "CurrentTemperature" : 20,
-            "StatusLowBattery": true,
-        }
-    }
-}
-```
-This will update the value of the characteristic "CurrentTemperature" to 20 degrees C
-and "StatusLowBattery" to `true`.
-Needless to say the communication to the Http Bridge poses a security risk, so
-keep that in mind.
+    You pass the command as a value to the key `start_stream_cmd` in the `options` parameter to
+    the constuctor of the `Camera` Accessory. The command is formatted using the
+    negotiated stream configuration parameters. For example, if the negotiated width
+    is 640 and you pass `foo start -width {width}`, the command will be formatted as
+    `foo start -width 640`.
+
+    The full list of negotiated stream configuration parameters can be found in the
+    documentation for the `Camera.start` method.
+
+2. Implement your own logic to start, stop and reconfigure the stream.
+
+    If you need more flexibility in managing streams, you can directly implement the
+    `Camera` methods `start`, `stop` and `reconfigure`. Each will be called when the
+    stream should be respectively started, stopped or reconfigured. The start and
+    reconfigure methods are given the negotiated stream configuration parameters.
+
+    Have a look at the documentation of these methods for more information.
+
+Finally, if you can take snapshots from the camera, you may want to implement the
+`Camera.snapshot` method. By default, this serves a stock photo.
 
 ## Run at boot <a name="AtBoot"></a>
 This is a quick way to get `HAP-python` to run at boot on a Raspberry Pi. It is recommended

@@ -5,6 +5,7 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 The HAPSocket is a socket implementation that manages the "TLS" of the connection.
 """
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from http import HTTPStatus
 import logging
 import socket
 import struct
@@ -94,6 +95,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             "/pair-setup": "handle_pairing",
             "/pair-verify": "handle_pair_verify",
             "/pairings": "handle_pairings",
+            "/resource": "handle_resource",
         },
 
         "GET": {
@@ -504,21 +506,26 @@ class HAPServerHandler(BaseHTTPRequestHandler):
     def handle_set_characteristics(self):
         """Handles a client request to update certain characteristics."""
         if not self.is_encrypted:
-            raise UnprivilegedRequestException
+            logger.warning('Attemp to access unauthorised content from %s',
+                           self.client_address)
+            self.send_response(HTTPStatus.UNAUTHORIZED)
+            self.end_response(b'', close_connection=True)
 
-        # TODO: assert self.headers["authorization"] == state.pincode
-        data_len = int(self.headers["Content-Length"])
-        assert data_len > 0
+        data_len = int(self.headers['Content-Length'])
         requested_chars = json.loads(
-            self.rfile.read(data_len).decode("utf-8"))
+            self.rfile.read(data_len).decode('utf-8'))
+        logger.debug('Set characteristics content: %s', requested_chars)
 
-        chars = self.accessory_handler.set_characteristics(requested_chars,
-                                                           self.client_address)
-
-        data = json.dumps(chars).encode("utf-8")
-        self.send_response(207)
-        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(data)
+        # TODO: Outline how chars return errors on set_chars.
+        try:
+            self.accessory_handler.set_characteristics(requested_chars,
+                                                       self.client_address)
+        except Exception as e:
+            logger.exception('Exception in set_characteristics: %s', e)
+            self.send_response(HTTPStatus.BAD_REQUEST)
+        else:
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.end_response(b'')
 
     def handle_pairings(self):
         """Handles a client request to update or remove a pairing."""
@@ -563,6 +570,19 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
         self.end_response(data)
+
+    def handle_resource(self):
+        """Get a snapshot from the camera."""
+        if not hasattr(self.accessory_handler.accessory, 'get_snapshot'):
+            raise ValueError('Got a request for snapshot, but the Accessory '
+                             'does not define a "get_snapshot" method')
+        data_len = int(self.headers['Content-Length'])
+        image_size = json.loads(
+                        self.rfile.read(data_len).decode('utf-8'))
+        image = self.accessory_handler.accessory.get_snapshot(image_size)
+        self.send_response(200)
+        self.send_header('Content-Type', 'image/jpeg')
+        self.end_response(image)
 
 
 class HAPSocket(socket.socket):

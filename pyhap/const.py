@@ -1,7 +1,7 @@
 """This module contains constants used by other modules."""
 MAJOR_VERSION = 2
-MINOR_VERSION = 2
-PATCH_VERSION = 2
+MINOR_VERSION = 3
+PATCH_VERSION = 0
 __short_version__ = '{}.{}'.format(MAJOR_VERSION, MINOR_VERSION)
 __version__ = '{}.{}'.format(__short_version__, PATCH_VERSION)
 REQUIRED_PYTHON_VER = (3, 5)
@@ -15,7 +15,7 @@ DEFAULT_CONFIG_VERSION = 2
 DEFAULT_PORT = 51827
 
 
-# ### Category values ###
+# ### CATEGORY values ###
 # Category is a hint to iOS clients about what "type" of Accessory this
 # represents, for UI only.
 CATEGORY_OTHER = 1
@@ -35,6 +35,16 @@ CATEGORY_WINDOW_COVERING = 14
 CATEGORY_PROGRAMMABLE_SWITCH = 15
 CATEGORY_RANGE_EXTENDER = 16
 CATEGORY_CAMERA = 17
+CATEGORY_VIDEO_DOOR_BELL = 18
+CATEGORY_AIR_PURIFIER = 19
+CATEGORY_HEATER = 20
+CATEGORY_AIR_CONDITIONER = 21
+CATEGORY_HUMIDIFIER = 22
+CATEGORY_DEHUMIDIFIER = 23
+CATEGORY_SPEAKER = 26
+CATEGORY_SPRINKLER = 28
+CATEGORY_FAUCET = 29
+CATEGORY_SHOWER_HEAD = 30
 
 
 # ### HAP Permissions ###
