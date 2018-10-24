@@ -512,8 +512,8 @@ class Camera(Accessory):
                 audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['CHANNEL']][0]
             opts['a_bitrate'] = struct.unpack('?',
                 audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['BIT_RATE']])[0]
-            opts['a_sample_rate'] = 8 * (1 +
-                audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['SAMPLE_RATE']][0])
+            opts['a_sample_rate'] = 8 * (
+                1 + audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['SAMPLE_RATE']][0])
             opts['a_packet_time'] = struct.unpack('<B',
                 audio_codec_param_objs[AUDIO_CODEC_PARAM_TYPES['PACKET_TIME']])[0]
 
