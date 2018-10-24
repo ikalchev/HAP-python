@@ -16,7 +16,7 @@ from pyhap.accessory_driver import AccessoryDriver
 import pyhap.loader as loader
 from pyhap import camera
 
-logging.basicConfig(level=logging.DEBUG, format="[%(module)s] %(message)s")
+logging.basicConfig(level=logging.INFO, format="[%(module)s] %(message)s")
 
 
 options = {

@@ -2,24 +2,33 @@
 # HAP-python
 
 HomeKit Accessory Protocol implementation in python 3.
-With this project, you can integrate your own smart devices (called accessories) and add them to your
+With this project, you can integrate your own smart devices and add them to your
 iOS Home app. Since Siri is integrated with the Home app, you can start voice-control your
-accessories right away - e.g. "What is the temperature in my bedroom".
+accessories right away.
 
-The project was developed for a Raspberry Pi, but it should work on other platforms. You
-can even integrate with HAP-python remotely using HTTP (see below). To kick-start things,
-you can open `main.py`, where you can find out how to launch a mock temperature sensor.
-Just run `python3 main.py` and you should see it in the Home app (be sure to be in the same network).
+Main features:
+
+* Camera - HAP-python supports the camera accessory from version 2.3.0!
+* asyncio support - You can run various tasks or accessories in the event loop.
+* Out of the box support for Apple-defined services - see them in [the resources folder](pyhap/resources).
+* Secure pairing by just scannig the QR code.
+* Integrated with the home automation framework [Home Assistant](https://github.com/home-assistant/home-assistant).
+
+The project was developed for a Raspberry Pi, but it should work on other platforms. To kick-start things,
+you can open `main.py` or `busy_home.py`, where you will find some fake accessories.
+Just run one of them, for example `python3 busy_home.py`, and you can add it in
+the Home app (be sure to be in the same network).
 Stop it by hitting Ctrl+C.
 
-There are example accessories in [the accessories folder](pyhap/accessories).
+There are example accessories as well as integrations with real products
+in [the accessories folder](accessories). See how to configure your camera in
+[camera_main.py](camera_main.py).
 
 ## Table of Contents
 1. [API](#API)
 2. [Installation](#Installation)
-3. [Integrating non-compatible devices](#HttpAcc)
-4. [Run at boot (and a Switch to shutdown your device)](#AtBoot)
-5. [Notice](#Notice)
+3. [Run at boot (and a Switch to shutdown your device)](#AtBoot)
+4. [Notice](#Notice)
 
 ## Installation <a name="Installation"></a>
 
@@ -98,59 +107,6 @@ class TemperatureSensor(Accessory):
         """
         print('Stopping accessory.')
 ```
-
-## Integrating non-compatible devices <a name="HttpAcc"></a>
-HAP-python may not be available for many IoT devices. For them, HAP-python allows devices
-to be bridged by means of communicating with an HTTP server - the [HttpBridge](pyhap/accessories/Http.py). You can add as many remote accessories as you like.
-
-For example, the bellow snippet creates an Http Accessory that listens on port 51800
-for updates on the TemperatureSensor service:
-```python
-import pyhap.loader as loader
-from pyhap.accessories.Http import HttpBridge
-from pyhap.accessory import Accessory
-from pyhap.accessory_driver import AccessoryDriver
-
-# get loaders
-service_loader = loader.get_serv_loader()
-char_loader = loader.get_char_loader()
-
-# Create an accessory with the temperature sensor service.
-# Also, add an optional characteristic StatusLowBattery to that service.
-remote_accessory = Accessory("foo", aid=2)
-tservice = service_loader.get("TemperatureSensor")
-tservice.add_opt_characteristic(
-    char_loader.get("StatusLowBattery"))
-remote_accessory.add_service(tservice)
-
-# Create the HTTP Bridge and add the accessory to it.
-address = ("", 51111)
-http_bridge = HttpBridge(address=address,
-                         display_name="HTTP Bridge",
-                         pincode=b"203-23-999")
-http_bridge.add_accessory(remote_accessory)
-
-# Add to driver and run.
-driver = AccessoryDriver(http_bridge, 51826)
-driver.start()
-```
-Now, remote accessories can do an HTTP POST to the address of the device where the
-accessory is running (port 51111) with the following content:
-```json
-{
-    "aid": 2,
-    "services": {
-        "TemperatureSensor": {
-            "CurrentTemperature" : 20,
-            "StatusLowBattery": true,
-        }
-    }
-}
-```
-This will update the value of the characteristic "CurrentTemperature" to 20 degrees C
-and "StatusLowBattery" to `true`.
-Needless to say the communication to the Http Bridge poses a security risk, so
-keep that in mind.
 
 ## Run at boot <a name="AtBoot"></a>
 This is a quick way to get `HAP-python` to run at boot on a Raspberry Pi. It is recommended

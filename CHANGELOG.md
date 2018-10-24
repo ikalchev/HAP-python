@@ -16,9 +16,11 @@ Sections
 ### Developers
 -->
 
-## [2.x.x] - TBA
+## [2.3.0] - 2018-10-25
 
 ### Added
+- Added support for the camera accessory. [#161](https://github.com/ikalchev/HAP-python/pull/161)
+- Added a demo script that starts four fake accessories.
 - Added `NeoPixelsLightStrip` accessory. [#144](https://github.com/ikalchev/HAP-python/pull/144)
 - Added new Accessory categories. [Commit](https://github.com/ikalchev/HAP-python/commit/dbf1d5d8fea814af52098f3a2f3cd5a47cd889c1)
 
