@@ -138,6 +138,19 @@ def test_client_update_value():
     mock_callback.assert_called_with(3)
 
 
+def test_client_update_value_duplicate_value():
+    """Test updating char value with same value with call from driver."""
+    path_notify = 'pyhap.characteristic.Characteristic.notify'
+    char = get_char(PROPERTIES.copy())
+    char.value = 4
+
+    with patch(path_notify) as mock_notify:
+        char.client_update_value(4)
+
+    assert char.value == 4
+    assert mock_notify.called is False
+
+
 def test_notify():
     """Test if driver is notified correctly about a changed characteristic."""
     char = get_char(PROPERTIES.copy())

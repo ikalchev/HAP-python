@@ -206,6 +206,9 @@ class Characteristic:
         """
         logger.debug('client_update_value: %s to %s',
                      self.display_name, value)
+        if self.value == value:
+            logger.debug('ignoring call, value already set')
+            return
         self.value = value
         self.notify()
         if self.setter_callback:
