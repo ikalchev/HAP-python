@@ -27,8 +27,9 @@ in [the accessories folder](accessories). See how to configure your camera in
 ## Table of Contents
 1. [API](#API)
 2. [Installation](#Installation)
-3. [Run at boot (and a Switch to shutdown your device)](#AtBoot)
-4. [Notice](#Notice)
+3. [Setting up a camera](#Camera)
+4. [Run at boot (and a Switch to shutdown your device)](#AtBoot)
+5. [Notice](#Notice)
 
 ## Installation <a name="Installation"></a>
 
@@ -107,6 +108,43 @@ class TemperatureSensor(Accessory):
         """
         print('Stopping accessory.')
 ```
+
+## Setting up a camera <a name="Camera"></a>
+
+The [Camera accessory](pyhap/camera.py) implements the HomeKit Protocol for negotiating stream settings,
+such as the picture width and height, number of audio channels and others. However,
+starting a video and/or audio stream is very platform specific. By default, HAP-python
+will execute the `ffmpeg` command with the negotiated parameters when the stream should
+be started and will `kill` the started process when the stream should be stopped.
+
+If the default command is not supported or correctly formatted for your platform,
+the streaming can fail.
+
+Because of this, HAP-python has hooks so that you can insert your own command or implement
+the logic for starting or stopping the stream. There are two options:
+
+1. Pass your own command that will be executed when the stream should be started.
+
+    You pass the command as a value to the key `start_stream_cmd` in the `options` parameter to
+    the constuctor of the `Camera` Accessory. The command is formatted using the
+    negotiated stream configuration parameters. For example, if the negotiated width
+    is 640 and you pass `foo start -width {width}`, the command will be formatted as
+    `foo start -width 640`.
+
+    The full list of negotiated stream configuration parameters can be found in the
+    documentation for the `Camera.start` method.
+
+2. Implement your own logic to start, stop and reconfigure the stream.
+
+    If you need more flexibility in managing streams, you can directly implement the
+    `Camera` methods `start`, `stop` and `reconfigure`. Each will be called when the
+    stream should be respectively started, stopped or reconfigured. The start and
+    reconfigure methods are given the negotiated stream configuration parameters.
+
+    Have a look at the documentation of these methods for more information.
+
+Finally, if you can take snapshots from the camera, you may want to implement the
+`Camera.snapshot` method. By default, this serves a stock photo.
 
 ## Run at boot <a name="AtBoot"></a>
 This is a quick way to get `HAP-python` to run at boot on a Raspberry Pi. It is recommended

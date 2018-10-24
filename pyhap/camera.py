@@ -763,14 +763,18 @@ class Camera(Accessory):
         cmd = self.start_stream_cmd.format(**stream_config).split()
         logging.debug('Executing start stream command: "%s"', ' '.join(cmd))
         try:
-            process = subprocess.Popen(cmd)
+            process = subprocess.Popen(cmd,
+                                       bufsize=1024,
+                                       stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.PIPE)
         except Exception as e:  # pylint: disable=broad-except
             logging.error('Failed to start streaming process because of error: %s', e)
             return False
 
         session_info['process'] = process
 
-        logging.info('Started stream process - PID %d', process.pid)
+        logging.info('[%s] Started stream process - PID %d',
+                     session_info['id'], process.pid)
 
         return True
 
@@ -779,7 +783,7 @@ class Camera(Accessory):
 
         This method can be implemented if custom stop stream commands are needed. The
         default implementation gets the ``process`` value from the ``session_info``
-        object and kills it (assumes it is a ``subprocess.Popen`` object).
+        object and terminates it (assumes it is a ``subprocess.Popen`` object).
 
         :param session_info: The session info object. Available keys:
             - id - The session ID.
@@ -789,7 +793,15 @@ class Camera(Accessory):
         ffmpeg_process = session_info.get('process')
         if ffmpeg_process:
             logging.info('[%s] Stopping stream.', session_id)
-            ffmpeg_process.kill()
+            logging.debug('Stream command stderr: %s', ffmpeg_process.stderr.read(2048))
+            try:
+                ffmpeg_process.terminate()
+                ffmpeg_process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                logging.error('Timeout while waiting for the stream process '
+                              'to terminate. Trying with kill.')
+                ffmpeg_process.kill()
+            logging.debug('Stream process stopped.')
         else:
             logging.warning('No process for session ID %s', session_id)
 

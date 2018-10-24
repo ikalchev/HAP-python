@@ -7,13 +7,8 @@ This is:
 """
 import logging
 import signal
-import sys
-import time
-import random
 
-from pyhap.accessory import Bridge
 from pyhap.accessory_driver import AccessoryDriver
-import pyhap.loader as loader
 from pyhap import camera
 
 logging.basicConfig(level=logging.INFO, format="[%(module)s] %(message)s")
@@ -34,10 +29,8 @@ options = {
             ],
         },
         "resolutions": [
-            #[1920, 1080, 30],
-            [320, 240, 15],  # Width, Height, framerate
-            #[1280, 960, 30],
-            #[1280, 720, 30],
+            # Width, Height, framerate
+            [320, 240, 15], # Required for Apple Watch
             [1024, 768, 30],
             [640, 480, 30],
             [640, 360, 30],
@@ -64,16 +57,13 @@ options = {
 }
 
 
-#sys.exit(0)
-
 # Start the accessory on port 51826
 driver = AccessoryDriver(port=51826)
 acc = camera.Camera(options, driver, "Camera")
 driver.add_accessory(accessory=acc)
 
-# We want KeyboardInterrupts and SIGTERM (kill) to be handled by the driver itself,
+# We want KeyboardInterrupts and SIGTERM (terminate) to be handled by the driver itself,
 # so that it can gracefully stop the accessory, server and advertising.
-signal.signal(signal.SIGINT, driver.signal_handler)
 signal.signal(signal.SIGTERM, driver.signal_handler)
 # Start it!
 driver.start()

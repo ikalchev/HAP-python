@@ -25,6 +25,7 @@ Sections
 - Added new Accessory categories. [Commit](https://github.com/ikalchev/HAP-python/commit/dbf1d5d8fea814af52098f3a2f3cd5a47cd889c1)
 
 ### Changed
+- Updated the README with information on how to setup a camera accessory.
 - Spelling fix - executor (accessory_driver). [#159](https://github.com/ikalchev/HAP-python/pull/159)
 - Char.client_update_value now ignores call if value is already set. This could happen during automations. [#162](https://github.com/ikalchev/HAP-python/pull/162)
 

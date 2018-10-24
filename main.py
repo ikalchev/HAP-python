@@ -56,7 +56,7 @@ driver = AccessoryDriver(port=51826)
 # Change `get_accessory` to `get_bridge` if you want to run a Bridge.
 driver.add_accessory(accessory=get_accessory(driver))
 
-# We want SIGTERM (kill) to be handled by the driver itself,
+# We want SIGTERM (terminate) to be handled by the driver itself,
 # so that it can gracefully stop the accessory, server and advertising.
 signal.signal(signal.SIGTERM, driver.signal_handler)
 
