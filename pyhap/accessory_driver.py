@@ -23,6 +23,7 @@ AccessoryDriver.
 """
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import functools
 import os
 import logging
 import socket
@@ -63,6 +64,15 @@ def callback(func):
 def is_callback(func):
     """Check if function is callback."""
     return '_pyhap_callback' in getattr(func, '__dict__', {})
+
+
+def iscoro(func):
+    """Check if the function is a coroutine or if the function is a ``functools.patial``,
+    check the wrapped function for the same.
+    """
+    if isinstance(func, functools.partial):
+        func = func.func
+    return asyncio.iscoroutinefunction(func)
 
 
 class AccessoryMDNSServiceInfo(ServiceInfo):
@@ -188,6 +198,9 @@ class AccessoryDriver:
         """
         try:
             logger.info('Starting the event loop')
+            watcher = asyncio.SafeChildWatcher()
+            watcher.attach_loop(self.loop)
+            asyncio.set_child_watcher(watcher)
             self.add_job(self._do_start)
             self.loop.run_forever()
         except KeyboardInterrupt:
@@ -300,7 +313,7 @@ class AccessoryDriver:
             task = self.loop.create_task(target)
         elif is_callback(target):
             self.loop.call_soon(target, *args)
-        elif asyncio.iscoroutinefunction(target):
+        elif iscoro(target):
             task = self.loop.create_task(target(*args))
         else:
             task = self.loop.run_in_executor(None, target, *args)

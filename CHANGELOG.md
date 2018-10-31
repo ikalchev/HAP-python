@@ -16,6 +16,21 @@ Sections
 ### Developers
 -->
 
+## [Unreleased]
+
+### Added
+- Added a `asyncio.SafeChildWatcher` as part of `AccessoryDriver.start`.
+- Added `Camera.stop`, which terminates all streaming processes.
+
+### Changed
+- The default implementations of the `Camera`'s `start_stream`, `stop_stream` and
+`reconfigure_stream` are now async.
+- The streaming process is started with `asyncio.create_subprocess_exec` instead of
+`subprocess.Popen`
+
+### Fixed
+- `AcessoryDriver.add_job` now correctly schedules coroutines wrapped in functools.partial.
+
 ## [2.3.0] - 2018-10-25
 
 ### Added

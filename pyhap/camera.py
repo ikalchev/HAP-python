@@ -16,11 +16,12 @@ streaming.
 [5. At some point the client can reconfigure or stop the stream similarly to step 3.]
 """
 
+import asyncio
+import functools
 import os
 import ipaddress
 import logging
 import struct
-import subprocess
 from uuid import UUID
 
 from pyhap import RESOURCE_DIR
@@ -439,8 +440,10 @@ class Camera(Accessory):
         management.configure_char('SetupEndpoints',
                                   setter_callback=self.set_endpoints)
 
-    def _start_stream(self, objs, reconfigure):  # pylint: disable=unused-argument
+    async def _start_stream(self, objs, reconfigure):  # pylint: disable=unused-argument
         """Start or reconfigure video streaming for the given session.
+
+        Schedules ``self.start_stream`` or ``self.reconfigure``.
 
         No support for reconfigure currently.
 
@@ -525,8 +528,8 @@ class Camera(Accessory):
         session_info = self.sessions[session_id]
 
         opts.update(session_info)
-        success = self.reconfigure_stream(session_info, opts) if reconfigure \
-            else self.start_stream(session_info, opts)
+        success = await self.reconfigure_stream(session_info, opts) if reconfigure \
+            else await self.start_stream(session_info, opts)
 
         if success:
             self.streaming_status = STREAMING_STATUS['STREAMING']
@@ -543,8 +546,10 @@ class Camera(Accessory):
         """
         return tlv.encode(b'\x01', self.streaming_status, to_base64=True)
 
-    def _stop_stream(self, objs):
+    async def _stop_stream(self, objs):
         """Stop the stream for the specified session.
+
+        Schedules ``self.stop_stream``.
 
         :param objs: TLV-decoded SelectedRTPStreamConfiguration value.
         :param objs: ``dict``
@@ -559,7 +564,7 @@ class Camera(Accessory):
                           'such session was found', session_id)
             return
 
-        self.stop_stream(session_info)
+        await self.stop_stream(session_info)
         del self.sessions[session_id]
 
         self.streaming_status = STREAMING_STATUS['AVAILABLE']
@@ -568,6 +573,9 @@ class Camera(Accessory):
         """Set the selected stream configuration.
 
         Called from iOS to set the SelectedRTPStreamConfiguration ``Characteristic``.
+
+        This method schedules a stream for the session in ``value`` to be start, stopped
+        or reconfigured, depending on the request.
 
         :param value: base64-encoded selected configuration in TLV format
         :type value: ``str``
@@ -584,13 +592,16 @@ class Camera(Accessory):
         request_type = session[b'\x02'][0]
         logging.debug('Set stream config request: %d', request_type)
         if request_type == 1:
-            self._start_stream(objs, reconfigure=False)
+            job = functools.partial(self._start_stream, reconfigure=False)
         elif request_type == 0:
-            self._stop_stream(objs)
+            job = self._stop_stream
         elif request_type == 4:
-            self._start_stream(objs, reconfigure=True)
+            job = functools.partial(self._start_stream, reconfigure=True)
         else:
             logging.error('Unknown request type %d', request_type)
+            return
+
+        self.driver.add_job(job, objs)
 
     def set_endpoints(self, value):
         """Configure streaming endpoints.
@@ -691,9 +702,14 @@ class Camera(Accessory):
             .get_characteristic('SetupEndpoints')\
             .set_value(response_tlv)
 
+    async def stop(self):
+        """Stop all streaming sessions."""
+        await asyncio.gather(*(
+            self.stop_stream(session_info) for session_info in self.sessions.values()))
+
     # ### For client extensions ###
 
-    def start_stream(self, session_info, stream_config):
+    async def start_stream(self, session_info, stream_config):
         """Start a new stream with the given configuration.
 
         This method can be implemented to start a new stream. Any specific information
@@ -756,10 +772,10 @@ class Camera(Accessory):
         cmd = self.start_stream_cmd.format(**stream_config).split()
         logging.debug('Executing start stream command: "%s"', ' '.join(cmd))
         try:
-            process = subprocess.Popen(cmd,
-                                       bufsize=1024,
-                                       stdout=subprocess.DEVNULL,
-                                       stderr=subprocess.PIPE)
+            process = await asyncio.create_subprocess_exec(*cmd,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                    limit=1024)
         except Exception as e:  # pylint: disable=broad-except
             logging.error('Failed to start streaming process because of error: %s', e)
             return False
@@ -771,7 +787,7 @@ class Camera(Accessory):
 
         return True
 
-    def stop_stream(self, session_info):  # pylint: disable=no-self-use
+    async def stop_stream(self, session_info):  # pylint: disable=no-self-use
         """Stop the stream for the given ``session_id``.
 
         This method can be implemented if custom stop stream commands are needed. The
@@ -786,19 +802,21 @@ class Camera(Accessory):
         ffmpeg_process = session_info.get('process')
         if ffmpeg_process:
             logging.info('[%s] Stopping stream.', session_id)
-            logging.debug('Stream command stderr: %s', ffmpeg_process.stderr.read(2048))
             try:
                 ffmpeg_process.terminate()
-                ffmpeg_process.communicate(timeout=2)
-            except subprocess.TimeoutExpired:
+                _, stderr = await asyncio.wait_for(
+                    ffmpeg_process.communicate(), timeout=2.0)
+                logging.debug('Stream command stderr: %s', stderr)
+            except asyncio.TimeoutError:
                 logging.error('Timeout while waiting for the stream process '
                               'to terminate. Trying with kill.')
                 ffmpeg_process.kill()
+                await ffmpeg_process.wait()
             logging.debug('Stream process stopped.')
         else:
             logging.warning('No process for session ID %s', session_id)
 
-    def reconfigure_stream(self, session_info, stream_config):
+    async def reconfigure_stream(self, session_info, stream_config):
         """Reconfigure the stream so that it uses the given ``stream_config``.
 
         :param session_info: The session object for the session that needs to
@@ -809,7 +827,7 @@ class Camera(Accessory):
         :return: True if and only if the reconfiguration is successful.
         :rtype: ``bool``
         """
-        return self.start_stream(session_info, stream_config)
+        await self.start_stream(session_info, stream_config)
 
     def get_snapshot(self, image_size):  # pylint: disable=unused-argument, no-self-use
         """Return a jpeg of a snapshot from the camera.
