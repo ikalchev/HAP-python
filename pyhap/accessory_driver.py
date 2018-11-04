@@ -482,6 +482,8 @@ class AccessoryDriver:
         logger.info("Paired with %s.", client_uuid)
         self.state.add_paired_client(client_uuid, client_public)
         self.persist()
+        # Safe mode added to avoid error during pairing, see
+        # https://github.com/home-assistant/home-assistant/issues/14567
         if not self.safe_mode:
             self.update_advertisement()
         return True
