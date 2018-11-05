@@ -200,9 +200,14 @@ class AccessoryDriver:
         """
         try:
             logger.info('Starting the event loop')
-            watcher = asyncio.SafeChildWatcher()
-            watcher.attach_loop(self.loop)
-            asyncio.set_child_watcher(watcher)
+            if threading.current_thread() is threading.main_thread():
+                logger.info('Setting child watcher')
+                watcher = asyncio.SafeChildWatcher()
+                watcher.attach_loop(self.loop)
+                asyncio.set_child_watcher(watcher)
+            else:
+                logger.warning('Not setting a child watcher. Set one if '
+                               'subprocesses will be started outside the main thread.')
             self.add_job(self._do_start)
             self.loop.run_forever()
         except KeyboardInterrupt:
