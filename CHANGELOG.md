@@ -21,6 +21,7 @@ Sections
 ### Added
 - Added a `asyncio.SafeChildWatcher` as part of `AccessoryDriver.start`.
 - Added `Camera.stop`, which terminates all streaming processes.
+- `AccessoryDriver.safe_mode` parameter. Set with `driver.safe_mode = True` before `driver.start` to disable `update_advertisement` call for `pair` and `unpair`. After unpairing a restart is necessary. [#168](https://github.com/ikalchev/HAP-python/pull/168)
 
 ### Changed
 - The default implementations of the `Camera`'s `start_stream`, `stop_stream` and

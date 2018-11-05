@@ -183,6 +183,8 @@ class AccessoryDriver:
         self.sent_events = 0
         self.accumulated_qsize = 0
 
+        self.safe_mode = False
+
         self.mdns_service_info = None
         self.srp_verifier = None
         self.accessory_thread = None
@@ -480,7 +482,10 @@ class AccessoryDriver:
         logger.info("Paired with %s.", client_uuid)
         self.state.add_paired_client(client_uuid, client_public)
         self.persist()
-        self.update_advertisement()
+        # Safe mode added to avoid error during pairing, see
+        # https://github.com/home-assistant/home-assistant/issues/14567
+        if not self.safe_mode:
+            self.update_advertisement()
         return True
 
     def unpair(self, client_uuid):
@@ -495,7 +500,8 @@ class AccessoryDriver:
         logger.info("Unpairing client %s.", client_uuid)
         self.state.remove_paired_client(client_uuid)
         self.persist()
-        self.update_advertisement()
+        if not self.safe_mode:
+            self.update_advertisement()
 
     def setup_srp_verifier(self):
         """Create an SRP verifier for the accessory's info."""
