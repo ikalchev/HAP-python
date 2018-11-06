@@ -824,11 +824,11 @@ class HAPServer(socketserver.ThreadingMixIn,
 
     def server_close(self):
         """Close all connections."""
-        logger.info("Stopping HAP server")
-        super(HAPServer, self).server_close()
+        logger.info('Stopping HAP server')
         for sock in self.connections.values():
             self._close_socket(sock)
         self.connections.clear()
+        super().server_close()
 
     def push_event(self, bytesdata, client_addr):
         """Send an event to the current connection with the provided data.

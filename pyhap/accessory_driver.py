@@ -116,7 +116,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         }
 
 
-class AccessoryDriver:
+class AccessoryDriver(object):
     """
     An AccessoryDriver mediates between incoming requests from the HAPServer and
     the Accessory.
@@ -126,6 +126,8 @@ class AccessoryDriver:
     """
 
     NUM_EVENTS_BEFORE_STATS = 100
+    """Number of HAP send events to be processed before reporting statistics on
+    the event queue length."""
 
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
@@ -187,7 +189,6 @@ class AccessoryDriver:
 
         self.mdns_service_info = None
         self.srp_verifier = None
-        self.accessory_thread = None
 
         self.state = State(address=address, pincode=pincode, port=port)
         network_tuple = (self.state.address, self.state.port)
@@ -201,16 +202,17 @@ class AccessoryDriver:
         try:
             logger.info('Starting the event loop')
             if threading.current_thread() is threading.main_thread():
-                logger.info('Setting child watcher')
+                logger.debug('Setting child watcher')
                 watcher = asyncio.SafeChildWatcher()
                 watcher.attach_loop(self.loop)
                 asyncio.set_child_watcher(watcher)
             else:
-                logger.warning('Not setting a child watcher. Set one if '
-                               'subprocesses will be started outside the main thread.')
+                logger.debug('Not setting a child watcher. Set one if '
+                             'subprocesses will be started outside the main thread.')
             self.add_job(self._do_start)
             self.loop.run_forever()
         except KeyboardInterrupt:
+            logger.debug('Got a KeyboardInterrupt, stopping driver')
             self.loop.call_soon_threadsafe(
                 self.loop.create_task, self.async_stop())
             self.loop.run_forever()
@@ -233,7 +235,7 @@ class AccessoryDriver:
         if self.accessory is None:
             raise ValueError("You must assign an accessory to the driver, "
                              "before you can start it.")
-        logger.info("Starting accessory %s on address %s, port %s.",
+        logger.info('Starting accessory %s on address %s, port %s.',
                     self.accessory.display_name, self.state.address,
                     self.state.port)
 
@@ -244,14 +246,17 @@ class AccessoryDriver:
         #   finished, it will check the run sentinel, see that it is set and break the
         #   loop. Alternatively, the server's server_close method will shutdown and close
         #   the socket, while sending is in progress, which will result abort the sending.
+        logger.debug('Starting event thread.')
         self.send_event_thread = threading.Thread(daemon=True, target=self.send_events)
         self.send_event_thread.start()
 
         # Start listening for requests
+        logger.debug('Starting server.')
         self.http_server_thread = threading.Thread(target=self.http_server.serve_forever)
         self.http_server_thread.start()
 
         # Advertise the accessory as a mDNS service.
+        logger.debug('Starting mDNS.')
         self.mdns_service_info = AccessoryMDNSServiceInfo(
             self.accessory, self.state)
         self.advertiser.register_service(self.mdns_service_info)
@@ -261,6 +266,7 @@ class AccessoryDriver:
             self.accessory.setup_message()
 
         # Start the accessory so it can do stuff.
+        logger.debug('Starting accessory.')
         self.add_job(self.accessory.run)
         logger.debug('AccessoryDriver started successfully')
 
@@ -275,6 +281,7 @@ class AccessoryDriver:
         logger.debug('Shutdown executors')
         self.executor.shutdown()
         self.loop.stop()
+        logger.debug('Stop completed')
 
     def _do_stop(self):
         """Stop the accessory.

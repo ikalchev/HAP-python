@@ -31,6 +31,8 @@ Sections
 
 ### Fixed
 - `AcessoryDriver.add_job` now correctly schedules coroutines wrapped in functools.partial.
+- Fixed the slow shutdown in python 3.7, which was caused by the changed
+behavior of ThreadingMixin.server_close.
 
 ### Reverted
 - Char.client_update_value no longer ignores duplicate values. Reverts [#162](https://github.com/ikalchev/HAP-python/pull/162). [#166](https://github.com/ikalchev/HAP-python/pull/166)
