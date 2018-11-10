@@ -585,8 +585,11 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         self.end_response(image)
 
 
-class HAPSocket(socket.socket):
+class HAPSocket:
     """A socket implementing the HAP crypto. Just feed it as if it is a normal socket.
+
+    This implementation is something like a Proxy pattern - some calls to socket
+    methods are wrapped and some are forwarded as is.
 
     @note: HAP requires something like HTTP push. This implies we can have regular HTTP
     response and an outbound HTTP push at the same time on the same socket - a race
@@ -602,20 +605,8 @@ class HAPSocket(socket.socket):
     IN_CIPHER_INFO = b"Control-Write-Encryption-Key"
 
     def __init__(self, sock, shared_key):
-        """Initialises this socket from the given socket."""
-        socket.socket.__init__(self, sock.family, sock.type, sock.proto, sock.fileno())
-        sock.detach()
-        # See if we are connected
-        try:
-            self.getpeername()
-        except OSError as e:
-            if e.errno != errno.ENOTCONN:
-                raise
-            self._connected = False
-        else:
-            self._connected = True
-
-        self._closed = False
+        """Initialise from the given socket."""
+        self.socket = sock
 
         self.shared_key = shared_key
         self.out_count = 0
@@ -632,6 +623,18 @@ class HAPSocket(socket.socket):
         self.curr_in_total = None  # Length of the current incoming block
         self.num_in_recv = None  # Number of bytes received from the incoming block
         self.curr_in_block = None  # Bytes of the current incoming block
+
+    def __getattr__(self, attribute_name):
+        """Defer unknown behaviour to the socket"""
+        return getattr(self.socket, attribute_name)
+
+    def makefile(self, *args, **kwargs):
+        """Return a file object that reads/writes to this object.
+
+        We need to implement this, otherwise the socket's makefile will use the socket
+        object and we won't en/decrypt.
+        """
+        return socket.socket.makefile(self, *args, **kwargs)
 
     def _set_ciphers(self):
         """Generate out/inbound encryption keys and initialise respective ciphers."""
@@ -675,7 +678,7 @@ class HAPSocket(socket.socket):
                     # It may be that we already read some data and we have
                     # 1 byte left, return whatever we have.
                     return result
-                block_length_bytes = socket.socket.recv(self, self.LENGTH_LENGTH)
+                block_length_bytes = self.socket.recv(self.LENGTH_LENGTH)
                 if not block_length_bytes:
                     return result
                 # TODO: handle this
@@ -689,9 +692,8 @@ class HAPSocket(socket.socket):
                 buflen -= self.LENGTH_LENGTH
             else:
                 # Read as much from the current block as possible.
-                part = socket.socket.recv(self,
-                                          min(buflen,
-                                              self.curr_in_total - self.num_in_recv))
+                part = self.socket.recv(min(buflen,
+                                            self.curr_in_total - self.num_in_recv))
                 # Check what is actually received
                 actual_len = len(part)
                 self.curr_in_block += part
@@ -737,7 +739,7 @@ class HAPSocket(socket.socket):
             offset += length
             self.out_count += 1
             result += ciphertext
-        socket.socket.sendall(self, result)
+        self.socket.sendall(result)
         return total
 
 
@@ -761,7 +763,7 @@ class HAPServer(socketserver.ThreadingMixIn,
                      b"Content-Length: "
 
     TIMEOUT_ERRNO_CODES = (errno.ECONNRESET, errno.EPIPE, errno.EHOSTUNREACH,
-                           errno.ETIMEDOUT)
+                           errno.ETIMEDOUT, errno.EHOSTDOWN)
 
     @classmethod
     def create_hap_event(cls, bytesdata):
@@ -824,11 +826,11 @@ class HAPServer(socketserver.ThreadingMixIn,
 
     def server_close(self):
         """Close all connections."""
-        logger.info("Stopping HAP server")
-        super(HAPServer, self).server_close()
+        logger.info('Stopping HAP server')
         for sock in self.connections.values():
             self._close_socket(sock)
         self.connections.clear()
+        super().server_close()
 
     def push_event(self, bytesdata, client_addr):
         """Send an event to the current connection with the provided data.

@@ -1,3 +1,6 @@
+"""Test fictures and mocks."""
+
+import asyncio
 import pytest
 
 from pyhap.loader import Loader
@@ -15,3 +18,6 @@ class MockDriver():
 
     def publish(self, data):
         pass
+
+    def add_job(self, target, *args):
+        asyncio.get_event_loop().run_until_complete(target(*args))

@@ -1,26 +1,65 @@
+#!/usr/bin/env python3
 from setuptools import setup
 
 import pyhap.const as pyhap_const
 
 
-PROJECT_NAME = 'HAP-python'
-URL = 'https://github.com/ikalchev/{}'.format(PROJECT_NAME)
+NAME = 'HAP-python'
+DESCRIPTION = 'HomeKit Accessory Protocol implementation in python'
+URL = 'https://github.com/ikalchev/{}'.format(NAME)
+AUTHOR = 'Ivan Kalchev'
+
+
 PROJECT_URLS = {
     'Bug Reports': '{}/issues'.format(URL),
     'Documentation': 'http://hap-python.readthedocs.io/en/latest/',
     'Source': '{}/tree/master'.format(URL),
 }
 
-PYPI_URL = 'https://pypi.python.org/pypi/{}'.format(PROJECT_NAME)
-DOWNLOAD_URL = '{}/archive/{}.zip'.format(URL, pyhap_const.__version__)
 
 MIN_PY_VERSION = '.'.join(map(str, pyhap_const.REQUIRED_PYTHON_VER))
 
+with open('README.md', 'r', encoding='utf-8') as f:
+    README = f.read()
+
+
+REQUIRES = [
+    'curve25519-donna',
+    'ed25519',
+    'pycryptodome',
+    'tlslite-ng',
+    'zeroconf',
+]
+
+
 setup(
-    name=PROJECT_NAME,
+    name=NAME,
     version=pyhap_const.__version__,
+    description=DESCRIPTION,
+    long_description=README,
+    long_description_content_type='text/markdown',
     url=URL,
+    packages=['pyhap'],
+    include_package_data=True,
     project_urls=PROJECT_URLS,
-    download_url=DOWNLOAD_URL,
     python_requires='>={}'.format(MIN_PY_VERSION),
+    install_requires=REQUIRES,
+    license='Apache License 2.0',
+    license_file='LICENSE',
+    classifiers=[
+        'Development Status :: 5 - Production/Stable',
+        'Intended Audience :: Developers',
+        'Intended Audience :: End Users/Desktop',
+        'License :: OSI Approved :: Apache Software License',
+        'Natural Language :: English',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Topic :: Home Automation',
+        'Topic :: Software Development :: Libraries :: Python Modules',
+    ],
+    extras_require={
+        'QRCode': ['base36', 'pyqrcode'],
+    }
 )

@@ -23,6 +23,7 @@ AccessoryDriver.
 """
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import functools
 import os
 import logging
 import socket
@@ -63,6 +64,15 @@ def callback(func):
 def is_callback(func):
     """Check if function is callback."""
     return '_pyhap_callback' in getattr(func, '__dict__', {})
+
+
+def iscoro(func):
+    """Check if the function is a coroutine or if the function is a ``functools.patial``,
+    check the wrapped function for the same.
+    """
+    if isinstance(func, functools.partial):
+        func = func.func
+    return asyncio.iscoroutinefunction(func)
 
 
 class AccessoryMDNSServiceInfo(ServiceInfo):
@@ -116,6 +126,8 @@ class AccessoryDriver:
     """
 
     NUM_EVENTS_BEFORE_STATS = 100
+    """Number of HAP send events to be processed before reporting statistics on
+    the event queue length."""
 
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
@@ -173,9 +185,10 @@ class AccessoryDriver:
         self.sent_events = 0
         self.accumulated_qsize = 0
 
+        self.safe_mode = False
+
         self.mdns_service_info = None
         self.srp_verifier = None
-        self.accessory_thread = None
 
         self.state = State(address=address, pincode=pincode, port=port)
         network_tuple = (self.state.address, self.state.port)
@@ -188,9 +201,18 @@ class AccessoryDriver:
         """
         try:
             logger.info('Starting the event loop')
+            if threading.current_thread() is threading.main_thread():
+                logger.debug('Setting child watcher')
+                watcher = asyncio.SafeChildWatcher()
+                watcher.attach_loop(self.loop)
+                asyncio.set_child_watcher(watcher)
+            else:
+                logger.debug('Not setting a child watcher. Set one if '
+                             'subprocesses will be started outside the main thread.')
             self.add_job(self._do_start)
             self.loop.run_forever()
         except KeyboardInterrupt:
+            logger.debug('Got a KeyboardInterrupt, stopping driver')
             self.loop.call_soon_threadsafe(
                 self.loop.create_task, self.async_stop())
             self.loop.run_forever()
@@ -213,7 +235,7 @@ class AccessoryDriver:
         if self.accessory is None:
             raise ValueError("You must assign an accessory to the driver, "
                              "before you can start it.")
-        logger.info("Starting accessory %s on address %s, port %s.",
+        logger.info('Starting accessory %s on address %s, port %s.',
                     self.accessory.display_name, self.state.address,
                     self.state.port)
 
@@ -224,14 +246,17 @@ class AccessoryDriver:
         #   finished, it will check the run sentinel, see that it is set and break the
         #   loop. Alternatively, the server's server_close method will shutdown and close
         #   the socket, while sending is in progress, which will result abort the sending.
+        logger.debug('Starting event thread.')
         self.send_event_thread = threading.Thread(daemon=True, target=self.send_events)
         self.send_event_thread.start()
 
         # Start listening for requests
+        logger.debug('Starting server.')
         self.http_server_thread = threading.Thread(target=self.http_server.serve_forever)
         self.http_server_thread.start()
 
         # Advertise the accessory as a mDNS service.
+        logger.debug('Starting mDNS.')
         self.mdns_service_info = AccessoryMDNSServiceInfo(
             self.accessory, self.state)
         self.advertiser.register_service(self.mdns_service_info)
@@ -241,6 +266,7 @@ class AccessoryDriver:
             self.accessory.setup_message()
 
         # Start the accessory so it can do stuff.
+        logger.debug('Starting accessory.')
         self.add_job(self.accessory.run)
         logger.debug('AccessoryDriver started successfully')
 
@@ -255,6 +281,7 @@ class AccessoryDriver:
         logger.debug('Shutdown executors')
         self.executor.shutdown()
         self.loop.stop()
+        logger.debug('Stop completed')
 
     def _do_stop(self):
         """Stop the accessory.
@@ -300,7 +327,7 @@ class AccessoryDriver:
             task = self.loop.create_task(target)
         elif is_callback(target):
             self.loop.call_soon(target, *args)
-        elif asyncio.iscoroutinefunction(target):
+        elif iscoro(target):
             task = self.loop.create_task(target(*args))
         else:
             task = self.loop.run_in_executor(None, target, *args)
@@ -467,7 +494,10 @@ class AccessoryDriver:
         logger.info("Paired with %s.", client_uuid)
         self.state.add_paired_client(client_uuid, client_public)
         self.persist()
-        self.update_advertisement()
+        # Safe mode added to avoid error during pairing, see
+        # https://github.com/home-assistant/home-assistant/issues/14567
+        if not self.safe_mode:
+            self.update_advertisement()
         return True
 
     def unpair(self, client_uuid):
@@ -482,7 +512,8 @@ class AccessoryDriver:
         logger.info("Unpairing client %s.", client_uuid)
         self.state.remove_paired_client(client_uuid)
         self.persist()
-        self.update_advertisement()
+        if not self.safe_mode:
+            self.update_advertisement()
 
     def setup_srp_verifier(self):
         """Create an SRP verifier for the accessory's info."""

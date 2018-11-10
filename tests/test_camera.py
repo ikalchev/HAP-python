@@ -81,6 +81,22 @@ def test_setup_endpoints(mock_driver):
 
 def test_set_selected_stream_start_stop(mock_driver):
     """Test starting a stream request"""
+    # mocks for asyncio.Process
+    async def communicate():
+        return (None, "stderr")
+
+    async def wait():
+        pass
+
+    process_mock = Mock()
+
+    # Mock for asyncio.create_subprocess_exec
+    async def subprocess_exec(*args, **kwargs):
+        process_mock.id = 42
+        process_mock.communicate = communicate
+        process_mock.wait = wait
+        return process_mock
+
     selected_config_req = ('ARUCAQEBEKzMbMEFY0UVjal0tFCQBpECNAEBAAIJAQEAAgEAAwEAAwsBAoAC'
                            'AgJoAQMBHgQXAQFjAgQr66FSAwKEAAQEAAAAPwUCYgUDLAEBAgIMAQEBAgEA'
                            'AwEBBAEeAxYBAW4CBMUInmQDAhgABAQAAKBABgENBAEA')
@@ -98,23 +114,21 @@ def test_set_selected_stream_start_stop(mock_driver):
     }
 
     acc = camera.Camera(_OPTIONS, mock_driver, 'Camera')
+
     acc.sessions[session_id] = session_info
 
-    selected_config = acc.get_service('CameraRTPStreamManagement')\
-                         .get_characteristic('SelectedRTPStreamConfiguration')
+    patcher = patch('asyncio.create_subprocess_exec', new=subprocess_exec)
+    patcher.start()
 
-    patcher = patch('subprocess.Popen', spec=True)
-    patched_popen = patcher.start()
-    patched_popen.return_value.pid = 42
-    patched_popen.return_value.stderr = Mock(return_value='Process stderr')
-    selected_config.client_update_value(selected_config_req)
-    patcher.stop()
+    acc.set_selected_stream_configuration(selected_config_req)
 
     assert acc.streaming_status == camera.STREAMING_STATUS['STREAMING']
 
     selected_config_stop_req = 'ARUCAQABEKzMbMEFY0UVjal0tFCQBpE='
-    selected_config.client_update_value(selected_config_stop_req)
+    acc.set_selected_stream_configuration(selected_config_stop_req)
+
+    patcher.stop()
 
     assert session_id not in acc.sessions
-    assert patched_popen.return_value.terminate.called
+    assert process_mock.terminate.called
     assert acc.streaming_status == camera.STREAMING_STATUS['AVAILABLE']
