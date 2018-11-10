@@ -28,6 +28,7 @@ Sections
 `reconfigure_stream` are now async.
 - The streaming process is started with `asyncio.create_subprocess_exec` instead of
 `subprocess.Popen`
+- Moved most of the metadata from `setup.py` to `setup.cfg`. Added long description.
 
 ### Fixed
 - `AccessoryDriver.add_job` now correctly schedules coroutines wrapped in functools.partial.

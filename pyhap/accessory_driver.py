@@ -116,7 +116,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         }
 
 
-class AccessoryDriver(object):
+class AccessoryDriver:
     """
     An AccessoryDriver mediates between incoming requests from the HAPServer and
     the Accessory.
