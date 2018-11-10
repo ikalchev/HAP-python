@@ -16,10 +16,10 @@ Sections
 ### Developers
 -->
 
-## [Unreleased]
+## [2.4.0] - 2018-11-10
 
 ### Added
-- Added a `asyncio.SafeChildWatcher` as part of `AccessoryDriver.start`.
+- Added a `asyncio.SafeChildWatcher` as part of `AccessoryDriver.start` if started in the main thread.
 - Added `Camera.stop`, which terminates all streaming processes.
 - `AccessoryDriver.safe_mode` parameter. Set with `driver.safe_mode = True` before `driver.start` to disable `update_advertisement` call for `pair` and `unpair`. After unpairing a restart is necessary. [#168](https://github.com/ikalchev/HAP-python/pull/168)
 
@@ -30,12 +30,14 @@ Sections
 `subprocess.Popen`
 
 ### Fixed
-- `AcessoryDriver.add_job` now correctly schedules coroutines wrapped in functools.partial.
+- `AccessoryDriver.add_job` now correctly schedules coroutines wrapped in functools.partial.
 - Fixed the slow shutdown in python 3.7, which was caused by the changed
-behavior of ThreadingMixin.server_close.
+behavior of `ThreadingMixIn.server_close`.
+- Fixed an issue where sockets are blocked on `recv` while in `CLOSE_WAIT` state, which
+can eventually exhausts the limit of open sockets. [#145](https://github.com/ikalchev/HAP-python/issues/145)
 
 ### Reverted
-- Char.client_update_value no longer ignores duplicate values. Reverts [#162](https://github.com/ikalchev/HAP-python/pull/162). [#166](https://github.com/ikalchev/HAP-python/pull/166)
+- `Char.client_update_value` no longer ignores duplicate values. Reverts [#162](https://github.com/ikalchev/HAP-python/pull/162). [#166](https://github.com/ikalchev/HAP-python/pull/166)
 
 
 ## [2.3.0] - 2018-10-25
