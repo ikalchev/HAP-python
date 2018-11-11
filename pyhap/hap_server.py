@@ -628,6 +628,23 @@ class HAPSocket:
         """Defer unknown behaviour to the socket"""
         return getattr(self.socket, attribute_name)
 
+    def _get_io_refs(self):
+        """Get `socket._io_refs`."""
+        return self.socket._io_refs
+
+    def _set_io_refs(self, value):
+        """Set `socket._io_refs`."""
+        self.socket._io_refs = value
+
+    _io_refs = property(_get_io_refs, _set_io_refs)
+    """`socket.makefile` uses a `SocketIO` to wrap the socket stream. Internally,
+    this uses `socket._io_refs` directly to determine if a socket object needs to be
+    closed when its FileIO object is closed.
+
+    Because `_io_refs` is assigned as part of this process, it bypasses getattr. To get
+    around this, let's make _io_refs our property and proxy calls to the socket.
+    """
+
     def makefile(self, *args, **kwargs):
         """Return a file object that reads/writes to this object.
 
