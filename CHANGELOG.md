@@ -16,6 +16,12 @@ Sections
 ### Developers
 -->
 
+## [2.4.1] - 2018-11-11
+
+### Fixed
+- Correctly proxy `_io_refs` to the socket. [#145](https://github.com/ikalchev/HAP-python/issues/145)
+
+
 ## [2.4.0] - 2018-11-10
 
 ### Added
