@@ -780,7 +780,7 @@ class HAPServer(socketserver.ThreadingMixIn,
                      b"Content-Length: "
 
     TIMEOUT_ERRNO_CODES = (errno.ECONNRESET, errno.EPIPE, errno.EHOSTUNREACH,
-                           errno.ETIMEDOUT, errno.EHOSTDOWN)
+                           errno.ETIMEDOUT, errno.EHOSTDOWN, errno.EBADF)
 
     @classmethod
     def create_hap_event(cls, bytesdata):
@@ -820,6 +820,8 @@ class HAPServer(socketserver.ThreadingMixIn,
         # NOTE: In python <3.3 socket.timeout is not OSError, hence the above.
         # Also, when it is actually an OSError, it MAY not have an errno equal to
         # ETIMEDOUT.
+        logger.debug("Connection timeout for %s with exception %s", client_addr, exception)
+        logger.debug("Current connections %s", self.connections)
         sock = self.connections.pop(client_addr, None)
         if sock is not None:
             self._close_socket(sock)
@@ -865,12 +867,14 @@ class HAPServer(socketserver.ThreadingMixIn,
         """
         client_socket = self.connections.get(client_addr)
         if client_socket is None:
+            logger.debug('socket not found for %s in push_event()', client_addr)
             return False
         data = self.create_hap_event(bytesdata)
         try:
             client_socket.sendall(data)
             return True
         except (OSError, socket.timeout) as e:
+            logger.debug('exception %s for %s in push_event()', e, client_addr)
             self._handle_sock_timeout(client_addr, e)
             return False
 
