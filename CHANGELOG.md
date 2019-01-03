@@ -16,6 +16,15 @@ Sections
 ### Developers
 -->
 
+## Unreleased
+
+### Fixed
+- Fixed an issue where stopping the `AccessoryDriver` can fail with `RuntimeError('dictionary changed size during iteration')`.
+- Fixed an issue where the `HAPServer` can crash when sending events to clients.
+
+### Added
+- Tests for `hap_server`.
+
 ## [2.4.1] - 2018-11-11
 
 ### Fixed

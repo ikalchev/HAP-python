@@ -834,25 +834,47 @@ class HAPServer(socketserver.ThreadingMixIn,
         self.connections[client_addr] = client_socket
         return (client_socket, client_addr)
 
-    def finish_request(self, sock, client_addr):
+    def finish_request(self, request, client_address):
+        """Handle the client request.
+
+        HAP connections are not closed. Once the client negotiates a session,
+        the connection is kept open for both incoming and outgoing traffic, including
+        for sending events.
+
+        The client can gracefully close the connection, but in other cases it can just
+        leave, which will result in a timeout. In either case, we need to remove the
+        connection from ``self.connections``, because it could also be used for
+        pushing events to the server.
+        """
         try:
-            self.RequestHandlerClass(sock, client_addr, self, self.accessory_handler)
+            self.RequestHandlerClass(request, client_address,
+                                     self, self.accessory_handler)
         except (OSError, socket.timeout) as e:
-            self._handle_sock_timeout(client_addr, e)
-            logger.debug("Connection timeout")
+            self._handle_sock_timeout(client_address, e)
+            logger.debug('Connection timeout')
+        finally:
+            logger.debug('Cleaning connection to %s', client_address)
+            conn_sock = self.connections.pop(client_address, None)
+            if conn_sock is not None:
+                self._close_socket(conn_sock)
+
 
     def server_close(self):
         """Close all connections."""
         logger.info('Stopping HAP server')
-        for sock in self.connections.values():
+
+        # When the AccessoryDriver is shutting down, it will stop advertising the
+        # Accessory on the network before stopping the server. At that point, clients
+        # can see the Accessory disappearing and could close the connection. This can
+        # happen while we deal with all connections here so we will get a "changed while
+        # iterating" exception. To avoid that, make a copy and iterate over it instead.
+        for sock in list(self.connections.values()):
             self._close_socket(sock)
         self.connections.clear()
         super().server_close()
 
     def push_event(self, bytesdata, client_addr):
         """Send an event to the current connection with the provided data.
-
-        .. note: Sets a timeout of PUSH_EVENT_TIMEOUT for the duration of socket.sendall.
 
         :param bytesdata: The data to send.
         :type bytesdata: bytes
@@ -865,6 +887,7 @@ class HAPServer(socketserver.ThreadingMixIn,
         """
         client_socket = self.connections.get(client_addr)
         if client_socket is None:
+            logger.debug('No socket for %s', client_addr)
             return False
         data = self.create_hap_event(bytesdata)
         try:
