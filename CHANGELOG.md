@@ -16,7 +16,7 @@ Sections
 ### Developers
 -->
 
-## Unreleased
+## [2.4.2] - 2019-01-04
 
 ### Fixed
 - Fixed an issue where stopping the `AccessoryDriver` can fail with `RuntimeError('dictionary changed size during iteration')`.
