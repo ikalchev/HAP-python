@@ -860,7 +860,6 @@ class HAPServer(socketserver.ThreadingMixIn,
             if conn_sock is not None:
                 self._close_socket(conn_sock)
 
-
     def server_close(self):
         """Close all connections."""
         logger.info('Stopping HAP server')

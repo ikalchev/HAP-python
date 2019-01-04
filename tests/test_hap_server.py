@@ -36,7 +36,7 @@ def test_finish_request_pops_socket():
 
     # Negative case: The request raises some other exception
     server = hap_server.HAPServer(server_addr, amock,
-                                  handler_type=lambda *args: 1/0)
+                                  handler_type=lambda *args: 1 / 0)
     server.connections[client_addr] = amock
 
     with pytest.raises(Exception):
