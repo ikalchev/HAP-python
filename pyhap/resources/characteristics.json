@@ -23,6 +23,15 @@
          "Inactive": 0
       }
    },
+   "ActiveIdentifier": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "000000E7-0000-1000-8000-0026BB765291"
+   },
    "AdministratorOnlyAccess": {
       "Format": "bool",
       "Permissions": [
@@ -182,6 +191,22 @@
          "NotCharging": 0
       }
    },
+   "ClosedCaptions": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "000000DD-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0,
+      "ValidValues": {
+         "Disabled": 0,
+         "Enabled": 1
+
+      }
+   },
    "ColorTemperature": {
       "Format": "uint32",
       "Permissions": [
@@ -193,6 +218,15 @@
       "maxValue": 500,
       "minStep": 1,
       "minValue": 140
+   },
+   "ConfiguredName": {
+      "Format": "string",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "000000E3-0000-1000-8000-0026BB765291"
    },
    "ContactSensorState": {
       "Format": "uint8",
@@ -324,6 +358,23 @@
          "Inactive": 0
       }
    },
+   "CurrentMediaState": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000E0-0000-1000-8000-0026BB765291",
+      "maxValue": 3,
+      "minValue": 0,
+      "ValidValues": {
+         "Play": 0,
+         "Pause": 1,
+         "Stop": 2,
+         "Unknown": 3
+
+      }
+   },
    "CurrentPosition": {
       "Format": "uint8",
       "Permissions": [
@@ -397,6 +448,20 @@
       "minValue": -90,
       "unit": "arcdegrees"
    },
+   "CurrentVisibilityState":{
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000134-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0,
+      "ValidValues": {
+         "Shown": 0,
+         "Hidden": 1
+      }
+   },
    "DigitalZoom": {
       "Format": "float",
       "Permissions": [
@@ -405,6 +470,15 @@
          "ev"
       ],
       "UUID": "0000011D-0000-1000-8000-0026BB765291"
+   },
+   "DisplayOrder": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000136-0000-1000-8000-0026BB765291"
    },
    "FilterChangeIndication": {
       "Format": "uint8",
@@ -476,6 +550,15 @@
       "minValue": 0,
       "unit": "arcdegrees"
    },
+   "Identifier": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "000000E6-0000-1000-8000-0026BB765291",
+      "minStep": 1,
+      "minValue": 0
+   },
    "Identify": {
       "Format": "bool",
       "Permissions": [
@@ -504,6 +587,47 @@
       "minStep": 90,
       "minValue": 0,
       "unit": "arcdegrees"
+   },
+   "InputSourceType":{
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000DB-0000-1000-8000-0026BB765291",
+      "maxValue": 10,
+      "minValue": 0,
+      "ValidValues": {
+         "Other": 0,
+         "HomeScreen": 1,
+         "Tuner": 2,
+         "HDMI": 3,
+         "CompositeVideo": 4,
+         "SVideo": 5,
+         "ComponentVideo": 6,
+         "DVI": 7,
+         "AirPlay": 8,
+         "USB": 9,
+         "Application": 10
+      }
+   },
+   "InputDeviceType":{
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000DC-0000-1000-8000-0026BB765291",
+      "maxValue": 5,
+      "minValue": 0,
+      "ValidValues": {
+         "Other": 0,
+         "TV": 1,
+         "Recording": 2,
+         "Tuner": 3,
+         "Playback": 4,
+         "AudioSystem": 5
+      }
    },
    "InUse": {
       "Format": "uint8",
@@ -794,6 +918,27 @@
       ],
       "UUID": "00000050-0000-1000-8000-0026BB765291"
    },
+   "PictureMode":{
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "000000E2-0000-1000-8000-0026BB765291",
+      "maxValue": 13,
+      "minValue": 0,
+      "ValidValues": {
+         "Other": 0,
+         "Standard": 1,
+         "Calibrated": 2,
+         "CalibratedDark": 3,
+         "Vivid": 4,
+         "Game": 5,
+         "Computer": 6,
+         "Custom": 7
+      }
+   },
    "PositionState": {
       "Format": "uint8",
       "Permissions": [
@@ -805,6 +950,19 @@
          "Decreasing": 0,
          "Increasing": 1,
          "Stopped": 2
+      }
+   },
+   "PowerModeSelection":{
+      "Format": "uint8",
+      "Permissions": [
+         "pw"
+      ],
+      "UUID": "000000DF-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0,
+      "ValidValues": {
+         "Show": 0,
+         "Hide": 1
       }
    },
    "ProgramMode": {
@@ -869,6 +1027,30 @@
       "maxValue": 3600,
       "minStep": 1,
       "minValue": 0
+   },
+   "RemoteKey":{
+      "Format": "uint8",
+      "Permissions": [
+         "pw"
+      ],
+      "UUID": "000000E1-0000-1000-8000-0026BB765291",
+      "maxValue": 16,
+      "minValue": 0,
+      "ValidValues": {
+         "Rewind": 0,
+         "FastForward": 1,
+         "NextTrack": 2,
+         "PreviousTrack": 3,
+         "ArrowUp": 4,
+         "ArrowDown": 5,
+         "ArrowLeft": 6,
+         "ArrowRight": 7,
+         "Select": 8,
+         "Back": 9,
+         "Exit": 10,
+         "PlayPause": 11,
+         "Information": 15
+      }
    },
    "ResetFilterIndication": {
       "Format": "uint8",
@@ -1026,6 +1208,21 @@
       "ValidValues": {
          "Horizontal": 0,
          "Vertical": 1
+      }
+   },
+   "SleepDiscoveryMode": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000E8-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0,
+      "ValidValues": {
+         "NotDiscoverable": 0,
+         "AlwaysDiscoverable": 1
+
       }
    },
    "SmokeDetected": {
@@ -1258,6 +1455,22 @@
          "HumidifierorDehumidifier": 0
       }
    },
+   "TargetMediaState": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000137-0000-1000-8000-0026BB765291",
+      "maxValue": 2,
+      "minValue": 0,
+      "ValidValues": {
+         "Play": 0,
+         "Pause": 1,
+         "Stop": 2
+      }
+   },
    "TargetPosition": {
       "Format": "uint8",
       "Permissions": [
@@ -1336,6 +1549,21 @@
       "minValue": -90,
       "unit": "arcdegrees"
    },
+   "TargetVisibilityState":{
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000134-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0,
+      "ValidValues": {
+         "Shown": 0,
+         "Hidden": 1
+      }
+   },
    "TemperatureDisplayUnits": {
       "Format": "uint8",
       "Permissions": [
@@ -1395,6 +1623,35 @@
       "minStep": 1,
       "minValue": 0,
       "unit": "percentage"
+   },
+   "VolumeControlType": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000E9-0000-1000-8000-0026BB765291",
+      "maxValue": 3,
+      "minValue": 0,
+      "ValidValues": {
+         "None": 0,
+         "Relative": 1,
+         "RelativeWithCurrent": 2,
+         "Absolute": 3
+      }
+   },
+   "VolumeSelector": {
+      "Format": "uint8",
+      "Permissions": [
+         "pw"
+      ],
+      "UUID": "000000EA-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0,
+      "ValidValues": {
+         "Increment": 0,
+         "Decrement": 1
+      }
    },
    "WaterLevel": {
       "Format": "float",
