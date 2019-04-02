@@ -1,7 +1,9 @@
 """This module implements the HAP Service."""
 from uuid import UUID
 
-from pyhap.const import HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_TYPE
+from pyhap.const import (
+    HAP_REPR_CHARS, HAP_REPR_IID,
+    HAP_REPR_LINKED, HAP_REPR_PRIMARY, HAP_REPR_TYPE)
 
 
 class Service:
@@ -11,20 +13,29 @@ class Service:
     TemperatureSensor service has the characteristic CurrentTemperature.
     """
 
-    __slots__ = ('broker', 'characteristics', 'display_name', 'type_id')
+    __slots__ = ('broker', 'characteristics', 'display_name', 'type_id',
+                 'linked_services', 'is_primary_service')
 
     def __init__(self, type_id, display_name=None):
         """Initialize a new Service object."""
         self.broker = None
         self.characteristics = []
+        self.linked_services = []
         self.display_name = display_name
         self.type_id = type_id
+        self.is_primary_service = None
 
     def __repr__(self):
         """Return the representation of the service."""
         return '<service display_name={} chars={}>' \
             .format(self.display_name,
                     {c.display_name: c.value for c in self.characteristics})
+
+    def add_linked_service(self, service):
+        """Add the given service as "linked" to this Service."""
+        if not any(service.type_id == original_service.type_id
+                   for original_service in self.linked_services):
+                self.linked_services.append(service)
 
     def add_characteristic(self, *chars):
         """Add the given characteristics as "mandatory" for this Service."""
@@ -70,11 +81,22 @@ class Service:
         :return: A HAP representation.
         :rtype: dict.
         """
-        return {
+        hap = {
             HAP_REPR_IID: self.broker.iid_manager.get_iid(self),
             HAP_REPR_TYPE: str(self.type_id).upper(),
             HAP_REPR_CHARS: [c.to_HAP() for c in self.characteristics],
         }
+
+        if self.is_primary_service is not None:
+            hap[HAP_REPR_PRIMARY] = self.is_primary_service
+
+        if self.linked_services:
+            hap[HAP_REPR_LINKED] = []
+            for linked_service in self.linked_services:
+                hap[HAP_REPR_LINKED].append(
+                    linked_service.broker.iid_manager.get_iid(linked_service))
+
+        return hap
 
     @classmethod
     def from_dict(cls, name, json_dict, loader):
