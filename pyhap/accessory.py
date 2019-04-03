@@ -119,7 +119,8 @@ class Accessory:
         """Set the primary service of the acc."""
 
         for service in self.services:
-            service.is_primary_service = service.type_id == primary_service.type_id
+            service.is_primary_service = service.type_id == \
+                primary_service.type_id
 
     def config_changed(self):
         """Notify the accessory about configuration changes.

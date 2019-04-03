@@ -35,7 +35,7 @@ class Service:
         """Add the given service as "linked" to this Service."""
         if not any(service.type_id == original_service.type_id
                    for original_service in self.linked_services):
-                self.linked_services.append(service)
+            self.linked_services.append(service)
 
     def add_characteristic(self, *chars):
         """Add the given characteristics as "mandatory" for this Service."""
