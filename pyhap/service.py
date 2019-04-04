@@ -33,7 +33,8 @@ class Service:
 
     def add_linked_service(self, service):
         """Add the given service as "linked" to this Service."""
-        if not any(service.type_id == original_service.type_id
+        if not any(self.broker.iid_manager.get_iid(service) ==
+                   self.broker.iid_manager.get_iid(original_service)
                    for original_service in self.linked_services):
             self.linked_services.append(service)
 
