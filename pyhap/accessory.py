@@ -117,7 +117,6 @@ class Accessory:
 
     def set_primary_service(self, primary_service):
         """Set the primary service of the acc."""
-
         for service in self.services:
             service.is_primary_service = service.type_id == \
                 primary_service.type_id
