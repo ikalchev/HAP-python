@@ -199,12 +199,9 @@
          "ev"
       ],
       "UUID": "000000DD-0000-1000-8000-0026BB765291",
-      "maxValue": 1,
-      "minValue": 0,
       "ValidValues": {
          "Disabled": 0,
          "Enabled": 1
-
       }
    },
    "ColorTemperature": {
@@ -365,14 +362,11 @@
          "ev"
       ],
       "UUID": "000000E0-0000-1000-8000-0026BB765291",
-      "maxValue": 3,
-      "minValue": 0,
       "ValidValues": {
          "Play": 0,
          "Pause": 1,
          "Stop": 2,
          "Unknown": 3
-
       }
    },
    "CurrentPosition": {
@@ -455,8 +449,6 @@
          "ev"
       ],
       "UUID": "00000135-0000-1000-8000-0026BB765291",
-      "maxValue": 1,
-      "minValue": 0,
       "ValidValues": {
          "Shown": 0,
          "Hidden": 1
@@ -595,8 +587,6 @@
          "ev"
       ],
       "UUID": "000000DB-0000-1000-8000-0026BB765291",
-      "maxValue": 10,
-      "minValue": 0,
       "ValidValues": {
          "Other": 0,
          "HomeScreen": 1,
@@ -618,8 +608,6 @@
          "ev"
       ],
       "UUID": "000000DC-0000-1000-8000-0026BB765291",
-      "maxValue": 5,
-      "minValue": 0,
       "ValidValues": {
          "Other": 0,
          "TV": 1,
@@ -958,8 +946,6 @@
          "pw"
       ],
       "UUID": "000000DF-0000-1000-8000-0026BB765291",
-      "maxValue": 1,
-      "minValue": 0,
       "ValidValues": {
          "Show": 0,
          "Hide": 1
@@ -1217,12 +1203,9 @@
          "ev"
       ],
       "UUID": "000000E8-0000-1000-8000-0026BB765291",
-      "maxValue": 1,
-      "minValue": 0,
       "ValidValues": {
          "NotDiscoverable": 0,
          "AlwaysDiscoverable": 1
-
       }
    },
    "SmokeDetected": {
@@ -1463,8 +1446,6 @@
          "ev"
       ],
       "UUID": "00000137-0000-1000-8000-0026BB765291",
-      "maxValue": 2,
-      "minValue": 0,
       "ValidValues": {
          "Play": 0,
          "Pause": 1,
@@ -1557,8 +1538,6 @@
          "ev"
       ],
       "UUID": "00000134-0000-1000-8000-0026BB765291",
-      "maxValue": 1,
-      "minValue": 0,
       "ValidValues": {
          "Shown": 0,
          "Hidden": 1
@@ -1631,8 +1610,6 @@
          "ev"
       ],
       "UUID": "000000E9-0000-1000-8000-0026BB765291",
-      "maxValue": 3,
-      "minValue": 0,
       "ValidValues": {
          "None": 0,
          "Relative": 1,
@@ -1646,8 +1623,6 @@
          "pw"
       ],
       "UUID": "000000EA-0000-1000-8000-0026BB765291",
-      "maxValue": 1,
-      "minValue": 0,
       "ValidValues": {
          "Increment": 0,
          "Decrement": 1
