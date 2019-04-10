@@ -16,6 +16,11 @@ Sections
 ### Developers
 -->
 
+## [2.5.0] - 2019-04-10
+
+### Added
+- Added support for Television accessories.
+
 ## [2.4.2] - 2019-01-04
 
 ### Fixed
