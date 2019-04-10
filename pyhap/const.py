@@ -1,7 +1,7 @@
 """This module contains constants used by other modules."""
 MAJOR_VERSION = 2
-MINOR_VERSION = 4
-PATCH_VERSION = 2
+MINOR_VERSION = 5
+PATCH_VERSION = 0
 __short_version__ = '{}.{}'.format(MAJOR_VERSION, MINOR_VERSION)
 __version__ = '{}.{}'.format(__short_version__, PATCH_VERSION)
 REQUIRED_PYTHON_VER = (3, 5)
@@ -45,6 +45,8 @@ CATEGORY_SPEAKER = 26
 CATEGORY_SPRINKLER = 28
 CATEGORY_FAUCET = 29
 CATEGORY_SHOWER_HEAD = 30
+CATEGORY_TELEVISION = 31
+CATEGORY_TARGET_CONTROLLER = 32  # Remote Controller
 
 
 # ### HAP Permissions ###
@@ -52,6 +54,7 @@ HAP_PERMISSION_HIDDEN = 'hd'
 HAP_PERMISSION_NOTIFY = 'ev'
 HAP_PERMISSION_READ = 'pr'
 HAP_PERMISSION_WRITE = 'pw'
+HAP_PERMISSION_WRITE_RESPONSE = 'wr'
 
 
 # ### HAP representation ###
@@ -63,7 +66,9 @@ HAP_REPR_FORMAT = 'format'
 HAP_REPR_IID = 'iid'
 HAP_REPR_MAX_LEN = 'maxLen'
 HAP_REPR_PERM = 'perms'
+HAP_REPR_PRIMARY = 'primary'
 HAP_REPR_SERVICES = 'services'
+HAP_REPR_LINKED = 'linked'
 HAP_REPR_STATUS = 'status'
 HAP_REPR_TYPE = 'type'
 HAP_REPR_VALUE = 'value'

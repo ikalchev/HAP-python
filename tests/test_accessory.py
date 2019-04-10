@@ -33,6 +33,20 @@ def test_acc_set_services_compatible(mock_driver):
     assert acc.get_service('TemperatureSensor') is not None
 
 
+def test_acc_set_primary_service(mock_driver):
+    """Test method set_primary_service."""
+    acc = Accessory(mock_driver, 'Test Accessory')
+    service = acc.driver.loader.get_service('Television')
+    acc.add_service(service)
+    linked_service = acc.driver.loader.get_service('TelevisionSpeaker')
+    acc.add_service(linked_service)
+    assert acc.get_service('Television').is_primary_service is None
+    assert acc.get_service('TelevisionSpeaker').is_primary_service is None
+    acc.set_primary_service(service)
+    assert acc.get_service('Television').is_primary_service is True
+    assert acc.get_service('TelevisionSpeaker').is_primary_service is False
+
+
 # #### Bridge ############
 # execute with `-k bridge`
 # ########################

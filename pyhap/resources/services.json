@@ -250,6 +250,21 @@
       ],
       "UUID": "00000082-0000-1000-8000-0026BB765291"
    },
+   "InputSource": {
+      "OptionalCharacteristics": [
+         "Identifier",
+         "InputDeviceType",
+         "TargetVisibilityState",
+         "Name"
+      ],
+      "RequiredCharacteristics": [
+         "ConfiguredName",
+         "InputSourceType",
+         "IsConfigured",
+         "CurrentVisibilityState"
+      ],
+      "UUID": "000000D9-0000-1000-8000-0026BB765291"
+   },
    "IrrigationSystem": {
       "OptionalCharacteristics": [
          "Name",
@@ -450,6 +465,38 @@
          "On"
       ],
       "UUID": "00000049-0000-1000-8000-0026BB765291"
+   },
+   "Television": {
+      "OptionalCharacteristics": [
+         "Brightness",
+         "ClosedCaptions",
+         "DisplayOrder",
+         "CurrentMediaState",
+         "TargetMediaState",
+         "PictureMode",
+         "PowerModeSelection",
+         "RemoteKey"
+      ],
+      "RequiredCharacteristics": [
+         "Active",
+         "ActiveIdentifier",
+         "ConfiguredName",
+         "SleepDiscoveryMode"
+      ],
+      "UUID": "000000D8-0000-1000-8000-0026BB765291"
+   },
+   "TelevisionSpeaker": {
+      "OptionalCharacteristics": [
+         "Active",
+         "Volume",
+         "VolumeControlType",
+         "VolumeSelector",
+         "Name"
+      ],
+      "RequiredCharacteristics": [
+         "Mute"
+      ],
+      "UUID": "00000113-0000-1000-8000-0026BB765291"
    },
    "TemperatureSensor": {
       "OptionalCharacteristics": [
