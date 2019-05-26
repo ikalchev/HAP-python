@@ -79,7 +79,7 @@ class Characteristic:
     """
 
     __slots__ = ('broker', 'display_name', 'properties', 'type_id',
-                 'value', 'getter_callback', 'setter_callback')
+                 'value', 'getter_callback', 'setter_callback', 'hasError')
 
     def __init__(self, display_name, type_id, properties):
         """Initialise with the given properties.
@@ -102,6 +102,7 @@ class Characteristic:
         self.value = self._get_default_value()
         self.getter_callback = None
         self.setter_callback = None
+        self.hasError = False
 
     def __repr__(self):
         """Return the representation of the characteristic."""
@@ -121,6 +122,10 @@ class Characteristic:
 
         :return: Current Characteristic Value
         """
+
+        if self.hasError:
+            raise CharacteristicError()
+
         if self.getter_callback:
             # pylint: disable=not-callable
             self.value = self.to_valid_value(value=self.getter_callback())
@@ -194,6 +199,9 @@ class Characteristic:
         :type should_notify: bool
         """
         logger.debug('set_value: %s to %s', self.display_name, value)
+
+        self.hasError = isinstance(value, Exception)
+
         value = self.to_valid_value(value)
         self.value = value
         if should_notify and self.broker:
