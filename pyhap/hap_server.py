@@ -135,6 +135,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         """
         self.accessory_handler = accessory_handler
         self.state = self.accessory_handler.state
+        self.protocol_version = 'HTTP/1.1'
         self.enc_context = None
         self.is_encrypted = False
         # Redirect separate handlers to the dispatch method
