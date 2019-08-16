@@ -10,7 +10,8 @@ from uuid import UUID
 
 from pyhap.const import (
     HAP_PERMISSION_READ, HAP_REPR_DESC, HAP_REPR_FORMAT, HAP_REPR_IID,
-    HAP_REPR_MAX_LEN, HAP_REPR_PERM, HAP_REPR_TYPE, HAP_REPR_VALUE)
+    HAP_REPR_MAX_LEN, HAP_REPR_PERM, HAP_REPR_TYPE, HAP_REPR_VALUE,
+    HAP_REPR_VALID_VALUES)
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +242,10 @@ class Characteristic:
         if self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
             hap_rep.update({k: self.properties[k] for k in
                             self.properties.keys() & PROP_NUMERIC})
+
+            if PROP_VALID_VALUES in self.properties:
+                hap_rep[HAP_REPR_VALID_VALUES] = \
+                    sorted(self.properties[PROP_VALID_VALUES].values())
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
             if len(value) > 64:
                 hap_rep[HAP_REPR_MAX_LEN] = min(len(value), 256)
