@@ -81,15 +81,13 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
     def __init__(self, accessory, state):
         self.accessory = accessory
         self.state = state
-        hname = socket.gethostname()
-        pubname = hname + '.' if hname.endswith('.local') else hname + '.local.'
 
         adv_data = self._get_advert_data()
         super().__init__(
             '_hap._tcp.local.',
             self.accessory.display_name + '._hap._tcp.local.',
             socket.inet_aton(self.state.address), self.state.port,
-            0, 0, adv_data, pubname)
+            0, 0, adv_data)
 
     def _setup_hash(self):
         setup_hash_material = self.state.setup_id + self.state.mac
