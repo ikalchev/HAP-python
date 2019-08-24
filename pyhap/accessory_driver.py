@@ -129,7 +129,8 @@ class AccessoryDriver:
 
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
-                 encoder=None, loader=None, loop=None):
+                 encoder=None, loader=None, loop=None,
+                 listen_address=None, advertised_address=None):
         """
         Initialize a new AccessoryDriver object.
 
@@ -155,6 +156,15 @@ class AccessoryDriver:
 
         :param encoder: The encoder to use when persisting/loading the Accessory state.
         :type encoder: AccessoryEncoder
+
+        :param listen_address: The local address on the HAPServer will listen.
+            If not given, the value of the address parameter will be used.
+        :type listen_address: str
+
+        :param advertised_address: The address of the HAPServer announced via mDNS.
+            This can be used to announce an external address from behind a NAT.
+            If not given, the value of the address parameter will be used.
+        :type advertised_address: str
         """
         if sys.platform == 'win32':
             self.loop = loop or asyncio.ProactorEventLoop()
@@ -188,8 +198,11 @@ class AccessoryDriver:
         self.mdns_service_info = None
         self.srp_verifier = None
 
-        self.state = State(address=address, pincode=pincode, port=port)
-        network_tuple = (self.state.address, self.state.port)
+        advertised_address = advertised_address or address
+        self.state = State(address=advertised_address, pincode=pincode, port=port)
+
+        listen_address = listen_address or address
+        network_tuple = (listen_address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
 
     def start(self):
