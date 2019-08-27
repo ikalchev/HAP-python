@@ -48,6 +48,7 @@ from pyhap.hsrp import Server as SrpServer
 from pyhap.loader import Loader
 from pyhap.params import get_srp_context
 from pyhap.state import State
+from pyhap import util
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +199,7 @@ class AccessoryDriver:
         self.mdns_service_info = None
         self.srp_verifier = None
 
+        address = address or util.get_local_address()
         advertised_address = advertised_address or address
         self.state = State(address=advertised_address, pincode=pincode, port=port)
 
