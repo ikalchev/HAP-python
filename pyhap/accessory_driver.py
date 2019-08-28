@@ -133,7 +133,7 @@ class AccessoryDriver:
 
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
-                 encoder=None, loader=None, loop=None,
+                 encoder=None, loader=None, loop=None, mac=None,
                  listen_address=None, advertised_address=None):
         """
         Initialize a new AccessoryDriver object.
@@ -160,6 +160,10 @@ class AccessoryDriver:
 
         :param encoder: The encoder to use when persisting/loading the Accessory state.
         :type encoder: AccessoryEncoder
+
+        :param mac: The MAC address which will be used to identify the accessory.
+            If not given, the driver will try to select a MAC address.
+        :type mac: str
 
         :param listen_address: The local address on the HAPServer will listen.
             If not given, the value of the address parameter will be used.
@@ -204,7 +208,7 @@ class AccessoryDriver:
 
         address = address or util.get_local_address()
         advertised_address = advertised_address or address
-        self.state = State(address=advertised_address, pincode=pincode, port=port)
+        self.state = State(address=advertised_address, mac=mac, pincode=pincode, port=port)
 
         listen_address = listen_address or address
         network_tuple = (listen_address, self.state.port)
