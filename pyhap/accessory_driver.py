@@ -34,7 +34,6 @@ import time
 import threading
 import json
 import queue
-import re
 
 from zeroconf import ServiceInfo, Zeroconf
 
@@ -55,7 +54,6 @@ logger = logging.getLogger(__name__)
 
 CHAR_STAT_OK = 0
 SERVICE_COMMUNICATION_FAILURE = -70402
-RE_NON_ALPHANUM = re.compile(r'[\W_]+', re.UNICODE)
 
 
 def callback(func):
@@ -85,13 +83,12 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         self.accessory = accessory
         self.state = state
 
-        adv_name = RE_NON_ALPHANUM.sub('-', self.accessory.display_name)
         adv_data = self._get_advert_data()
         super().__init__(
             '_hap._tcp.local.',
             self.accessory.display_name + '._hap._tcp.local.',
             socket.inet_aton(self.state.address), self.state.port,
-            0, 0, adv_data, adv_name + '.local.')
+            0, 0, adv_data)
 
     def _setup_hash(self):
         setup_hash_material = self.state.setup_id + self.state.mac
