@@ -172,6 +172,18 @@ def test_to_HAP_numberic():
     }
 
 
+def test_to_HAP_valid_values():
+    """Test created HAP representation for valid values constraint."""
+    char = get_char(PROPERTIES.copy(), valid={'foo': 0, 'bar': 2, 'baz': 1})
+    with patch.object(char, 'broker') as mock_broker:
+        mock_broker.iid_manager.get_iid.return_value = 2
+
+        hap_repr = char.to_HAP()
+
+    assert 'valid-values' in hap_repr
+    assert hap_repr['valid-values'] == [0, 1, 2]
+
+
 def test_to_HAP_string():
     """Test created HAP representation for strings."""
     char = get_char(PROPERTIES.copy())
