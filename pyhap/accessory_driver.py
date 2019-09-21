@@ -48,6 +48,7 @@ from pyhap.hsrp import Server as SrpServer
 from pyhap.loader import Loader
 from pyhap.params import get_srp_context
 from pyhap.state import State
+from pyhap import util
 
 logger = logging.getLogger(__name__)
 
@@ -81,15 +82,13 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
     def __init__(self, accessory, state):
         self.accessory = accessory
         self.state = state
-        hname = socket.gethostname()
-        pubname = hname + '.' if hname.endswith('.local') else hname + '.local.'
 
         adv_data = self._get_advert_data()
         super().__init__(
             '_hap._tcp.local.',
             self.accessory.display_name + '._hap._tcp.local.',
             socket.inet_aton(self.state.address), self.state.port,
-            0, 0, adv_data, pubname)
+            0, 0, adv_data)
 
     def _setup_hash(self):
         setup_hash_material = self.state.setup_id + self.state.mac
@@ -131,7 +130,8 @@ class AccessoryDriver:
 
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
-                 encoder=None, loader=None, loop=None):
+                 encoder=None, loader=None, loop=None, mac=None,
+                 listen_address=None, advertised_address=None):
         """
         Initialize a new AccessoryDriver object.
 
@@ -157,6 +157,19 @@ class AccessoryDriver:
 
         :param encoder: The encoder to use when persisting/loading the Accessory state.
         :type encoder: AccessoryEncoder
+
+        :param mac: The MAC address which will be used to identify the accessory.
+            If not given, the driver will try to select a MAC address.
+        :type mac: str
+
+        :param listen_address: The local address on the HAPServer will listen.
+            If not given, the value of the address parameter will be used.
+        :type listen_address: str
+
+        :param advertised_address: The address of the HAPServer announced via mDNS.
+            This can be used to announce an external address from behind a NAT.
+            If not given, the value of the address parameter will be used.
+        :type advertised_address: str
         """
         if sys.platform == 'win32':
             self.loop = loop or asyncio.ProactorEventLoop()
@@ -190,8 +203,12 @@ class AccessoryDriver:
         self.mdns_service_info = None
         self.srp_verifier = None
 
-        self.state = State(address=address, pincode=pincode, port=port)
-        network_tuple = (self.state.address, self.state.port)
+        address = address or util.get_local_address()
+        advertised_address = advertised_address or address
+        self.state = State(address=advertised_address, mac=mac, pincode=pincode, port=port)
+
+        listen_address = listen_address or address
+        network_tuple = (listen_address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
 
     def start(self):

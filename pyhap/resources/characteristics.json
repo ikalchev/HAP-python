@@ -451,7 +451,9 @@
       "UUID": "00000135-0000-1000-8000-0026BB765291",
       "ValidValues": {
          "Shown": 0,
-         "Hidden": 1
+         "Hidden": 1,
+         "State2": 2,
+         "State3": 3
       }
    },
    "DigitalZoom": {

@@ -16,6 +16,11 @@ Sections
 ### Developers
 -->
 
+## [2.6.0] - 2019-09-21
+
+### Added
+- The `AccessoryDriver` can now advertise on a different address than the one the server is running on. This is useful when pyhap is running behind a NAT. [#203](https://github.com/ikalchev/HAP-python/pull/203)
+
 ## [2.5.0] - 2019-04-10
 
 ### Added

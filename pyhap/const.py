@@ -1,6 +1,6 @@
 """This module contains constants used by other modules."""
 MAJOR_VERSION = 2
-MINOR_VERSION = 5
+MINOR_VERSION = 6
 PATCH_VERSION = 0
 __short_version__ = '{}.{}'.format(MAJOR_VERSION, MINOR_VERSION)
 __version__ = '{}.{}'.format(__short_version__, PATCH_VERSION)
@@ -72,3 +72,4 @@ HAP_REPR_LINKED = 'linked'
 HAP_REPR_STATUS = 'status'
 HAP_REPR_TYPE = 'type'
 HAP_REPR_VALUE = 'value'
+HAP_REPR_VALID_VALUES = 'valid-values'
