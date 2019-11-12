@@ -11,7 +11,7 @@ Main features:
 * Camera - HAP-python supports the camera accessory from version 2.3.0!
 * asyncio support - You can run various tasks or accessories in the event loop.
 * Out of the box support for Apple-defined services - see them in [the resources folder](pyhap/resources).
-* Secure pairing by just scannig the QR code.
+* Secure pairing by just scanning the QR code.
 * Integrated with the home automation framework [Home Assistant](https://github.com/home-assistant/home-assistant).
 
 The project was developed for a Raspberry Pi, but it should work on other platforms. To kick-start things,
