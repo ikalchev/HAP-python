@@ -24,6 +24,7 @@ import ed25519
 
 import pyhap.tlv as tlv
 from pyhap.util import long_to_bytes
+from pyhap.const import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,13 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         self.state = self.accessory_handler.state
         self.enc_context = None
         self.is_encrypted = False
+        self.server_version = 'pyhap/' + __version__
+        # HTTP/1.1 allows a keep-alive which makes
+        # a large accessory list usable in homekit
+        # If iOS has to reconnect to query each accessory
+        # it can be painfully slow and lead to lock up on the
+        # client side as well as non-responsive devices
+        self.protocol_version = 'HTTP/1.1'
         # Redirect separate handlers to the dispatch method
         self.do_GET = self.do_POST = self.do_PUT = self.dispatch
 
@@ -190,9 +198,25 @@ class HAPServerHandler(BaseHTTPRequestHandler):
     def end_response(self, bytesdata, close_connection=False):
         """Combines adding a length header and actually sending the data."""
         self.send_header("Content-Length", len(bytesdata))
-        self.end_headers()
-        self.wfile.write(bytesdata)
-        self.close_connection = 1 if close_connection else 0
+        # Setting this head will take care of setting
+        # self.close_connection to the right value
+        self.send_header("Connection", ("close" if close_connection else "keep-alive"))
+        # Important: we need to send the headers and the
+        # content in a single write to avoid homekit
+        # on the client side stalling and making
+        # devices appear non-responsive.
+        #
+        # The below code does what end_headers does internally
+        # except it combines the headers and the content
+        # into a single write instead of two calls to
+        # self.wfile.write
+        #
+        # TODO: Is there a better way that doesn't involve
+        # touching _headers_buffer ?
+        #
+        self._headers_buffer.append(b"\r\n")
+        self.wfile.write(b"".join(self._headers_buffer) + bytesdata)
+        self._headers_buffer = []
 
     def dispatch(self):
         """Dispatch the request to the appropriate handler method."""
@@ -805,8 +829,20 @@ class HAPServer(socketserver.ThreadingMixIn,
     def _close_socket(self, sock):
         """Shutdown and close the given socket."""
         try:
-            sock.shutdown(socket.SHUT_RDWR)
+            sock.shutdown(socket.SHUT_WR)
         except socket.error:
+            logger.info("Error shutting down socket for write: %s", socket.error)
+            pass
+        try:
+            sock.shutdown(socket.SHUT_RD)
+            # Since the http client is allowed to
+            # disconnect at any point, we need to
+            # consume any of the data still on the wire
+            # to avoid a connection reset by peer error
+            while sock.recv(65535):
+              continue
+        except socket.error:
+            logger.info("Error shutting down socket for read: %s", socket.error)
             pass
         sock.close()
 
