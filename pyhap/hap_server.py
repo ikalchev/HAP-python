@@ -782,6 +782,8 @@ class HAPServer(socketserver.ThreadingMixIn,
     TIMEOUT_ERRNO_CODES = (errno.ECONNRESET, errno.EPIPE, errno.EHOSTUNREACH,
                            errno.ETIMEDOUT, errno.EHOSTDOWN, errno.EBADF)
 
+    CLIENT_SOCKET_TIMEOUT = 300
+
     @classmethod
     def create_hap_event(cls, bytesdata):
         """Creates a HAP HTTP EVENT response for the given data.
@@ -833,6 +835,7 @@ class HAPServer(socketserver.ThreadingMixIn,
         """Calls the super's method, caches the connection and returns."""
         client_socket, client_addr = super(HAPServer, self).get_request()
         logger.info("Got connection with %s.", client_addr)
+        client_socket.settimeout(self.CLIENT_SOCKET_TIMEOUT)
         self.connections[client_addr] = client_socket
         return (client_socket, client_addr)
 
