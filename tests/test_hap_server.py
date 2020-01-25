@@ -44,35 +44,36 @@ def test_finish_request_pops_socket():
 
     assert len(server.connections) == 0
 
+
 def test_uses_http11():
     """Test that ``HAPServerHandler`` uses HTTP/1.1."""
     amock = Mock()
     from pyhap.const import __version__
 
     with patch('pyhap.hap_server.HAPServerHandler.setup'), patch('pyhap.hap_server.HAPServerHandler.handle_one_request'), patch('pyhap.hap_server.HAPServerHandler.finish'):
-      handler = hap_server.HAPServerHandler("mocksock", "mockclient_addr", "mockserver", amock)
-      assert handler.protocol_version == "HTTP/1.1"
-      assert handler.server_version == 'pyhap/' + __version__
+        handler = hap_server.HAPServerHandler("mocksock", "mockclient_addr", "mockserver", amock)
+        assert handler.protocol_version == "HTTP/1.1"
+        assert handler.server_version == 'pyhap/' + __version__
+
 
 def test_end_response_is_one_send():
     """Test that ``HAPServerHandler`` sends the whole response at once."""
     class ConnectionMock():
-       sent_bytes = []
+        sent_bytes = []
 
-       def sendall(self, bytesdata):
-          self.sent_bytes.append([bytesdata])
-          return 1
+        def sendall(self, bytesdata):
+            self.sent_bytes.append([bytesdata])
+            return 1
 
-       def getsent(self):
-          return self.sent_bytes
+        def getsent(self):
+            return self.sent_bytes
 
     amock = Mock()
 
-
     with patch('pyhap.hap_server.HAPServerHandler.setup'), patch('pyhap.hap_server.HAPServerHandler.handle_one_request'), patch('pyhap.hap_server.HAPServerHandler.finish'):
-      handler = hap_server.HAPServerHandler("mocksock", "mockclient_addr", "mockserver", amock)
-      handler.request_version = 'HTTP/1.1'
-      handler.connection = ConnectionMock()
-      handler.end_response(b"body")
-      assert handler.connection.getsent() == [[b'Content-Length: 4\r\nConnection: keep-alive\r\n\r\nbody']]
-      assert handler._headers_buffer == []
+        handler = hap_server.HAPServerHandler("mocksock", "mockclient_addr", "mockserver", amock)
+        handler.request_version = 'HTTP/1.1'
+        handler.connection = ConnectionMock()
+        handler.end_response(b"body")
+        assert handler.connection.getsent() == [[b'Content-Length: 4\r\nConnection: keep-alive\r\n\r\nbody']]
+        assert handler._headers_buffer == []
