@@ -42,6 +42,7 @@ def test_persist_load():
             driver.load()
     assert driver.state.public_key == pk
 
+
 def test_start_stop_sync_acc(driver):
     class Acc(Accessory):
         running = True
@@ -75,12 +76,12 @@ def test_start_stop_async_acc(driver):
     driver.start()
     assert driver.loop.is_closed()
 
+
 def test_send_events(driver):
     class LoopMock():
         runcount = 0
 
         def is_closed(self):
-            import sys
             self.runcount += 1
             if self.runcount > 1:
                 return True
@@ -98,10 +99,10 @@ def test_send_events(driver):
 
     driver.http_server = HapServerMock()
     driver.loop = LoopMock()
-    driver.topics = {"mocktopic":["client1","client2","client3"]}
-    driver.event_queue.put(("mocktopic","bytedata","client1"))
+    driver.topics = {"mocktopic": ["client1", "client2", "client3"]}
+    driver.event_queue.put(("mocktopic", "bytedata", "client1"))
     driver.send_events()
 
     # Only client2 and client3 get the event when client1 sent it
-    assert driver.http_server.get_pushed_events() == [["bytedata","client2"],["bytedata","client3"]]
-
+    assert (driver.http_server.get_pushed_events() ==
+            [["bytedata", "client2"], ["bytedata", "client3"]])
