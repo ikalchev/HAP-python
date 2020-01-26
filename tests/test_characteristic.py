@@ -137,6 +137,10 @@ def test_client_update_value():
     assert mock_notify.call_count == 2
     mock_callback.assert_called_with(3)
 
+    with patch(path_notify) as mock_notify:
+        char.client_update_value(9, "mock_client_addr")
+        assert char.value == 9
+        mock_notify.assert_called_once_with("mock_client_addr")
 
 def test_notify():
     """Test if driver is notified correctly about a changed characteristic."""
@@ -148,7 +152,12 @@ def test_notify():
 
     with patch.object(char, 'broker') as mock_broker:
         char.notify()
-    mock_broker.publish.assert_called_with(2, char)
+    mock_broker.publish.assert_called_with(2, char, None)
+
+    with patch.object(char, 'broker') as mock_broker:
+        char.notify("mock_client_addr")
+    mock_broker.publish.assert_called_with(2, char, "mock_client_addr")
+
 
 
 def test_to_HAP_numberic():
