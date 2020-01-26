@@ -16,7 +16,7 @@ class MockDriver():
     def __init__(self):
         self.loader = Loader()
 
-    def publish(self, data):
+    def publish(self, data, client_addr=None):
         pass
 
     def add_job(self, target, *args):

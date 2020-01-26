@@ -16,6 +16,17 @@ Sections
 ### Developers
 -->
 
+## [2.7.0] - 2020-01-26
+
+### Added
+- Example Accessory that exposes the raspberry pi GPIO pins as a relay. [#220](https://github.com/ikalchev/HAP-python/pull/220)
+
+### Fixed
+- The HAP server is now HTTP version 1.1. [#216](https://github.com/ikalchev/HAP-python/pull/216)
+- Fixed an issue where accessories on the server can appear non-responsive. [#216](https://github.com/ikalchev/HAP-python/pull/216)
+- Correctly end HAP responses in some error cases. [#217](https://github.com/ikalchev/HAP-python/pull/217)
+- Fixed an issue where an accessory can appear as non-responsive after an event. Events for value updates will not be sent to the client that initiated them. [#215](https://github.com/ikalchev/HAP-python/pull/215)
+
 ## [2.6.0] - 2019-09-21
 
 ### Added

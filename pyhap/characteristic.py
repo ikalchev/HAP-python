@@ -200,26 +200,26 @@ class Characteristic:
         if should_notify and self.broker:
             self.notify()
 
-    def client_update_value(self, value):
+    def client_update_value(self, value, sender_client_addr=None):
         """Called from broker for value change in Home app.
 
         Change self.value to value and call callback.
         """
-        logger.debug('client_update_value: %s to %s',
-                     self.display_name, value)
+        logger.debug('client_update_value: %s to %s from client: %s',
+                     self.display_name, value, sender_client_addr)
         self.value = value
-        self.notify()
+        self.notify(sender_client_addr)
         if self.setter_callback:
             # pylint: disable=not-callable
             self.setter_callback(value)
 
-    def notify(self):
+    def notify(self, sender_client_addr=None):
         """Notify clients about a value change. Sends the value.
 
         .. seealso:: accessory.publish
         .. seealso:: accessory_driver.publish
         """
-        self.broker.publish(self.value, self)
+        self.broker.publish(self.value, self, sender_client_addr)
 
     # pylint: disable=invalid-name
     def to_HAP(self):

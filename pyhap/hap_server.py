@@ -24,6 +24,7 @@ import ed25519
 
 import pyhap.tlv as tlv
 from pyhap.util import long_to_bytes
+from pyhap.const import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,13 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         self.state = self.accessory_handler.state
         self.enc_context = None
         self.is_encrypted = False
+        self.server_version = 'pyhap/' + __version__
+        # HTTP/1.1 allows a keep-alive which makes
+        # a large accessory list usable in homekit
+        # If iOS has to reconnect to query each accessory
+        # it can be painfully slow and lead to lock up on the
+        # client side as well as non-responsive devices
+        self.protocol_version = 'HTTP/1.1'
         # Redirect separate handlers to the dispatch method
         self.do_GET = self.do_POST = self.do_PUT = self.dispatch
 
@@ -190,9 +198,24 @@ class HAPServerHandler(BaseHTTPRequestHandler):
     def end_response(self, bytesdata, close_connection=False):
         """Combines adding a length header and actually sending the data."""
         self.send_header("Content-Length", len(bytesdata))
-        self.end_headers()
-        self.wfile.write(bytesdata)
-        self.close_connection = 1 if close_connection else 0
+        # Setting this head will take care of setting
+        # self.close_connection to the right value
+        self.send_header("Connection", ("close" if close_connection else "keep-alive"))
+        # Important: we need to send the headers and the
+        # content in a single write to avoid homekit
+        # on the client side stalling and making
+        # devices appear non-responsive.
+        #
+        # The below code does what end_headers does internally
+        # except it combines the headers and the content
+        # into a single write instead of two calls to
+        # self.wfile.write
+        #
+        # TODO: Is there a better way that doesn't involve
+        # touching _headers_buffer ?
+        #
+        self.connection.sendall(b"".join(self._headers_buffer) + b"\r\n" + bytesdata)
+        self._headers_buffer = []
 
     def dispatch(self):
         """Dispatch the request to the appropriate handler method."""
@@ -204,6 +227,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             getattr(self, self.HANDLERS[self.command][path])()
         except NotAllowedInStateException:
             self.send_response(403)
+            self.end_response(b'')
         except UnprivilegedRequestException:
             response = {"status": HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES}
             data = json.dumps(response).encode("utf-8")
@@ -364,6 +388,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
         if not should_confirm:
             self.send_response(500)
+            self.end_response(b'')
             return
 
         tlv_data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, b'\x06',
@@ -523,6 +548,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.exception('Exception in set_characteristics: %s', e)
             self.send_response(HTTPStatus.BAD_REQUEST)
+            self.end_response(b'')
         else:
             self.send_response(HTTPStatus.NO_CONTENT)
             self.end_response(b'')
@@ -552,6 +578,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             client_uuid, client_public)
         if not should_confirm:
             self.send_response(500)
+            self.end_response(b'')
             return
 
         data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, b"\x02")
