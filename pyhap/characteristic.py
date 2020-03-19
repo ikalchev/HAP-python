@@ -80,7 +80,7 @@ class Characteristic:
     """
 
     __slots__ = ('broker', 'display_name', 'properties', 'type_id',
-                 'value', 'getter_callback', 'setter_callback')
+                 'value', 'getter_callback', 'setter_callback', 'service')
 
     def __init__(self, display_name, type_id, properties):
         """Initialise with the given properties.
@@ -103,6 +103,7 @@ class Characteristic:
         self.value = self._get_default_value()
         self.getter_callback = None
         self.setter_callback = None
+        self.service = None
 
     def __repr__(self):
         """Return the representation of the characteristic."""

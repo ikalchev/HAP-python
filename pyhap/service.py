@@ -14,7 +14,7 @@ class Service:
     """
 
     __slots__ = ('broker', 'characteristics', 'display_name', 'type_id',
-                 'linked_services', 'is_primary_service')
+                 'linked_services', 'is_primary_service', 'setter_callback')
 
     def __init__(self, type_id, display_name=None):
         """Initialize a new Service object."""
@@ -24,6 +24,7 @@ class Service:
         self.display_name = display_name
         self.type_id = type_id
         self.is_primary_service = None
+        self.setter_callback = None
 
     def __repr__(self):
         """Return the representation of the service."""
@@ -43,6 +44,7 @@ class Service:
         for char in chars:
             if not any(char.type_id == original_char.type_id
                        for original_char in self.characteristics):
+                char.service = self
                 self.characteristics.append(char)
 
     def get_characteristic(self, name):
