@@ -691,7 +691,7 @@ class Camera(Accessory):
             'address': address,
             'v_port': target_video_port,
             'v_srtp_key': to_base64_str(video_master_key + video_master_salt),
-            # TODO: 'v_ssrc': video_ssrc,
+            'v_ssrc': video_ssrc,
             'a_port': target_audio_port,
             'audio_srtp_key': to_base64_str(audio_master_key + audio_master_salt),
             'a_ssrc': audio_ssrc
