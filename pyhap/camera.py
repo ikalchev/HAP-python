@@ -425,7 +425,7 @@ class Camera(Accessory):
         self.add_preload_service('Microphone')
         management = self.add_preload_service('CameraRTPStreamManagement')
         management.configure_char('StreamingStatus',
-                                  getter_callback=self._get_streaimg_status)
+                                  getter_callback=self._get_streaming_status)
         management.configure_char('SupportedRTPConfiguration',
                                   value=self.get_supported_rtp_config(
                                                 options.get('srtp', False)))
@@ -539,7 +539,7 @@ class Camera(Accessory):
             del self.sessions[session_id]
             self.streaming_status = STREAMING_STATUS['AVAILABLE']
 
-    def _get_streaimg_status(self):
+    def _get_streaming_status(self):
         """Get the streaming status in TLV format.
 
         Called when iOS reads the StreaminStatus ``Characteristic``.
