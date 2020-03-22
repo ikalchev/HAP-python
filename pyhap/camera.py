@@ -484,7 +484,7 @@ class Camera(Accessory):
             if video_rtp_param:
                 video_rtp_param_objs = tlv.decode(video_rtp_param)
                 # TODO: Optionals, handle the case where they are missing
-                opts['v_ssrc'] = 1 or struct.unpack('<I',
+                opts['v_ssrc'] = struct.unpack('<I',
                     video_rtp_param_objs.get(
                         RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']))[0]
                 opts['v_payload_type'] = \
