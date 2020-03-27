@@ -1,5 +1,4 @@
 curve25519-donna
 ed25519
-pycryptodome
-tlslite-ng
+cryptography
 zeroconf

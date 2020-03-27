@@ -26,8 +26,7 @@ with open('README.md', 'r', encoding='utf-8') as f:
 REQUIRES = [
     'curve25519-donna',
     'ed25519',
-    'pycryptodome',
-    'tlslite-ng',
+    'cryptography',
     'zeroconf',
 ]
 
