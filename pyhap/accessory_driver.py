@@ -54,6 +54,8 @@ logger = logging.getLogger(__name__)
 
 CHAR_STAT_OK = 0
 SERVICE_COMMUNICATION_FAILURE = -70402
+SERVICE_CALLBACK = 0
+SERVICE_CALLBACK_DATA = 1
 
 
 def callback(func):
@@ -633,6 +635,7 @@ class AccessoryDriver:
         :type chars_query: dict
         """
         # TODO: Add support for chars that do no support notifications.
+        service_callbacks = {}
         for cq in chars_query[HAP_REPR_CHARS]:
             aid, iid = cq[HAP_REPR_AID], cq[HAP_REPR_IID]
             char = self.accessory.get_characteristic(aid, iid)
@@ -647,6 +650,26 @@ class AccessoryDriver:
             if HAP_REPR_VALUE in cq:
                 # TODO: status needs to be based on success of set_value
                 char.client_update_value(cq[HAP_REPR_VALUE], client_addr)
+                # For some services we want to send all the char value
+                # changes at once.  This resolves an issue where we send
+                # ON and then BRIGHTNESS and the light would go to 100%
+                # and then dim to the brightness because each callback
+                # would only send one char at a time.
+                service = char.service
+
+                if service and service.setter_callback:
+                    service_callbacks.setdefault(
+                        service.display_name,
+                        [service.setter_callback, {}]
+                    )
+                    service_callbacks[service.display_name][
+                        SERVICE_CALLBACK_DATA
+                    ][char.display_name] = cq[HAP_REPR_VALUE]
+
+        for service_name in service_callbacks:
+            service_callbacks[service_name][SERVICE_CALLBACK](
+                service_callbacks[service_name][SERVICE_CALLBACK_DATA]
+            )
 
     def signal_handler(self, _signal, _frame):
         """Stops the AccessoryDriver for a given signal.
