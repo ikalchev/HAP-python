@@ -16,9 +16,11 @@ from urllib.parse import urlparse, parse_qs
 import socketserver
 import threading
 
-from tlslite.utils.chacha20_poly1305 import CHACHA20_POLY1305
-from Crypto.Protocol.KDF import HKDF
-from Crypto.Hash import SHA512
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
+
 import curve25519
 import ed25519
 
@@ -27,6 +29,8 @@ from pyhap.util import long_to_bytes
 from pyhap.const import __version__
 
 logger = logging.getLogger(__name__)
+
+backend = default_backend()
 
 
 # Various "tag" constants for HAP's TLV encoding.
@@ -65,7 +69,8 @@ class HAP_OPERATION_CODE:
 
 class HAP_CRYPTO:
     HKDF_KEYLEN = 32  # bytes, length of expanded HKDF keys
-    HKDF_HASH = SHA512  # Hash function to use in key expansion
+    HKDF_HASH = hashes.SHA512()  # Hash function to use in key expansion
+    TAG_LENGTH = 16  # ChaCha20Poly1305 tag length
     TLS_NONCE_LEN = 12  # bytes, length of TLS encryption nonce
 
 
@@ -76,7 +81,14 @@ def _pad_tls_nonce(nonce, total_len=HAP_CRYPTO.TLS_NONCE_LEN):
 
 def hap_hkdf(key, salt, info):
     """Just a shorthand."""
-    return HKDF(key, HAP_CRYPTO.HKDF_KEYLEN, salt, HAP_CRYPTO.HKDF_HASH, context=info)
+    hkdf = HKDF(
+        algorithm=HAP_CRYPTO.HKDF_HASH,
+        length=HAP_CRYPTO.HKDF_KEYLEN,
+        salt=salt,
+        info=info,
+        backend=backend,
+    )
+    return hkdf.derive(key)
 
 
 class UnprivilegedRequestException(Exception):
@@ -313,8 +325,8 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         hkdf_enc_key = hap_hkdf(long_to_bytes(session_key),
                                 self.PAIRING_3_SALT, self.PAIRING_3_INFO)
 
-        cipher = CHACHA20_POLY1305(hkdf_enc_key, "python")
-        decrypted_data = cipher.open(self.PAIRING_3_NONCE, bytearray(encrypted_data), b"")
+        cipher = ChaCha20Poly1305(hkdf_enc_key)
+        decrypted_data = cipher.decrypt(self.PAIRING_3_NONCE, bytes(encrypted_data), b"")
         assert decrypted_data is not None
 
         dec_tlv_objects = tlv.decode(bytes(decrypted_data))
@@ -379,9 +391,9 @@ class HAPServerHandler(BaseHTTPRequestHandler):
                              HAP_TLV_TAGS.PUBLIC_KEY, server_public,
                              HAP_TLV_TAGS.PROOF, server_proof)
 
-        cipher = CHACHA20_POLY1305(encryption_key, "python")
+        cipher = ChaCha20Poly1305(encryption_key)
         aead_message = bytes(
-            cipher.seal(self.PAIRING_5_NONCE, bytearray(message), b""))
+            cipher.encrypt(self.PAIRING_5_NONCE, bytes(message), b""))
 
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
         should_confirm = self.accessory_handler.pair(client_uuid, client_ltpk)
@@ -443,9 +455,9 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         message = tlv.encode(HAP_TLV_TAGS.USERNAME, mac,
                              HAP_TLV_TAGS.PROOF, server_proof)
 
-        cipher = CHACHA20_POLY1305(output_key, "python")
+        cipher = ChaCha20Poly1305(output_key)
         aead_message = bytes(
-            cipher.seal(self.PVERIFY_1_NONCE, bytearray(message), b""))
+            cipher.encrypt(self.PVERIFY_1_NONCE, bytes(message), b""))
         data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, b'\x02',
                           HAP_TLV_TAGS.ENCRYPTED_DATA, aead_message,
                           HAP_TLV_TAGS.PUBLIC_KEY, public_key.serialize())
@@ -461,8 +473,8 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         """
         logger.debug("Pair verify [2/2]")
         encrypted_data = tlv_objects[HAP_TLV_TAGS.ENCRYPTED_DATA]
-        cipher = CHACHA20_POLY1305(self.enc_context["pre_session_key"], "python")
-        decrypted_data = cipher.open(self.PVERIFY_2_NONCE, bytearray(encrypted_data), b"")
+        cipher = ChaCha20Poly1305(self.enc_context["pre_session_key"])
+        decrypted_data = cipher.decrypt(self.PVERIFY_2_NONCE, bytes(encrypted_data), b"")
         assert decrypted_data is not None  # TODO:
 
         dec_tlv_objects = tlv.decode(bytes(decrypted_data))
@@ -683,10 +695,10 @@ class HAPSocket:
     def _set_ciphers(self):
         """Generate out/inbound encryption keys and initialise respective ciphers."""
         outgoing_key = hap_hkdf(self.shared_key, self.CIPHER_SALT, self.OUT_CIPHER_INFO)
-        self.out_cipher = CHACHA20_POLY1305(outgoing_key, "python")
+        self.out_cipher = ChaCha20Poly1305(outgoing_key)
 
         incoming_key = hap_hkdf(self.shared_key, self.CIPHER_SALT, self.IN_CIPHER_INFO)
-        self.in_cipher = CHACHA20_POLY1305(incoming_key, "python")
+        self.in_cipher = ChaCha20Poly1305(incoming_key)
 
     # socket.socket interface
 
@@ -730,7 +742,7 @@ class HAPSocket:
                 # Init. info about the block we just started.
                 # Note we are setting the total length to block_length + mac length
                 self.curr_in_total = \
-                    struct.unpack("H", block_length_bytes)[0] + self.in_cipher.tagLength
+                    struct.unpack("H", block_length_bytes)[0] + HAP_CRYPTO.TAG_LENGTH
                 self.num_in_recv = 0
                 self.curr_in_block = b""
                 buflen -= self.LENGTH_LENGTH
@@ -747,9 +759,9 @@ class HAPSocket:
                     # We read a whole block. Decrypt it and append it to the result.
                     nonce = _pad_tls_nonce(struct.pack("Q", self.in_count))
                     # Note we are removing the mac length from the total length
-                    block_length = self.curr_in_total - self.in_cipher.tagLength
-                    plaintext = self.in_cipher.open(
-                        nonce, bytearray(self.curr_in_block),
+                    block_length = self.curr_in_total - HAP_CRYPTO.TAG_LENGTH
+                    plaintext = self.in_cipher.decrypt(
+                        nonce, bytes(self.curr_in_block),
                         struct.pack("H", block_length))
                     result += plaintext
                     self.in_count += 1
@@ -776,10 +788,10 @@ class HAPSocket:
         while offset < total:
             length = min(total - offset, self.MAX_BLOCK_LENGTH)
             length_bytes = struct.pack("H", length)
-            block = bytearray(data[offset: offset + length])
+            block = bytes(data[offset: offset + length])
             nonce = _pad_tls_nonce(struct.pack("Q", self.out_count))
             ciphertext = length_bytes \
-                + self.out_cipher.seal(nonce, block, length_bytes)
+                + self.out_cipher.encrypt(nonce, block, length_bytes)
             offset += length
             self.out_count += 1
             result += ciphertext
