@@ -16,6 +16,14 @@ Sections
 ### Developers
 -->
 
+## [2.8.0] - 2020-04-02
+
+### Added
+- Add support for service-level callbacks. You can now register a callback that will be called for all characteristics that belong to it. [#229](https://github.com/ikalchev/HAP-python/pull/229)
+
+### Fixed
+-  - Switch the symmetric cipher to use the cryptography module. This greatly improves performance. [#232](https://github.com/ikalchev/HAP-python/pull/232)
+
 ## [2.7.0] - 2020-01-26
 
 ### Added

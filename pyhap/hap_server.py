@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 backend = default_backend()
 
+
 # Various "tag" constants for HAP's TLV encoding.
 class HAP_TLV_TAGS:
     REQUEST_TYPE = b'\x00'
@@ -69,7 +70,7 @@ class HAP_OPERATION_CODE:
 class HAP_CRYPTO:
     HKDF_KEYLEN = 32  # bytes, length of expanded HKDF keys
     HKDF_HASH = hashes.SHA512()  # Hash function to use in key expansion
-    TAG_LENGTH = 16 # ChaCha20Poly1305 tag length
+    TAG_LENGTH = 16  # ChaCha20Poly1305 tag length
     TLS_NONCE_LEN = 12  # bytes, length of TLS encryption nonce
 
 
@@ -88,6 +89,7 @@ def hap_hkdf(key, salt, info):
         backend=backend,
     )
     return hkdf.derive(key)
+
 
 class UnprivilegedRequestException(Exception):
     pass
