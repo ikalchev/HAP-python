@@ -425,7 +425,7 @@ class Camera(Accessory):
         self.add_preload_service('Microphone')
         management = self.add_preload_service('CameraRTPStreamManagement')
         management.configure_char('StreamingStatus',
-                                  getter_callback=self._get_streaimg_status)
+                                  getter_callback=self._get_streaming_status)
         management.configure_char('SupportedRTPConfiguration',
                                   value=self.get_supported_rtp_config(
                                                 options.get('srtp', False)))
@@ -484,7 +484,7 @@ class Camera(Accessory):
             if video_rtp_param:
                 video_rtp_param_objs = tlv.decode(video_rtp_param)
                 # TODO: Optionals, handle the case where they are missing
-                opts['v_ssrc'] = 1 or struct.unpack('<I',
+                opts['v_ssrc'] = struct.unpack('<I',
                     video_rtp_param_objs.get(
                         RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']))[0]
                 opts['v_payload_type'] = \
@@ -539,7 +539,7 @@ class Camera(Accessory):
             del self.sessions[session_id]
             self.streaming_status = STREAMING_STATUS['AVAILABLE']
 
-    def _get_streaimg_status(self):
+    def _get_streaming_status(self):
         """Get the streaming status in TLV format.
 
         Called when iOS reads the StreaminStatus ``Characteristic``.
@@ -667,9 +667,8 @@ class Camera(Accessory):
             video_srtp_tlv = NO_SRTP
             audio_srtp_tlv = NO_SRTP
 
-        # TODO: Use os.urandom(4) but within the allowed value bounds
-        video_ssrc = b'\x01'
-        audio_ssrc = b'\x01'
+        video_ssrc = int.from_bytes(os.urandom(3), byteorder="big")
+        audio_ssrc = int.from_bytes(os.urandom(3), byteorder="big")
 
         res_address_tlv = tlv.encode(
             SETUP_ADDR_INFO['ADDRESS_VER'], self.stream_address_isv6,
@@ -692,9 +691,9 @@ class Camera(Accessory):
             'address': address,
             'v_port': target_video_port,
             'v_srtp_key': to_base64_str(video_master_key + video_master_salt),
-            # TODO: 'v_ssrc': video_ssrc,
+            'v_ssrc': video_ssrc,
             'a_port': target_audio_port,
-            'audio_srtp_key': to_base64_str(audio_master_key + audio_master_salt),
+            'a_srtp_key': to_base64_str(audio_master_key + audio_master_salt),
             'a_ssrc': audio_ssrc
         }
 
