@@ -735,7 +735,7 @@ class HAPSocket:
                     return result
                 # Always wait for a full block to arrive
                 block_length_bytes = self.socket.recv(
-                    self.LENGTH_LENGTH, flags=socket.MSG_WAITALL
+                    self.LENGTH_LENGTH, socket.MSG_WAITALL
                 )
                 if not block_length_bytes:
                     return result
