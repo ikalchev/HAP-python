@@ -733,19 +733,12 @@ class HAPSocket:
                     # It may be that we already read some data and we have
                     # 1 byte left, return whatever we have.
                     return result
-                block_length_bytes = self.socket.recv(self.LENGTH_LENGTH)
+                # Always wait for a full block to arrive
+                block_length_bytes = self.socket.recv(
+                    self.LENGTH_LENGTH, flags=socket.MSG_WAITALL
+                )
                 if not block_length_bytes:
                     return result
-                if len(block_length_bytes) != self.LENGTH_LENGTH:
-                    # Handle a short read where we only get
-                    # one bytes.  This should be very rare, but it happens.
-                    block_length_bytes_remainder = self.socket.recv(
-                        self.LENGTH_LENGTH - len(block_length_bytes)
-                    )
-                    if not block_length_bytes_remainder:
-                        return result
-                    block_length_bytes += block_length_bytes_remainder
-                    assert len(block_length_bytes) == self.LENGTH_LENGTH
                 # Init. info about the block we just started.
                 # Note we are setting the total length to block_length + mac length
                 self.curr_in_total = \
