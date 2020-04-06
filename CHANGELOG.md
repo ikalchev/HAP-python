@@ -16,6 +16,12 @@ Sections
 ### Developers
 -->
 
+## [2.8.1] - 2020-04-06
+
+### Fixed
+- Fix an issue where reading just one byte at the beginning of a block can crash the connection. [#235](https://github.com/ikalchev/HAP-python/pull/235)
+- Improve camera accessory integration. [#231](https://github.com/ikalchev/HAP-python/pull/231)
+
 ## [2.8.0] - 2020-04-02
 
 ### Added

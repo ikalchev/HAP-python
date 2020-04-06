@@ -709,11 +709,10 @@ class HAPSocket:
                 return func(self, *args, **kwargs)
         return _wrapper
 
-    def recv_into(self, buffer, nbytes=1042, flags=0):
+    def recv_into(self, buffer, nbytes=None, flags=0):
         """Receive and decrypt up to nbytes in the given buffer."""
-        data = self.recv(nbytes, flags)
-        for i, b in enumerate(data):
-            buffer[i] = b
+        data = self.recv(nbytes or len(buffer), flags)
+        buffer[:len(data)] = data
         return len(data)
 
     def recv(self, buflen=1042, flags=0):
@@ -734,11 +733,12 @@ class HAPSocket:
                     # It may be that we already read some data and we have
                     # 1 byte left, return whatever we have.
                     return result
-                block_length_bytes = self.socket.recv(self.LENGTH_LENGTH)
+                # Always wait for a full block to arrive
+                block_length_bytes = self.socket.recv(
+                    self.LENGTH_LENGTH, socket.MSG_WAITALL
+                )
                 if not block_length_bytes:
                     return result
-                # TODO: handle this
-                assert len(block_length_bytes) == self.LENGTH_LENGTH
                 # Init. info about the block we just started.
                 # Note we are setting the total length to block_length + mac length
                 self.curr_in_total = \
