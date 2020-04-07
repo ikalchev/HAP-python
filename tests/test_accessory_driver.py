@@ -5,7 +5,7 @@ from uuid import uuid1
 
 import pytest
 
-from pyhap.accessory import STANDALONE_AID, Accessory
+from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.characteristic import (HAP_FORMAT_INT, HAP_PERMISSION_READ,
                                   PROP_FORMAT, PROP_PERMISSIONS,
@@ -55,7 +55,9 @@ def test_persist_load():
 
 
 def test_service_callbacks(driver):
-    acc = Accessory(driver, 'TestAcc')
+    bridge = Bridge(driver,"mybridge")
+    acc = Accessory(driver, 'TestAcc', aid=2)
+    acc2 = Accessory(driver, 'TestAcc2', aid=3)
 
     service = Service(uuid1(), 'Lightbulb')
     char_on = Characteristic('On', uuid1(), CHAR_PROPS)
@@ -68,10 +70,27 @@ def test_service_callbacks(driver):
     service.setter_callback = mock_callback
 
     acc.add_service(service)
-    driver.add_accessory(acc)
+    bridge.add_accessory(acc)
+
+    service2 = Service(uuid1(), 'Lightbulb')
+    char_on2 = Characteristic('On', uuid1(), CHAR_PROPS)
+    char_brightness2 = Characteristic('Brightness', uuid1(), CHAR_PROPS)
+
+    service2.add_characteristic(char_on2)
+    service2.add_characteristic(char_brightness2)
+
+    mock_callback2 = MagicMock()
+    service2.setter_callback = mock_callback2
+
+    acc2.add_service(service2)
+    bridge.add_accessory(acc2)
 
     char_on_iid = char_on.to_HAP()[HAP_REPR_IID]
     char_brightness_iid = char_brightness.to_HAP()[HAP_REPR_IID]
+    char_on2_iid = char_on2.to_HAP()[HAP_REPR_IID]
+    char_brightness2_iid = char_brightness2.to_HAP()[HAP_REPR_IID]
+
+    driver.add_accessory(bridge)
 
     driver.set_characteristics({
         HAP_REPR_CHARS: [{
@@ -82,9 +101,18 @@ def test_service_callbacks(driver):
             HAP_REPR_AID: acc.aid,
             HAP_REPR_IID: char_brightness_iid,
             HAP_REPR_VALUE: 88
+        }, {
+            HAP_REPR_AID: acc2.aid,
+            HAP_REPR_IID: char_on2_iid,
+            HAP_REPR_VALUE: True
+        }, {
+            HAP_REPR_AID: acc2.aid,
+            HAP_REPR_IID: char_brightness2_iid,
+            HAP_REPR_VALUE: 12
         }]
     }, "mock_addr")
 
+    mock_callback2.assert_called_with({'On': True, 'Brightness': 12})
     mock_callback.assert_called_with({'On': True, 'Brightness': 88})
 
 
