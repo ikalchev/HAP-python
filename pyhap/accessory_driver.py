@@ -133,7 +133,7 @@ class AccessoryDriver:
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
                  encoder=None, loader=None, loop=None, mac=None,
-                 listen_address=None, advertised_address=None):
+                 listen_address=None, advertised_address=None, interface_choice=None):
         """
         Initialize a new AccessoryDriver object.
 
@@ -172,6 +172,9 @@ class AccessoryDriver:
             This can be used to announce an external address from behind a NAT.
             If not given, the value of the address parameter will be used.
         :type advertised_address: str
+
+        :param interface_choice: The zeroconf interfaces to listen on.
+        :type InterfacesType: [InterfaceChoice.Default, InterfaceChoice.All]
         """
         if sys.platform == 'win32':
             self.loop = loop or asyncio.ProactorEventLoop()
@@ -187,7 +190,10 @@ class AccessoryDriver:
 
         self.accessory = None
         self.http_server_thread = None
-        self.advertiser = Zeroconf()
+        if interface_choice is not None:
+            self.advertiser = Zeroconf(interfaces=interface_choice)
+        else:
+            self.advertiser = Zeroconf()
         self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
