@@ -642,10 +642,12 @@ class AccessoryDriver:
 
             if HAP_PERMISSION_NOTIFY in cq:
                 char_topic = get_topic(aid, iid)
-                logger.debug('Subscribed client %s to topic %s',
-                             client_addr, char_topic)
+                logger.debug(
+                    "Subscribed client %s to topic %s", client_addr, char_topic
+                )
                 self.subscribe_client_topic(
-                    client_addr, char_topic, cq[HAP_PERMISSION_NOTIFY])
+                    client_addr, char_topic, cq[HAP_PERMISSION_NOTIFY]
+                )
 
             if HAP_REPR_VALUE in cq:
                 # TODO: status needs to be based on success of set_value
@@ -658,18 +660,20 @@ class AccessoryDriver:
                 service = char.service
 
                 if service and service.setter_callback:
-                    service_callbacks.setdefault(
-                        service.display_name,
-                        [service.setter_callback, {}]
+                    service_name = service.display_name
+                    service_callbacks.setdefault(aid, {})
+                    service_callbacks[aid].setdefault(
+                        service_name, [service.setter_callback, {}]
                     )
-                    service_callbacks[service.display_name][
-                        SERVICE_CALLBACK_DATA
-                    ][char.display_name] = cq[HAP_REPR_VALUE]
+                    service_callbacks[aid][service_name][SERVICE_CALLBACK_DATA][
+                        char.display_name
+                    ] = cq[HAP_REPR_VALUE]
 
-        for service_name in service_callbacks:
-            service_callbacks[service_name][SERVICE_CALLBACK](
-                service_callbacks[service_name][SERVICE_CALLBACK_DATA]
-            )
+        for aid in service_callbacks:
+            for service_name in service_callbacks[aid]:
+                service_callbacks[aid][service_name][SERVICE_CALLBACK](
+                    service_callbacks[aid][service_name][SERVICE_CALLBACK_DATA]
+                )
 
     def signal_handler(self, _signal, _frame):
         """Stops the AccessoryDriver for a given signal.
