@@ -16,6 +16,12 @@ Sections
 ### Developers
 -->
 
+## [2.8.2] - 2020-04-10
+
+### Added
+- Add an option to select the zeroconf broadcast interface. [#239](https://github.com/ikalchev/HAP-python/pull/239)
+- Allow service callbacks to handle multiple AIDs. [#237](https://github.com/ikalchev/HAP-python/pull/237)
+
 ## [2.8.1] - 2020-04-06
 
 ### Fixed
