@@ -133,7 +133,7 @@ class AccessoryDriver:
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
                  encoder=None, loader=None, loop=None, mac=None,
-                 listen_address=None, advertised_address=None):
+                 listen_address=None, advertised_address=None, interface_choice=None):
         """
         Initialize a new AccessoryDriver object.
 
@@ -172,6 +172,9 @@ class AccessoryDriver:
             This can be used to announce an external address from behind a NAT.
             If not given, the value of the address parameter will be used.
         :type advertised_address: str
+
+        :param interface_choice: The zeroconf interfaces to listen on.
+        :type InterfacesType: [InterfaceChoice.Default, InterfaceChoice.All]
         """
         if sys.platform == 'win32':
             self.loop = loop or asyncio.ProactorEventLoop()
@@ -187,7 +190,10 @@ class AccessoryDriver:
 
         self.accessory = None
         self.http_server_thread = None
-        self.advertiser = Zeroconf()
+        if interface_choice is not None:
+            self.advertiser = Zeroconf(interfaces=interface_choice)
+        else:
+            self.advertiser = Zeroconf()
         self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
@@ -642,10 +648,12 @@ class AccessoryDriver:
 
             if HAP_PERMISSION_NOTIFY in cq:
                 char_topic = get_topic(aid, iid)
-                logger.debug('Subscribed client %s to topic %s',
-                             client_addr, char_topic)
+                logger.debug(
+                    "Subscribed client %s to topic %s", client_addr, char_topic
+                )
                 self.subscribe_client_topic(
-                    client_addr, char_topic, cq[HAP_PERMISSION_NOTIFY])
+                    client_addr, char_topic, cq[HAP_PERMISSION_NOTIFY]
+                )
 
             if HAP_REPR_VALUE in cq:
                 # TODO: status needs to be based on success of set_value
@@ -658,18 +666,20 @@ class AccessoryDriver:
                 service = char.service
 
                 if service and service.setter_callback:
-                    service_callbacks.setdefault(
-                        service.display_name,
-                        [service.setter_callback, {}]
+                    service_name = service.display_name
+                    service_callbacks.setdefault(aid, {})
+                    service_callbacks[aid].setdefault(
+                        service_name, [service.setter_callback, {}]
                     )
-                    service_callbacks[service.display_name][
-                        SERVICE_CALLBACK_DATA
-                    ][char.display_name] = cq[HAP_REPR_VALUE]
+                    service_callbacks[aid][service_name][SERVICE_CALLBACK_DATA][
+                        char.display_name
+                    ] = cq[HAP_REPR_VALUE]
 
-        for service_name in service_callbacks:
-            service_callbacks[service_name][SERVICE_CALLBACK](
-                service_callbacks[service_name][SERVICE_CALLBACK_DATA]
-            )
+        for aid in service_callbacks:
+            for service_name in service_callbacks[aid]:
+                service_callbacks[aid][service_name][SERVICE_CALLBACK](
+                    service_callbacks[aid][service_name][SERVICE_CALLBACK_DATA]
+                )
 
     def signal_handler(self, _signal, _frame):
         """Stops the AccessoryDriver for a given signal.
