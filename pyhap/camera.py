@@ -682,8 +682,8 @@ class Camera(Accessory):
             SETUP_TYPES['ADDRESS'], res_address_tlv,
             SETUP_TYPES['VIDEO_SRTP_PARAM'], video_srtp_tlv,
             SETUP_TYPES['AUDIO_SRTP_PARAM'], audio_srtp_tlv,
-            SETUP_TYPES['VIDEO_SSRC'], video_ssrc,
-            SETUP_TYPES['AUDIO_SSRC'], audio_ssrc,
+            SETUP_TYPES['VIDEO_SSRC'], struct.pack('<I', video_ssrc),
+            SETUP_TYPES['AUDIO_SSRC'], struct.pack('<I', audio_ssrc),
             to_base64=True)
 
         self.sessions[session_id] = {
