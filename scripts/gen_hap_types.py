@@ -1,9 +1,10 @@
+#!/usr/bin/env python3
 """Create a json representation from the HomeKit Accessory Simulator Types."""
 import plistlib
 import json
 
 # This path could be different.
-HOMEKIT_TYPES_PLIST = "/Users/ivankalchev/Dev/HomeKit Accessory Simulator.app/Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"
+HOMEKIT_TYPES_PLIST = "/Applications/Xcode.app/Contents/Applications/HomeKit Accessory Simulator.app/Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"
 CHAR_OUT_FILE = "./pyhap/resources/characteristics.json"
 SERVICE_OUT_FILE = "./pyhap/resources/services.json"
 
@@ -112,11 +113,11 @@ def main():
     tidy_char(char_info)
     fix_valid_values(char_info)
     with open(CHAR_OUT_FILE, "w") as char_fp:
-        json.dump(list2dict(char_info), char_fp, indent=3)
+        json.dump(list2dict(char_info), char_fp, indent=3, sort_keys=True)
 
     replace_char_uuid(service_info, uuid2name)
     with open(SERVICE_OUT_FILE, "w") as services_fp:
-        json.dump(list2dict(service_info), services_fp, indent=3)
+        json.dump(list2dict(service_info), services_fp, indent=3, sort_keys=True)
 
 
 if __name__ == "__main__":

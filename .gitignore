@@ -5,7 +5,6 @@
 env
 env*
 dist
-build
 *.egg
 *.egg-info
 _mailinglist
@@ -14,7 +13,24 @@ _mailinglist
 __pycache__
 .pytest_cache/
 .tox/
+.venv
+venv/
+docs/build/doctrees
+docs/build/html
+.coverage
+.coverage.*
+/htmlcov
+
+# python venv
+bin
+lib
+lib64
+pyvenv.cfg
+share
+
+# pip
+pip-selfcheck.json
 
 # HAP-python-generated files
 accessory.pickle
-
+accessory.state

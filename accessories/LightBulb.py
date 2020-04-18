@@ -3,13 +3,13 @@ import logging
 
 import RPi.GPIO as GPIO
 
-from pyhap.accessory import Accessory, Category
-import pyhap.loader as loader
+from pyhap.accessory import Accessory
+from pyhap.const import CATEGORY_LIGHTBULB
 
 
 class LightBulb(Accessory):
 
-    category = Category.LIGHTBULB
+    category = CATEGORY_LIGHTBULB
 
     @classmethod
     def _gpio_setup(_cls, pin):
@@ -18,7 +18,12 @@ class LightBulb(Accessory):
         GPIO.setup(pin, GPIO.OUT)
 
     def __init__(self, *args, pin=11, **kwargs):
-        super(LightBulb, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
+
+        serv_light = self.add_preload_service('Lightbulb')
+        self.char_on = serv_light.configure_char(
+            'On', setter_callback=self.set_bulb)
+
         self.pin = pin
         self._gpio_setup(pin)
 
@@ -32,13 +37,6 @@ class LightBulb(Accessory):
         else:
             GPIO.output(self.pin, GPIO.LOW)
 
-    def _set_services(self):
-        super(LightBulb, self)._set_services()
-
-        bulb_service = loader.get_serv_loader().get("Lightbulb")
-        self.add_service(bulb_service)
-        bulb_service.get_characteristic("On").setter_callback = self.set_bulb
-
     def stop(self):
-        super(LightBulb, self).stop()
+        super().stop()
         GPIO.cleanup()

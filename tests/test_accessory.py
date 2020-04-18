@@ -1,39 +1,80 @@
-"""
-Tests for pyhap.accessory
-"""
+"""Tests for pyhap.accessory."""
 import pytest
 
-import pyhap.accessory as accessory
+from pyhap.accessory import Accessory, Bridge
+from pyhap.const import STANDALONE_AID
 
-class TestAccessory(object):
 
-    def test_init(self):
-        acc = accessory.Accessory("Test Accessory")
+# #### Accessory ######
+# execute with `-k acc`
+# #####################
 
-class TestBridge(TestAccessory):
+def test_acc_init(mock_driver):
+    Accessory(mock_driver, 'Test Accessory')
 
-    def test_init(self):
-        bridge = accessory.Bridge("Test Bridge")
 
-    def test_add_accessory(self):
-        bridge = accessory.Bridge("Test Bridge")
-        acc = accessory.Accessory("Test Accessory", aid=2)
+def test_acc_publish_no_broker(mock_driver):
+    acc = Accessory(mock_driver, 'Test Accessory')
+    service = acc.driver.loader.get_service('TemperatureSensor')
+    char = service.get_characteristic('CurrentTemperature')
+    acc.add_service(service)
+    char.set_value(25, should_notify=True)
+
+
+def test_acc_set_services_compatible(mock_driver):
+    """Test deprecated method _set_services."""
+    class Acc(Accessory):
+        def _set_services(self):
+            super()._set_services()
+            serv = self.driver.loader.get_service('TemperatureSensor')
+            self.add_service(serv)
+    acc = Acc(mock_driver, 'Test Accessory')
+    assert acc.get_service('AccessoryInformation') is not None
+    assert acc.get_service('TemperatureSensor') is not None
+
+
+def test_acc_set_primary_service(mock_driver):
+    """Test method set_primary_service."""
+    acc = Accessory(mock_driver, 'Test Accessory')
+    service = acc.driver.loader.get_service('Television')
+    acc.add_service(service)
+    linked_service = acc.driver.loader.get_service('TelevisionSpeaker')
+    acc.add_service(linked_service)
+    assert acc.get_service('Television').is_primary_service is None
+    assert acc.get_service('TelevisionSpeaker').is_primary_service is None
+    acc.set_primary_service(service)
+    assert acc.get_service('Television').is_primary_service is True
+    assert acc.get_service('TelevisionSpeaker').is_primary_service is False
+
+
+# #### Bridge ############
+# execute with `-k bridge`
+# ########################
+
+def test_bridge_init(mock_driver):
+    Bridge(mock_driver, 'Test Bridge')
+
+
+def test_bridge_add_accessory(mock_driver):
+    bridge = Bridge(mock_driver, 'Test Bridge')
+    acc = Accessory(mock_driver, 'Test Accessory', aid=2)
+    bridge.add_accessory(acc)
+    acc2 = Accessory(mock_driver, 'Test Accessory 2')
+    bridge.add_accessory(acc2)
+    assert acc2.aid != STANDALONE_AID and acc2.aid != acc.aid
+
+
+def test_bridge_n_add_accessory_bridge_aid(mock_driver):
+    bridge = Bridge(mock_driver, 'Test Bridge')
+    acc = Accessory(mock_driver, 'Test Accessory', aid=STANDALONE_AID)
+    with pytest.raises(ValueError):
         bridge.add_accessory(acc)
-        acc2 = accessory.Accessory("Test Accessory 2")
-        bridge.add_accessory(acc2)
-        assert (acc2.aid != accessory.STANDALONE_AID
-                and acc2.aid != acc.aid)
 
-    def test_n_add_accessory_bridge_aid(self):
-        bridge = accessory.Bridge("Test Bridge")
-        acc = accessory.Accessory("Test Accessory", aid=accessory.STANDALONE_AID)
-        with pytest.raises(ValueError):
-            bridge.add_accessory(acc)
 
-    def test_n_add_accessory_dup_aid(self):
-        bridge = accessory.Bridge("Test Bridge")
-        acc_1 = accessory.Accessory("Test Accessory 1", aid=2)
-        acc_2 = accessory.Accessory("Test Accessory 2", aid=acc_1.aid)
-        bridge.add_accessory(acc_1)
-        with pytest.raises(ValueError):
-            bridge.add_accessory(acc_2)
+def test_bridge_n_add_accessory_dup_aid(mock_driver):
+    bridge = Bridge(mock_driver, 'Test Bridge')
+    acc_1 = Accessory(mock_driver, 'Test Accessory 1', aid=2)
+    acc_2 = Accessory(mock_driver, 'Test Accessory 2', aid=acc_1.aid)
+    bridge.add_accessory(acc_1)
+    with pytest.raises(ValueError):
+        bridge.add_accessory(acc_2)

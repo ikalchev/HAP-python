@@ -1,23 +1,181 @@
-"""
-Tests for pyhap.accessory_driver
-"""
+"""Tests for pyhap.accessory_driver."""
+import tempfile
+from unittest.mock import MagicMock, patch
+from uuid import uuid1
+
 import pytest
-from unittest.mock import patch, Mock
 
-from pyhap.accessory import Accessory, STANDALONE_AID
+from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
 from pyhap.accessory_driver import AccessoryDriver
+from pyhap.characteristic import (HAP_FORMAT_INT, HAP_PERMISSION_READ,
+                                  PROP_FORMAT, PROP_PERMISSIONS,
+                                  Characteristic)
+from pyhap.const import HAP_REPR_IID, HAP_REPR_CHARS, HAP_REPR_AID, HAP_REPR_VALUE
+from pyhap.service import Service
 
-@patch("pyhap.accessory_driver.AccessoryDriver.persist")
-@patch("pyhap.accessory_driver.HAPServer", new=Mock())
-def test_auto_add_aid_mac(_persist_mock):
-    acc = Accessory("Test Accessory")
-    _driver = AccessoryDriver(acc, 51234, "192.168.1.1", "test.accessory")
+CHAR_PROPS = {
+    PROP_FORMAT: HAP_FORMAT_INT,
+    PROP_PERMISSIONS: HAP_PERMISSION_READ,
+}
+
+
+@pytest.fixture
+def driver():
+    with patch('pyhap.accessory_driver.HAPServer'), \
+        patch('pyhap.accessory_driver.Zeroconf'), \
+            patch('pyhap.accessory_driver.AccessoryDriver.persist'):
+        yield AccessoryDriver()
+
+
+def test_auto_add_aid_mac(driver):
+    acc = Accessory(driver, 'Test Accessory')
+    driver.add_accessory(acc)
     assert acc.aid == STANDALONE_AID
-    assert acc.mac is not None
+    assert driver.state.mac is not None
 
-@patch("pyhap.accessory_driver.AccessoryDriver.persist")
-@patch("pyhap.accessory_driver.HAPServer", new=Mock())
-def test_not_standalone_aid(_persist_mock):
-    acc = Accessory("Test Accessory", aid=STANDALONE_AID + 1)
+
+def test_not_standalone_aid(driver):
+    acc = Accessory(driver, 'Test Accessory', aid=STANDALONE_AID + 1)
     with pytest.raises(ValueError):
-        _driver = AccessoryDriver(acc, 51234, "192.168.1.1", "test.accessory")
+        driver.add_accessory(acc)
+
+
+def test_persist_load():
+    with tempfile.NamedTemporaryFile(mode='r+') as file:
+        with patch('pyhap.accessory_driver.HAPServer'), \
+                patch('pyhap.accessory_driver.Zeroconf'):
+            driver = AccessoryDriver(port=51234, persist_file=file.name)
+            driver.persist()
+            pk = driver.state.public_key
+            # Re-start driver with a "new" accessory. State gets loaded into
+            # the new accessory.
+            driver = AccessoryDriver(port=51234, persist_file=file.name)
+            driver.load()
+    assert driver.state.public_key == pk
+
+
+def test_service_callbacks(driver):
+    bridge = Bridge(driver,"mybridge")
+    acc = Accessory(driver, 'TestAcc', aid=2)
+    acc2 = Accessory(driver, 'TestAcc2', aid=3)
+
+    service = Service(uuid1(), 'Lightbulb')
+    char_on = Characteristic('On', uuid1(), CHAR_PROPS)
+    char_brightness = Characteristic('Brightness', uuid1(), CHAR_PROPS)
+
+    service.add_characteristic(char_on)
+    service.add_characteristic(char_brightness)
+
+    mock_callback = MagicMock()
+    service.setter_callback = mock_callback
+
+    acc.add_service(service)
+    bridge.add_accessory(acc)
+
+    service2 = Service(uuid1(), 'Lightbulb')
+    char_on2 = Characteristic('On', uuid1(), CHAR_PROPS)
+    char_brightness2 = Characteristic('Brightness', uuid1(), CHAR_PROPS)
+
+    service2.add_characteristic(char_on2)
+    service2.add_characteristic(char_brightness2)
+
+    mock_callback2 = MagicMock()
+    service2.setter_callback = mock_callback2
+
+    acc2.add_service(service2)
+    bridge.add_accessory(acc2)
+
+    char_on_iid = char_on.to_HAP()[HAP_REPR_IID]
+    char_brightness_iid = char_brightness.to_HAP()[HAP_REPR_IID]
+    char_on2_iid = char_on2.to_HAP()[HAP_REPR_IID]
+    char_brightness2_iid = char_brightness2.to_HAP()[HAP_REPR_IID]
+
+    driver.add_accessory(bridge)
+
+    driver.set_characteristics({
+        HAP_REPR_CHARS: [{
+            HAP_REPR_AID: acc.aid,
+            HAP_REPR_IID: char_on_iid,
+            HAP_REPR_VALUE: True
+        }, {
+            HAP_REPR_AID: acc.aid,
+            HAP_REPR_IID: char_brightness_iid,
+            HAP_REPR_VALUE: 88
+        }, {
+            HAP_REPR_AID: acc2.aid,
+            HAP_REPR_IID: char_on2_iid,
+            HAP_REPR_VALUE: True
+        }, {
+            HAP_REPR_AID: acc2.aid,
+            HAP_REPR_IID: char_brightness2_iid,
+            HAP_REPR_VALUE: 12
+        }]
+    }, "mock_addr")
+
+    mock_callback2.assert_called_with({'On': True, 'Brightness': 12})
+    mock_callback.assert_called_with({'On': True, 'Brightness': 88})
+
+
+def test_start_stop_sync_acc(driver):
+    class Acc(Accessory):
+        running = True
+
+        @Accessory.run_at_interval(0)
+        def run(self):
+            self.running = False
+            driver.stop()
+
+        def setup_message(self):
+            pass
+
+    acc = Acc(driver, 'TestAcc')
+    driver.add_accessory(acc)
+    driver.start()
+    assert not acc.running
+
+
+def test_start_stop_async_acc(driver):
+    class Acc(Accessory):
+
+        @Accessory.run_at_interval(0)
+        async def run(self):
+            driver.stop()
+
+        def setup_message(self):
+            pass
+
+    acc = Acc(driver, 'TestAcc')
+    driver.add_accessory(acc)
+    driver.start()
+    assert driver.loop.is_closed()
+
+
+def test_send_events(driver):
+    class LoopMock():
+        runcount = 0
+
+        def is_closed(self):
+            self.runcount += 1
+            if self.runcount > 1:
+                return True
+            return False
+
+    class HapServerMock():
+        pushed_events = []
+
+        def push_event(self, bytedata, client_addr):
+            self.pushed_events.extend([[bytedata, client_addr]])
+            return 1
+
+        def get_pushed_events(self):
+            return self.pushed_events
+
+    driver.http_server = HapServerMock()
+    driver.loop = LoopMock()
+    driver.topics = {"mocktopic": ["client1", "client2", "client3"]}
+    driver.event_queue.put(("mocktopic", "bytedata", "client1"))
+    driver.send_events()
+
+    # Only client2 and client3 get the event when client1 sent it
+    assert (driver.http_server.get_pushed_events() ==
+            [["bytedata", "client2"], ["bytedata", "client3"]])
