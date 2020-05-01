@@ -16,6 +16,12 @@ Sections
 ### Developers
 -->
 
+## [2.8.3] - 2020-05-01
+
+### Fixed
+- Fix exception caused by wrong parameter encoding to tlv.encode in camera.py. [#243](https://github.com/ikalchev/HAP-python/pull/243)
+- Log exceptions when handling a request in the HTTP server. [#241](https://github.com/ikalchev/HAP-python/pull/241)
+
 ## [2.8.2] - 2020-04-10
 
 ### Added

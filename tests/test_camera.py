@@ -76,7 +76,7 @@ def test_setup_endpoints(mock_driver):
                          .get_characteristic('SetupEndpoints')
     setup_endpoints.client_update_value(set_endpoint_req)
 
-    assert setup_endpoints.get_value() == set_endpoint_res
+    assert setup_endpoints.get_value()[:171] == set_endpoint_res[:171]
 
 
 def test_set_selected_stream_start_stop(mock_driver):

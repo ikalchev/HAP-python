@@ -893,6 +893,8 @@ class HAPServer(socketserver.ThreadingMixIn,
         except (OSError, socket.timeout) as e:
             self._handle_sock_timeout(client_address, e)
             logger.debug('Connection timeout')
+        except Exception as e:
+            logger.debug('finish_request: %s', e, exc_info=True)
         finally:
             logger.debug('Cleaning connection to %s', client_address)
             conn_sock = self.connections.pop(client_address, None)
