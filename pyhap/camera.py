@@ -541,8 +541,10 @@ class Camera(Accessory):
         if success:
             self.streaming_status = STREAMING_STATUS['STREAMING']
         else:
-            logger.error('[%s] Faled to start/reconfigure stream, deleting session.',
-                          session_id)
+            logger.error(
+                '[%s] Failed to start/reconfigure stream, deleting session.',
+                session_id
+            )
             del self.sessions[session_id]
             self.streaming_status = STREAMING_STATUS['AVAILABLE']
 
@@ -567,8 +569,11 @@ class Camera(Accessory):
         session_info = self.sessions.get(session_id)
 
         if not session_info:
-            logger.error('Requested to stop stream for session %s, but no '
-                          'such session was found', session_id)
+            logger.error(
+                'Requested to stop stream for session %s, but no '
+                'such session was found',
+                session_id
+            )
             return
 
         await self.stop_stream(session_info)
@@ -647,16 +652,18 @@ class Camera(Accessory):
         audio_master_key = audio_info_objs[SETUP_SRTP_PARAM['MASTER_KEY']]
         audio_master_salt = audio_info_objs[SETUP_SRTP_PARAM['MASTER_SALT']]
 
-        logger.debug('Received endpoint configuration:'
-                      '\nsession_id: %s\naddress: %s\nis_ipv6: %s'
-                      '\ntarget_video_port: %s\ntarget_audio_port: %s'
-                      '\nvideo_crypto_suite: %s\nvideo_srtp: %s'
-                      '\naudio_crypto_suite: %s\naudio_srtp: %s',
-                      session_id, address, is_ipv6, target_video_port, target_audio_port,
-                      video_crypto_suite,
-                      to_base64_str(video_master_key + video_master_salt),
-                      audio_crypto_suite,
-                      to_base64_str(audio_master_key + audio_master_salt))
+        logger.debug(
+            'Received endpoint configuration:'
+            '\nsession_id: %s\naddress: %s\nis_ipv6: %s'
+            '\ntarget_video_port: %s\ntarget_audio_port: %s'
+            '\nvideo_crypto_suite: %s\nvideo_srtp: %s'
+            '\naudio_crypto_suite: %s\naudio_srtp: %s',
+            session_id, address, is_ipv6, target_video_port, target_audio_port,
+            video_crypto_suite,
+            to_base64_str(video_master_key + video_master_salt),
+            audio_crypto_suite,
+            to_base64_str(audio_master_key + audio_master_salt)
+        )
 
         # Configure the SetupEndpoints response
 
@@ -772,8 +779,11 @@ class Camera(Accessory):
         :return: True if and only if starting the stream command was successful.
         :rtype: ``bool``
         """
-        logger.debug('[%s] Starting stream with the following parameters: %s',
-                      session_info['id'], stream_config)
+        logger.debug(
+            '[%s] Starting stream with the following parameters: %s',
+            session_info['id'],
+            stream_config
+        )
 
         cmd = self.start_stream_cmd.format(**stream_config).split()
         logger.debug('Executing start stream command: "%s"', ' '.join(cmd))
@@ -788,8 +798,11 @@ class Camera(Accessory):
 
         session_info['process'] = process
 
-        logger.info('[%s] Started stream process - PID %d',
-                     session_info['id'], process.pid)
+        logger.info(
+            '[%s] Started stream process - PID %d',
+            session_info['id'],
+            process.pid
+        )
 
         return True
 
@@ -814,8 +827,10 @@ class Camera(Accessory):
                     ffmpeg_process.communicate(), timeout=2.0)
                 logger.debug('Stream command stderr: %s', stderr)
             except asyncio.TimeoutError:
-                logger.error('Timeout while waiting for the stream process '
-                              'to terminate. Trying with kill.')
+                logger.error(
+                    'Timeout while waiting for the stream process '
+                    'to terminate. Trying with kill.'
+                )
                 ffmpeg_process.kill()
                 await ffmpeg_process.wait()
             logger.debug('Stream process stopped.')
