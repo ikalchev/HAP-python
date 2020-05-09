@@ -598,6 +598,13 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
         self.end_response(data)
 
+        # Avoid updating the announcement until
+        # after the response is sent as homekit will
+        # drop the connection and fail to pair if it
+        # sees the accessory is now paired as it doesn't
+        # know that it was the one doing the pairing.
+        self.accessory_handler.finish_pair()
+
     def _handle_remove_pairing(self, tlv_objects):
         """Remove pairing with the client."""
         logger.debug("Removing client pairing.")
@@ -609,6 +616,10 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
         self.end_response(data)
+
+        # Avoid updating the announcement until
+        # after the response is sent.
+        self.accessory_handler.finish_pair()
 
     def handle_resource(self):
         """Get a snapshot from the camera."""
