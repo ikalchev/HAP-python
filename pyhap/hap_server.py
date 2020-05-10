@@ -749,7 +749,8 @@ class HAPSocket:
                     self.LENGTH_LENGTH, socket.MSG_WAITALL
                 )
                 if not block_length_bytes:
-                    return result
+                    # Connection likely dropped
+                    return b""
                 # Init. info about the block we just started.
                 # Note we are setting the total length to block_length + mac length
                 self.curr_in_total = \
@@ -778,6 +779,9 @@ class HAPSocket:
                     self.in_count += 1
                     self.curr_in_block = None
                     break
+                elif not actual_len:
+                    # Connection likely dropped
+                    return b""
 
         return result
 
