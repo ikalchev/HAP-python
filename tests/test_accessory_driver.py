@@ -54,6 +54,14 @@ def test_persist_load():
     assert driver.state.public_key == pk
 
 
+def test_external_zeroconf():
+    zeroconf = MagicMock()
+    with patch('pyhap.accessory_driver.HAPServer'), \
+            patch('pyhap.accessory_driver.AccessoryDriver.persist'):
+        driver = AccessoryDriver(port=51234, zeroconf_instance=zeroconf)
+    assert driver.advertiser == zeroconf
+
+
 def test_service_callbacks(driver):
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, 'TestAcc', aid=2)

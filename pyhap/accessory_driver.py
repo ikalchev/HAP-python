@@ -133,7 +133,8 @@ class AccessoryDriver:
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
                  encoder=None, loader=None, loop=None, mac=None,
-                 listen_address=None, advertised_address=None, interface_choice=None):
+                 listen_address=None, advertised_address=None, interface_choice=None,
+                 zeroconf_instance=None):
         """
         Initialize a new AccessoryDriver object.
 
@@ -175,6 +176,10 @@ class AccessoryDriver:
 
         :param interface_choice: The zeroconf interfaces to listen on.
         :type InterfacesType: [InterfaceChoice.Default, InterfaceChoice.All]
+
+        :param zeroconf_instance: A Zeroconf instance. When running multiple accessories or
+            bridges a single zeroconf instance can be shared to avoid the overhead
+            of processing the same data multiple times.
         """
         if sys.platform == 'win32':
             self.loop = loop or asyncio.ProactorEventLoop()
@@ -190,7 +195,9 @@ class AccessoryDriver:
 
         self.accessory = None
         self.http_server_thread = None
-        if interface_choice is not None:
+        if zeroconf_instance is not None:
+            self.advertiser = zeroconf_instance
+        elif interface_choice is not None:
             self.advertiser = Zeroconf(interfaces=interface_choice)
         else:
             self.advertiser = Zeroconf()
