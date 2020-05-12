@@ -223,6 +223,8 @@ FFMPEG_CMD = (
 )
 '''Template for the ffmpeg command.'''
 
+logger = logging.getLogger(__name__)
+
 
 class Camera(Accessory):
     """An Accessory that can negotiated camera stream settings with iOS and start a
@@ -310,7 +312,7 @@ class Camera(Accessory):
                 codec = AUDIO_CODEC_TYPES['AACELD']
                 bitrate = AUDIO_CODEC_PARAM_BIT_RATE_TYPES['VARIABLE']
             else:
-                logging.warning('Unsupported codec %s', param_type)
+                logger.warning('Unsupported codec %s', param_type)
                 continue
 
             param_samplerate = codec_param['samplerate']
@@ -321,7 +323,7 @@ class Camera(Accessory):
             elif param_samplerate == 24:
                 samplerate = AUDIO_CODEC_PARAM_SAMPLE_RATE_TYPES['KHZ_24']
             else:
-                logging.warning('Unsupported sample rate %s', param_samplerate)
+                logger.warning('Unsupported sample rate %s', param_samplerate)
                 continue
 
             param_tlv = tlv.encode(AUDIO_CODEC_PARAM_TYPES['CHANNEL'], b'\x01',
@@ -332,7 +334,7 @@ class Camera(Accessory):
             configs += tlv.encode(SUPPORTED_AUDIO_CODECS_TAG, config_tlv)
 
         if not has_supported_codec:
-            logging.warning('Client does not support any audio codec that iOS supports.')
+            logger.warning('Client does not support any audio codec that iOS supports.')
 
             codec = AUDIO_CODEC_TYPES['OPUS']
             bitrate = AUDIO_CODEC_PARAM_BIT_RATE_TYPES['VARIABLE']
@@ -483,20 +485,25 @@ class Camera(Accessory):
             video_rtp_param = video_objs.get(VIDEO_TYPES['RTP_PARAM'])
             if video_rtp_param:
                 video_rtp_param_objs = tlv.decode(video_rtp_param)
-                # TODO: Optionals, handle the case where they are missing
-                opts['v_ssrc'] = struct.unpack('<I',
-                    video_rtp_param_objs.get(
-                        RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']))[0]
-                opts['v_payload_type'] = \
-                    video_rtp_param_objs.get(RTP_PARAM_TYPES['PAYLOAD_TYPE'])
-                opts['v_max_bitrate'] = struct.unpack('<H',
-                    video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_BIT_RATE']))[0]
-                opts['v_rtcp_interval'] = struct.unpack('<f',
-                    video_rtp_param_objs.get(RTP_PARAM_TYPES['RTCP_SEND_INTERVAL']))[0]
-                opts['v_max_mtu'] = video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_MTU'])
+                if RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE'] in video_rtp_param_objs:
+                    opts['v_ssrc'] = struct.unpack('<I',
+                        video_rtp_param_objs.get(
+                            RTP_PARAM_TYPES['SYNCHRONIZATION_SOURCE']))[0]
+                if RTP_PARAM_TYPES['PAYLOAD_TYPE'] in video_rtp_param_objs:
+                    opts['v_payload_type'] = \
+                        video_rtp_param_objs.get(RTP_PARAM_TYPES['PAYLOAD_TYPE'])
+                if RTP_PARAM_TYPES['MAX_BIT_RATE'] in video_rtp_param_objs:
+                    opts['v_max_bitrate'] = struct.unpack('<H',
+                        video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_BIT_RATE']))[0]
+                if RTP_PARAM_TYPES['RTCP_SEND_INTERVAL'] in video_rtp_param_objs:
+                    opts['v_rtcp_interval'] = struct.unpack('<f',
+                        video_rtp_param_objs.get(RTP_PARAM_TYPES['RTCP_SEND_INTERVAL']))[0]
+                if RTP_PARAM_TYPES['MAX_MTU'] in video_rtp_param_objs:
+                    opts['v_max_mtu'] = video_rtp_param_objs.get(RTP_PARAM_TYPES['MAX_MTU'])
 
         if audio_tlv:
             audio_objs = tlv.decode(audio_tlv)
+
             opts['a_codec'] = audio_objs[AUDIO_TYPES['CODEC']]
             audio_codec_param_objs = tlv.decode(
                                         audio_objs[AUDIO_TYPES['CODEC_PARAM']])
@@ -534,8 +541,10 @@ class Camera(Accessory):
         if success:
             self.streaming_status = STREAMING_STATUS['STREAMING']
         else:
-            logging.error('[%s] Faled to start/reconfigure stream, deleting session.',
-                          session_id)
+            logger.error(
+                '[%s] Failed to start/reconfigure stream, deleting session.',
+                session_id
+            )
             del self.sessions[session_id]
             self.streaming_status = STREAMING_STATUS['AVAILABLE']
 
@@ -560,8 +569,11 @@ class Camera(Accessory):
         session_info = self.sessions.get(session_id)
 
         if not session_info:
-            logging.error('Requested to stop stream for session %s, but no '
-                          'such session was found', session_id)
+            logger.error(
+                'Requested to stop stream for session %s, but no '
+                'such session was found',
+                session_id
+            )
             return
 
         await self.stop_stream(session_info)
@@ -580,17 +592,17 @@ class Camera(Accessory):
         :param value: base64-encoded selected configuration in TLV format
         :type value: ``str``
         """
-        logging.debug('set_selected_stream_config - value - %s', value)
+        logger.debug('set_selected_stream_config - value - %s', value)
 
         objs = tlv.decode(value, from_base64=True)
         if SELECTED_STREAM_CONFIGURATION_TYPES['SESSION'] not in objs:
-            logging.error('Bad request to set selected stream configuration.')
+            logger.error('Bad request to set selected stream configuration.')
             return
 
         session = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
 
         request_type = session[b'\x02'][0]
-        logging.debug('Set stream config request: %d', request_type)
+        logger.debug('Set stream config request: %d', request_type)
         if request_type == 1:
             job = functools.partial(self._start_stream, reconfigure=False)
         elif request_type == 0:
@@ -598,7 +610,7 @@ class Camera(Accessory):
         elif request_type == 4:
             job = functools.partial(self._start_stream, reconfigure=True)
         else:
-            logging.error('Unknown request type %d', request_type)
+            logger.error('Unknown request type %d', request_type)
             return
 
         self.driver.add_job(job, objs)
@@ -640,16 +652,18 @@ class Camera(Accessory):
         audio_master_key = audio_info_objs[SETUP_SRTP_PARAM['MASTER_KEY']]
         audio_master_salt = audio_info_objs[SETUP_SRTP_PARAM['MASTER_SALT']]
 
-        logging.debug('Received endpoint configuration:'
-                      '\nsession_id: %s\naddress: %s\nis_ipv6: %s'
-                      '\ntarget_video_port: %s\ntarget_audio_port: %s'
-                      '\nvideo_crypto_suite: %s\nvideo_srtp: %s'
-                      '\naudio_crypto_suite: %s\naudio_srtp: %s',
-                      session_id, address, is_ipv6, target_video_port, target_audio_port,
-                      video_crypto_suite,
-                      to_base64_str(video_master_key + video_master_salt),
-                      audio_crypto_suite,
-                      to_base64_str(audio_master_key + audio_master_salt))
+        logger.debug(
+            'Received endpoint configuration:'
+            '\nsession_id: %s\naddress: %s\nis_ipv6: %s'
+            '\ntarget_video_port: %s\ntarget_audio_port: %s'
+            '\nvideo_crypto_suite: %s\nvideo_srtp: %s'
+            '\naudio_crypto_suite: %s\naudio_srtp: %s',
+            session_id, address, is_ipv6, target_video_port, target_audio_port,
+            video_crypto_suite,
+            to_base64_str(video_master_key + video_master_salt),
+            audio_crypto_suite,
+            to_base64_str(audio_master_key + audio_master_salt)
+        )
 
         # Configure the SetupEndpoints response
 
@@ -765,24 +779,30 @@ class Camera(Accessory):
         :return: True if and only if starting the stream command was successful.
         :rtype: ``bool``
         """
-        logging.debug('[%s] Starting stream with the following parameters: %s',
-                      session_info['id'], stream_config)
+        logger.debug(
+            '[%s] Starting stream with the following parameters: %s',
+            session_info['id'],
+            stream_config
+        )
 
         cmd = self.start_stream_cmd.format(**stream_config).split()
-        logging.debug('Executing start stream command: "%s"', ' '.join(cmd))
+        logger.debug('Executing start stream command: "%s"', ' '.join(cmd))
         try:
             process = await asyncio.create_subprocess_exec(*cmd,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.PIPE,
                     limit=1024)
         except Exception as e:  # pylint: disable=broad-except
-            logging.error('Failed to start streaming process because of error: %s', e)
+            logger.error('Failed to start streaming process because of error: %s', e)
             return False
 
         session_info['process'] = process
 
-        logging.info('[%s] Started stream process - PID %d',
-                     session_info['id'], process.pid)
+        logger.info(
+            '[%s] Started stream process - PID %d',
+            session_info['id'],
+            process.pid
+        )
 
         return True
 
@@ -800,20 +820,22 @@ class Camera(Accessory):
         session_id = session_info['id']
         ffmpeg_process = session_info.get('process')
         if ffmpeg_process:
-            logging.info('[%s] Stopping stream.', session_id)
+            logger.info('[%s] Stopping stream.', session_id)
             try:
                 ffmpeg_process.terminate()
                 _, stderr = await asyncio.wait_for(
                     ffmpeg_process.communicate(), timeout=2.0)
-                logging.debug('Stream command stderr: %s', stderr)
+                logger.debug('Stream command stderr: %s', stderr)
             except asyncio.TimeoutError:
-                logging.error('Timeout while waiting for the stream process '
-                              'to terminate. Trying with kill.')
+                logger.error(
+                    'Timeout while waiting for the stream process '
+                    'to terminate. Trying with kill.'
+                )
                 ffmpeg_process.kill()
                 await ffmpeg_process.wait()
-            logging.debug('Stream process stopped.')
+            logger.debug('Stream process stopped.')
         else:
-            logging.warning('No process for session ID %s', session_id)
+            logger.warning('No process for session ID %s', session_id)
 
     async def reconfigure_stream(self, session_info, stream_config):
         """Reconfigure the stream so that it uses the given ``stream_config``.

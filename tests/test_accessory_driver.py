@@ -55,7 +55,7 @@ def test_persist_load():
 
 
 def test_service_callbacks(driver):
-    bridge = Bridge(driver,"mybridge")
+    bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, 'TestAcc', aid=2)
     acc2 = Accessory(driver, 'TestAcc2', aid=3)
 
