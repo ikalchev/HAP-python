@@ -16,6 +16,12 @@ Sections
 ### Developers
 -->
 
+## [2.8.4] - 2020-05-12
+
+### Fixed
+- Fix race condition that causes pairing and unpairing failures. [#246](https://github.com/ikalchev/HAP-python/pull/246)
+- Fix loop on dropped connections that causes temporary stalls and connection loss. [#249](https://github.com/ikalchev/HAP-python/pull/249)
+
 ## [2.8.3] - 2020-05-01
 
 ### Fixed

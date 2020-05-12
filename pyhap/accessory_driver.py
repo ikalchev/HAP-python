@@ -509,8 +509,7 @@ class AccessoryDriver:
     def pair(self, client_uuid, client_public):
         """Called when a client has paired with the accessory.
 
-        Updates the accessory with the paired client and updates the mDNS service. Also,
-        persist the new state.
+        Persist the new accessory state.
 
         :param client_uuid: The client uuid.
         :type client_uuid: uuid.UUID
@@ -527,17 +526,12 @@ class AccessoryDriver:
         logger.info("Paired with %s.", client_uuid)
         self.state.add_paired_client(client_uuid, client_public)
         self.persist()
-        # Safe mode added to avoid error during pairing, see
-        # https://github.com/home-assistant/home-assistant/issues/14567
-        if not self.safe_mode:
-            self.update_advertisement()
         return True
 
     def unpair(self, client_uuid):
         """Removes the paired client from the accessory.
 
-        Updates the accessory and updates the mDNS service. Persist the new accessory
-        state.
+        Persist the new accessory state.
 
         :param client_uuid: The client uuid.
         :type client_uuid: uuid.UUID
@@ -545,6 +539,24 @@ class AccessoryDriver:
         logger.info("Unpairing client %s.", client_uuid)
         self.state.remove_paired_client(client_uuid)
         self.persist()
+
+    def finish_pair(self):
+        """Finishing pairing or unpairing.
+
+        Updates the accessory and updates the mDNS service.
+
+        The mDNS announcement must not be updated until AFTER
+        the final pairing response is sent or homekit will
+        see that the accessory is already paired and assume
+        it should stop pairing.
+        """
+        # Safe mode added to avoid error during pairing, see
+        # https://github.com/home-assistant/home-assistant/issues/14567
+        #
+        # This may no longer be needed now that we defer
+        # updating the advertisement until after the final
+        # pairing response is sent.
+        #
         if not self.safe_mode:
             self.update_advertisement()
 
