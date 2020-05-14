@@ -626,16 +626,30 @@ class AccessoryDriver:
         :rtype: dict
         """
         chars = []
-        for id in char_ids:
-            aid, iid = (int(i) for i in id.split('.'))
-            rep = {HAP_REPR_AID: aid, HAP_REPR_IID: iid}
-            char = self.accessory.get_characteristic(aid, iid)
+        for aid_iid in char_ids:
+            aid, iid = (int(i) for i in aid_iid.split("."))
+            rep = {
+                HAP_REPR_AID: aid,
+                HAP_REPR_IID: iid,
+                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+            }
+
             try:
-                rep[HAP_REPR_VALUE] = char.get_value()
-                rep[HAP_REPR_STATUS] = CHAR_STAT_OK
+                if aid == STANDALONE_AID:
+                    char = self.accessory.iid_manager.get_obj(iid)
+                    available = True
+                else:
+                    acc = self.accessory.accessories.get(aid)
+                    available = acc.available
+                    char = acc.iid_manager.get_obj(iid)
+
+                if available:
+                    rep[HAP_REPR_VALUE] = char.get_value()
+                    rep[HAP_REPR_STATUS] = CHAR_STAT_OK
             except CharacteristicError:
                 logger.error("Error getting value for characteristic %s.", id)
-                rep[HAP_REPR_STATUS] = SERVICE_COMMUNICATION_FAILURE
+            except Exception:  # pylint: disable=broad-except
+                logger.exception("Unexpected error getting value for characteristic %s.", id)
 
             chars.append(rep)
         logger.debug("Get chars response: %s", chars)
