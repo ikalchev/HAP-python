@@ -157,6 +157,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         # it can be painfully slow and lead to lock up on the
         # client side as well as non-responsive devices
         self.protocol_version = 'HTTP/1.1'
+        self.status_code = None
         # Redirect separate handlers to the dispatch method
         self.do_GET = self.do_POST = self.do_PUT = self.dispatch
 
@@ -198,6 +199,11 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
         @note: Replaces self.request, self.wfile and self.rfile.
         """
+        # Important: We must flush before switching to encrypted
+        # as there may still be data in the buffer which will be
+        # lost we switch to encrypted which will result in the
+        # HAP client/controller having to reconnect and try again.
+        self.wfile.flush()
         self.request = self.server.upgrade_to_encrypted(self.client_address,
                                                         self.enc_context["shared_key"])
         # Recreate the file handles over the socket
@@ -207,12 +213,21 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         self.wfile = self.connection.makefile('wb')
         self.is_encrypted = True
 
+    def send_response(self, code, message=None):
+        """Add the response header to the headers buffer and log the
+        response code.
+        Does not add Server or Date
+        """
+        self.log_request(code)
+        self.send_response_only(code, message)
+        self.status_code = code
+
     def end_response(self, bytesdata, close_connection=False):
         """Combines adding a length header and actually sending the data."""
-        self.send_header("Content-Length", len(bytesdata))
-        # Setting this head will take care of setting
-        # self.close_connection to the right value
-        self.send_header("Connection", ("close" if close_connection else "keep-alive"))
+        if self.status_code != HTTPStatus.NO_CONTENT:
+            self.send_header("Content-Length", len(bytesdata))
+        # All HAP server requests are implicit keep alive
+        self.close_connection = False
         # Important: we need to send the headers and the
         # content in a single write to avoid homekit
         # on the client side stalling and making
