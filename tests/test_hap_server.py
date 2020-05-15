@@ -74,6 +74,33 @@ def test_end_response_is_one_send():
         handler = hap_server.HAPServerHandler("mocksock", "mockclient_addr", "mockserver", amock)
         handler.request_version = 'HTTP/1.1'
         handler.connection = ConnectionMock()
+        handler.requestline = "GET / HTTP/1.1"
+        handler.send_response(200)
         handler.end_response(b"body")
-        assert handler.connection.getsent() == [[b'Content-Length: 4\r\nConnection: keep-alive\r\n\r\nbody']]
+        assert handler.connection.getsent() == [[b'HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nbody']]
+        assert handler._headers_buffer == []
+
+
+def test_http_204_has_no_content_length():
+    """Test that and HTTP 204 has no content length."""
+    class ConnectionMock():
+        sent_bytes = []
+
+        def sendall(self, bytesdata):
+            self.sent_bytes.append([bytesdata])
+            return 1
+
+        def getsent(self):
+            return self.sent_bytes
+
+    amock = Mock()
+
+    with patch('pyhap.hap_server.HAPServerHandler.setup'), patch('pyhap.hap_server.HAPServerHandler.handle_one_request'), patch('pyhap.hap_server.HAPServerHandler.finish'):
+        handler = hap_server.HAPServerHandler("mocksock", "mockclient_addr", "mockserver", amock)
+        handler.request_version = 'HTTP/1.1'
+        handler.connection = ConnectionMock()
+        handler.requestline = "PUT / HTTP/1.1"
+        handler.send_response(204)
+        handler.end_response(b"")
+        assert handler.connection.getsent() == [[b'HTTP/1.1 204 No Content\r\n\r\n']]
         assert handler._headers_buffer == []
