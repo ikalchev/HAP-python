@@ -80,7 +80,7 @@ class Characteristic:
     """
 
     __slots__ = ('broker', 'display_name', 'properties', 'type_id',
-                 'value', 'getter_callback', 'setter_callback', 'service')
+                 'value', 'getter_callback', 'setter_callback', 'service', '_uuid_str')
 
     def __init__(self, display_name, type_id, properties):
         """Initialise with the given properties.
@@ -104,6 +104,7 @@ class Characteristic:
         self.getter_callback = None
         self.setter_callback = None
         self.service = None
+        self._uuid_str = str(type_id).upper()
 
     def __repr__(self):
         """Return the representation of the characteristic."""
@@ -233,7 +234,7 @@ class Characteristic:
         """
         hap_rep = {
             HAP_REPR_IID: self.broker.iid_manager.get_iid(self),
-            HAP_REPR_TYPE: str(self.type_id).upper(),
+            HAP_REPR_TYPE: self._uuid_str,
             HAP_REPR_DESC: self.display_name,
             HAP_REPR_PERM: self.properties[PROP_PERMISSIONS],
             HAP_REPR_FORMAT: self.properties[PROP_FORMAT],
