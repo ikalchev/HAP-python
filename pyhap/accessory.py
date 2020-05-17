@@ -47,7 +47,6 @@ class Accessory:
         self.aid = aid
         self.display_name = display_name
         self.driver = driver
-        self.reachable = True
         self.services = []
         self.iid_manager = IIDManager()
 
