@@ -71,7 +71,6 @@ class Accessory:
         .. deprecated:: 2.0
            Initialize the service inside the accessory `init` method instead.
         """
-        pass
 
     @property
     def available(self):
@@ -281,7 +280,7 @@ class Accessory:
         def _repeat(func):
             async def _wrapper(self, *args):
                 while True:
-                    self.driver.async_add_job(func, self, *args)
+                    await self.driver.async_add_job(func, self, *args)
                     if await util.event_wait(
                             self.driver.aio_stop_event, seconds):
                         break
@@ -294,14 +293,12 @@ class Accessory:
         Called when HAP server is running, advertising is set, etc.
         Can be overridden with a normal or async method.
         """
-        pass
 
     async def stop(self):
         """Called when the Accessory should stop what is doing and clean up any resources.
 
         Can be overridden with a normal or async method.
         """
-        pass
 
     # Driver
 

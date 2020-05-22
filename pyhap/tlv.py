@@ -29,8 +29,8 @@ def encode(*args, to_base64=False):
             encoded = tag + struct.pack("B", total_length) + data
         else:
             encoded = b""
-            for x in range(0, total_length // 255):
-                encoded = encoded + tag + b'\xFF' + data[x * 255: (x + 1) * 255]
+            for y in range(0, total_length // 255):
+                encoded = encoded + tag + b'\xFF' + data[y * 255: (y + 1) * 255]
             remaining = total_length % 255
             encoded = encoded + tag + struct.pack("B", remaining) \
                 + data[-remaining:]
