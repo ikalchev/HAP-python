@@ -3,6 +3,7 @@
 # as a guideline.
 # TODO: make it a complete implementation.
 import os
+from .util import long_to_bytes
 
 #
 # s - bytes
@@ -28,19 +29,6 @@ def _bytes_to_long(s):
 def bytes_to_long(s):
     # Bytes should be interpreted from left to right, hence the byteorder
     return int.from_bytes(s, byteorder="big")
-
-
-def long_to_bytes(n):
-    byteList = list()
-    x = 0
-    off = 0
-    while x != n:
-        b = (n >> off) & 0xFF
-        byteList.append(b)
-        x = x | (b << off)
-        off += 8
-    byteList.reverse()
-    return bytes(byteList)
 
 
 def get_x(u, p, s, ctx):
@@ -69,7 +57,7 @@ def get_session_key(S, ctx):
     return int(hf.hexdigest(), 16)
 
 
-class Server(object):
+class Server():
 
     def __init__(self, ctx, u, p, s=None, v=None):
         self.ctx = ctx
@@ -80,6 +68,11 @@ class Server(object):
         self.k = get_k(ctx)
         self.b = bytes_to_long(os.urandom(256))  # TODO: specify length
         self.B = self.derive_B()
+        self.A = None
+        self.S = None
+        self.K = None
+        self.M = None
+        self.HAMK = None
 
     def derive_B(self):
         return (self.k * self.v + pow(self.ctx["g"], self.b, self.ctx["N"])) \

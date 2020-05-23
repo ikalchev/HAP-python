@@ -91,7 +91,7 @@ def test_set_selected_stream_start_stop(mock_driver):
     process_mock = Mock()
 
     # Mock for asyncio.create_subprocess_exec
-    async def subprocess_exec(*args, **kwargs):
+    async def subprocess_exec(*args, **kwargs):  # pylint: disable=unused-argument
         process_mock.id = 42
         process_mock.communicate = communicate
         process_mock.wait = wait

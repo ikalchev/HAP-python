@@ -7,14 +7,11 @@ import pytest
 
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
 from pyhap.accessory_driver import AccessoryDriver
-from pyhap.characteristic import (
-    HAP_FORMAT_INT,
-    HAP_PERMISSION_READ,
-    PROP_FORMAT,
-    PROP_PERMISSIONS,
-    Characteristic,
-)
-from pyhap.const import HAP_REPR_IID, HAP_REPR_CHARS, HAP_REPR_AID, HAP_REPR_VALUE
+from pyhap.characteristic import (HAP_FORMAT_INT, HAP_PERMISSION_READ,
+                                  PROP_FORMAT, PROP_PERMISSIONS,
+                                  Characteristic)
+from pyhap.const import (HAP_REPR_AID, HAP_REPR_CHARS, HAP_REPR_IID,
+                         HAP_REPR_VALUE)
 from pyhap.service import Service
 
 CHAR_PROPS = {
@@ -29,14 +26,6 @@ class UnavailableAccessory(Accessory):
     @property
     def available(self):
         return False
-
-
-@pytest.fixture
-def driver():
-    with patch("pyhap.accessory_driver.HAPServer"), patch(
-        "pyhap.accessory_driver.Zeroconf"
-    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"):
-        yield AccessoryDriver()
 
 
 def test_auto_add_aid_mac(driver):
@@ -182,7 +171,7 @@ def test_start_stop_sync_acc(driver):
         running = True
 
         @Accessory.run_at_interval(0)
-        def run(self):
+        def run(self):  # pylint: disable=invalid-overridden-method
             self.running = False
             driver.stop()
 
