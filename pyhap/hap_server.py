@@ -293,7 +293,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-        self.end_response(data, False)
+        self.end_response(data)
 
     def _pairing_two(self, tlv_objects):
         """Obtain the challenge from the client (A) and client's proof that it
