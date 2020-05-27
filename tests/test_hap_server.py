@@ -85,11 +85,13 @@ def test_end_response_is_one_send():
         handler.connection = ConnectionMock()
         handler.requestline = "GET / HTTP/1.1"
         handler.send_response(200)
+        handler.wfile = MagicMock()
         handler.end_response(b"body")
         assert handler.connection.getsent() == [
             [b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nbody"]
         ]
         assert handler._headers_buffer == []  # pylint: disable=protected-access
+        assert handler.wfile.called_once()
 
 
 def test_http_204_has_no_content_length():
@@ -117,6 +119,8 @@ def test_http_204_has_no_content_length():
         handler.connection = ConnectionMock()
         handler.requestline = "PUT / HTTP/1.1"
         handler.send_response(204)
+        handler.wfile = MagicMock()
         handler.end_response(b"")
         assert handler.connection.getsent() == [[b"HTTP/1.1 204 No Content\r\n\r\n"]]
         assert handler._headers_buffer == []  # pylint: disable=protected-access
+        assert handler.wfile.called_once()
