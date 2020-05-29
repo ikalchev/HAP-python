@@ -47,7 +47,6 @@ class Accessory:
         self.aid = aid
         self.display_name = display_name
         self.driver = driver
-        self.reachable = True
         self.services = []
         self.iid_manager = IIDManager()
 
@@ -72,7 +71,18 @@ class Accessory:
         .. deprecated:: 2.0
            Initialize the service inside the accessory `init` method instead.
         """
-        pass
+
+    @property
+    def available(self):
+        """Accessory is available.
+
+        If available is False, get_characteristics will return
+        SERVICE_COMMUNICATION_FAILURE for the accessory which will
+        show as unavailable.
+
+        Expected to be overridden.
+        """
+        return True
 
     def add_info_service(self):
         """Helper method to add the required `AccessoryInformation` service.
@@ -270,7 +280,7 @@ class Accessory:
         def _repeat(func):
             async def _wrapper(self, *args):
                 while True:
-                    self.driver.async_add_job(func, self, *args)
+                    await self.driver.async_add_job(func, self, *args)
                     if await util.event_wait(
                             self.driver.aio_stop_event, seconds):
                         break
@@ -283,14 +293,12 @@ class Accessory:
         Called when HAP server is running, advertising is set, etc.
         Can be overridden with a normal or async method.
         """
-        pass
 
     async def stop(self):
         """Called when the Accessory should stop what is doing and clean up any resources.
 
         Can be overridden with a normal or async method.
         """
-        pass
 
     # Driver
 

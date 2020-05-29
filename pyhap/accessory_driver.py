@@ -133,7 +133,8 @@ class AccessoryDriver:
     def __init__(self, *, address=None, port=51234,
                  persist_file='accessory.state', pincode=None,
                  encoder=None, loader=None, loop=None, mac=None,
-                 listen_address=None, advertised_address=None, interface_choice=None):
+                 listen_address=None, advertised_address=None, interface_choice=None,
+                 zeroconf_instance=None):
         """
         Initialize a new AccessoryDriver object.
 
@@ -175,6 +176,10 @@ class AccessoryDriver:
 
         :param interface_choice: The zeroconf interfaces to listen on.
         :type InterfacesType: [InterfaceChoice.Default, InterfaceChoice.All]
+
+        :param zeroconf_instance: A Zeroconf instance. When running multiple accessories or
+            bridges a single zeroconf instance can be shared to avoid the overhead
+            of processing the same data multiple times.
         """
         if sys.platform == 'win32':
             self.loop = loop or asyncio.ProactorEventLoop()
@@ -190,7 +195,9 @@ class AccessoryDriver:
 
         self.accessory = None
         self.http_server_thread = None
-        if interface_choice is not None:
+        if zeroconf_instance is not None:
+            self.advertiser = zeroconf_instance
+        elif interface_choice is not None:
             self.advertiser = Zeroconf(interfaces=interface_choice)
         else:
             self.advertiser = Zeroconf()
@@ -455,10 +462,19 @@ class AccessoryDriver:
             #
             topic, bytedata, sender_client_addr = self.event_queue.get()
             subscribed_clients = self.topics.get(topic, [])
-            logger.debug('Send event: topic(%s), data(%s), sender_client_addr(%s)', topic, bytedata, sender_client_addr)
+            logger.debug(
+                'Send event: topic(%s), data(%s), sender_client_addr(%s)',
+                topic,
+                bytedata,
+                sender_client_addr
+            )
             for client_addr in subscribed_clients.copy():
                 if sender_client_addr and sender_client_addr == client_addr:
-                    logger.debug('Skip sending event to client since its the client that made the characteristic change: %s', client_addr)
+                    logger.debug(
+                        'Skip sending event to client since '
+                        'its the client that made the characteristic change: %s',
+                        client_addr
+                    )
                     continue
                 logger.debug('Sending event to client: %s', client_addr)
                 pushed = self.http_server.push_event(bytedata, client_addr)
@@ -619,16 +635,30 @@ class AccessoryDriver:
         :rtype: dict
         """
         chars = []
-        for id in char_ids:
-            aid, iid = (int(i) for i in id.split('.'))
-            rep = {HAP_REPR_AID: aid, HAP_REPR_IID: iid}
-            char = self.accessory.get_characteristic(aid, iid)
+        for aid_iid in char_ids:
+            aid, iid = (int(i) for i in aid_iid.split("."))
+            rep = {
+                HAP_REPR_AID: aid,
+                HAP_REPR_IID: iid,
+                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+            }
+
             try:
-                rep[HAP_REPR_VALUE] = char.get_value()
-                rep[HAP_REPR_STATUS] = CHAR_STAT_OK
+                if aid == STANDALONE_AID:
+                    char = self.accessory.iid_manager.get_obj(iid)
+                    available = True
+                else:
+                    acc = self.accessory.accessories.get(aid)
+                    available = acc.available
+                    char = acc.iid_manager.get_obj(iid)
+
+                if available:
+                    rep[HAP_REPR_VALUE] = char.get_value()
+                    rep[HAP_REPR_STATUS] = CHAR_STAT_OK
             except CharacteristicError:
                 logger.error("Error getting value for characteristic %s.", id)
-                rep[HAP_REPR_STATUS] = SERVICE_COMMUNICATION_FAILURE
+            except Exception:  # pylint: disable=broad-except
+                logger.exception("Unexpected error getting value for characteristic %s.", id)
 
             chars.append(rep)
         logger.debug("Get chars response: %s", chars)

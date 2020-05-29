@@ -99,14 +99,14 @@ def b2hex(bts):
     return binascii.hexlify(bts).decode("ascii")
 
 
-def hex2b(hex):
+def hex2b(hex_str):
     """Produce bytes from the given hex string representation.
 
     :param hex: hex string
     :type hex: str
     :rtype: bytes
     """
-    return binascii.unhexlify(hex.encode("ascii"))
+    return binascii.unhexlify(hex_str.encode("ascii"))
 
 
 tohex = bytes.hex if sys.version_info >= (3, 5) else b2hex

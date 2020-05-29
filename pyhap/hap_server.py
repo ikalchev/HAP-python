@@ -157,12 +157,13 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         # it can be painfully slow and lead to lock up on the
         # client side as well as non-responsive devices
         self.protocol_version = 'HTTP/1.1'
+        self.status_code = None
         # Redirect separate handlers to the dispatch method
         self.do_GET = self.do_POST = self.do_PUT = self.dispatch
 
         super(HAPServerHandler, self).__init__(sock, client_addr, server)
 
-    def log_message(self, format, *args):
+    def log_message(self, format, *args):  # pylint: disable=redefined-builtin
         logger.info("%s - %s", self.address_string(), format % args)
 
     def _set_encryption_ctx(self, client_public, private_key, public_key, shared_key,
@@ -193,26 +194,47 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             "pre_session_key": pre_session_key
         }
 
-    def _upgrade_to_encrypted(self):
+    def _upgrade_reader_to_encrypted(self):
         """Set encryption for the underlying transport.
 
-        @note: Replaces self.request, self.wfile and self.rfile.
+        Call BEFORE sending the final unencrypted
+        response.
+
+        @note: Replaces self.request and self.rfile.
         """
         self.request = self.server.upgrade_to_encrypted(self.client_address,
                                                         self.enc_context["shared_key"])
         # Recreate the file handles over the socket
         # TODO: consider calling super().setup(), although semantically not correct
-        self.connection = self.request
-        self.rfile = self.connection.makefile('rb', self.rbufsize)
-        self.wfile = self.connection.makefile('wb')
+        self.rfile = self.request.makefile('rb', self.rbufsize)  # pylint: disable=attribute-defined-outside-init
+
+    def _upgrade_writer_to_encrypted(self):
+        """Set encryption for the underlying transport. Step 2
+
+        Call AFTER sending the final unencrypted
+        response.
+
+        @note: Replaces self.connection and self.wfile
+        """
+        self.connection = self.request  # pylint: disable=attribute-defined-outside-init
+        self.wfile = self.connection.makefile('wb')  # pylint: disable=attribute-defined-outside-init
         self.is_encrypted = True
 
-    def end_response(self, bytesdata, close_connection=False):
+    def send_response(self, code, message=None):
+        """Add the response header to the headers buffer and log the
+        response code.
+        Does not add Server or Date
+        """
+        self.log_request(code)
+        self.send_response_only(code, message)
+        self.status_code = code
+
+    def end_response(self, bytesdata):
         """Combines adding a length header and actually sending the data."""
-        self.send_header("Content-Length", len(bytesdata))
-        # Setting this head will take care of setting
-        # self.close_connection to the right value
-        self.send_header("Connection", ("close" if close_connection else "keep-alive"))
+        if self.status_code != HTTPStatus.NO_CONTENT:
+            self.send_header("Content-Length", len(bytesdata))
+        # All HAP server requests are implicit keep alive
+        self.close_connection = False  # pylint: disable=attribute-defined-outside-init
         # Important: we need to send the headers and the
         # content in a single write to avoid homekit
         # on the client side stalling and making
@@ -227,7 +249,16 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         # touching _headers_buffer ?
         #
         self.connection.sendall(b"".join(self._headers_buffer) + b"\r\n" + bytesdata)
-        self._headers_buffer = []
+        self._headers_buffer = []  # pylint: disable=attribute-defined-outside-init
+        # Important: We must flush before switching to encrypted
+        # as there may still be data in the buffer which will be
+        # lost we switch to encrypted which will result in the
+        # HAP client/controller having to reconnect and try again.
+        #
+        # Additionally if we do not flush after each response iOS
+        # seem to reschedule a request to subscribe over and over
+        # again.
+        self.wfile.flush()
 
     def dispatch(self):
         """Dispatch the request to the appropriate handler method."""
@@ -278,7 +309,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-        self.end_response(data, False)
+        self.end_response(data)
 
     def _pairing_two(self, tlv_objects):
         """Obtain the challenge from the client (A) and client's proof that it
@@ -425,7 +456,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         elif sequence == b'\x03':
             self._pair_verify_two(tlv_objects)
         else:
-            raise
+            raise ValueError
 
     def _pair_verify_one(self, tlv_objects):
         """Generate new session key pair and send a proof to the client.
@@ -511,8 +542,9 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, b'\x04')
         self.send_response(200)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
+        self._upgrade_reader_to_encrypted()
         self.end_response(data)
-        self._upgrade_to_encrypted()
+        self._upgrade_writer_to_encrypted()
         del self.enc_context
 
     def handle_accessories(self):
@@ -543,10 +575,10 @@ class HAPServerHandler(BaseHTTPRequestHandler):
     def handle_set_characteristics(self):
         """Handles a client request to update certain characteristics."""
         if not self.is_encrypted:
-            logger.warning('Attemp to access unauthorised content from %s',
+            logger.warning('Attempt to access unauthorised content from %s',
                            self.client_address)
             self.send_response(HTTPStatus.UNAUTHORIZED)
-            self.end_response(b'', close_connection=True)
+            self.end_response(b'')
 
         data_len = int(self.headers['Content-Length'])
         requested_chars = json.loads(
@@ -557,7 +589,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         try:
             self.accessory_handler.set_characteristics(requested_chars,
                                                        self.client_address)
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             logger.exception('Exception in set_characteristics: %s', e)
             self.send_response(HTTPStatus.BAD_REQUEST)
             self.end_response(b'')
@@ -680,11 +712,11 @@ class HAPSocket:
 
     def _get_io_refs(self):
         """Get `socket._io_refs`."""
-        return self.socket._io_refs
+        return self.socket._io_refs  # pylint: disable=protected-access
 
     def _set_io_refs(self, value):
         """Set `socket._io_refs`."""
-        self.socket._io_refs = value
+        self.socket._io_refs = value  # pylint: disable=protected-access
 
     _io_refs = property(_get_io_refs, _set_io_refs)
     """`socket.makefile` uses a `SocketIO` to wrap the socket stream. Internally,
@@ -713,11 +745,11 @@ class HAPSocket:
 
     # socket.socket interface
 
-    def _with_out_lock(func):
+    def _with_out_lock(func):  # pylint: disable=no-self-argument
         """Return a function that acquires the outbound lock and executes func."""
         def _wrapper(self, *args, **kwargs):
             with self.out_lock:
-                return func(self, *args, **kwargs)
+                return func(self, *args, **kwargs)  # pylint: disable=not-callable
         return _wrapper
 
     def recv_into(self, buffer, nbytes=None, flags=0):
@@ -779,7 +811,7 @@ class HAPSocket:
                     self.in_count += 1
                     self.curr_in_block = None
                     break
-                elif not actual_len:
+                if not actual_len:
                     # Connection likely dropped
                     return b""
 
@@ -856,7 +888,7 @@ class HAPServer(socketserver.ThreadingMixIn,
         self.connections = {}  # (address, port): socket
         self.accessory_handler = accessory_handler
 
-    def _close_socket(self, sock):
+    def _close_socket(self, sock):  # pylint: disable=no-self-use
         """Shutdown and close the given socket."""
         try:
             sock.shutdown(socket.SHUT_RDWR)
@@ -910,6 +942,7 @@ class HAPServer(socketserver.ThreadingMixIn,
             logger.debug('Connection timeout')
         except Exception as e:
             logger.debug('finish_request: %s', e, exc_info=True)
+            raise
         finally:
             logger.debug('Cleaning connection to %s', client_address)
             conn_sock = self.connections.pop(client_address, None)
