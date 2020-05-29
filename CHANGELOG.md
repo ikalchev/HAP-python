@@ -16,6 +16,20 @@ Sections
 ### Developers
 -->
 
+## [2.9.0] - 2020-05-29
+
+### Fixed
+- Fix random disconnect after upgrade to encrypted. [#253](https://github.com/ikalchev/HAP-python/pull/253)
+- Convert the characteristic UUID to string only once. [#256](https://github.com/ikalchev/HAP-python/pull/256)
+- Fix pairing failure - split read/write encryption upgrade. [#258](https://github.com/ikalchev/HAP-python/pull/258)
+- Allow negotiated framerate to be used - add "-framerate" parameterto avfoundation. [#260](https://github.com/ikalchev/HAP-python/pull/260)
+
+### Added
+- Add support for unavailable accessories. [#252](https://github.com/ikalchev/HAP-python/pull/252)
+
+### Developers
+- Cleanup and fixes for python 3.7 and 3.8. Enable pylint in Travis. [#255](https://github.com/ikalchev/HAP-python/pull/255)
+
 ## [2.8.4] - 2020-05-12
 
 ### Fixed
