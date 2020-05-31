@@ -16,6 +16,11 @@ Sections
 ### Developers
 -->
 
+## [2.9.1] - 2020-05-31
+
+### Added
+- Add compatibility with zeroconf 0.27. [#263](https://github.com/ikalchev/HAP-python/pull/263)
+
 ## [2.9.0] - 2020-05-29
 
 ### Fixed
