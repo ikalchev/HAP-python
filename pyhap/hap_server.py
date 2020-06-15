@@ -705,6 +705,7 @@ class HAPSocket:
         self.curr_in_total = None  # Length of the current incoming block
         self.num_in_recv = None  # Number of bytes received from the incoming block
         self.curr_in_block = None  # Bytes of the current incoming block
+        self.curr_decrypted = b""  # Decrypted buffer
 
     def __getattr__(self, attribute_name):
         """Defer unknown behaviour to the socket"""
@@ -764,18 +765,16 @@ class HAPSocket:
         The received full cipher blocks are decrypted and returned and partial cipher
         blocks are buffered locally.
         """
-        assert not flags and buflen > self.LENGTH_LENGTH
+        assert not flags and buflen
 
-        result = b""
-        # Read from the socket until the given amount of bytes is read.
-        while buflen > 1:
+        result = self.curr_decrypted
+
+        # If we do not have a partial decrypted block
+        # read the next one
+        while len(result) == 0:
             # If we are not processing a block already, we need to first get the
             # length of the next block, which is the first two bytes before it.
             if self.curr_in_block is None:
-                if buflen < self.LENGTH_LENGTH:
-                    # It may be that we already read some data and we have
-                    # 1 byte left, return whatever we have.
-                    return result
                 # Always wait for a full block to arrive
                 block_length_bytes = self.socket.recv(
                     self.LENGTH_LENGTH, socket.MSG_WAITALL
@@ -785,29 +784,26 @@ class HAPSocket:
                     return b""
                 # Init. info about the block we just started.
                 # Note we are setting the total length to block_length + mac length
-                self.curr_in_total = \
+                self.curr_in_total = (
                     struct.unpack("H", block_length_bytes)[0] + HAP_CRYPTO.TAG_LENGTH
+                )
                 self.num_in_recv = 0
                 self.curr_in_block = b""
-                buflen -= self.LENGTH_LENGTH
             else:
                 # Read as much from the current block as possible.
-                part = self.socket.recv(min(buflen,
-                                            self.curr_in_total - self.num_in_recv))
+                part = self.socket.recv(self.curr_in_total - self.num_in_recv)
                 # Check what is actually received
                 actual_len = len(part)
                 self.curr_in_block += part
-                buflen -= actual_len
                 self.num_in_recv += actual_len
                 if self.num_in_recv == self.curr_in_total:
                     # We read a whole block. Decrypt it and append it to the result.
                     nonce = _pad_tls_nonce(struct.pack("Q", self.in_count))
                     # Note we are removing the mac length from the total length
                     block_length = self.curr_in_total - HAP_CRYPTO.TAG_LENGTH
-                    plaintext = self.in_cipher.decrypt(
-                        nonce, bytes(self.curr_in_block),
-                        struct.pack("H", block_length))
-                    result += plaintext
+                    result = self.in_cipher.decrypt(
+                        nonce, bytes(self.curr_in_block), struct.pack("H", block_length)
+                    )
                     self.in_count += 1
                     self.curr_in_block = None
                     break
@@ -815,6 +811,15 @@ class HAPSocket:
                     # Connection likely dropped
                     return b""
 
+        # The buffer can hold only
+        # part of the decrypted result
+        if buflen < len(result):
+            self.curr_decrypted = result[buflen:]
+            return result[:buflen]
+
+        # The buffer can hold the whole
+        # result
+        self.curr_decrypted = b""
         return result
 
     @_with_out_lock
