@@ -9,7 +9,7 @@ import logging
 import signal
 
 from pyhap.accessory_driver import AccessoryDriver
-from pyhap import camera
+from pyhap import camera, util
 
 logging.basicConfig(level=logging.INFO, format="[%(module)s] %(message)s")
 
@@ -55,7 +55,9 @@ options = {
         ],
     },
     "srtp": True,
-    "address": "192.168.1.226",
+    
+    # hard code the address if auto-detection does not work as desired: e.g. "192.168.1.226"
+    "address": util.get_local_address(), 
 }
 
 
