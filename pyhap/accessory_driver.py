@@ -88,10 +88,14 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
 
         adv_data = self._get_advert_data()
         # Append part of MAC address to prevent name conflicts
-        name_prefix = self.accessory.display_name + self.state.mac[-8:].replace(':', '')
+        name = '{} {}.{}'.format(
+            self.accessory.display_name,
+            self.state.mac[-8:].replace(':', ''),
+            HAP_SERVICE_TYPE
+        )
         super().__init__(
             HAP_SERVICE_TYPE,
-            name=name_prefix + '.' + HAP_SERVICE_TYPE,
+            name=name,
             port=self.state.port,
             weight=0,
             priority=0,
