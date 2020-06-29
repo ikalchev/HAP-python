@@ -38,11 +38,6 @@ class Accessory:
             standalone AID. Defaults to None, in which case the `AccessoryDriver`
             will assign the standalone AID to this `Accessory`.
         :type aid: int
-
-        :param setup_id: Setup ID can be provided, although, per spec, should be random
-            every time the instance is started. If not provided on init, will be random.
-            4 digit string 0-9 A-Z
-        :type setup_id: str
         """
         self.aid = aid
         self.display_name = display_name
