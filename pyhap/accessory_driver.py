@@ -319,9 +319,9 @@ class AccessoryDriver:
     async def async_stop(self):
         """Stops the AccessoryDriver and shutdown all remaining tasks."""
         await self.async_add_job(self._do_stop)
-        logger.debug('Shutdown executors')
         # Executor=None means a loop wasn't passed in
         if self.executor is not None:
+            logger.debug('Shutdown executors')
             self.executor.shutdown()
             self.loop.stop()
         logger.debug('Stop completed')
