@@ -70,7 +70,7 @@ def is_callback(func):
 
 
 def iscoro(func):
-    """Check if the function is a coroutine or if the function is a ``functools.patial``,
+    """Check if the function is a coroutine or if the function is a ``functools.partial``,
     check the wrapped function for the same.
     """
     if isinstance(func, functools.partial):
@@ -185,17 +185,22 @@ class AccessoryDriver:
             bridges a single zeroconf instance can be shared to avoid the overhead
             of processing the same data multiple times.
         """
-        if sys.platform == 'win32':
-            self.loop = loop or asyncio.ProactorEventLoop()
+        if loop is None:
+            if sys.platform == 'win32':
+                loop = asyncio.ProactorEventLoop()
+            else:
+                loop = asyncio.new_event_loop()
+
+            executor_opts = {'max_workers': None}
+            if sys.version_info >= (3, 6):
+                executor_opts['thread_name_prefix'] = 'SyncWorker'
+
+            self.executor = ThreadPoolExecutor(**executor_opts)
+            loop.set_default_executor(self.executor)
         else:
-            self.loop = loop or asyncio.new_event_loop()
+            self.executor = None
 
-        executor_opts = {'max_workers': None}
-        if sys.version_info >= (3, 6):
-            executor_opts['thread_name_prefix'] = 'SyncWorker'
-
-        self.executor = ThreadPoolExecutor(**executor_opts)
-        self.loop.set_default_executor(self.executor)
+        self.loop = loop
 
         self.accessory = None
         self.http_server_thread = None
@@ -210,7 +215,7 @@ class AccessoryDriver:
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.topic_lock = threading.Lock()  # for exclusive access to the topics
         self.loader = loader or Loader()
-        self.aio_stop_event = asyncio.Event(loop=self.loop)
+        self.aio_stop_event = asyncio.Event(loop=loop)
         self.stop_event = threading.Event()
         self.event_queue = queue.Queue()  # (topic, bytes)
         self.send_event_thread = None  # the event dispatch thread
@@ -231,7 +236,7 @@ class AccessoryDriver:
         self.http_server = HAPServer(network_tuple, self)
 
     def start(self):
-        """Start the event loop and call `_do_start`.
+        """Start the event loop and call `start_service`.
 
         Pyhap will be stopped gracefully on a KeyBoardInterrupt.
         """
@@ -245,7 +250,7 @@ class AccessoryDriver:
             else:
                 logger.debug('Not setting a child watcher. Set one if '
                              'subprocesses will be started outside the main thread.')
-            self.add_job(self._do_start)
+            self.add_job(self.start_service)
             self.loop.run_forever()
         except KeyboardInterrupt:
             logger.debug('Got a KeyboardInterrupt, stopping driver')
@@ -256,7 +261,7 @@ class AccessoryDriver:
             self.loop.close()
             logger.info('Closed the event loop')
 
-    def _do_start(self):
+    def start_service(self):
         """Starts the accessory.
 
         - Call the accessory's run method.
@@ -314,9 +319,11 @@ class AccessoryDriver:
     async def async_stop(self):
         """Stops the AccessoryDriver and shutdown all remaining tasks."""
         await self.async_add_job(self._do_stop)
-        logger.debug('Shutdown executors')
-        self.executor.shutdown()
-        self.loop.stop()
+        # Executor=None means a loop wasn't passed in
+        if self.executor is not None:
+            logger.debug('Shutdown executors')
+            self.executor.shutdown()
+            self.loop.stop()
         logger.debug('Stop completed')
 
     def _do_stop(self):

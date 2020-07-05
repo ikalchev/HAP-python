@@ -16,6 +16,15 @@ Sections
 ### Developers
 -->
 
+## [2.9.2] - 2020-07-05
+
+### Added
+- Improve event loop handling. [#270]((https://github.com/ikalchev/HAP-python/pull/270)
+- Auto-detect the IP address in the camera demo so it can work out of the box. [#268]((https://github.com/ikalchev/HAP-python/pull/268)
+
+### Fixed
+- Correctly handling of a single byte read request. [#267]((https://github.com/ikalchev/HAP-python/pull/267)
+
 ## [2.9.1] - 2020-05-31
 
 ### Added
