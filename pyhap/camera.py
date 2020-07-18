@@ -410,7 +410,6 @@ class Camera(Accessory):
 
         :type options: ``dict``
         """
-        self.streaming_status = STREAMING_STATUS['AVAILABLE']
         self.has_srtp = options.get('srtp', False)
         self.start_stream_cmd = options.get('start_stream_cmd', FFMPEG_CMD)
 
@@ -425,22 +424,52 @@ class Camera(Accessory):
         super().__init__(*args, **kwargs)
 
         self.add_preload_service('Microphone')
-        management = self.add_preload_service('CameraRTPStreamManagement')
-        management.configure_char('StreamingStatus',
-                                  getter_callback=self._get_streaming_status)
-        management.configure_char('SupportedRTPConfiguration',
-                                  value=self.get_supported_rtp_config(
-                                                options.get('srtp', False)))
-        management.configure_char('SupportedVideoStreamConfiguration',
-                                  value=self.get_supported_video_stream_config(
-                                                options['video']))
-        management.configure_char('SupportedAudioStreamConfiguration',
-                                  value=self.get_supported_audio_stream_config(
-                                                options['audio']))
-        management.configure_char('SelectedRTPStreamConfiguration',
-                                  setter_callback=self.set_selected_stream_configuration)
-        management.configure_char('SetupEndpoints',
-                                  setter_callback=self.set_endpoints)
+        self._streaming_status = []
+        self._management = []
+        self._setup_stream_management(options)
+
+    @property
+    def streaming_status(self):
+        """For backwards compatibility."""
+        return self._streaming_status[0]
+
+    def _setup_stream_management(self, options):
+        """Create stream management."""
+        stream_count = options.get("stream_count", 1)
+        for stream_idx in range(stream_count):
+            self._management.append(self._create_stream_management(stream_idx, options))
+            self._streaming_status.append(STREAMING_STATUS["AVAILABLE"])
+
+    def _create_stream_management(self, stream_idx, options):
+        """Create a stream management service."""
+        management = self.add_preload_service("CameraRTPStreamManagement")
+        management.configure_char(
+            "StreamingStatus",
+            getter_callback=lambda: self._get_streaming_status(stream_idx),
+        )
+        management.configure_char(
+            "SupportedRTPConfiguration",
+            value=self.get_supported_rtp_config(options.get("srtp", False)),
+        )
+        management.configure_char(
+            "SupportedVideoStreamConfiguration",
+            value=self.get_supported_video_stream_config(options["video"]),
+        )
+        management.configure_char(
+            "SupportedAudioStreamConfiguration",
+            value=self.get_supported_audio_stream_config(options["audio"]),
+        )
+        management.configure_char(
+            "SelectedRTPStreamConfiguration",
+            setter_callback=self.set_selected_stream_configuration,
+        )
+        management.configure_char(
+            "SetupEndpoints",
+            setter_callback=lambda value: self.set_endpoints(
+                value, stream_idx=stream_idx
+            ),
+        )
+        return management
 
     async def _start_stream(self, objs, reconfigure):  # pylint: disable=unused-argument
         """Start or reconfigure video streaming for the given session.
@@ -533,27 +562,28 @@ class Camera(Accessory):
         session_objs = tlv.decode(objs[SELECTED_STREAM_CONFIGURATION_TYPES['SESSION']])
         session_id = UUID(bytes=session_objs[SETUP_TYPES['SESSION_ID']])
         session_info = self.sessions[session_id]
+        stream_idx = session_info['stream_idx']
 
         opts.update(session_info)
         success = await self.reconfigure_stream(session_info, opts) if reconfigure \
             else await self.start_stream(session_info, opts)
 
         if success:
-            self.streaming_status = STREAMING_STATUS['STREAMING']
+            self._streaming_status[stream_idx] = STREAMING_STATUS['STREAMING']
         else:
             logger.error(
                 '[%s] Failed to start/reconfigure stream, deleting session.',
                 session_id
             )
             del self.sessions[session_id]
-            self.streaming_status = STREAMING_STATUS['AVAILABLE']
+            self._streaming_status[stream_idx] = STREAMING_STATUS['AVAILABLE']
 
-    def _get_streaming_status(self):
+    def _get_streaming_status(self, stream_idx):
         """Get the streaming status in TLV format.
 
         Called when iOS reads the StreaminStatus ``Characteristic``.
         """
-        return tlv.encode(b'\x01', self.streaming_status, to_base64=True)
+        return tlv.encode(b'\x01', self._streaming_status[stream_idx], to_base64=True)
 
     async def _stop_stream(self, objs):
         """Stop the stream for the specified session.
@@ -567,6 +597,7 @@ class Camera(Accessory):
         session_id = UUID(bytes=session_objs[SETUP_TYPES['SESSION_ID']])
 
         session_info = self.sessions.get(session_id)
+        stream_idx = session_info['stream_idx']
 
         if not session_info:
             logger.error(
@@ -579,7 +610,7 @@ class Camera(Accessory):
         await self.stop_stream(session_info)
         del self.sessions[session_id]
 
-        self.streaming_status = STREAMING_STATUS['AVAILABLE']
+        self._streaming_status[stream_idx] = STREAMING_STATUS['AVAILABLE']
 
     def set_selected_stream_configuration(self, value):
         """Set the selected stream configuration.
@@ -615,7 +646,12 @@ class Camera(Accessory):
 
         self.driver.add_job(job, objs)
 
-    def set_endpoints(self, value):
+    def set_streaming_available(self, stream_idx):
+        """Send an update to the controller that streaming is available."""
+        self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
+        self._management[stream_idx].get_characteristic("StreamingStatus").notify()
+
+    def set_endpoints(self, value, stream_idx=None):
         """Configure streaming endpoints.
 
         Called when iOS sets the SetupEndpoints ``Characteristic``. The endpoint
@@ -624,6 +660,9 @@ class Camera(Accessory):
         :param value: The base64-encoded stream session details in TLV format.
         :param value: ``str``
         """
+        if stream_idx is None:
+            stream_idx = 0
+
         objs = tlv.decode(value, from_base64=True)
         session_id = UUID(bytes=objs[SETUP_TYPES['SESSION_ID']])
 
@@ -702,6 +741,7 @@ class Camera(Accessory):
 
         self.sessions[session_id] = {
             'id': session_id,
+            'stream_idx': stream_idx,
             'address': address,
             'v_port': target_video_port,
             'v_srtp_key': to_base64_str(video_master_key + video_master_salt),
@@ -711,9 +751,7 @@ class Camera(Accessory):
             'a_ssrc': audio_ssrc
         }
 
-        self.get_service('CameraRTPStreamManagement')\
-            .get_characteristic('SetupEndpoints')\
-            .set_value(response_tlv)
+        self._management[stream_idx].get_characteristic('SetupEndpoints').set_value(response_tlv)
 
     async def stop(self):
         """Stop all streaming sessions."""
