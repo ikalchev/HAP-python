@@ -56,6 +56,7 @@ CHAR_STAT_OK = 0
 SERVICE_COMMUNICATION_FAILURE = -70402
 SERVICE_CALLBACK = 0
 SERVICE_CALLBACK_DATA = 1
+HAP_SERVICE_TYPE = '_hap._tcp.local.'
 
 
 def callback(func):
@@ -86,9 +87,15 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         self.state = state
 
         adv_data = self._get_advert_data()
+        # Append part of MAC address to prevent name conflicts
+        name = '{} {}.{}'.format(
+            self.accessory.display_name,
+            self.state.mac[-8:].replace(':', ''),
+            HAP_SERVICE_TYPE
+        )
         super().__init__(
-            '_hap._tcp.local.',
-            name=self.accessory.display_name + '._hap._tcp.local.',
+            HAP_SERVICE_TYPE,
+            name=name,
             port=self.state.port,
             weight=0,
             priority=0,
