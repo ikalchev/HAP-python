@@ -224,7 +224,9 @@ class AccessoryDriver:
         self.loader = loader or Loader()
         self.aio_stop_event = asyncio.Event(loop=loop)
         self.stop_event = threading.Event()
-        self.event_queue = queue.Queue()  # (topic, bytes)
+        self.event_queue = (
+            queue.SimpleQueue() if hasattr(queue, "SimpleQueue") else queue.Queue()  # pylint: disable=no-member
+        )
         self.send_event_thread = None  # the event dispatch thread
         self.sent_events = 0
         self.accumulated_qsize = 0
@@ -501,7 +503,8 @@ class AccessoryDriver:
                                  client_addr)
                     # Maybe consider removing the client_addr from every topic?
                     self.subscribe_client_topic(client_addr, topic, False)
-            self.event_queue.task_done()
+            if hasattr(self.event_queue, "task_done"):
+                self.event_queue.task_done()  # pylint: disable=no-member
             self.sent_events += 1
             self.accumulated_qsize += self.event_queue.qsize()
 
