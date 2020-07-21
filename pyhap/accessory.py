@@ -249,12 +249,12 @@ class Accessory:
                   flush=True)
             print(QRCode(xhm_uri).terminal(quiet_zone=2), flush=True)
             print('Or enter this code in your HomeKit app on your iOS device: '
-                  '{}'.format(pincode))
+                  '{}'.format(pincode), flush=True)
         else:
             print('To use the QR Code feature, use \'pip install '
-                  'HAP-python[QRCode]\'')
+                  'HAP-python[QRCode]\'', flush=True)
             print('Enter this code in your HomeKit app on your iOS device: {}'
-                  .format(pincode))
+                  .format(pincode), flush=True)
 
     @staticmethod
     def run_at_interval(seconds):
