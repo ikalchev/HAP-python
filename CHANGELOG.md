@@ -16,14 +16,25 @@ Sections
 ### Developers
 -->
 
+## [3.0.0] - 2020-07-25
+
+### Added
+- Support for multiple camera streams. [#273](https://github.com/ikalchev/HAP-python/pull/273)
+
+### Changed
+- Use SimpleQueue instead of Queue when available (performance improvements). [#274](https://github.com/ikalchev/HAP-python/pull/274)
+
+### Fixed
+- Make sure accessory setup code appears when running under systemd. [#276](https://github.com/ikalchev/HAP-python/pull/276)
+
 ## [2.9.2] - 2020-07-05
 
 ### Added
-- Improve event loop handling. [#270]((https://github.com/ikalchev/HAP-python/pull/270)
-- Auto-detect the IP address in the camera demo so it can work out of the box. [#268]((https://github.com/ikalchev/HAP-python/pull/268)
+- Improve event loop handling. [#270](https://github.com/ikalchev/HAP-python/pull/270)
+- Auto-detect the IP address in the camera demo so it can work out of the box. [#268](https://github.com/ikalchev/HAP-python/pull/268)
 
 ### Fixed
-- Correctly handling of a single byte read request. [#267]((https://github.com/ikalchev/HAP-python/pull/267)
+- Correctly handling of a single byte read request. [#267](https://github.com/ikalchev/HAP-python/pull/267)
 
 ## [2.9.1] - 2020-05-31
 

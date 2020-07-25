@@ -6,6 +6,7 @@ from pyhap import camera
 
 
 _OPTIONS = {
+    "stream_count": 4,
     "video": {
         "codec": {
             "profiles": [
@@ -105,6 +106,7 @@ def test_set_selected_stream_start_stop(mock_driver):
 
     session_info = {
         'id': session_id,
+        'stream_idx': 0,
         'address': '192.168.1.114',
         'v_port': 50483,
         'v_srtp_key': '2JZgpMkwWUH8ahUtzp8VThtBmbk26hCPJqeWpYDR',

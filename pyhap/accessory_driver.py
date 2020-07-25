@@ -56,6 +56,7 @@ CHAR_STAT_OK = 0
 SERVICE_COMMUNICATION_FAILURE = -70402
 SERVICE_CALLBACK = 0
 SERVICE_CALLBACK_DATA = 1
+HAP_SERVICE_TYPE = '_hap._tcp.local.'
 
 
 def callback(func):
@@ -86,9 +87,15 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         self.state = state
 
         adv_data = self._get_advert_data()
+        # Append part of MAC address to prevent name conflicts
+        name = '{} {}.{}'.format(
+            self.accessory.display_name,
+            self.state.mac[-8:].replace(':', ''),
+            HAP_SERVICE_TYPE
+        )
         super().__init__(
-            '_hap._tcp.local.',
-            name=self.accessory.display_name + '._hap._tcp.local.',
+            HAP_SERVICE_TYPE,
+            name=name,
             port=self.state.port,
             weight=0,
             priority=0,
@@ -217,7 +224,9 @@ class AccessoryDriver:
         self.loader = loader or Loader()
         self.aio_stop_event = asyncio.Event(loop=loop)
         self.stop_event = threading.Event()
-        self.event_queue = queue.Queue()  # (topic, bytes)
+        self.event_queue = (
+            queue.SimpleQueue() if hasattr(queue, "SimpleQueue") else queue.Queue()  # pylint: disable=no-member
+        )
         self.send_event_thread = None  # the event dispatch thread
         self.sent_events = 0
         self.accumulated_qsize = 0
@@ -494,7 +503,8 @@ class AccessoryDriver:
                                  client_addr)
                     # Maybe consider removing the client_addr from every topic?
                     self.subscribe_client_topic(client_addr, topic, False)
-            self.event_queue.task_done()
+            if hasattr(self.event_queue, "task_done"):
+                self.event_queue.task_done()  # pylint: disable=no-member
             self.sent_events += 1
             self.accumulated_qsize += self.event_queue.qsize()
 
