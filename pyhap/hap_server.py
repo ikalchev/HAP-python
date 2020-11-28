@@ -765,7 +765,13 @@ class HAPSocket:
         The received full cipher blocks are decrypted and returned and partial cipher
         blocks are buffered locally.
         """
-        assert not flags and buflen
+        assert not flags
+
+        if buflen == 0:
+            # If the reads get aligned just right, it possible that we
+            # could be asked to read zero bytes. Since we do not want to block
+            # we return an empty bytes string.
+            return b""
 
         result = self.curr_decrypted
 
