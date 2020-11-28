@@ -456,7 +456,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         elif sequence == b'\x03':
             self._pair_verify_two(tlv_objects)
         else:
-            raise ValueError
+            raise ValueError("Unknown pairing sequence of %s during pair verify" % (sequence))
 
     def _pair_verify_one(self, tlv_objects):
         """Generate new session key pair and send a proof to the client.
@@ -610,7 +610,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         elif request_type == 4:
             self._handle_remove_pairing(tlv_objects)
         else:
-            raise ValueError
+            raise ValueError("Unknown pairing request type of %s during pair verify" % (request_type))
 
     def _handle_add_pairing(self, tlv_objects):
         """Update client information."""
