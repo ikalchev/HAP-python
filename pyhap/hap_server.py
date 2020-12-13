@@ -59,6 +59,7 @@ class HAP_SERVER_STATUS:
     OPERATION_TIMED_OUT = -70408
     RESOURCE_DOES_NOT_EXIST = -70409
     INVALID_VALUE_IN_REQUEST = -70410
+    INSUFFICIENT_AUTHORIZATION = -70411
 
 
 # Error codes and the like, guessed by packet inspection
@@ -89,6 +90,10 @@ def hap_hkdf(key, salt, info):
         backend=backend,
     )
     return hkdf.derive(key)
+
+
+class TimeoutException(Exception):
+    pass
 
 
 class UnprivilegedRequestException(Exception):
@@ -269,14 +274,20 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         try:
             getattr(self, self.HANDLERS[self.command][path])()
         except NotAllowedInStateException:
-            self.send_response(403)
-            self.end_response(b'')
+            self.send_response_with_status(403, HAP_SERVER_STATUS.INSUFFICIENT_AUTHORIZATION)
         except UnprivilegedRequestException:
-            response = {"status": HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES}
-            data = json.dumps(response).encode("utf-8")
-            self.send_response(401)
-            self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-            self.end_response(data)
+            self.send_response_with_status(401, HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES)
+        except TimeoutException:
+            self.send_response_with_status(500, HAP_SERVER_STATUS.OPERATION_TIMED_OUT)
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("Failed to process request for: %s", path)
+            self.send_response_with_status(500, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE)
+
+    def send_response_with_status(self, http_code, hap_server_status):
+        """Send a generic HAP status response."""
+        self.send_response(http_code)
+        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
+        self.end_response(json.dumps({"status": hap_server_status}).encode("utf-8"))
 
     def handle_pairing(self):
         """Handles arbitrary step of the pairing process."""
@@ -430,8 +441,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         should_confirm = self.accessory_handler.pair(client_uuid, client_ltpk)
 
         if not should_confirm:
-            self.send_response(500)
-            self.end_response(b'')
+            self.send_response_with_status(500, HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST)
             return
 
         tlv_data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, b'\x06',
@@ -456,7 +466,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         elif sequence == b'\x03':
             self._pair_verify_two(tlv_objects)
         else:
-            raise ValueError
+            raise ValueError("Unknown pairing sequence of %s during pair verify" % (sequence))
 
     def _pair_verify_one(self, tlv_objects):
         """Generate new session key pair and send a proof to the client.
@@ -610,7 +620,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         elif request_type == 4:
             self._handle_remove_pairing(tlv_objects)
         else:
-            raise ValueError
+            raise ValueError("Unknown pairing request type of %s during pair verify" % (request_type))
 
     def _handle_add_pairing(self, tlv_objects):
         """Update client information."""
@@ -621,8 +631,7 @@ class HAPServerHandler(BaseHTTPRequestHandler):
         should_confirm = self.accessory_handler.pair(
             client_uuid, client_public)
         if not should_confirm:
-            self.send_response(500)
-            self.end_response(b'')
+            self.send_response_with_status(500, HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST)
             return
 
         data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, b"\x02")
@@ -765,7 +774,13 @@ class HAPSocket:
         The received full cipher blocks are decrypted and returned and partial cipher
         blocks are buffered locally.
         """
-        assert not flags and buflen
+        assert not flags
+
+        if buflen == 0:
+            # If the reads get aligned just right, it possible that we
+            # could be asked to read zero bytes. Since we do not want to block
+            # we return an empty bytes string.
+            return b""
 
         result = self.curr_decrypted
 

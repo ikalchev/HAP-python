@@ -16,6 +16,14 @@ Sections
 ### Developers
 -->
 
+## [3.1.0] - 2020-12-13
+
+### Fixed
+- Ensure an error response is generated on exception. [#292](https://github.com/ikalchev/HAP-python/pull/292)
+- Improve error reporting during pairing. [#289](https://github.com/ikalchev/HAP-python/pull/289)
+- Handle request for an empty read instead of throwing an exception. [#288](https://github.com/ikalchev/HAP-python/pull/288)
+- Fix thread safety in get characteristics. [#287](https://github.com/ikalchev/HAP-python/pull/287) 
+
 ## [3.0.0] - 2020-07-25
 
 ### Added
