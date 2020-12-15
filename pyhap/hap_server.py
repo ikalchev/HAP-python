@@ -26,7 +26,7 @@ import ed25519
 
 import pyhap.tlv as tlv
 from pyhap.util import long_to_bytes
-from pyhap.const import __version__
+from pyhap.const import __version__, CATEGORY_BRIDGE
 
 logger = logging.getLogger(__name__)
 
@@ -664,13 +664,23 @@ class HAPServerHandler(BaseHTTPRequestHandler):
 
     def handle_resource(self):
         """Get a snapshot from the camera."""
-        if not hasattr(self.accessory_handler.accessory, 'get_snapshot'):
+
+        data_len = int(self.headers["Content-Length"])
+        request_body = self.rfile.read(data_len)
+        data = json.loads(request_body.decode("utf-8"))
+
+        if self.accessory_handler.accessory.category == CATEGORY_BRIDGE:
+            accessory = self.accessory_handler.accessory.accessories.get(data['aid'])
+            if not accessory:
+                raise ValueError('Accessory with aid == {} not found'.format(data['aid']))
+        else:
+            accessory = self.accessory_handler.accessory
+
+        if not hasattr(accessory, 'get_snapshot'):
             raise ValueError('Got a request for snapshot, but the Accessory '
                              'does not define a "get_snapshot" method')
-        data_len = int(self.headers['Content-Length'])
-        image_size = json.loads(
-                        self.rfile.read(data_len).decode('utf-8'))
-        image = self.accessory_handler.accessory.get_snapshot(image_size)
+
+        image = accessory.get_snapshot(data)
         self.send_response(200)
         self.send_header('Content-Type', 'image/jpeg')
         self.end_response(image)
