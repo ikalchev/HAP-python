@@ -279,6 +279,9 @@ class HAPServerHandler(BaseHTTPRequestHandler):
             self.send_response_with_status(401, HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES)
         except TimeoutException:
             self.send_response_with_status(500, HAP_SERVER_STATUS.OPERATION_TIMED_OUT)
+        except socket.timeout:
+            self.send_response_with_status(500, HAP_SERVER_STATUS.OPERATION_TIMED_OUT)
+            self.close_connection = True
         except Exception:  # pylint: disable=broad-except
             logger.exception("Failed to process request for: %s", path)
             self.send_response_with_status(500, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE)
