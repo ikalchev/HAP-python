@@ -25,9 +25,7 @@ class Accessory:
     Use this to set your HAP services.
     """
 
-    category = CATEGORY_OTHER
-
-    def __init__(self, driver, display_name, aid=None):
+    def __init__(self, driver, display_name, aid=None, category=CATEGORY_OTHER):
         """Initialise with the given properties.
 
         :param display_name: Name to be displayed in the Home app.
@@ -39,6 +37,7 @@ class Accessory:
             will assign the standalone AID to this `Accessory`.
         :type aid: int
         """
+        self.category = category
         self.aid = aid
         self.display_name = display_name
         self.driver = driver
