@@ -5,6 +5,7 @@ The HAPServer is the point of contact to and from the world.
 
 import logging
 
+from .util import callback
 from .hap_protocol import HAPServerProtocol
 
 logger = logging.getLogger(__name__)
@@ -60,8 +61,12 @@ class HAPServer:
             self._addr_port[1],
         )
 
+    @callback
     def async_stop(self):
-        """Stop the server."""
+        """Stop the server.
+
+        This method must be run in the event loop.
+        """
         self.server.close()
         for hap_server_protocol in list(self.connections.values()):
             if hap_server_protocol:

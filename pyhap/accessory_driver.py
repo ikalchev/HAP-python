@@ -58,12 +58,6 @@ SERVICE_CALLBACK_DATA = 1
 HAP_SERVICE_TYPE = "_hap._tcp.local."
 
 
-def callback(func):
-    """Decorator for non blocking functions."""
-    setattr(func, "_pyhap_callback", True)
-    return func
-
-
 def is_callback(func):
     """Check if function is callback."""
     return "_pyhap_callback" in getattr(func, "__dict__", {})
@@ -361,7 +355,7 @@ class AccessoryDriver:
             raise ValueError("Don't call add_job with None.")
         self.loop.call_soon_threadsafe(self.async_add_job, target, *args)
 
-    @callback
+    @util.callback
     def async_add_job(self, target, *args):
         """Add job from within the event loop."""
         task = None
@@ -391,6 +385,7 @@ class AccessoryDriver:
             logger.info("Storing Accessory state in `%s`", self.persist_file)
             self.persist()
 
+    @util.callback
     def async_subscribe_client_topic(self, client, topic, subscribe=True):
         """(Un)Subscribe the given client from the given topic.
 
