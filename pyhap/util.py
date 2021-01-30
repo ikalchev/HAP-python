@@ -12,6 +12,12 @@ HEX_DIGITS = '0123456789ABCDEF'
 rand = random.SystemRandom()
 
 
+def callback(func):
+    """Decorator for non blocking functions."""
+    setattr(func, "_pyhap_callback", True)
+    return func
+
+
 def get_local_address():
     """
     Grabs the local IP address using a socket.

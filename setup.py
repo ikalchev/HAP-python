@@ -28,6 +28,7 @@ REQUIRES = [
     'ed25519',
     'cryptography',
     'zeroconf',
+    'h11'
 ]
 
 
