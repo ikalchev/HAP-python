@@ -212,7 +212,6 @@ NO_SRTP = b'\x01\x01\x02\x02\x00\x03\x00'
 
 
 FFMPEG_CMD = (
-    # pylint: disable=bad-continuation
     'ffmpeg -re -f avfoundation -framerate {fps} -i 0:0 -threads 0 '
     '-vcodec libx264 -an -pix_fmt yuv420p -r {fps} -f rawvideo -tune zerolatency '
     '-vf scale={width}:{height} -b:v {v_max_bitrate}k -bufsize {v_max_bitrate}k '
