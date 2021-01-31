@@ -1,8 +1,11 @@
+base36
 flake8
 flake8-docstrings
 pydocstyle
 pylint
 pytest
+pytest-asyncio
 pytest-cov
 pytest-timeout>=1.2.1
+pyqrcode
 tox

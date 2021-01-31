@@ -16,6 +16,14 @@ Sections
 ### Developers
 -->
 
+## [3.2.0] - 2021-01-31
+
+### Changed
+- HTTP server is now based on asyncio. [#301](https://github.com/ikalchev/HAP-python/pull/301)
+
+### Fixed
+- Fix a bug in the pairing URL generator. [#303](https://github.com/ikalchev/HAP-python/pull/303)
+
 ## [3.1.0] - 2020-12-13
 
 ### Fixed

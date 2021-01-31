@@ -6,13 +6,17 @@ from uuid import uuid1
 import pytest
 
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
-from pyhap.accessory_driver import AccessoryDriver
-from pyhap.characteristic import (HAP_FORMAT_INT, HAP_PERMISSION_READ,
-                                  PROP_FORMAT, PROP_PERMISSIONS,
-                                  Characteristic)
-from pyhap.const import (HAP_REPR_AID, HAP_REPR_CHARS, HAP_REPR_IID,
-                         HAP_REPR_VALUE)
+from pyhap.accessory_driver import AccessoryDriver, AccessoryMDNSServiceInfo
+from pyhap.characteristic import (
+    HAP_FORMAT_INT,
+    HAP_PERMISSION_READ,
+    PROP_FORMAT,
+    PROP_PERMISSIONS,
+    Characteristic,
+)
+from pyhap.const import HAP_REPR_AID, HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_VALUE
 from pyhap.service import Service
+from pyhap.state import State
 
 CHAR_PROPS = {
     PROP_FORMAT: HAP_FORMAT_INT,
@@ -199,7 +203,15 @@ def test_start_stop_async_acc(driver):
     assert driver.loop.is_closed()
 
 
+def test_start_without_accessory(driver):
+    """Verify we throw ValueError if there is no accessory."""
+    with pytest.raises(ValueError):
+        driver.start_service()
+
+
 def test_send_events(driver):
+    """Test we can send events."""
+
     class LoopMock:
         runcount = 0
 
@@ -210,23 +222,63 @@ def test_send_events(driver):
             return False
 
     class HapServerMock:
-        pushed_events = []
+        pushed_events = set()
 
         def push_event(self, bytedata, client_addr):
-            self.pushed_events.extend([[bytedata, client_addr]])
-            return 1
+            self.pushed_events.add((bytedata, client_addr))
+            if client_addr == "client2":
+                return False
+            return True
 
         def get_pushed_events(self):
             return self.pushed_events
 
     driver.http_server = HapServerMock()
     driver.loop = LoopMock()
-    driver.topics = {"mocktopic": ["client1", "client2", "client3"]}
-    driver.event_queue.put(("mocktopic", "bytedata", "client1"))
-    driver.send_events()
+    driver.topics = {"mocktopic": {"client1", "client2", "client3"}}
+    driver.async_send_event("mocktopic", "bytedata", "client1")
 
     # Only client2 and client3 get the event when client1 sent it
-    assert driver.http_server.get_pushed_events() == [
-        ["bytedata", "client2"],
-        ["bytedata", "client3"],
-    ]
+    assert driver.http_server.get_pushed_events() == {
+        ("bytedata", "client2"),
+        ("bytedata", "client3"),
+    }
+
+
+def test_async_subscribe_client_topic(driver):
+    """Test subscribe and unsubscribe."""
+    addr_info = ("1.2.3.4", 5)
+    topic = "any"
+    assert driver.topics == {}
+    driver.async_subscribe_client_topic(addr_info, topic, True)
+    assert driver.topics == {topic: {addr_info}}
+    driver.async_subscribe_client_topic(addr_info, topic, False)
+    assert driver.topics == {}
+
+
+def test_mdns_service_info(driver):
+    """Test accessory mdns advert."""
+    acc = Accessory(driver, "Test Accessory")
+    driver.add_accessory(acc)
+    addr = "172.0.0.1"
+    mac = "00:00:00:00:00:00"
+    pin = b"123-45-678"
+    port = 11111
+    state = State(address=addr, mac=mac, pincode=pin, port=port)
+    state.setup_id = "abc"
+    mdns_info = AccessoryMDNSServiceInfo(acc, state)
+    assert mdns_info.type == "_hap._tcp.local."
+    assert mdns_info.name == "Test Accessory 000000._hap._tcp.local."
+    assert mdns_info.port == port
+    assert mdns_info.addresses == [b"\xac\x00\x00\x01"]
+    assert mdns_info.properties == {
+        "md": "Test Accessory",
+        "pv": "1.0",
+        "id": "00:00:00:00:00:00",
+        "c#": "2",
+        "s#": "1",
+        "ff": "0",
+        "ci": "1",
+        "sf": "1",
+        "sh": "+KjpzQ==",
+    }
