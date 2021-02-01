@@ -15,7 +15,7 @@ import ed25519
 
 import pyhap.tlv as tlv
 from pyhap.util import long_to_bytes
-
+from pyhap.const import CATEGORY_BRIDGE
 from .hap_crypto import hap_hkdf, pad_tls_nonce
 
 SNAPSHOT_TIMEOUT = 10
@@ -652,14 +652,23 @@ class HAPServerHandler:
 
     def handle_resource(self):
         """Get a snapshot from the camera."""
-        image_size = json.loads(self.request_body.decode("utf-8"))
+
+        data = json.loads(self.request_body.decode("utf-8"))
+
+        if self.accessory_handler.accessory.category == CATEGORY_BRIDGE:
+            accessory = self.accessory_handler.accessory.accessories.get(data['aid'])
+            if not accessory:
+                raise ValueError('Accessory with aid == {} not found'.format(data['aid']))
+        else:
+            accessory = self.accessory_handler.accessory
+
         loop = asyncio.get_event_loop()
-        if hasattr(self.accessory_handler.accessory, "async_get_snapshot"):
-            coro = self.accessory_handler.accessory.async_get_snapshot(image_size)
-        elif hasattr(self.accessory_handler.accessory, "get_snapshot"):
+        if hasattr(accessory, "async_get_snapshot"):
+            coro = accessory.async_get_snapshot(data)
+        elif hasattr(accessory, "get_snapshot"):
             coro = asyncio.wait_for(
                 loop.run_in_executor(
-                    None, self.accessory_handler.accessory.get_snapshot, image_size
+                    None, accessory.get_snapshot, data
                 ),
                 SNAPSHOT_TIMEOUT,
             )
