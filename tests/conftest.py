@@ -1,15 +1,15 @@
 """Test fictures and mocks."""
 
+import asyncio
 from unittest.mock import patch
 
-import asyncio
 import pytest
 
-from pyhap.loader import Loader
 from pyhap.accessory_driver import AccessoryDriver
+from pyhap.loader import Loader
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope="session")
 def mock_driver():
     yield MockDriver()
 
@@ -22,8 +22,7 @@ def driver():
         yield AccessoryDriver()
 
 
-class MockDriver():
-
+class MockDriver:
     def __init__(self):
         self.loader = Loader()
 

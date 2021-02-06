@@ -34,13 +34,22 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def connection_lost(self, exc: Exception) -> None:
         """Handle connection lost."""
-        logger.debug("%s: Connection lost: %s", self.peername, exc)
+        logger.debug(
+            "%s: Connection lost to %s: %s",
+            self.peername,
+            self.accessory_driver.accessory.display_name,
+            exc,
+        )
         self.close()
 
     def connection_made(self, transport: asyncio.Transport) -> None:
         """Handle incoming connection."""
         peername = transport.get_extra_info("peername")
-        logger.info("%s: Connection made", peername)
+        logger.info(
+            "%s: Connection made to %s",
+            peername,
+            self.accessory_driver.accessory.display_name,
+        )
         self.transport = transport
         self.peername = peername
         self.connections[peername] = self
@@ -147,6 +156,11 @@ class HAPServerProtocol(asyncio.Protocol):
         # If we get a shared key, upgrade to encrypted
         if response.shared_key:
             self.hap_crypto = HAPCrypto(response.shared_key)
+        # Only update mDNS after sending the response
+        if response.pairing_changed:
+            asyncio.ensure_future(
+                self.loop.run_in_executor(None, self.accessory_driver.finish_pair)
+            )
 
     def _handle_response_ready(self, task: asyncio.Task) -> None:
         """Handle delayed response."""

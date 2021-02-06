@@ -20,6 +20,7 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 import functools
 import hashlib
+import tempfile
 import json
 import logging
 import os
@@ -48,6 +49,7 @@ from pyhap.hsrp import Server as SrpServer
 from pyhap.loader import Loader
 from pyhap.params import get_srp_context
 from pyhap.state import State
+from .util import callback
 
 logger = logging.getLogger(__name__)
 
@@ -305,9 +307,11 @@ class AccessoryDriver:
             self.accessory.setup_message()
 
         # Start the accessory so it can do stuff.
-        logger.debug("Starting accessory.")
+        logger.debug("Starting accessory %s", self.accessory.display_name)
         self.add_job(self.accessory.run)
-        logger.debug("AccessoryDriver started successfully")
+        logger.debug(
+            "AccessoryDriver for %s started successfully", self.accessory.display_name
+        )
 
     def stop(self):
         """Method to stop pyhap."""
@@ -330,7 +334,9 @@ class AccessoryDriver:
         )
         await self.async_add_job(self.accessory.stop)
 
-        logger.debug("AccessoryDriver stopped successfully")
+        logger.debug(
+            "AccessoryDriver for %s stopped successfully", self.accessory.display_name
+        )
 
         # Executor=None means a loop wasn't passed in
         if self.executor is not None:
@@ -345,7 +351,7 @@ class AccessoryDriver:
         logger.debug("Setting stop events, stopping accessory")
         self.stop_event.set()
 
-        logger.debug("Stopping mDNS advertising")
+        logger.debug("Stopping mDNS advertising for %s", self.accessory.display_name)
         self.advertiser.unregister_service(self.mdns_service_info)
         self.advertiser.close()
 
@@ -491,16 +497,36 @@ class AccessoryDriver:
 
     def update_advertisement(self):
         """Updates the mDNS service info for the accessory."""
+        logger.debug("Updating mDNS advertisement")
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory, self.state)
         self.advertiser.update_service(self.mdns_service_info)
+
+    @callback
+    def async_persist(self):
+        """Saves the state of the accessory.
+
+        Must be run in the event loop.
+        """
+        loop = asyncio.get_event_loop()
+        asyncio.ensure_future(loop.run_in_executor(None, self.persist))
 
     def persist(self):
         """Saves the state of the accessory.
 
         Must run in executor.
         """
-        with open(self.persist_file, "w") as file_handle:
-            self.encoder.persist(file_handle, self.state)
+        tmp_filename = None
+        try:
+            temp_dir = os.path.dirname(self.persist_file)
+            with tempfile.NamedTemporaryFile(
+                mode="w", dir=temp_dir, delete=False
+            ) as file_handle:
+                tmp_filename = file_handle.name
+                self.encoder.persist(file_handle, self.state)
+            os.replace(tmp_filename, self.persist_file)
+        finally:
+            if tmp_filename and os.path.exists(tmp_filename):
+                os.remove(tmp_filename)
 
     def load(self):
         """Load the persist file.
@@ -510,6 +536,7 @@ class AccessoryDriver:
         with open(self.persist_file, "r") as file_handle:
             self.encoder.load_into(file_handle, self.state)
 
+    @callback
     def pair(self, client_uuid, client_public):
         """Called when a client has paired with the accessory.
 
@@ -524,14 +551,12 @@ class AccessoryDriver:
         :return: Whether the pairing is successful.
         :rtype: bool
         """
-        # TODO: Adding a client is a change in the acc. configuration. Then, should we
-        # let the accessory call config_changed, which will persist and update mDNS?
-        # See also unpair.
         logger.info("Paired with %s.", client_uuid)
         self.state.add_paired_client(client_uuid, client_public)
-        self.persist()
+        self.async_persist()
         return True
 
+    @callback
     def unpair(self, client_uuid):
         """Removes the paired client from the accessory.
 
@@ -542,7 +567,7 @@ class AccessoryDriver:
         """
         logger.info("Unpairing client %s.", client_uuid)
         self.state.remove_paired_client(client_uuid)
-        self.persist()
+        self.async_persist()
 
     def finish_pair(self):
         """Finishing pairing or unpairing.
