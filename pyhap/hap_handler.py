@@ -703,7 +703,6 @@ class HAPServerHandler:
 
     def handle_resource(self):
         """Get a snapshot from the camera."""
-
         data = json.loads(self.request_body.decode("utf-8"))
 
         if self.accessory_handler.accessory.category == CATEGORY_BRIDGE:
