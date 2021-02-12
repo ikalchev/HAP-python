@@ -269,7 +269,7 @@ def test_async_subscribe_client_topic(driver):
 
 def test_mdns_service_info(driver):
     """Test accessory mdns advert."""
-    acc = Accessory(driver, "Test Accessory")
+    acc = Accessory(driver, "[@@@Test@@@] Accessory")
     driver.add_accessory(acc)
     addr = "172.0.0.1"
     mac = "00:00:00:00:00:00"
