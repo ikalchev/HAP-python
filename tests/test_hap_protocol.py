@@ -6,7 +6,7 @@ from cryptography.exceptions import InvalidTag
 import pytest
 
 from pyhap import hap_protocol
-from pyhap.accessory import Accessory
+from pyhap.accessory import Accessory, Bridge
 from pyhap.hap_handler import HAPResponse
 
 
@@ -473,4 +473,66 @@ async def test_camera_snapshot_throws_an_exception(driver):
 
     assert b"-70402" in writer.call_args_list[0][0][0]
 
+    hap_proto.close()
+
+
+@pytest.mark.asyncio
+async def test_camera_snapshot_times_out(driver):
+    """Test camera snapshot times out."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+
+    def _get_snapshot(*_):
+        raise asyncio.TimeoutError("timeout")
+
+    acc = Accessory(driver, "TestAcc")
+    acc.get_snapshot = _get_snapshot
+    driver.add_accessory(acc)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    hap_proto.hap_crypto = MockHAPCrypto()
+    hap_proto.handler.is_encrypted = True
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+        )
+        try:
+            await hap_proto.response.task
+        except Exception:  # pylint: disable=broad-except
+            pass
+        await asyncio.sleep(0)
+
+    assert b"-70402" in writer.call_args_list[0][0][0]
+
+    hap_proto.close()
+
+
+@pytest.mark.asyncio
+async def test_camera_snapshot_missing_accessory(driver):
+    """Test camera snapshot that throws an exception."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+
+    bridge = Bridge(driver, "Test Bridge")
+    driver.add_accessory(bridge)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    hap_proto.hap_crypto = MockHAPCrypto()
+    hap_proto.handler.is_encrypted = True
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+        )
+        await asyncio.sleep(0)
+
+    assert hap_proto.response is None
+    assert b"-70402" in writer.call_args_list[0][0][0]
     hap_proto.close()
