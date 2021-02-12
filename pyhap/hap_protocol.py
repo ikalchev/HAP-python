@@ -166,7 +166,10 @@ class HAPServerProtocol(asyncio.Protocol):
         """Handle delayed response."""
         response = self.response
         self.response = None
-        response.body = task.result()
+        try:
+            response.body = task.result()
+        except Exception:  # pylint: disable=broad-except
+            response = self.handler.generic_failure_response()
         self.send_response(response)
 
     def _handle_invalid_conn_state(self, message):

@@ -439,3 +439,38 @@ async def test_pairing_changed(driver):
 
     assert run_in_executor_called is True
     hap_proto.close()
+
+
+@pytest.mark.asyncio
+async def test_camera_snapshot_throws_an_exception(driver):
+    """Test camera snapshot that throws an exception."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+
+    async def _async_get_snapshot(*_):
+        raise ValueError("any error")
+
+    acc = Accessory(driver, "TestAcc")
+    acc.async_get_snapshot = _async_get_snapshot
+    driver.add_accessory(acc)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    hap_proto.hap_crypto = MockHAPCrypto()
+    hap_proto.handler.is_encrypted = True
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+        )
+        try:
+            await hap_proto.response.task
+        except Exception:  # pylint: disable=broad-except
+            pass
+        await asyncio.sleep(0)
+
+    assert b"-70402" in writer.call_args_list[0][0][0]
+
+    hap_proto.close()

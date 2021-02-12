@@ -249,6 +249,16 @@ class HAPServerHandler:
         self.response = None
         return response
 
+    def generic_failure_response(self):
+        """Generate a generic failure response."""
+        self.response = HAPResponse()
+        self.send_response_with_status(
+            500, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+        )
+        response = self.response
+        self.response = None
+        return response
+
     def send_response_with_status(self, http_code, hap_server_status):
         """Send a generic HAP status response."""
         self.send_response(http_code)
