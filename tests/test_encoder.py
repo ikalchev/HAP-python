@@ -4,9 +4,9 @@ import uuid
 
 import ed25519
 
-from pyhap.util import generate_mac
-from pyhap.state import State
 import pyhap.encoder as encoder
+from pyhap.state import State
+from pyhap.util import generate_mac
 
 
 def test_persist_and_load():

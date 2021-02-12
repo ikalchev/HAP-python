@@ -60,6 +60,17 @@ def test_persist_load():
     assert driver.state.public_key == pk
 
 
+def test_persist_cannot_write():
+    with tempfile.NamedTemporaryFile(mode="r+") as file:
+        with patch("pyhap.accessory_driver.HAPServer"), patch(
+            "pyhap.accessory_driver.Zeroconf"
+        ):
+            driver = AccessoryDriver(port=51234, persist_file=file.name)
+            driver.persist_file = "/file/that/will/not/exist"
+            with pytest.raises(OSError):
+                driver.persist()
+
+
 def test_external_zeroconf():
     zeroconf = MagicMock()
     with patch("pyhap.accessory_driver.HAPServer"), patch(

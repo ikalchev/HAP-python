@@ -9,6 +9,7 @@ import logging
 from urllib.parse import parse_qs, urlparse
 import uuid
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 import curve25519
 import ed25519
@@ -31,9 +32,31 @@ class HAPResponse:
         self.status_code = 500
         self.reason = "Internal Server Error"
         self.headers = []
-        self.body = []
+        self.body = b""
         self.shared_key = None
         self.task = None
+        self.pairing_changed = False
+
+    def __repr__(self):
+        """Return a human readable view of the response."""
+        return "<HAPResponse {} {} {} {}>".format(
+            self.status_code, self.reason, self.headers, self.body
+        )
+
+
+class HAP_TLV_STATES:
+    M1 = b"\x01"
+    M2 = b"\x02"
+    M3 = b"\x03"
+    M4 = b"\x04"
+    M5 = b"\x05"
+    M6 = b"\x06"
+
+
+class HAP_TLV_ERRORS:
+    AUTHENTICATION = b"\x02"
+    UNAVAILABLE = b"\x06"
+    BUSY = b"\x07"
 
 
 # Various "tag" constants for HAP's TLV encoding.
@@ -47,6 +70,7 @@ class HAP_TLV_TAGS:
     SEQUENCE_NUM = b"\x06"
     ERROR_CODE = b"\x07"
     PROOF = b"\x0A"
+    PERMISSIONS = b"\x0B"
 
 
 # Status codes for underlying HAP calls
@@ -65,10 +89,9 @@ class HAP_SERVER_STATUS:
     INSUFFICIENT_AUTHORIZATION = -70411
 
 
-# Error codes and the like, guessed by packet inspection
-class HAP_OPERATION_CODE:
-    INVALID_REQUEST = b"\x02"
-    INVALID_SIGNATURE = b"\x04"
+class HAP_PERMISSIONS:
+    USER = b"\x00"
+    ADMIN = b"\x01"
 
 
 class TimeoutException(Exception):
@@ -194,9 +217,9 @@ class HAPServerHandler:
         self.response = response
 
         logger.debug(
-            "Request %s from address '%s' for path '%s': %s",
-            self.command,
+            "%s: Request %s for path '%s': %s",
             self.client_address,
+            self.command,
             self.path,
             self.headers,
         )
@@ -216,11 +239,23 @@ class HAPServerHandler:
         except TimeoutException:
             self.send_response_with_status(500, HAP_SERVER_STATUS.OPERATION_TIMED_OUT)
         except Exception:  # pylint: disable=broad-except
-            logger.exception("Failed to process request for: %s", path)
+            logger.exception(
+                "%s: Failed to process request for: %s", self.client_address, path
+            )
             self.send_response_with_status(
                 500, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
             )
 
+        self.response = None
+        return response
+
+    def generic_failure_response(self):
+        """Generate a generic failure response."""
+        self.response = HAPResponse()
+        self.send_response_with_status(
+            500, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+        )
+        response = self.response
         self.response = None
         return response
 
@@ -238,11 +273,11 @@ class HAPServerHandler:
         tlv_objects = tlv.decode(self.request_body)
         sequence = tlv_objects[HAP_TLV_TAGS.SEQUENCE_NUM]
 
-        if sequence == b"\x01":
+        if sequence == HAP_TLV_STATES.M1:
             self._pairing_one()
-        elif sequence == b"\x03":
+        elif sequence == HAP_TLV_STATES.M3:
             self._pairing_two(tlv_objects)
-        elif sequence == b"\x05":
+        elif sequence == HAP_TLV_STATES.M5:
             self._pairing_three(tlv_objects)
 
     def _pairing_one(self):
@@ -250,22 +285,19 @@ class HAPServerHandler:
 
         The SRP verifier is created at this step.
         """
-        logger.debug("Pairing [1/5]")
+        logger.debug("%s: Pairing [1/5]", self.client_address)
         self.accessory_handler.setup_srp_verifier()
         salt, B = self.accessory_handler.srp_verifier.get_challenge()
 
         data = tlv.encode(
             HAP_TLV_TAGS.SEQUENCE_NUM,
-            b"\x02",
+            HAP_TLV_STATES.M2,
             HAP_TLV_TAGS.SALT,
             salt,
             HAP_TLV_TAGS.PUBLIC_KEY,
             long_to_bytes(B),
         )
-
-        self.send_response(200)
-        self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-        self.end_response(data)
+        self._send_tlv_pairing_response(data)
 
     def _pairing_two(self, tlv_objects):
         """Obtain the challenge from the client (A) and client's proof that it
@@ -275,7 +307,7 @@ class HAPServerHandler:
         @param tlv_objects: The TLV data received from the client.
         @type tlv_object: dict
         """
-        logger.debug("Pairing [2/5]")
+        logger.debug("%s: Pairing [2/5]", self.client_address)
         A = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
         M = tlv_objects[HAP_TLV_TAGS.PASSWORD_PROOF]
         verifier = self.accessory_handler.srp_verifier
@@ -284,23 +316,16 @@ class HAPServerHandler:
         hamk = verifier.verify(M)
 
         if hamk is None:  # Probably the provided pincode was wrong.
-            response = tlv.encode(
-                HAP_TLV_TAGS.SEQUENCE_NUM,
-                b"\x04",
-                HAP_TLV_TAGS.ERROR_CODE,
-                HAP_OPERATION_CODE.INVALID_REQUEST,
-            )
-            self.send_response(200)
-            self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-            self.end_response(response)
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
 
         data = tlv.encode(
-            HAP_TLV_TAGS.SEQUENCE_NUM, b"\x04", HAP_TLV_TAGS.PASSWORD_PROOF, hamk
+            HAP_TLV_TAGS.SEQUENCE_NUM,
+            HAP_TLV_STATES.M4,
+            HAP_TLV_TAGS.PASSWORD_PROOF,
+            hamk,
         )
-        self.send_response(200)
-        self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-        self.end_response(data)
+        self._send_tlv_pairing_response(data)
 
     def _pairing_three(self, tlv_objects):
         """Expand the SRP session key to obtain a new key. Use it to verify and decrypt
@@ -309,7 +334,7 @@ class HAPServerHandler:
         @param tlv_objects: The TLV data received from the client.
         @type tlv_object: dict
         """
-        logger.debug("Pairing [3/5]")
+        logger.debug("%s: Pairing [3/5]", self.client_address)
         encrypted_data = tlv_objects[HAP_TLV_TAGS.ENCRYPTED_DATA]
 
         session_key = self.accessory_handler.srp_verifier.get_session_key()
@@ -347,7 +372,7 @@ class HAPServerHandler:
         @param encryption_key: The encryption key for this step.
         @type encryption_key: bytes
         """
-        logger.debug("Pairing [4/5]")
+        logger.debug("%s: Pairing [4/5]", self.client_address)
         session_key = self.accessory_handler.srp_verifier.get_session_key()
         output_key = hap_hkdf(
             long_to_bytes(session_key), self.PAIRING_4_SALT, self.PAIRING_4_INFO
@@ -370,7 +395,7 @@ class HAPServerHandler:
 
         Parameters are as for _pairing_four.
         """
-        logger.debug("Pairing [5/5]")
+        logger.debug("%s: Pairing [5/5]", self.client_address)
         session_key = self.accessory_handler.srp_verifier.get_session_key()
         output_key = hap_hkdf(
             long_to_bytes(session_key), self.PAIRING_5_SALT, self.PAIRING_5_INFO
@@ -406,13 +431,12 @@ class HAPServerHandler:
 
         tlv_data = tlv.encode(
             HAP_TLV_TAGS.SEQUENCE_NUM,
-            b"\x06",
+            HAP_TLV_STATES.M6,
             HAP_TLV_TAGS.ENCRYPTED_DATA,
             aead_message,
         )
-        self.send_response(200)
-        self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-        self.end_response(tlv_data)
+        self.response.pairing_changed = True
+        self._send_tlv_pairing_response(tlv_data)
 
     def handle_pair_verify(self):
         """Handles arbitrary step of the pair verify process.
@@ -424,9 +448,9 @@ class HAPServerHandler:
 
         tlv_objects = tlv.decode(self.request_body)
         sequence = tlv_objects[HAP_TLV_TAGS.SEQUENCE_NUM]
-        if sequence == b"\x01":
+        if sequence == HAP_TLV_STATES.M1:
             self._pair_verify_one(tlv_objects)
-        elif sequence == b"\x03":
+        elif sequence == HAP_TLV_STATES.M3:
             self._pair_verify_two(tlv_objects)
         else:
             raise ValueError(
@@ -439,7 +463,7 @@ class HAPServerHandler:
         @param tlv_objects: The TLV data received from the client.
         @type tlv_object: dict
         """
-        logger.debug("Pair verify [1/2].")
+        logger.debug("%s: Pair verify [1/2].", self.client_address)
         client_public = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
 
         private_key = curve25519.Private()
@@ -468,15 +492,13 @@ class HAPServerHandler:
         aead_message = bytes(cipher.encrypt(self.PVERIFY_1_NONCE, bytes(message), b""))
         data = tlv.encode(
             HAP_TLV_TAGS.SEQUENCE_NUM,
-            b"\x02",
+            HAP_TLV_STATES.M2,
             HAP_TLV_TAGS.ENCRYPTED_DATA,
             aead_message,
             HAP_TLV_TAGS.PUBLIC_KEY,
             public_key.serialize(),
         )
-        self.send_response(200)
-        self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-        self.end_response(data)
+        self._send_tlv_pairing_response(data)
 
     def _pair_verify_two(self, tlv_objects):
         """Verify the client proof and upgrade to encrypted transport.
@@ -484,12 +506,17 @@ class HAPServerHandler:
         @param tlv_objects: The TLV data received from the client.
         @type tlv_object: dict
         """
-        logger.debug("Pair verify [2/2]")
+        logger.debug("%s: Pair verify [2/2]", self.client_address)
         encrypted_data = tlv_objects[HAP_TLV_TAGS.ENCRYPTED_DATA]
         cipher = ChaCha20Poly1305(self.enc_context["pre_session_key"])
-        decrypted_data = cipher.decrypt(
-            self.PVERIFY_2_NONCE, bytes(encrypted_data), b""
-        )
+        try:
+            decrypted_data = cipher.decrypt(
+                self.PVERIFY_2_NONCE, bytes(encrypted_data), b""
+            )
+        except InvalidTag:
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
+            return
+
         assert decrypted_data is not None  # TODO:
 
         dec_tlv_objects = tlv.decode(bytes(decrypted_data))
@@ -500,45 +527,34 @@ class HAPServerHandler:
             + self.enc_context["public_key"].serialize()
         )
 
-        client_uuid = uuid.UUID(str(client_username, "ascii"))
+        client_uuid = uuid.UUID(str(client_username, "utf-8"))
         perm_client_public = self.state.paired_clients.get(client_uuid)
         if perm_client_public is None:
-            logger.debug(
-                "Client %s attempted pair verify without being paired first.",
+            logger.error(
+                "%s: Client %s attempted pair verify without being paired to %s first.",
+                self.client_address,
                 client_uuid,
+                self.accessory_handler.accessory.display_name,
             )
-            self.send_response(200)
-            self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-            data = tlv.encode(
-                HAP_TLV_TAGS.ERROR_CODE, HAP_OPERATION_CODE.INVALID_REQUEST
-            )
-            self.end_response(data)
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
 
         verifying_key = ed25519.VerifyingKey(perm_client_public)
         try:
             verifying_key.verify(dec_tlv_objects[HAP_TLV_TAGS.PROOF], material)
         except ed25519.BadSignatureError:
-            logger.error("Bad signature, abort.")
-            self.send_response(200)
-            self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-            data = tlv.encode(
-                HAP_TLV_TAGS.ERROR_CODE, HAP_OPERATION_CODE.INVALID_REQUEST
-            )
-            self.end_response(data)
+            logger.error("%s: Bad signature, abort.", self.client_address)
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
 
         logger.debug(
-            "Pair verify with client '%s' completed. Switching to "
+            "%s: Pair verify with client completed. Switching to "
             "encrypted transport.",
             self.client_address,
         )
 
-        data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, b"\x04")
-        self.send_response(200)
-        self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-        self.end_response(data)
-
+        data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M4)
+        self._send_tlv_pairing_response(data)
         self.response.shared_key = self.enc_context["shared_key"]
         self.is_encrypted = True
         del self.enc_context
@@ -572,13 +588,15 @@ class HAPServerHandler:
         """Handles a client request to update certain characteristics."""
         if not self.is_encrypted:
             logger.warning(
-                "Attempt to access unauthorised content from %s", self.client_address
+                "%s: Attempt to access unauthorised content", self.client_address
             )
             self.send_response(HTTPStatus.UNAUTHORIZED)
-            self.end_response(b"")
+            return
 
         requested_chars = json.loads(self.request_body.decode("utf-8"))
-        logger.debug("Set characteristics content: %s", requested_chars)
+        logger.debug(
+            "%s: Set characteristics content: %s", self.client_address, requested_chars
+        )
 
         # TODO: Outline how chars return errors on set_chars.
         try:
@@ -586,17 +604,18 @@ class HAPServerHandler:
                 requested_chars, self.client_address
             )
         except Exception as ex:  # pylint: disable=broad-except
-            logger.exception("Exception in set_characteristics: %s", ex)
+            logger.exception(
+                "%s: Exception in set_characteristics: %s", self.client_address, ex
+            )
             self.send_response(HTTPStatus.BAD_REQUEST)
-            self.end_response(b"")
         else:
             self.send_response(HTTPStatus.NO_CONTENT)
-            self.end_response(b"")
 
     def handle_pairings(self):
         """Handles a client request to update or remove a pairing."""
         if not self.is_encrypted:
-            raise UnprivilegedRequestException
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M2)
+            return
 
         tlv_objects = tlv.decode(self.request_body)
         request_type = tlv_objects[HAP_TLV_TAGS.REQUEST_TYPE][0]
@@ -604,6 +623,8 @@ class HAPServerHandler:
             self._handle_add_pairing(tlv_objects)
         elif request_type == 4:
             self._handle_remove_pairing(tlv_objects)
+        elif request_type == 5:
+            self._handle_list_pairings()
         else:
             raise ValueError(
                 "Unknown pairing request type of %s during pair verify" % (request_type)
@@ -611,44 +632,74 @@ class HAPServerHandler:
 
     def _handle_add_pairing(self, tlv_objects):
         """Update client information."""
-        logger.debug("Adding client pairing.")
+        logger.debug("%s: Adding client pairing.", self.client_address)
         client_username = tlv_objects[HAP_TLV_TAGS.USERNAME]
         client_public = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
         should_confirm = self.accessory_handler.pair(client_uuid, client_public)
         if not should_confirm:
-            self.send_response_with_status(
-                500, HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
-            )
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M2)
             return
 
-        data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, b"\x02")
-        self.send_response(200)
-        self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
-        self.end_response(data)
-
-        # Avoid updating the announcement until
-        # after the response is sent as homekit will
-        # drop the connection and fail to pair if it
-        # sees the accessory is now paired as it doesn't
-        # know that it was the one doing the pairing.
-        self.accessory_handler.finish_pair()
+        data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M2)
+        self._send_tlv_pairing_response(data)
 
     def _handle_remove_pairing(self, tlv_objects):
         """Remove pairing with the client."""
-        logger.debug("Removing client pairing.")
+        logger.debug("%s: Removing client pairing.", self.client_address)
         client_username = tlv_objects[HAP_TLV_TAGS.USERNAME]
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
-        self.accessory_handler.unpair(client_uuid)
+        was_paired = self.state.paired
+        # If the client does not exist, we must
+        # respond with success per the spec
+        if client_uuid in self.state.paired_clients:
+            self.accessory_handler.unpair(client_uuid)
 
-        data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, b"\x02")
+        data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M2)
+        self._send_tlv_pairing_response(data)
+
+        if not self.state.paired_clients and was_paired:
+            # Only update the announcement when the last
+            # client is removed, otherwise the controller
+            # may not remove them all
+            logger.debug("%s: updating mdns to unpaired", self.client_address)
+            self.response.pairing_changed = True
+
+    def _handle_list_pairings(self):
+        """List current pairings."""
+        logger.debug("%s: list pairings", self.client_address)
+        response = [HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M2]
+        for client_uuid, client_public in self.state.paired_clients.items():
+            response.extend(
+                [
+                    HAP_TLV_TAGS.USERNAME,
+                    str(client_uuid).encode("utf-8"),
+                    HAP_TLV_TAGS.PUBLIC_KEY,
+                    client_public,
+                    HAP_TLV_TAGS.PERMISSIONS,
+                    HAP_PERMISSIONS.ADMIN,
+                ]
+            )
+
+        data = tlv.encode(*response)
+        self._send_tlv_pairing_response(data)
+
+    def _send_authentication_error_tlv_response(self, sequence):
+        """Send an authentication error tlv response."""
+        self._send_tlv_pairing_response(
+            tlv.encode(
+                HAP_TLV_TAGS.SEQUENCE_NUM,
+                sequence,
+                HAP_TLV_TAGS.ERROR_CODE,
+                HAP_TLV_ERRORS.AUTHENTICATION,
+            )
+        )
+
+    def _send_tlv_pairing_response(self, data):
+        """Send a TLV encoded pairing response."""
         self.send_response(200)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
         self.end_response(data)
-
-        # Avoid updating the announcement until
-        # after the response is sent.
-        self.accessory_handler.finish_pair()
 
     def handle_resource(self):
         """Get a snapshot from the camera."""
