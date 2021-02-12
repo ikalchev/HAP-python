@@ -26,6 +26,7 @@ import os
 import socket
 import sys
 import threading
+import re
 
 from zeroconf import ServiceInfo, Zeroconf
 
@@ -56,6 +57,7 @@ SERVICE_COMMUNICATION_FAILURE = -70402
 SERVICE_CALLBACK = 0
 SERVICE_CALLBACK_DATA = 1
 HAP_SERVICE_TYPE = "_hap._tcp.local."
+VALID_MDNS_REGEX = re.compile(r"[^A-Za-z0-9\-]+")
 
 
 def is_callback(func):
@@ -82,7 +84,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         adv_data = self._get_advert_data()
         # Append part of MAC address to prevent name conflicts
         name = "{} {}.{}".format(
-            self.accessory.display_name,
+            self._valid_name(),
             self.state.mac[-8:].replace(":", ""),
             HAP_SERVICE_TYPE,
         )
@@ -96,6 +98,9 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
             addresses=[socket.inet_aton(self.state.address)],
         )
 
+    def _valid_name(self):
+        return re.sub(VALID_MDNS_REGEX, " ", self.accessory.display_name).strip()
+
     def _setup_hash(self):
         setup_hash_material = self.state.setup_id + self.state.mac
         temp_hash = hashlib.sha512()
@@ -105,7 +110,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
     def _get_advert_data(self):
         """Generate advertisement data from the accessory."""
         return {
-            "md": self.accessory.display_name,
+            "md": self._valid_name(),
             "pv": "1.0",
             "id": self.state.mac,
             # represents the 'configuration version' of an Accessory.
