@@ -6,7 +6,7 @@ from uuid import UUID
 import pytest
 
 from pyhap import hap_handler
-from pyhap.accessory import Accessory
+from pyhap.accessory import Accessory, Bridge
 import pyhap.tlv as tlv
 
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
@@ -291,3 +291,18 @@ def test_handle_set_handle_set_characteristics_encrypted(driver):
 
     assert response.status_code == 204
     assert response.body == b""
+
+
+def test_handle_snapshot_encrypted_non_existant_accessory(driver):
+    """Verify an encrypted snapshot with non-existant accessory."""
+    bridge = Bridge(driver, "Test Bridge")
+    driver.add_accessory(bridge)
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = b'{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'
+    with pytest.raises(ValueError):
+        handler.handle_resource()
