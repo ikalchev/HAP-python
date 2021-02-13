@@ -16,6 +16,17 @@ Sections
 ### Developers
 -->
 
+## [3.3.0] - 2021-02-13
+
+### Fixed
+- Fix an issue that would cause pairing to fail (implement `list pairings`). [#307](https://github.com/ikalchev/HAP-python/pull/307)
+- Remove unsupported characters from Accessory names. [#310](https://github.com/ikalchev/HAP-python/pull/310)
+- Speed up event subscription for new connections. [#308](https://github.com/ikalchev/HAP-python/pull/308)
+- Properly handle camera snapshots. [#311](https://github.com/ikalchev/HAP-python/pull/311)
+- Properly handle pairing attempt when already paired. [#314](https://github.com/ikalchev/HAP-python/pull/314)
+### Changed
+- Use github actions for codecov. [#312](https://github.com/ikalchev/HAP-python/pull/312), [#313](https://github.com/ikalchev/HAP-python/pull/313)
+
 ## [3.2.0] - 2021-01-31
 
 ### Changed
