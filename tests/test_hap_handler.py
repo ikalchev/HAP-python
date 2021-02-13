@@ -203,8 +203,14 @@ def test_pair_verify_one_not_paired(driver):
         hap_handler.HAP_TLV_TAGS.PUBLIC_KEY,
         PUBLIC_KEY,
     )
-    with pytest.raises(hap_handler.NotAllowedInStateException):
-        handler.handle_pair_verify()
+    handler.handle_pair_verify()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M2,
+        hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.AUTHENTICATION,
+    }
 
 
 def test_pair_verify_two_invaild_state(driver):
@@ -306,3 +312,30 @@ def test_handle_snapshot_encrypted_non_existant_accessory(driver):
     handler.request_body = b'{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'
     with pytest.raises(ValueError):
         handler.handle_resource()
+
+
+def test_attempt_to_pair_when_already_paired(driver):
+    """Verify we respond with unavailable if already paired."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    driver.pair(
+        CLIENT_UUID,
+        PUBLIC_KEY,
+    )
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M1,
+    )
+    handler.handle_pairing()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M2,
+        hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.UNAVAILABLE,
+    }

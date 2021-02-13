@@ -102,10 +102,6 @@ class UnprivilegedRequestException(Exception):
     pass
 
 
-class NotAllowedInStateException(Exception):
-    pass
-
-
 class HAPServerHandler:
     """Manages HAP connection state and handles incoming HTTP requests."""
 
@@ -228,10 +224,6 @@ class HAPServerHandler:
         assert path in self.HANDLERS[self.command]
         try:
             getattr(self, self.HANDLERS[self.command][path])()
-        except NotAllowedInStateException:
-            self.send_response_with_status(
-                403, HAP_SERVER_STATUS.INSUFFICIENT_AUTHORIZATION
-            )
         except UnprivilegedRequestException:
             self.send_response_with_status(
                 401, HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
@@ -268,7 +260,15 @@ class HAPServerHandler:
     def handle_pairing(self):
         """Handles arbitrary step of the pairing process."""
         if self.state.paired:
-            raise NotAllowedInStateException
+            self._send_tlv_pairing_response(
+                tlv.encode(
+                    HAP_TLV_TAGS.SEQUENCE_NUM,
+                    HAP_TLV_STATES.M2,
+                    HAP_TLV_TAGS.ERROR_CODE,
+                    HAP_TLV_ERRORS.UNAVAILABLE,
+                )
+            )
+            return
 
         tlv_objects = tlv.decode(self.request_body)
         sequence = tlv_objects[HAP_TLV_TAGS.SEQUENCE_NUM]
@@ -444,7 +444,8 @@ class HAPServerHandler:
         Pair verify is session negotiation.
         """
         if not self.state.paired:
-            raise NotAllowedInStateException
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M2)
+            return
 
         tlv_objects = tlv.decode(self.request_body)
         sequence = tlv_objects[HAP_TLV_TAGS.SEQUENCE_NUM]
