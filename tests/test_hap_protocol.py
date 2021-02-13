@@ -6,7 +6,8 @@ from cryptography.exceptions import InvalidTag
 import pytest
 
 from pyhap import hap_protocol
-from pyhap.accessory import Accessory
+from pyhap.accessory import Accessory, Bridge
+from pyhap.hap_handler import HAPResponse
 
 
 class MockHAPCrypto:
@@ -37,6 +38,7 @@ def test_connection_management(driver):
     addr_info = ("1.2.3.4", 5)
     transport = MagicMock(get_extra_info=Mock(return_value=addr_info))
     connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
@@ -57,6 +59,7 @@ def test_pair_setup(driver):
     loop = MagicMock()
     transport = MagicMock()
     connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
@@ -76,6 +79,7 @@ def test_http10_close(driver):
     loop = MagicMock()
     transport = MagicMock()
     connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
@@ -96,6 +100,7 @@ def test_pair_setup_split_between_packets(driver):
     loop = MagicMock()
     transport = MagicMock()
     connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
@@ -119,6 +124,7 @@ def test_get_accessories_without_crypto(driver):
     loop = MagicMock()
     transport = MagicMock()
     connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
@@ -137,7 +143,6 @@ def test_get_accessories_with_crypto(driver):
     loop = MagicMock()
     transport = MagicMock()
     connections = {}
-
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
@@ -262,6 +267,7 @@ def test_http_11_keep_alive(driver):
     loop = MagicMock()
     transport = MagicMock()
     connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
@@ -363,4 +369,170 @@ async def test_camera_snapshot_works_async(driver):
 
     assert b"fakesnap" in writer.call_args_list[0][0][0]
 
+    hap_proto.close()
+
+
+def test_upgrade_to_encrypted(driver):
+    """Test we switch to encrypted wen we get a shared_key."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+
+    acc = Accessory(driver, "TestAcc")
+    driver.add_accessory(acc)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    assert hap_proto.hap_crypto is None
+
+    def _make_response(*_):
+        response = HAPResponse()
+        response.shared_key = b"newkey"
+        return response
+
+    with patch.object(hap_proto.transport, "write"), patch.object(
+        hap_proto.handler, "dispatch", _make_response
+    ):
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+
+    assert hap_proto.hap_crypto is not None
+
+    hap_proto.close()
+
+
+@pytest.mark.asyncio
+async def test_pairing_changed(driver):
+    """Test we update mdns when the pairing changes."""
+    loop = MagicMock()
+
+    run_in_executor_called = False
+
+    async def _run_in_executor(*_):
+        nonlocal run_in_executor_called
+        run_in_executor_called = True
+
+    loop.run_in_executor = _run_in_executor
+    transport = MagicMock()
+    connections = {}
+
+    acc = Accessory(driver, "TestAcc")
+    driver.add_accessory(acc)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    def _make_response(*_):
+        response = HAPResponse()
+        response.pairing_changed = True
+        return response
+
+    with patch.object(hap_proto.transport, "write"), patch.object(
+        hap_proto.handler, "dispatch", _make_response
+    ):
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+        await asyncio.sleep(0)
+
+    assert run_in_executor_called is True
+    hap_proto.close()
+
+
+@pytest.mark.asyncio
+async def test_camera_snapshot_throws_an_exception(driver):
+    """Test camera snapshot that throws an exception."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+
+    async def _async_get_snapshot(*_):
+        raise ValueError("any error")
+
+    acc = Accessory(driver, "TestAcc")
+    acc.async_get_snapshot = _async_get_snapshot
+    driver.add_accessory(acc)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    hap_proto.hap_crypto = MockHAPCrypto()
+    hap_proto.handler.is_encrypted = True
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+        )
+        try:
+            await hap_proto.response.task
+        except Exception:  # pylint: disable=broad-except
+            pass
+        await asyncio.sleep(0)
+
+    assert b"-70402" in writer.call_args_list[0][0][0]
+
+    hap_proto.close()
+
+
+@pytest.mark.asyncio
+async def test_camera_snapshot_times_out(driver):
+    """Test camera snapshot times out."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+
+    def _get_snapshot(*_):
+        raise asyncio.TimeoutError("timeout")
+
+    acc = Accessory(driver, "TestAcc")
+    acc.get_snapshot = _get_snapshot
+    driver.add_accessory(acc)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    hap_proto.hap_crypto = MockHAPCrypto()
+    hap_proto.handler.is_encrypted = True
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+        )
+        try:
+            await hap_proto.response.task
+        except Exception:  # pylint: disable=broad-except
+            pass
+        await asyncio.sleep(0)
+
+    assert b"-70402" in writer.call_args_list[0][0][0]
+
+    hap_proto.close()
+
+
+@pytest.mark.asyncio
+async def test_camera_snapshot_missing_accessory(driver):
+    """Test camera snapshot that throws an exception."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+
+    bridge = Bridge(driver, "Test Bridge")
+    driver.add_accessory(bridge)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    hap_proto.hap_crypto = MockHAPCrypto()
+    hap_proto.handler.is_encrypted = True
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+        )
+        await asyncio.sleep(0)
+
+    assert hap_proto.response is None
+    assert b"-70402" in writer.call_args_list[0][0][0]
     hap_proto.close()
