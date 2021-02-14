@@ -299,6 +299,31 @@ def test_handle_set_handle_set_characteristics_encrypted(driver):
     assert response.body == b""
 
 
+def test_handle_set_handle_set_characteristics_encrypted_with_exception(driver):
+    """Verify an encrypted set_characteristics."""
+    acc = Accessory(driver, "TestAcc", aid=1)
+    assert acc.aid == 1
+
+    def _mock_failure(*_):
+        raise ValueError
+
+    service = acc.driver.loader.get_service("GarageDoorOpener")
+    service.setter_callback = _mock_failure
+    acc.add_service(service)
+    driver.add_accessory(acc)
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = b'{"characteristics":[{"aid":1,"iid":9,"value":1}]}'
+    handler.handle_set_characteristics()
+
+    assert response.status_code == 207
+    assert b"-70402" in response.body
+
+
 def test_handle_snapshot_encrypted_non_existant_accessory(driver):
     """Verify an encrypted snapshot with non-existant accessory."""
     bridge = Bridge(driver, "Test Bridge")
