@@ -56,8 +56,9 @@ logger = logging.getLogger(__name__)
 
 CHAR_STAT_OK = 0
 SERVICE_COMMUNICATION_FAILURE = -70402
-SERVICE_CALLBACK = 0
-SERVICE_CALLBACK_DATA = 1
+SERVICE_CALLBACK = "callback"
+SERVICE_CHARS = "chars"
+SERVICE_IIDS = "iids"
 HAP_SERVICE_TYPE = "_hap._tcp.local."
 VALID_MDNS_REGEX = re.compile(r"[^A-Za-z0-9\-]+")
 
@@ -707,9 +708,13 @@ class AccessoryDriver:
         :type chars_query: dict
         """
         # TODO: Add support for chars that do no support notifications.
-        service_callbacks = {}
+        accessory_callbacks = {}
+        setter_results = {}
+        had_error = False
+
         for cq in chars_query[HAP_REPR_CHARS]:
             aid, iid = cq[HAP_REPR_AID], cq[HAP_REPR_IID]
+            setter_results.setdefault(aid, {})
             char = self.accessory.get_characteristic(aid, iid)
 
             if HAP_PERMISSION_NOTIFY in cq:
@@ -721,31 +726,79 @@ class AccessoryDriver:
                     client_addr, char_topic, cq[HAP_PERMISSION_NOTIFY]
                 )
 
-            if HAP_REPR_VALUE in cq:
-                # TODO: status needs to be based on success of set_value
-                char.client_update_value(cq[HAP_REPR_VALUE], client_addr)
-                # For some services we want to send all the char value
-                # changes at once.  This resolves an issue where we send
-                # ON and then BRIGHTNESS and the light would go to 100%
-                # and then dim to the brightness because each callback
-                # would only send one char at a time.
-                service = char.service
+            if HAP_REPR_VALUE not in cq:
+                continue
 
-                if service and service.setter_callback:
-                    service_name = service.display_name
-                    service_callbacks.setdefault(aid, {})
-                    service_callbacks[aid].setdefault(
-                        service_name, [service.setter_callback, {}]
-                    )
-                    service_callbacks[aid][service_name][SERVICE_CALLBACK_DATA][
-                        char.display_name
-                    ] = cq[HAP_REPR_VALUE]
+            value = cq[HAP_REPR_VALUE]
 
-        for aid in service_callbacks:
-            for service_name in service_callbacks[aid]:
-                service_callbacks[aid][service_name][SERVICE_CALLBACK](
-                    service_callbacks[aid][service_name][SERVICE_CALLBACK_DATA]
+            try:
+                char.client_update_value(value, client_addr)
+            except Exception:  # pylint: disable=broad-except
+                logger.exception(
+                    "%s: Error while setting characteristic %s to %s",
+                    client_addr,
+                    char.display_name,
+                    value,
                 )
+                setter_results[aid][iid] = SERVICE_COMMUNICATION_FAILURE
+                had_error = True
+            else:
+                setter_results[aid][iid] = CHAR_STAT_OK
+
+            # For some services we want to send all the char value
+            # changes at once.  This resolves an issue where we send
+            # ON and then BRIGHTNESS and the light would go to 100%
+            # and then dim to the brightness because each callback
+            # would only send one char at a time.
+            if not char.service or not char.service.setter_callback:
+                continue
+
+            services = accessory_callbacks.setdefault(aid, {})
+
+            if char.service.display_name not in services:
+                services[char.service.display_name] = {
+                    SERVICE_CALLBACK: char.service.setter_callback,
+                    SERVICE_CHARS: {},
+                    SERVICE_IIDS: [],
+                }
+
+            service_data = services[char.service.display_name]
+            service_data[SERVICE_CHARS][char.display_name] = value
+            service_data[SERVICE_IIDS].append(iid)
+
+        for aid, services in accessory_callbacks.items():
+            for service_name, service_data in services.items():
+                try:
+                    service_data[SERVICE_CALLBACK](service_data[SERVICE_CHARS])
+                except Exception:  # pylint: disable=broad-except
+                    logger.exception(
+                        "%s: Error while setting characteristics to %s for the %s service",
+                        service_data[SERVICE_CHARS],
+                        client_addr,
+                        service_name,
+                    )
+                    set_result = SERVICE_COMMUNICATION_FAILURE
+                    had_error = True
+                else:
+                    set_result = CHAR_STAT_OK
+
+                for iid in service_data[SERVICE_IIDS]:
+                    setter_results[aid][iid] = set_result
+
+        if not had_error:
+            return None
+
+        return {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: aid,
+                    HAP_REPR_IID: iid,
+                    HAP_REPR_STATUS: status,
+                }
+                for aid, iid_status in setter_results.items()
+                for iid, status in iid_status.items()
+            ]
+        }
 
     def signal_handler(self, _signal, _frame):
         """Stops the AccessoryDriver for a given signal.

@@ -599,18 +599,16 @@ class HAPServerHandler:
             "%s: Set characteristics content: %s", self.client_address, requested_chars
         )
 
-        # TODO: Outline how chars return errors on set_chars.
-        try:
-            self.accessory_handler.set_characteristics(
-                requested_chars, self.client_address
-            )
-        except Exception as ex:  # pylint: disable=broad-except
-            logger.exception(
-                "%s: Exception in set_characteristics: %s", self.client_address, ex
-            )
-            self.send_response(HTTPStatus.BAD_REQUEST)
-        else:
+        response = self.accessory_handler.set_characteristics(
+            requested_chars, self.client_address
+        )
+        if response is None:
             self.send_response(HTTPStatus.NO_CONTENT)
+            return
+
+        self.send_response(207)
+        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
+        self.end_response(json.dumps(response).encode("utf-8"))
 
     def handle_pairings(self):
         """Handles a client request to update or remove a pairing."""

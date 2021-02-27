@@ -6,7 +6,11 @@ from uuid import uuid1
 import pytest
 
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
-from pyhap.accessory_driver import AccessoryDriver, AccessoryMDNSServiceInfo
+from pyhap.accessory_driver import (
+    AccessoryDriver,
+    AccessoryMDNSServiceInfo,
+    SERVICE_COMMUNICATION_FAILURE,
+)
 from pyhap.characteristic import (
     HAP_FORMAT_INT,
     HAP_PERMISSION_READ,
@@ -14,7 +18,13 @@ from pyhap.characteristic import (
     PROP_PERMISSIONS,
     Characteristic,
 )
-from pyhap.const import HAP_REPR_AID, HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_VALUE
+from pyhap.const import (
+    HAP_REPR_AID,
+    HAP_REPR_CHARS,
+    HAP_REPR_IID,
+    HAP_REPR_VALUE,
+    HAP_REPR_STATUS,
+)
 from pyhap.service import Service
 from pyhap.state import State
 
@@ -118,7 +128,7 @@ def test_service_callbacks(driver):
 
     driver.add_accessory(bridge)
 
-    driver.set_characteristics(
+    response = driver.set_characteristics(
         {
             HAP_REPR_CHARS: [
                 {
@@ -145,6 +155,7 @@ def test_service_callbacks(driver):
         },
         "mock_addr",
     )
+    assert response is None
 
     mock_callback2.assert_called_with({"On": True, "Brightness": 12})
     mock_callback.assert_called_with({"On": True, "Brightness": 88})
@@ -177,6 +188,194 @@ def test_service_callbacks(driver):
             {"aid": acc2.aid, "iid": char_on2_iid, "status": -70402},
             {"aid": acc2.aid, "iid": char_brightness2_iid, "status": -70402},
             {"aid": acc.aid, "iid": char_brightness_iid, "status": -70402},
+        ]
+    }
+
+
+def test_service_callbacks_partial_failure(driver):
+    bridge = Bridge(driver, "mybridge")
+    acc = Accessory(driver, "TestAcc", aid=2)
+    acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
+
+    service = Service(uuid1(), "Lightbulb")
+    char_on = Characteristic("On", uuid1(), CHAR_PROPS)
+    char_brightness = Characteristic("Brightness", uuid1(), CHAR_PROPS)
+
+    service.add_characteristic(char_on)
+    service.add_characteristic(char_brightness)
+
+    def fail_callback(*_):
+        raise ValueError
+
+    service.setter_callback = fail_callback
+
+    acc.add_service(service)
+    bridge.add_accessory(acc)
+
+    service2 = Service(uuid1(), "Lightbulb")
+    char_on2 = Characteristic("On", uuid1(), CHAR_PROPS)
+    char_brightness2 = Characteristic("Brightness", uuid1(), CHAR_PROPS)
+
+    service2.add_characteristic(char_on2)
+    service2.add_characteristic(char_brightness2)
+
+    mock_callback2 = MagicMock()
+    service2.setter_callback = mock_callback2
+
+    acc2.add_service(service2)
+    bridge.add_accessory(acc2)
+
+    char_on_iid = char_on.to_HAP()[HAP_REPR_IID]
+    char_brightness_iid = char_brightness.to_HAP()[HAP_REPR_IID]
+    char_on2_iid = char_on2.to_HAP()[HAP_REPR_IID]
+    char_brightness2_iid = char_brightness2.to_HAP()[HAP_REPR_IID]
+
+    driver.add_accessory(bridge)
+
+    response = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_on_iid,
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_brightness_iid,
+                    HAP_REPR_VALUE: 88,
+                },
+                {
+                    HAP_REPR_AID: acc2.aid,
+                    HAP_REPR_IID: char_on2_iid,
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc2.aid,
+                    HAP_REPR_IID: char_brightness2_iid,
+                    HAP_REPR_VALUE: 12,
+                },
+            ]
+        },
+        "mock_addr",
+    )
+
+    mock_callback2.assert_called_with({"On": True, "Brightness": 12})
+    assert response == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: char_on_iid,
+                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+            },
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: char_brightness_iid,
+                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+            },
+            {
+                HAP_REPR_AID: acc2.aid,
+                HAP_REPR_IID: char_on2_iid,
+                HAP_REPR_STATUS: 0,
+            },
+            {
+                HAP_REPR_AID: acc2.aid,
+                HAP_REPR_IID: char_brightness2_iid,
+                HAP_REPR_STATUS: 0,
+            },
+        ]
+    }
+
+
+def test_mixing_service_char_callbacks_partial_failure(driver):
+    bridge = Bridge(driver, "mybridge")
+    acc = Accessory(driver, "TestAcc", aid=2)
+    acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
+
+    service = Service(uuid1(), "Lightbulb")
+    char_on = Characteristic("On", uuid1(), CHAR_PROPS)
+    char_brightness = Characteristic("Brightness", uuid1(), CHAR_PROPS)
+
+    service.add_characteristic(char_on)
+    service.add_characteristic(char_brightness)
+
+    def fail_callback(*_):
+        raise ValueError
+
+    service.setter_callback = fail_callback
+
+    acc.add_service(service)
+    bridge.add_accessory(acc)
+
+    service2 = Service(uuid1(), "Lightbulb")
+    char_on2 = Characteristic("On", uuid1(), CHAR_PROPS)
+    char_brightness2 = Characteristic("Brightness", uuid1(), CHAR_PROPS)
+
+    service2.add_characteristic(char_on2)
+    service2.add_characteristic(char_brightness2)
+
+    char_on2.setter_callback = fail_callback
+
+    acc2.add_service(service2)
+    bridge.add_accessory(acc2)
+
+    char_on_iid = char_on.to_HAP()[HAP_REPR_IID]
+    char_brightness_iid = char_brightness.to_HAP()[HAP_REPR_IID]
+    char_on2_iid = char_on2.to_HAP()[HAP_REPR_IID]
+    char_brightness2_iid = char_brightness2.to_HAP()[HAP_REPR_IID]
+
+    driver.add_accessory(bridge)
+
+    response = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_on_iid,
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_brightness_iid,
+                    HAP_REPR_VALUE: 88,
+                },
+                {
+                    HAP_REPR_AID: acc2.aid,
+                    HAP_REPR_IID: char_on2_iid,
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc2.aid,
+                    HAP_REPR_IID: char_brightness2_iid,
+                    HAP_REPR_VALUE: 12,
+                },
+            ]
+        },
+        "mock_addr",
+    )
+
+    assert response == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: char_on_iid,
+                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+            },
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: char_brightness_iid,
+                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+            },
+            {
+                HAP_REPR_AID: acc2.aid,
+                HAP_REPR_IID: char_on2_iid,
+                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+            },
+            {
+                HAP_REPR_AID: acc2.aid,
+                HAP_REPR_IID: char_brightness2_iid,
+                HAP_REPR_STATUS: 0,
+            },
         ]
     }
 
