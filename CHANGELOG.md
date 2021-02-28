@@ -16,6 +16,11 @@ Sections
 ### Developers
 -->
 
+## [3.3.1] - 2021-02-28
+
+### Changed
+- Implement partial success response for `set_characteristics` (was `BAD_REQUEST` on error). [#316](https://github.com/ikalchev/HAP-python/pull/316) 
+
 ## [3.3.0] - 2021-02-13
 
 ### Fixed
@@ -24,6 +29,7 @@ Sections
 - Speed up event subscription for new connections. [#308](https://github.com/ikalchev/HAP-python/pull/308)
 - Properly handle camera snapshots. [#311](https://github.com/ikalchev/HAP-python/pull/311)
 - Properly handle pairing attempt when already paired. [#314](https://github.com/ikalchev/HAP-python/pull/314)
+
 ### Changed
 - Use github actions for codecov. [#312](https://github.com/ikalchev/HAP-python/pull/312), [#313](https://github.com/ikalchev/HAP-python/pull/313)
 
