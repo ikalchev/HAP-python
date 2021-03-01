@@ -16,6 +16,12 @@ Sections
 ### Developers
 -->
 
+## [3.3.2] - 2021-03-01
+
+### Fixed
+- Resolve unavailable condition on restart. [#318](https://github.com/ikalchev/HAP-python/pull/318)
+- Resolve config version overflow. [#318](https://github.com/ikalchev/HAP-python/pull/318)
+
 ## [3.3.1] - 2021-02-28
 
 ### Changed
