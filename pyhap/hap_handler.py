@@ -187,13 +187,13 @@ class HAPServerHandler:
             "pre_session_key": pre_session_key,
         }
 
-    def send_response(self, code, message=None):
+    def send_response(self, http_status):
         """Add the response header to the headers buffer and log the
         response code.
         Does not add Server or Date
         """
-        self.response.status_code = int(code)
-        self.response.reason = message or "OK"
+        self.response.status_code = http_status.value
+        self.response.reason = http_status.phrase
 
     def send_header(self, header, value):
         """Add the response header to the headers buffer."""
@@ -226,7 +226,7 @@ class HAPServerHandler:
             getattr(self, self.HANDLERS[self.command][path])()
         except UnprivilegedRequestException:
             self.send_response_with_status(
-                401, HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
+                HTTPStatus.UNAUTHORIZED, HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
             )
         except TimeoutException:
             self.send_response_with_status(500, HAP_SERVER_STATUS.OPERATION_TIMED_OUT)
@@ -235,9 +235,15 @@ class HAPServerHandler:
                 "%s: Failed to process request for: %s", self.client_address, path
             )
             self.send_response_with_status(
-                500, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             )
 
+        body_len = len(self.response.body)
+        if body_len:
+            # Force Content-Length as iOS can sometimes
+            # stall if it gets chunked encoding
+            self.send_header("Content-Length", str(body_len))
         self.response = None
         return response
 
@@ -245,7 +251,8 @@ class HAPServerHandler:
         """Generate a generic failure response."""
         self.response = HAPResponse()
         self.send_response_with_status(
-            500, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
         )
         response = self.response
         self.response = None
@@ -425,7 +432,8 @@ class HAPServerHandler:
 
         if not should_confirm:
             self.send_response_with_status(
-                500, HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST,
             )
             return
 
@@ -567,7 +575,7 @@ class HAPServerHandler:
 
         hap_rep = self.accessory_handler.get_accessories()
         data = json.dumps(hap_rep).encode("utf-8")
-        self.send_response(200)
+        self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(data)
 
@@ -581,7 +589,7 @@ class HAPServerHandler:
         chars = self.accessory_handler.get_characteristics(params["id"][0].split(","))
 
         data = json.dumps(chars).encode("utf-8")
-        self.send_response(207)
+        self.send_response(HTTPStatus.MULTI_STATUS)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(data)
 
@@ -606,7 +614,7 @@ class HAPServerHandler:
             self.send_response(HTTPStatus.NO_CONTENT)
             return
 
-        self.send_response(207)
+        self.send_response(HTTPStatus.MULTI_STATUS)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(json.dumps(response).encode("utf-8"))
 
@@ -696,7 +704,7 @@ class HAPServerHandler:
 
     def _send_tlv_pairing_response(self, data):
         """Send a TLV encoded pairing response."""
-        self.send_response(200)
+        self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
         self.end_response(data)
 
@@ -725,6 +733,6 @@ class HAPServerHandler:
             )
 
         task = asyncio.ensure_future(asyncio.wait_for(coro, SNAPSHOT_TIMEOUT))
-        self.send_response(200)
+        self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
         self.response.task = task
