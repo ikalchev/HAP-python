@@ -187,7 +187,12 @@ def test_get_characteristics_with_crypto(driver):
         )
 
     hap_proto.close()
+    assert b"Content-Length:" in writer.call_args_list[0][0][0]
+    assert b"Transfer-Encoding: chunked\r\n\r\n" not in writer.call_args_list[0][0][0]
     assert b"-70402" in writer.call_args_list[0][0][0]
+
+    assert b"Content-Length:" in writer.call_args_list[1][0][0]
+    assert b"Transfer-Encoding: chunked\r\n\r\n" not in writer.call_args_list[1][0][0]
     assert b"TestAcc" in writer.call_args_list[1][0][0]
 
 
@@ -215,7 +220,7 @@ def test_set_characteristics_with_crypto(driver):
         )
 
     hap_proto.close()
-    assert writer.call_args_list[0][0][0] == b"HTTP/1.1 204 OK\r\n\r\n"
+    assert writer.call_args_list[0][0][0] == b"HTTP/1.1 204 No Content\r\n\r\n"
 
 
 def test_crypto_failure_closes_connection(driver):
