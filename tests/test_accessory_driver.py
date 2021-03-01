@@ -1,15 +1,17 @@
 """Tests for pyhap.accessory_driver."""
+import asyncio
 import tempfile
 from unittest.mock import MagicMock, patch
 from uuid import uuid1
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
 from pyhap.accessory_driver import (
+    SERVICE_COMMUNICATION_FAILURE,
     AccessoryDriver,
     AccessoryMDNSServiceInfo,
-    SERVICE_COMMUNICATION_FAILURE,
 )
 from pyhap.characteristic import (
     HAP_FORMAT_INT,
@@ -22,8 +24,8 @@ from pyhap.const import (
     HAP_REPR_AID,
     HAP_REPR_CHARS,
     HAP_REPR_IID,
-    HAP_REPR_VALUE,
     HAP_REPR_STATUS,
+    HAP_REPR_VALUE,
 )
 from pyhap.service import Service
 from pyhap.state import State
@@ -380,29 +382,15 @@ def test_mixing_service_char_callbacks_partial_failure(driver):
     }
 
 
-def test_start_stop_sync_acc(driver):
-    class Acc(Accessory):
-        running = True
+def test_start_from_sync(driver):
+    """Start from sync."""
 
-        @Accessory.run_at_interval(0)
-        def run(self):  # pylint: disable=invalid-overridden-method
-            self.running = False
-            driver.stop()
-
-        def setup_message(self):
-            pass
-
-    acc = Acc(driver, "TestAcc")
-    driver.add_accessory(acc)
-    driver.start()
-    assert not acc.running
-
-
-def test_start_stop_async_acc(driver):
     class Acc(Accessory):
         @Accessory.run_at_interval(0)
         async def run(self):
-            driver.stop()
+            driver.executor = ThreadPoolExecutor()
+            driver.loop.set_default_executor(driver.executor)
+            await driver.async_stop()
 
         def setup_message(self):
             pass
@@ -410,7 +398,62 @@ def test_start_stop_async_acc(driver):
     acc = Acc(driver, "TestAcc")
     driver.add_accessory(acc)
     driver.start()
-    assert driver.loop.is_closed()
+
+
+@pytest.mark.asyncio
+async def test_start_stop_sync_acc():
+    with patch("pyhap.accessory_driver.HAPServer"), patch(
+        "pyhap.accessory_driver.Zeroconf"
+    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
+        "pyhap.accessory_driver.AccessoryDriver.load"
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop())
+        run_event = asyncio.Event()
+
+        class Acc(Accessory):
+            @Accessory.run_at_interval(0)
+            def run(self):  # pylint: disable=invalid-overridden-method
+                run_event.set()
+
+            def setup_message(self):
+                pass
+
+        acc = Acc(driver, "TestAcc")
+        driver.add_accessory(acc)
+        driver.start_service()
+        await run_event.wait()
+        assert not driver.loop.is_closed()
+        await driver.async_stop()
+        assert not driver.loop.is_closed()
+
+
+@pytest.mark.asyncio
+async def test_start_stop_async_acc():
+    """Verify run_at_interval closes the driver."""
+    with patch("pyhap.accessory_driver.HAPServer"), patch(
+        "pyhap.accessory_driver.Zeroconf"
+    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
+        "pyhap.accessory_driver.AccessoryDriver.load"
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop())
+        run_event = asyncio.Event()
+
+        class Acc(Accessory):
+            @Accessory.run_at_interval(0)
+            async def run(self):
+                run_event.set()
+
+            def setup_message(self):
+                pass
+
+        acc = Acc(driver, "TestAcc")
+        driver.add_accessory(acc)
+        driver.start_service()
+        await asyncio.sleep(0)
+        await run_event.wait()
+        assert not driver.loop.is_closed()
+        await driver.async_stop()
+        assert not driver.loop.is_closed()
 
 
 def test_start_without_accessory(driver):
@@ -492,3 +535,29 @@ def test_mdns_service_info(driver):
         "sf": "1",
         "sh": "+KjpzQ==",
     }
+
+
+@pytest.mark.asyncio
+async def test_start_service_and_update_config():
+    """Test starting service and updating the config."""
+    with patch("pyhap.accessory_driver.HAPServer"), patch(
+        "pyhap.accessory_driver.Zeroconf"
+    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
+        "pyhap.accessory_driver.AccessoryDriver.load"
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop())
+        acc = Accessory(driver, "TestAcc")
+        driver.add_accessory(acc)
+        driver.start_service()
+
+        assert driver.state.config_version == 2
+        driver.config_changed()
+        assert driver.state.config_version == 3
+        driver.state.config_version = 65535
+        driver.config_changed()
+        assert driver.state.config_version == 1
+
+        await driver.async_stop()
+        await asyncio.sleep(0)
+        assert not driver.loop.is_closed()
+        assert driver.aio_stop_event.is_set()

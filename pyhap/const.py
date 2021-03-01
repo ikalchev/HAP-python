@@ -1,7 +1,7 @@
 """This module contains constants used by other modules."""
 MAJOR_VERSION = 3
 MINOR_VERSION = 3
-PATCH_VERSION = 1
+PATCH_VERSION = 2
 __short_version__ = '{}.{}'.format(MAJOR_VERSION, MINOR_VERSION)
 __version__ = '{}.{}'.format(__short_version__, PATCH_VERSION)
 REQUIRED_PYTHON_VER = (3, 5)
@@ -9,11 +9,12 @@ REQUIRED_PYTHON_VER = (3, 5)
 # ### Misc ###
 STANDALONE_AID = 1  # Standalone accessory ID (i.e. not bridged)
 
-
 # ### Default values ###
 DEFAULT_CONFIG_VERSION = 2
 DEFAULT_PORT = 51827
 
+# ### Configuration version ###
+MAX_CONFIG_VERSION = 65535
 
 # ### CATEGORY values ###
 # Category is a hint to iOS clients about what "type" of Accessory this
