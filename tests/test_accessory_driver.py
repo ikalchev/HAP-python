@@ -473,9 +473,15 @@ async def test_start_stop_async_acc():
 
 @pytest.mark.asyncio
 async def test_start_from_async_stop_from_executor():
-    with patch("pyhap.accessory_driver.HAPServer"), patch(
+    with patch(
+        "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
+    ), patch(
+        "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
+    ), patch(
         "pyhap.accessory_driver.Zeroconf"
-    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
+    ), patch(
+        "pyhap.accessory_driver.AccessoryDriver.persist"
+    ), patch(
         "pyhap.accessory_driver.AccessoryDriver.load"
     ):
         driver = AccessoryDriver(loop=asyncio.get_event_loop())

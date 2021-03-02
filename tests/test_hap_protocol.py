@@ -1,5 +1,6 @@
 """Tests for the HAPServerProtocol."""
 import asyncio
+import time
 from unittest.mock import MagicMock, Mock, patch
 
 from cryptography.exceptions import InvalidTag
@@ -563,3 +564,47 @@ async def test_camera_snapshot_missing_accessory(driver):
     assert hap_proto.response is None
     assert b"-70402" in writer.call_args_list[0][0][0]
     hap_proto.close()
+
+
+@pytest.mark.asyncio
+async def test_idle_timeout(driver):
+    """Test we close the connection once we reach the idle timeout."""
+    loop = asyncio.get_event_loop()
+    transport = MagicMock()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    with patch.object(hap_protocol, "IDLE_CONNECTION_TIMEOUT_SECONDS", 0), patch.object(
+        hap_proto, "close"
+    ) as hap_proto_close, patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+        assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
+        hap_proto.check_idle(time.time())
+        assert hap_proto_close.called is True
+
+
+@pytest.mark.asyncio
+async def test_does_not_timeout(driver):
+    """Test we do not timeout the connection if we have not reached the idle."""
+    loop = asyncio.get_event_loop()
+    transport = MagicMock()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    with patch.object(hap_proto, "close") as hap_proto_close, patch.object(
+        hap_proto.transport, "write"
+    ) as writer:
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+        assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
+        hap_proto.check_idle(time.time())
+        assert hap_proto_close.called is False
