@@ -2,6 +2,7 @@ import asyncio
 import base64
 import random
 import socket
+import functools
 
 ALPHANUM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 HEX_DIGITS = "0123456789ABCDEF"
@@ -13,6 +14,20 @@ def callback(func):
     """Decorator for non blocking functions."""
     setattr(func, "_pyhap_callback", True)
     return func
+
+
+def is_callback(func):
+    """Check if function is callback."""
+    return "_pyhap_callback" in getattr(func, "__dict__", {})
+
+
+def iscoro(func):
+    """Check if the function is a coroutine or if the function is a ``functools.partial``,
+    check the wrapped function for the same.
+    """
+    if isinstance(func, functools.partial):
+        func = func.func
+    return asyncio.iscoroutinefunction(func)
 
 
 def get_local_address():

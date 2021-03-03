@@ -1,12 +1,13 @@
 """Tests for pyhap.accessory_driver."""
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import tempfile
 from unittest.mock import MagicMock, patch
 from uuid import uuid1
-from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from pyhap import util
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
 from pyhap.accessory_driver import (
     SERVICE_COMMUNICATION_FAILURE,
@@ -456,6 +457,33 @@ async def test_start_stop_async_acc():
         assert not driver.loop.is_closed()
 
 
+@pytest.mark.asyncio
+async def test_start_from_async_stop_from_executor():
+    with patch("pyhap.accessory_driver.HAPServer"), patch(
+        "pyhap.accessory_driver.Zeroconf"
+    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
+        "pyhap.accessory_driver.AccessoryDriver.load"
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop())
+        run_event = asyncio.Event()
+
+        class Acc(Accessory):
+            @Accessory.run_at_interval(0)
+            def run(self):  # pylint: disable=invalid-overridden-method
+                run_event.set()
+
+            def setup_message(self):
+                pass
+
+        acc = Acc(driver, "TestAcc")
+        driver.add_accessory(acc)
+        driver.start_service()
+        await run_event.wait()
+        assert not driver.loop.is_closed()
+        await driver.loop.run_in_executor(None, driver.stop)
+        await driver.aio_stop_event.wait()
+
+
 def test_start_without_accessory(driver):
     """Verify we throw ValueError if there is no accessory."""
     with pytest.raises(ValueError):
@@ -563,3 +591,54 @@ async def test_start_service_and_update_config():
         await asyncio.sleep(0)
         assert not driver.loop.is_closed()
         assert driver.aio_stop_event.is_set()
+
+
+def test_call_add_job_with_none(driver):
+    """Test calling add job with none."""
+    with pytest.raises(ValueError):
+        driver.add_job(None)
+
+
+@pytest.mark.asyncio
+async def test_call_async_add_job_with_coroutine(driver):
+    """Test calling async_add_job with a coroutine."""
+    with patch("pyhap.accessory_driver.HAPServer"), patch(
+        "pyhap.accessory_driver.Zeroconf"
+    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
+        "pyhap.accessory_driver.AccessoryDriver.load"
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop())
+        called = False
+
+        async def coro_test():
+            nonlocal called
+            called = True
+
+        await driver.async_add_job(coro_test)
+        assert called is True
+
+        called = False
+        await driver.async_add_job(coro_test())
+        assert called is True
+
+
+@pytest.mark.asyncio
+async def test_call_async_add_job_with_callback(driver):
+    """Test calling async_add_job with a coroutine."""
+    with patch("pyhap.accessory_driver.HAPServer"), patch(
+        "pyhap.accessory_driver.Zeroconf"
+    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
+        "pyhap.accessory_driver.AccessoryDriver.load"
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop())
+        called = False
+
+        @util.callback
+        def callback_test():
+            nonlocal called
+            called = True
+
+        driver.async_add_job(callback_test)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert called is True
