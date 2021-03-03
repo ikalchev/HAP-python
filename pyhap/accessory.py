@@ -2,15 +2,15 @@
 import itertools
 import logging
 
-from pyhap import util, SUPPORT_QR_CODE
+from pyhap import SUPPORT_QR_CODE, util
 from pyhap.const import (
-    STANDALONE_AID,
+    CATEGORY_BRIDGE,
+    CATEGORY_OTHER,
     HAP_REPR_AID,
     HAP_REPR_IID,
     HAP_REPR_SERVICES,
     HAP_REPR_VALUE,
-    CATEGORY_OTHER,
-    CATEGORY_BRIDGE,
+    STANDALONE_AID,
 )
 from pyhap.iid_manager import IIDManager
 
@@ -25,9 +25,6 @@ class Accessory:
     """A representation of a HAP accessory.
 
     Inherit from this class to build your own accessories.
-
-    At the end of the init of this class, the _set_services method is called.
-    Use this to set your HAP services.
     """
 
     category = CATEGORY_OTHER
@@ -51,7 +48,6 @@ class Accessory:
         self.iid_manager = IIDManager()
 
         self.add_info_service()
-        self._set_services()
 
     def __repr__(self):
         """Return the representation of the accessory."""
@@ -59,19 +55,6 @@ class Accessory:
         return "<accessory display_name='{}' services={}>".format(
             self.display_name, services
         )
-
-    def __getstate__(self):
-        state = self.__dict__.copy()
-        state["driver"] = None
-        state["run_sentinel"] = None
-        return state
-
-    def _set_services(self):
-        """Set the services for this accessory.
-
-        .. deprecated:: 2.0
-           Initialize the service inside the accessory `init` method instead.
-        """
 
     @property
     def available(self):
@@ -107,7 +90,7 @@ class Accessory:
             serv_info.configure_char("Manufacturer", value=manufacturer)
         if model:
             serv_info.configure_char("Model", value=model)
-        if serial_number:
+        if serial_number is not None:
             if len(serial_number) >= 1:
                 serv_info.configure_char("SerialNumber", value=serial_number)
             else:
@@ -132,26 +115,6 @@ class Accessory:
         """Set the primary service of the acc."""
         for service in self.services:
             service.is_primary_service = service.type_id == primary_service.type_id
-
-    def config_changed(self):
-        """Notify the accessory about configuration changes.
-
-        These include new services or updated characteristic values, e.g.
-        the Name of a service changed.
-
-        This method also notifies the driver about the change, so that it can
-        publish the changes to the world.
-
-        .. note:: If you are changing the configuration of a bridged accessory
-           (i.e. an Accessory that is contained in a Bridge),
-           you should call the `config_changed` method on the Bridge.
-
-        Deprecated. Use `driver.config_changed()` instead.
-        """
-        logger.warning(
-            "This method is now deprecated. Use 'driver.config_changed' instead."
-        )
-        self.driver.config_changed()
 
     def add_service(self, *servs):
         """Add the given services to this Accessory.
@@ -405,7 +368,7 @@ class Bridge(Accessory):
     async def run(self):
         """Schedule tasks for each of the accessories' run method."""
         for acc in self.accessories.values():
-            self.driver.async_add_job(acc.run)
+            await self.driver.async_add_job(acc.run)
 
     async def stop(self):
         """Calls stop() on all contained accessories."""
