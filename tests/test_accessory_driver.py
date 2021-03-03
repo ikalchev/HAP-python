@@ -507,6 +507,8 @@ def test_async_subscribe_client_topic(driver):
     assert driver.topics == {topic: {addr_info}}
     driver.async_subscribe_client_topic(addr_info, topic, False)
     assert driver.topics == {}
+    driver.async_subscribe_client_topic(addr_info, "invalid", False)
+    assert driver.topics == {}
 
 
 def test_mdns_service_info(driver):

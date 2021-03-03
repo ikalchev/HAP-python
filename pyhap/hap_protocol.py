@@ -40,6 +40,7 @@ class HAPServerProtocol(asyncio.Protocol):
             self.accessory_driver.accessory.display_name,
             exc,
         )
+        self.accessory_driver.connection_lost(self.peername)
         self.close()
 
     def connection_made(self, transport: asyncio.Transport) -> None:

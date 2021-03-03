@@ -431,6 +431,24 @@ class AccessoryDriver:
         if not subscribed_clients:
             del self.topics[topic]
 
+    def connection_lost(self, client):
+        """Called when a connection is lost to a client.
+
+        This method must be run in the event loop.
+
+        :param client: A client (address, port) tuple that should be unsubscribed.
+        :type client: tuple <str, int>
+        """
+        client_topics = []
+        for topic, subscribed_clients in self.topics.items():
+            if client in subscribed_clients:
+                # Make a copy to avoid changing
+                # self.topics during iteration
+                client_topics.append(topic)
+
+        for topic in client_topics:
+            self.async_subscribe_client_topic(client, topic, subscribe=False)
+
     def publish(self, data, sender_client_addr=None):
         """Publishes an event to the client.
 

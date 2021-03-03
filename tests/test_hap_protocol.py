@@ -36,9 +36,21 @@ def test_connection_management(driver):
     """Verify closing the connection removes it from the pool."""
     loop = MagicMock()
     addr_info = ("1.2.3.4", 5)
+    addr_info2 = ("1.2.3.5", 6)
+
     transport = MagicMock(get_extra_info=Mock(return_value=addr_info))
     connections = {}
     driver.add_accessory(Accessory(driver, "TestAcc"))
+    driver.async_subscribe_client_topic(addr_info, "1.1", True)
+    driver.async_subscribe_client_topic(addr_info, "2.2", True)
+    driver.async_subscribe_client_topic(addr_info2, "1.1", True)
+
+    assert "1.1" in driver.topics
+    assert "2.2" in driver.topics
+
+    assert addr_info in driver.topics["1.1"]
+    assert addr_info in driver.topics["2.2"]
+    assert addr_info2 in driver.topics["1.1"]
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
@@ -46,11 +58,21 @@ def test_connection_management(driver):
     assert connections[addr_info] == hap_proto
     hap_proto.connection_lost(None)
     assert len(connections) == 0
+    assert "1.1" in driver.topics
+    assert "2.2" not in driver.topics
+    assert addr_info not in driver.topics["1.1"]
+    assert addr_info2 in driver.topics["1.1"]
 
     hap_proto.connection_made(transport)
     assert len(connections) == 1
     assert connections[addr_info] == hap_proto
     hap_proto.close()
+    assert len(connections) == 0
+
+    hap_proto.connection_made(transport)
+    assert len(connections) == 1
+    assert connections[addr_info] == hap_proto
+    hap_proto.connection_lost(None)
     assert len(connections) == 0
 
 
