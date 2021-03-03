@@ -8,8 +8,6 @@ import uuid
 
 import ed25519
 
-from pyhap.util import fromhex, tohex
-
 
 class AccessoryEncoder:
     """This class defines the Accessory encoder interface.
@@ -52,14 +50,15 @@ class AccessoryEncoder:
             - UUID and public key of paired clients.
             - Config version.
         """
-        paired_clients = {str(client): tohex(key)
-                          for client, key in state.paired_clients.items()}
+        paired_clients = {
+            str(client): bytes.hex(key) for client, key in state.paired_clients.items()
+        }
         config_state = {
-            'mac': state.mac,
-            'config_version': state.config_version,
-            'paired_clients': paired_clients,
-            'private_key': tohex(state.private_key.to_seed()),
-            'public_key': tohex(state.public_key.to_bytes()),
+            "mac": state.mac,
+            "config_version": state.config_version,
+            "paired_clients": paired_clients,
+            "private_key": bytes.hex(state.private_key.to_seed()),
+            "public_key": bytes.hex(state.public_key.to_bytes()),
         }
         json.dump(config_state, fp)
 
@@ -70,10 +69,11 @@ class AccessoryEncoder:
         @see: AccessoryEncoder.persist
         """
         loaded = json.load(fp)
-        state.mac = loaded['mac']
-        state.config_version = loaded['config_version']
-        state.paired_clients = {uuid.UUID(client): fromhex(key)
-                                for client, key in
-                                loaded['paired_clients'].items()}
-        state.private_key = ed25519.SigningKey(fromhex(loaded['private_key']))
-        state.public_key = ed25519.VerifyingKey(fromhex(loaded['public_key']))
+        state.mac = loaded["mac"]
+        state.config_version = loaded["config_version"]
+        state.paired_clients = {
+            uuid.UUID(client): bytes.fromhex(key)
+            for client, key in loaded["paired_clients"].items()
+        }
+        state.private_key = ed25519.SigningKey(bytes.fromhex(loaded["private_key"]))
+        state.public_key = ed25519.VerifyingKey(bytes.fromhex(loaded["public_key"]))
