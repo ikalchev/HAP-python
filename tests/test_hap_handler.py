@@ -419,3 +419,58 @@ def test_handle_get_characteristics_encrypted(driver):
 
     assert response.status_code == 207
     assert b"-70402" in response.body
+
+
+def test_invalid_pairing_two(driver):
+    """Verify we respond with error with invalid request."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M3,
+        hap_handler.HAP_TLV_TAGS.ENCRYPTED_DATA,
+        b"",
+        hap_handler.HAP_TLV_TAGS.PUBLIC_KEY,
+        b"",
+        hap_handler.HAP_TLV_TAGS.PASSWORD_PROOF,
+        b"",
+    )
+    handler.accessory_handler.setup_srp_verifier()
+    handler.handle_pairing()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M4,
+        hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.AUTHENTICATION,
+    }
+
+
+def test_invalid_pairing_three(driver):
+    """Verify we respond with error with invalid request."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M5,
+        hap_handler.HAP_TLV_TAGS.ENCRYPTED_DATA,
+        b"",
+    )
+    handler.accessory_handler.setup_srp_verifier()
+    handler.accessory_handler.srp_verifier.set_A(b"")
+    handler.handle_pairing()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M6,
+        hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.AUTHENTICATION,
+    }
