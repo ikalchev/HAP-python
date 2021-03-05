@@ -218,7 +218,6 @@ class HAPServerHandler:
         )
 
         path = urlparse(self.path).path
-        assert path in self.HANDLERS[self.command]
         try:
             getattr(self, self.HANDLERS[self.command][path])()
         except UnprivilegedRequestException:
@@ -340,10 +339,13 @@ class HAPServerHandler:
         )
 
         cipher = ChaCha20Poly1305(hkdf_enc_key)
-        decrypted_data = cipher.decrypt(
-            self.PAIRING_3_NONCE, bytes(encrypted_data), b""
-        )
-        assert decrypted_data is not None
+        try:
+            decrypted_data = cipher.decrypt(
+                self.PAIRING_3_NONCE, bytes(encrypted_data), b""
+            )
+        except InvalidTag:
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M6)
+            return
 
         dec_tlv_objects = tlv.decode(bytes(decrypted_data))
         client_username = dec_tlv_objects[HAP_TLV_TAGS.USERNAME]
@@ -515,8 +517,6 @@ class HAPServerHandler:
         except InvalidTag:
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
-
-        assert decrypted_data is not None  # TODO:
 
         dec_tlv_objects = tlv.decode(bytes(decrypted_data))
         client_username = dec_tlv_objects[HAP_TLV_TAGS.USERNAME]
