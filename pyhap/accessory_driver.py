@@ -231,7 +231,7 @@ class AccessoryDriver:
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.loader = loader or Loader()
-        self.aio_stop_event = asyncio.Event(loop=loop)
+        self.aio_stop_event = None
         self.stop_event = threading.Event()
 
         self.safe_mode = False
@@ -266,7 +266,7 @@ class AccessoryDriver:
                     "Not setting a child watcher. Set one if "
                     "subprocesses will be started outside the main thread."
                 )
-            self.add_job(self.start_service)
+            self.add_job(self.async_start())
             self.loop.run_forever()
         except KeyboardInterrupt:
             logger.debug("Got a KeyboardInterrupt, stopping driver")
@@ -277,6 +277,19 @@ class AccessoryDriver:
             logger.info("Closed the event loop")
 
     def start_service(self):
+        """Start the service."""
+        self._validate_start()
+        self.add_job(self.async_start)
+
+    def _validate_start(self):
+        """Validate we can start."""
+        if self.accessory is None:
+            raise ValueError(
+                "You must assign an accessory to the driver, "
+                "before you can start it."
+            )
+
+    async def async_start(self):
         """Starts the accessory.
 
         - Call the accessory's run method.
@@ -288,11 +301,9 @@ class AccessoryDriver:
         All of the above are started in separate threads. Accessory thread is set as
         daemon.
         """
-        if self.accessory is None:
-            raise ValueError(
-                "You must assign an accessory to the driver, "
-                "before you can start it."
-            )
+        self._validate_start()
+        self.aio_stop_event = asyncio.Event()
+
         logger.info(
             "Starting accessory %s on address %s, port %s.",
             self.accessory.display_name,
@@ -302,12 +313,14 @@ class AccessoryDriver:
 
         # Start listening for requests
         logger.debug("Starting server.")
-        self.add_job(self.http_server.async_start, self.loop)
+        await self.http_server.async_start(self.loop)
 
         # Advertise the accessory as a mDNS service.
         logger.debug("Starting mDNS.")
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory, self.state)
-        self.advertiser.register_service(self.mdns_service_info)
+        await self.loop.run_in_executor(
+            None, self.advertiser.register_service, self.mdns_service_info
+        )
 
         # Print accessory setup message
         if not self.state.paired:
