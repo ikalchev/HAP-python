@@ -102,7 +102,7 @@ def byte_bool(boolv):
     return b"\x01" if boolv else b"\x00"
 
 
-async def event_wait(event, timeout, loop=None):
+async def event_wait(event, timeout):
     """Wait for the given event to be set or for the timeout to expire.
 
     :param event: The event to wait for.
@@ -115,7 +115,7 @@ async def event_wait(event, timeout, loop=None):
     :rtype: bool
     """
     try:
-        await asyncio.wait_for(event.wait(), timeout, loop=loop)
+        await asyncio.wait_for(event.wait(), timeout)
     except asyncio.TimeoutError:
         pass
     return event.is_set()
