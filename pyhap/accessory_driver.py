@@ -18,16 +18,15 @@ the Characteristic does not block waiting for the actual send to happen.
 import asyncio
 import base64
 from concurrent.futures import ThreadPoolExecutor
-import functools
 import hashlib
-import tempfile
 import json
 import logging
 import os
+import re
 import socket
 import sys
+import tempfile
 import threading
-import re
 
 from zeroconf import ServiceInfo, Zeroconf
 
@@ -35,7 +34,6 @@ from pyhap import util
 from pyhap.accessory import get_topic
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import (
-    MAX_CONFIG_VERSION,
     HAP_PERMISSION_NOTIFY,
     HAP_REPR_ACCS,
     HAP_REPR_AID,
@@ -43,6 +41,7 @@ from pyhap.const import (
     HAP_REPR_IID,
     HAP_REPR_STATUS,
     HAP_REPR_VALUE,
+    MAX_CONFIG_VERSION,
     STANDALONE_AID,
 )
 from pyhap.encoder import AccessoryEncoder
@@ -51,6 +50,7 @@ from pyhap.hsrp import Server as SrpServer
 from pyhap.loader import Loader
 from pyhap.params import get_srp_context
 from pyhap.state import State
+
 from .util import callback
 
 logger = logging.getLogger(__name__)
@@ -62,20 +62,6 @@ SERVICE_CHARS = "chars"
 SERVICE_IIDS = "iids"
 HAP_SERVICE_TYPE = "_hap._tcp.local."
 VALID_MDNS_REGEX = re.compile(r"[^A-Za-z0-9\-]+")
-
-
-def is_callback(func):
-    """Check if function is callback."""
-    return "_pyhap_callback" in getattr(func, "__dict__", {})
-
-
-def iscoro(func):
-    """Check if the function is a coroutine or if the function is a ``functools.partial``,
-    check the wrapped function for the same.
-    """
-    if isinstance(func, functools.partial):
-        func = func.func
-    return asyncio.iscoroutinefunction(func)
 
 
 class AccessoryMDNSServiceInfo(ServiceInfo):
@@ -335,7 +321,7 @@ class AccessoryDriver:
 
     def stop(self):
         """Method to stop pyhap."""
-        self.loop.call_soon_threadsafe(self.loop.create_task, self.async_stop())
+        self.add_job(self.async_stop)
 
     async def async_stop(self):
         """Stops the AccessoryDriver and shutdown all remaining tasks."""
@@ -389,9 +375,9 @@ class AccessoryDriver:
 
         if asyncio.iscoroutine(target):
             task = self.loop.create_task(target)
-        elif is_callback(target):
+        elif util.is_callback(target):
             self.loop.call_soon(target, *args)
-        elif iscoro(target):
+        elif util.iscoro(target):
             task = self.loop.create_task(target(*args))
         else:
             task = self.loop.run_in_executor(None, target, *args)
