@@ -14,9 +14,10 @@ from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 import curve25519
 import ed25519
 
+from pyhap.const import CATEGORY_BRIDGE
 import pyhap.tlv as tlv
 from pyhap.util import long_to_bytes
-from pyhap.const import CATEGORY_BRIDGE
+
 from .hap_crypto import hap_hkdf, pad_tls_nonce
 
 SNAPSHOT_TIMEOUT = 10
@@ -92,10 +93,6 @@ class HAP_SERVER_STATUS:
 class HAP_PERMISSIONS:
     USER = b"\x00"
     ADMIN = b"\x01"
-
-
-class TimeoutException(Exception):
-    pass
 
 
 class UnprivilegedRequestException(Exception):
@@ -221,15 +218,12 @@ class HAPServerHandler:
         )
 
         path = urlparse(self.path).path
-        assert path in self.HANDLERS[self.command]
         try:
             getattr(self, self.HANDLERS[self.command][path])()
         except UnprivilegedRequestException:
             self.send_response_with_status(
                 HTTPStatus.UNAUTHORIZED, HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
             )
-        except TimeoutException:
-            self.send_response_with_status(500, HAP_SERVER_STATUS.OPERATION_TIMED_OUT)
         except Exception:  # pylint: disable=broad-except
             logger.exception(
                 "%s: Failed to process request for: %s", self.client_address, path
@@ -239,11 +233,6 @@ class HAPServerHandler:
                 HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             )
 
-        body_len = len(self.response.body)
-        if body_len:
-            # Force Content-Length as iOS can sometimes
-            # stall if it gets chunked encoding
-            self.send_header("Content-Length", str(body_len))
         self.response = None
         return response
 
@@ -350,10 +339,13 @@ class HAPServerHandler:
         )
 
         cipher = ChaCha20Poly1305(hkdf_enc_key)
-        decrypted_data = cipher.decrypt(
-            self.PAIRING_3_NONCE, bytes(encrypted_data), b""
-        )
-        assert decrypted_data is not None
+        try:
+            decrypted_data = cipher.decrypt(
+                self.PAIRING_3_NONCE, bytes(encrypted_data), b""
+            )
+        except InvalidTag:
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M6)
+            return
 
         dec_tlv_objects = tlv.decode(bytes(decrypted_data))
         client_username = dec_tlv_objects[HAP_TLV_TAGS.USERNAME]
@@ -525,8 +517,6 @@ class HAPServerHandler:
         except InvalidTag:
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
-
-        assert decrypted_data is not None  # TODO:
 
         dec_tlv_objects = tlv.decode(bytes(decrypted_data))
         client_username = dec_tlv_objects[HAP_TLV_TAGS.USERNAME]

@@ -1,6 +1,10 @@
 """Tests for pyhap.accessory."""
+from io import StringIO
+from unittest.mock import patch
+
 import pytest
 
+from pyhap import accessory
 from pyhap.accessory import Accessory, Bridge
 from pyhap.const import (
     CATEGORY_CAMERA,
@@ -8,7 +12,10 @@ from pyhap.const import (
     CATEGORY_TELEVISION,
     STANDALONE_AID,
 )
+from pyhap.service import Service
 from pyhap.state import State
+
+from . import AsyncMock
 
 # #### Accessory ######
 # execute with `-k acc`
@@ -27,20 +34,6 @@ def test_acc_publish_no_broker(mock_driver):
     char.set_value(25, should_notify=True)
 
 
-def test_acc_set_services_compatible(mock_driver):
-    """Test deprecated method _set_services."""
-
-    class Acc(Accessory):
-        def _set_services(self):
-            super()._set_services()
-            serv = self.driver.loader.get_service("TemperatureSensor")
-            self.add_service(serv)
-
-    acc = Acc(mock_driver, "Test Accessory")
-    assert acc.get_service("AccessoryInformation") is not None
-    assert acc.get_service("TemperatureSensor") is not None
-
-
 def test_acc_set_primary_service(mock_driver):
     """Test method set_primary_service."""
     acc = Accessory(mock_driver, "Test Accessory")
@@ -54,6 +47,23 @@ def test_acc_set_primary_service(mock_driver):
     acc.set_primary_service(service)
     assert acc.get_service("Television").is_primary_service is True
     assert acc.get_service("TelevisionSpeaker").is_primary_service is False
+
+
+def test_acc_add_preload_service_without_chars(mock_driver):
+    """Test method add_preload_service."""
+    acc = Accessory(mock_driver, "Test Accessory")
+
+    serv = acc.add_preload_service("Television")
+    assert isinstance(serv, Service)
+
+
+def test_acc_add_preload_service_with_chars(mock_driver):
+    """Test method add_preload_service with additional chars."""
+    acc = Accessory(mock_driver, "Test Accessory")
+
+    serv = acc.add_preload_service("Television", chars=["ActiveIdentifier"])
+    assert isinstance(serv, Service)
+    assert serv.get_characteristic("ActiveIdentifier") is not None
 
 
 # #### Bridge ############
@@ -92,6 +102,31 @@ def test_bridge_n_add_accessory_dup_aid(mock_driver):
         bridge.add_accessory(acc_2)
 
 
+@patch("sys.stdout", new_callable=StringIO)
+def test_setup_message_without_qr_code(mock_stdout, mock_driver):
+    """Verify we print out the setup code."""
+    acc = Accessory(mock_driver, "Test Accessory", aid=STANDALONE_AID)
+    mock_driver.state = State(
+        address="1.2.3.4", mac="AA::BB::CC::DD::EE", pincode=b"653-32-1211", port=44
+    )
+    with patch.object(accessory, "SUPPORT_QR_CODE", False):
+        acc.setup_message()
+    assert "653-32-1211" in mock_stdout.getvalue()
+
+
+@patch("sys.stdout", new_callable=StringIO)
+def test_setup_message_with_qr_code(mock_stdout, mock_driver):
+    """Verify we can print out a QR code."""
+    acc = Accessory(mock_driver, "Test Accessory", aid=STANDALONE_AID)
+    mock_driver.state = State(
+        address="1.2.3.4", mac="AA::BB::CC::DD::EE", pincode=b"653-32-1211", port=44
+    )
+    with patch.object(accessory, "SUPPORT_QR_CODE", True):
+        acc.setup_message()
+    assert "653-32-1211" in mock_stdout.getvalue()
+    assert "\x1b[7m" in mock_stdout.getvalue()
+
+
 def test_xhm_uri(mock_driver):
     acc_1 = Accessory(mock_driver, "Test Accessory 1", aid=2)
     acc_1.category = CATEGORY_CAMERA
@@ -124,6 +159,43 @@ def test_set_info_service(mock_driver):
     assert serv_info.get_characteristic("Manufacturer").value == "manufacturer"
     assert serv_info.get_characteristic("Model").value == "model"
     assert serv_info.get_characteristic("SerialNumber").value == "serial"
+
+
+def test_set_info_service_empty(mock_driver):
+    acc_1 = Accessory(mock_driver, "Test Accessory 1", aid=2)
+    acc_1.set_info_service()
+    serv_info = acc_1.get_service("AccessoryInformation")
+    assert serv_info.get_characteristic("FirmwareRevision").value == ""
+    assert serv_info.get_characteristic("Manufacturer").value == ""
+    assert serv_info.get_characteristic("Model").value == ""
+    assert serv_info.get_characteristic("SerialNumber").value == "default"
+
+
+def test_set_info_service_invalid_serial(mock_driver):
+    acc_1 = Accessory(mock_driver, "Test Accessory 1", aid=2)
+    acc_1.set_info_service(serial_number="")
+    serv_info = acc_1.get_service("AccessoryInformation")
+    assert serv_info.get_characteristic("FirmwareRevision").value == ""
+    assert serv_info.get_characteristic("Manufacturer").value == ""
+    assert serv_info.get_characteristic("Model").value == ""
+    assert serv_info.get_characteristic("SerialNumber").value == "default"
+
+
+def test_get_characteristic(mock_driver):
+    bridge = Bridge(mock_driver, "Test Bridge")
+    acc = Accessory(mock_driver, "Test Accessory", aid=2)
+    assert acc.available is True
+    assert bridge.aid == 1
+    assert bridge.get_characteristic(1, 2).display_name == "Identify"
+    assert bridge.get_characteristic(2, 2) is None
+    assert bridge.get_characteristic(3, 2) is None
+
+
+def test_cannot_add_bridge_to_bridge(mock_driver):
+    bridge = Bridge(mock_driver, "Test Bridge")
+    bridge2 = Bridge(mock_driver, "Test Bridge")
+    with pytest.raises(ValueError):
+        bridge.add_accessory(bridge2)
 
 
 def test_to_hap(mock_driver):
@@ -308,3 +380,18 @@ def test_to_hap(mock_driver):
             }
         ],
     }
+
+
+@pytest.mark.asyncio
+async def test_bridge_run_stop(mock_driver):
+    mock_driver.async_add_job = AsyncMock()
+    bridge = Bridge(mock_driver, "Test Bridge")
+    acc = Accessory(mock_driver, "Test Accessory", aid=2)
+    assert acc.available is True
+    bridge.add_accessory(acc)
+    acc2 = Accessory(mock_driver, "Test Accessory 2")
+    bridge.add_accessory(acc2)
+
+    await bridge.run()
+    assert mock_driver.async_add_job.called
+    await bridge.stop()

@@ -4,6 +4,7 @@ The HAPServerProtocol is a protocol implementation that manages the "TLS" of the
 """
 import asyncio
 import logging
+import time
 
 from cryptography.exceptions import InvalidTag
 import h11
@@ -12,6 +13,14 @@ from .hap_crypto import HAPCrypto
 from .hap_handler import HAPResponse, HAPServerHandler
 
 logger = logging.getLogger(__name__)
+
+HIGH_WRITE_BUFFER_SIZE = 2 ** 19
+# We timeout idle connections after 90 hours as we must
+# clean up unused sockets periodically. 90 hours was choosen
+# as its the longest time we expect a user to be away from
+# their phone or device before they have to resync when they
+# reopen homekit.
+IDLE_CONNECTION_TIMEOUT_SECONDS = 90 * 60 * 60
 
 
 class HAPServerProtocol(asyncio.Protocol):
@@ -30,6 +39,7 @@ class HAPServerProtocol(asyncio.Protocol):
         self.request_body = None
         self.response = None
 
+        self.last_activity = None
         self.hap_crypto = None
 
     def connection_lost(self, exc: Exception) -> None:
@@ -40,16 +50,22 @@ class HAPServerProtocol(asyncio.Protocol):
             self.accessory_driver.accessory.display_name,
             exc,
         )
+        self.accessory_driver.connection_lost(self.peername)
         self.close()
 
     def connection_made(self, transport: asyncio.Transport) -> None:
         """Handle incoming connection."""
+        self.last_activity = time.time()
         peername = transport.get_extra_info("peername")
         logger.info(
             "%s: Connection made to %s",
             peername,
             self.accessory_driver.accessory.display_name,
         )
+        # Ensure we do not write a partial encrypted response
+        # as it can cause the controller to send a RST and drop
+        # the connection with large responses.
+        transport.set_write_buffer_limits(high=HIGH_WRITE_BUFFER_SIZE)
         self.transport = transport
         self.peername = peername
         self.connections[peername] = self
@@ -57,6 +73,7 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def write(self, data: bytes) -> None:
         """Write data to the client."""
+        self.last_activity = time.time()
         if self.hap_crypto:
             result = self.hap_crypto.encrypt(data)
             logger.debug("%s: Send encrypted: %s", self.peername, data)
@@ -73,6 +90,11 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def send_response(self, response: HAPResponse) -> None:
         """Send a HAPResponse object."""
+        body_len = len(response.body)
+        if body_len:
+            # Force Content-Length as iOS can sometimes
+            # stall if it gets chunked encoding
+            response.headers.append(("Content-Length", str(body_len)))
         self.write(
             self.conn.send(
                 h11.Response(
@@ -84,9 +106,28 @@ class HAPServerProtocol(asyncio.Protocol):
             + self.conn.send(h11.Data(data=response.body))
             + self.conn.send(h11.EndOfMessage())
         )
+        self.transport.resume_reading()
+
+    def finish_and_close(self):
+        """Cleanly finish and close the connection."""
+        self.conn.send(h11.ConnectionClosed())
+        self.close()
+
+    def check_idle(self, now) -> None:
+        """Abort when do not get any data within the timeout."""
+        if self.last_activity + IDLE_CONNECTION_TIMEOUT_SECONDS >= now:
+            return
+        logger.info(
+            "%s: Idle time out after %s to %s",
+            self.peername,
+            IDLE_CONNECTION_TIMEOUT_SECONDS,
+            self.accessory_driver.accessory.display_name,
+        )
+        self.close()
 
     def data_received(self, data: bytes) -> None:
         """Process new data from the socket."""
+        self.last_activity = time.time()
         if self.hap_crypto:
             self.hap_crypto.receive_data(data)
             try:
@@ -106,19 +147,18 @@ class HAPServerProtocol(asyncio.Protocol):
             self.conn.receive_data(data)
             logger.debug("%s: Recv unencrypted: %s", self.peername, data)
 
-        while self._process_one_event():
-            pass
+        try:
+            while self._process_one_event():
+                if self.conn.our_state is h11.MUST_CLOSE:
+                    self.finish_and_close()
+        except h11.ProtocolError as protocol_ex:
+            self._handle_invalid_conn_state(protocol_ex)
 
     def _process_one_event(self) -> bool:
         """Process one http event."""
-        if self.conn.our_state is h11.MUST_CLOSE:
-            return self._handle_invalid_conn_state("connection state is must close")
-
         event = self.conn.next_event()
-
         logger.debug("%s: h11 Event: %s", self.peername, event)
-
-        if event is h11.NEED_DATA:
+        if event in (h11.NEED_DATA, h11.ConnectionClosed):
             return False
 
         if event is h11.PAUSED:
@@ -135,6 +175,7 @@ class HAPServerProtocol(asyncio.Protocol):
             return True
 
         if isinstance(event, h11.EndOfMessage):
+            self.transport.pause_reading()
             response = self.handler.dispatch(self.request, bytes(self.request_body))
             self._process_response(response)
             self.request = None
@@ -168,7 +209,10 @@ class HAPServerProtocol(asyncio.Protocol):
         self.response = None
         try:
             response.body = task.result()
-        except Exception:  # pylint: disable=broad-except
+        except Exception as ex:  # pylint: disable=broad-except
+            logger.debug(
+                "%s: exception during delayed response", self.peername, exc_info=ex
+            )
             response = self.handler.generic_failure_response()
         self.send_response(response)
 

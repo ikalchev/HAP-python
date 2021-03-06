@@ -18,16 +18,15 @@ the Characteristic does not block waiting for the actual send to happen.
 import asyncio
 import base64
 from concurrent.futures import ThreadPoolExecutor
-import functools
 import hashlib
-import tempfile
 import json
 import logging
 import os
+import re
 import socket
 import sys
+import tempfile
 import threading
-import re
 
 from zeroconf import ServiceInfo, Zeroconf
 
@@ -35,7 +34,6 @@ from pyhap import util
 from pyhap.accessory import get_topic
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import (
-    MAX_CONFIG_VERSION,
     HAP_PERMISSION_NOTIFY,
     HAP_REPR_ACCS,
     HAP_REPR_AID,
@@ -43,6 +41,7 @@ from pyhap.const import (
     HAP_REPR_IID,
     HAP_REPR_STATUS,
     HAP_REPR_VALUE,
+    MAX_CONFIG_VERSION,
     STANDALONE_AID,
 )
 from pyhap.encoder import AccessoryEncoder
@@ -51,6 +50,7 @@ from pyhap.hsrp import Server as SrpServer
 from pyhap.loader import Loader
 from pyhap.params import get_srp_context
 from pyhap.state import State
+
 from .util import callback
 
 logger = logging.getLogger(__name__)
@@ -62,20 +62,6 @@ SERVICE_CHARS = "chars"
 SERVICE_IIDS = "iids"
 HAP_SERVICE_TYPE = "_hap._tcp.local."
 VALID_MDNS_REGEX = re.compile(r"[^A-Za-z0-9\-]+")
-
-
-def is_callback(func):
-    """Check if function is callback."""
-    return "_pyhap_callback" in getattr(func, "__dict__", {})
-
-
-def iscoro(func):
-    """Check if the function is a coroutine or if the function is a ``functools.partial``,
-    check the wrapped function for the same.
-    """
-    if isinstance(func, functools.partial):
-        func = func.func
-    return asyncio.iscoroutinefunction(func)
 
 
 class AccessoryMDNSServiceInfo(ServiceInfo):
@@ -231,7 +217,7 @@ class AccessoryDriver:
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         self.loader = loader or Loader()
-        self.aio_stop_event = asyncio.Event(loop=loop)
+        self.aio_stop_event = None
         self.stop_event = threading.Event()
 
         self.safe_mode = False
@@ -266,7 +252,7 @@ class AccessoryDriver:
                     "Not setting a child watcher. Set one if "
                     "subprocesses will be started outside the main thread."
                 )
-            self.add_job(self.start_service)
+            self.add_job(self.async_start())
             self.loop.run_forever()
         except KeyboardInterrupt:
             logger.debug("Got a KeyboardInterrupt, stopping driver")
@@ -277,6 +263,19 @@ class AccessoryDriver:
             logger.info("Closed the event loop")
 
     def start_service(self):
+        """Start the service."""
+        self._validate_start()
+        self.add_job(self.async_start)
+
+    def _validate_start(self):
+        """Validate we can start."""
+        if self.accessory is None:
+            raise ValueError(
+                "You must assign an accessory to the driver, "
+                "before you can start it."
+            )
+
+    async def async_start(self):
         """Starts the accessory.
 
         - Call the accessory's run method.
@@ -288,11 +287,9 @@ class AccessoryDriver:
         All of the above are started in separate threads. Accessory thread is set as
         daemon.
         """
-        if self.accessory is None:
-            raise ValueError(
-                "You must assign an accessory to the driver, "
-                "before you can start it."
-            )
+        self._validate_start()
+        self.aio_stop_event = asyncio.Event()
+
         logger.info(
             "Starting accessory %s on address %s, port %s.",
             self.accessory.display_name,
@@ -302,12 +299,14 @@ class AccessoryDriver:
 
         # Start listening for requests
         logger.debug("Starting server.")
-        self.add_job(self.http_server.async_start, self.loop)
+        await self.http_server.async_start(self.loop)
 
         # Advertise the accessory as a mDNS service.
         logger.debug("Starting mDNS.")
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory, self.state)
-        self.advertiser.register_service(self.mdns_service_info)
+        await self.loop.run_in_executor(
+            None, self.advertiser.register_service, self.mdns_service_info
+        )
 
         # Print accessory setup message
         if not self.state.paired:
@@ -322,7 +321,7 @@ class AccessoryDriver:
 
     def stop(self):
         """Method to stop pyhap."""
-        self.loop.call_soon_threadsafe(self.loop.create_task, self.async_stop())
+        self.add_job(self.async_stop)
 
     async def async_stop(self):
         """Stops the AccessoryDriver and shutdown all remaining tasks."""
@@ -376,9 +375,9 @@ class AccessoryDriver:
 
         if asyncio.iscoroutine(target):
             task = self.loop.create_task(target)
-        elif is_callback(target):
+        elif util.is_callback(target):
             self.loop.call_soon(target, *args)
-        elif iscoro(target):
+        elif util.iscoro(target):
             task = self.loop.create_task(target(*args))
         else:
             task = self.loop.run_in_executor(None, target, *args)
@@ -430,6 +429,24 @@ class AccessoryDriver:
         subscribed_clients.discard(client)
         if not subscribed_clients:
             del self.topics[topic]
+
+    def connection_lost(self, client):
+        """Called when a connection is lost to a client.
+
+        This method must be run in the event loop.
+
+        :param client: A client (address, port) tuple that should be unsubscribed.
+        :type client: tuple <str, int>
+        """
+        client_topics = []
+        for topic, subscribed_clients in self.topics.items():
+            if client in subscribed_clients:
+                # Make a copy to avoid changing
+                # self.topics during iteration
+                client_topics.append(topic)
+
+        for topic in client_topics:
+            self.async_subscribe_client_topic(client, topic, subscribe=False)
 
     def publish(self, data, sender_client_addr=None):
         """Publishes an event to the client.
