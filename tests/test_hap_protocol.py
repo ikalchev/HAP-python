@@ -1,5 +1,6 @@
 """Tests for the HAPServerProtocol."""
 import asyncio
+import time
 from unittest.mock import MagicMock, Mock, patch
 
 from cryptography.exceptions import InvalidTag
@@ -36,9 +37,21 @@ def test_connection_management(driver):
     """Verify closing the connection removes it from the pool."""
     loop = MagicMock()
     addr_info = ("1.2.3.4", 5)
+    addr_info2 = ("1.2.3.5", 6)
+
     transport = MagicMock(get_extra_info=Mock(return_value=addr_info))
     connections = {}
     driver.add_accessory(Accessory(driver, "TestAcc"))
+    driver.async_subscribe_client_topic(addr_info, "1.1", True)
+    driver.async_subscribe_client_topic(addr_info, "2.2", True)
+    driver.async_subscribe_client_topic(addr_info2, "1.1", True)
+
+    assert "1.1" in driver.topics
+    assert "2.2" in driver.topics
+
+    assert addr_info in driver.topics["1.1"]
+    assert addr_info in driver.topics["2.2"]
+    assert addr_info2 in driver.topics["1.1"]
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
@@ -46,11 +59,21 @@ def test_connection_management(driver):
     assert connections[addr_info] == hap_proto
     hap_proto.connection_lost(None)
     assert len(connections) == 0
+    assert "1.1" in driver.topics
+    assert "2.2" not in driver.topics
+    assert addr_info not in driver.topics["1.1"]
+    assert addr_info2 in driver.topics["1.1"]
 
     hap_proto.connection_made(transport)
     assert len(connections) == 1
     assert connections[addr_info] == hap_proto
     hap_proto.close()
+    assert len(connections) == 0
+
+    hap_proto.connection_made(transport)
+    assert len(connections) == 1
+    assert connections[addr_info] == hap_proto
+    hap_proto.connection_lost(None)
     assert len(connections) == 0
 
 
@@ -88,6 +111,57 @@ def test_http10_close(driver):
         hap_proto.data_received(
             b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
         )
+
+    assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
+    assert len(writer.call_args_list) == 1
+    assert connections == {}
+    hap_proto.close()
+
+
+def test_invalid_content_length(driver):
+    """Test we handle invalid content length."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 2\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 2\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+
+    assert (
+        writer.call_args_list[0][0][0].startswith(
+            b"HTTP/1.1 500 Internal Server Error\r\n"
+        )
+        is True
+    )
+    assert len(writer.call_args_list) == 1
+    assert connections == {}
+    hap_proto.close()
+
+
+def test_invalid_client_closes_connection(driver):
+    """Test we handle client closing the connection."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+        hap_proto.data_received(b"")
 
     assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
     assert len(writer.call_args_list) == 1
@@ -541,3 +615,47 @@ async def test_camera_snapshot_missing_accessory(driver):
     assert hap_proto.response is None
     assert b"-70402" in writer.call_args_list[0][0][0]
     hap_proto.close()
+
+
+@pytest.mark.asyncio
+async def test_idle_timeout(driver):
+    """Test we close the connection once we reach the idle timeout."""
+    loop = asyncio.get_event_loop()
+    transport = MagicMock()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    with patch.object(hap_protocol, "IDLE_CONNECTION_TIMEOUT_SECONDS", 0), patch.object(
+        hap_proto, "close"
+    ) as hap_proto_close, patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+        assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
+        hap_proto.check_idle(time.time())
+        assert hap_proto_close.called is True
+
+
+@pytest.mark.asyncio
+async def test_does_not_timeout(driver):
+    """Test we do not timeout the connection if we have not reached the idle."""
+    loop = asyncio.get_event_loop()
+    transport = MagicMock()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    with patch.object(hap_proto, "close") as hap_proto_close, patch.object(
+        hap_proto.transport, "write"
+    ) as writer:
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+        assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
+        hap_proto.check_idle(time.time())
+        assert hap_proto_close.called is False

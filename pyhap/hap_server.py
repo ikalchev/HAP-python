@@ -4,11 +4,14 @@ The HAPServer is the point of contact to and from the world.
 """
 
 import logging
+import time
 
-from .util import callback
 from .hap_protocol import HAPServerProtocol
+from .util import callback
 
 logger = logging.getLogger(__name__)
+
+IDLE_CONNECTION_CHECK_INTERVAL_SECONDS = 120
 
 
 class HAPServer:
@@ -52,13 +55,27 @@ class HAPServer:
         self.accessory_handler = accessory_handler
         self.server = None
         self._serve_task = None
+        self._connection_cleanup = None
+        self.loop = None
 
     async def async_start(self, loop):
         """Start the http-hap server."""
+        self.loop = loop
         self.server = await loop.create_server(
             lambda: HAPServerProtocol(loop, self.connections, self.accessory_handler),
             self._addr_port[0],
             self._addr_port[1],
+        )
+        self.async_cleanup_connections()
+
+    @callback
+    def async_cleanup_connections(self):
+        """Cleanup stale connections."""
+        now = time.time()
+        for hap_proto in list(self.connections.values()):
+            hap_proto.check_idle(now)
+        self._connection_cleanup = self.loop.call_later(
+            IDLE_CONNECTION_CHECK_INTERVAL_SECONDS, self.async_cleanup_connections
         )
 
     @callback
@@ -67,10 +84,10 @@ class HAPServer:
 
         This method must be run in the event loop.
         """
+        self._connection_cleanup.cancel()
+        for hap_proto in list(self.connections.values()):
+            hap_proto.close()
         self.server.close()
-        for hap_server_protocol in list(self.connections.values()):
-            if hap_server_protocol:
-                hap_server_protocol.close()
         self.connections.clear()
 
     def push_event(self, bytesdata, client_addr):

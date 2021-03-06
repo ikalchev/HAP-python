@@ -18,7 +18,7 @@ def encode(*args, to_base64=False):
     :rtype: ``bytes`` if ``toBase64`` is False and ``str`` otherwise.
     """
     if len(args) % 2 != 0:
-        raise ValueError('Even number of args expected (%d given)' % len(args))
+        raise ValueError("Even number of args expected (%d given)" % len(args))
 
     pieces = []
     for x in range(0, len(args), 2):
@@ -30,10 +30,9 @@ def encode(*args, to_base64=False):
         else:
             encoded = b""
             for y in range(0, total_length // 255):
-                encoded = encoded + tag + b'\xFF' + data[y * 255: (y + 1) * 255]
+                encoded = encoded + tag + b"\xFF" + data[y * 255 : (y + 1) * 255]
             remaining = total_length % 255
-            encoded = encoded + tag + struct.pack("B", remaining) \
-                + data[-remaining:]
+            encoded = encoded + tag + struct.pack("B", remaining) + data[-remaining:]
 
         pieces.append(encoded)
 
@@ -59,9 +58,9 @@ def decode(data, from_base64=False):
     while current < len(data):
         # The following hack is because bytes[x] is an int
         # and we want to keep the tag as a byte.
-        tag = data[current: current + 1]
+        tag = data[current : current + 1]
         length = data[current + 1]
-        value = data[current + 2: current + 2 + length]
+        value = data[current + 2 : current + 2 + length]
         if tag in objects:
             objects[tag] = objects[tag] + value
         else:

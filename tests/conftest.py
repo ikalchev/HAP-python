@@ -8,6 +8,8 @@ import pytest
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.loader import Loader
 
+from . import AsyncMock
+
 
 @pytest.fixture(scope="session")
 def mock_driver():
@@ -21,9 +23,15 @@ def driver():
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    with patch("pyhap.accessory_driver.HAPServer"), patch(
+    with patch(
+        "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
+    ), patch(
+        "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
+    ), patch(
         "pyhap.accessory_driver.Zeroconf"
-    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"):
+    ), patch(
+        "pyhap.accessory_driver.AccessoryDriver.persist"
+    ):
 
         yield AccessoryDriver(loop=loop)
 

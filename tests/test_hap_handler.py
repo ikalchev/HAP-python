@@ -1,12 +1,14 @@
 """Tests for the HAPServerHandler."""
 
 
+from unittest.mock import patch
 from uuid import UUID
 
 import pytest
 
 from pyhap import hap_handler
 from pyhap.accessory import Accessory, Bridge
+from pyhap.characteristic import CharacteristicError
 import pyhap.tlv as tlv
 
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
@@ -260,6 +262,30 @@ def test_pair_verify_two_invaild_state(driver):
     }
 
 
+def test_invalid_pairing_request(driver):
+    """Verify an unencrypted pair verify with an invalid sequence fails."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    driver.pair(
+        CLIENT_UUID,
+        PUBLIC_KEY,
+    )
+    assert CLIENT_UUID in driver.state.paired_clients
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M6,
+        hap_handler.HAP_TLV_TAGS.PUBLIC_KEY,
+        PUBLIC_KEY,
+    )
+    with pytest.raises(ValueError):
+        handler.handle_pair_verify()
+
+
 def test_handle_set_handle_set_characteristics_unencrypted(driver):
     """Verify an unencrypted set_characteristics."""
     acc = Accessory(driver, "TestAcc", aid=1)
@@ -363,4 +389,88 @@ def test_attempt_to_pair_when_already_paired(driver):
     assert tlv_objects == {
         hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M2,
         hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.UNAVAILABLE,
+    }
+
+
+def test_handle_get_characteristics_encrypted(driver):
+    """Verify an encrypted get_characteristics."""
+    acc = Accessory(driver, "TestAcc", aid=1)
+    assert acc.aid == 1
+    service = acc.driver.loader.get_service("GarageDoorOpener")
+    acc.add_service(service)
+    driver.add_accessory(acc)
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.path = "/characteristics?id=1.9"
+    handler.handle_get_characteristics()
+
+    assert response.status_code == 207
+    assert b'"value": 0' in response.body
+
+    with patch.object(acc.iid_manager, "get_obj", side_effect=CharacteristicError):
+        response = hap_handler.HAPResponse()
+        handler.response = response
+        handler.path = "/characteristics?id=1.9"
+        handler.handle_get_characteristics()
+
+    assert response.status_code == 207
+    assert b"-70402" in response.body
+
+
+def test_invalid_pairing_two(driver):
+    """Verify we respond with error with invalid request."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M3,
+        hap_handler.HAP_TLV_TAGS.ENCRYPTED_DATA,
+        b"",
+        hap_handler.HAP_TLV_TAGS.PUBLIC_KEY,
+        b"",
+        hap_handler.HAP_TLV_TAGS.PASSWORD_PROOF,
+        b"",
+    )
+    handler.accessory_handler.setup_srp_verifier()
+    handler.handle_pairing()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M4,
+        hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.AUTHENTICATION,
+    }
+
+
+def test_invalid_pairing_three(driver):
+    """Verify we respond with error with invalid request."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M5,
+        hap_handler.HAP_TLV_TAGS.ENCRYPTED_DATA,
+        b"",
+    )
+    handler.accessory_handler.setup_srp_verifier()
+    handler.accessory_handler.srp_verifier.set_A(b"")
+    handler.handle_pairing()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M6,
+        hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.AUTHENTICATION,
     }
