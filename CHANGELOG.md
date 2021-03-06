@@ -16,6 +16,24 @@ Sections
 ### Developers
 -->
 
+## [3.4.0] - 2021-03-06
+
+### Added
+- Python 3.10 support. [#328](https://github.com/ikalchev/HAP-python/pull/328)
+
+### Fixed
+- Improve connection stability with large responses. [#320](https://github.com/ikalchev/HAP-python/pull/320)
+- Fix `Accessroy.run` not being awaited from a bridge. [#323](https://github.com/ikalchev/HAP-python/pull/323)
+- Clean up event subscriptions on client disconnect. [#324](https://github.com/ikalchev/HAP-python/pull/324)
+
+### Removed
+- Remove legacy python code. [#321](https://github.com/ikalchev/HAP-python/pull/321)
+- Remove deprecated `get_char_loader` and `get_serv_loader`. [#322](https://github.com/ikalchev/HAP-python/pull/322)
+
+### Developers
+- Increase code coverage. [#325](https://github.com/ikalchev/HAP-python/pull/325), [#326](https://github.com/ikalchev/HAP-python/pull/326), [#330](https://github.com/ikalchev/HAP-python/pull/330), [#331](https://github.com/ikalchev/HAP-python/pull/331), [#332](https://github.com/ikalchev/HAP-python/pull/332)
+- Add bandit to CI. [#329](https://github.com/ikalchev/HAP-python/pull/329)
+
 ## [3.3.2] - 2021-03-01
 
 ### Fixed
