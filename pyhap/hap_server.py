@@ -84,12 +84,11 @@ class HAPServer:
 
         This method must be run in the event loop.
         """
-        self.server.close()
-        for hap_server_protocol in list(self.connections.values()):
-            if hap_server_protocol:
-                hap_server_protocol.close()
-        self.connections.clear()
         self._connection_cleanup.cancel()
+        for hap_proto in list(self.connections.values()):
+            hap_proto.close()
+        self.server.close()
+        self.connections.clear()
 
     def push_event(self, bytesdata, client_addr):
         """Send an event to the current connection with the provided data.

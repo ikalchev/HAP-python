@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pyhap import hap_server
+from pyhap.accessory import Accessory
 from pyhap.accessory_driver import AccessoryDriver
 
 
@@ -20,8 +21,31 @@ async def test_we_can_start_stop(driver):
     server = hap_server.HAPServer(addr_info, driver)
     await server.async_start(loop)
     server.connections[client_1_addr_info] = MagicMock()
-    server.connections[client_2_addr_info] = None
+    server.connections[client_2_addr_info] = MagicMock()
     server.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_we_can_connect():
+    """Test we can start, connect, and stop."""
+    loop = asyncio.get_event_loop()
+    with patch("pyhap.accessory_driver.Zeroconf"), patch(
+        "pyhap.accessory_driver.AccessoryDriver.persist"
+    ):
+        driver = AccessoryDriver(loop=loop)
+
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    addr_info = ("0.0.0.0", None)
+    server = hap_server.HAPServer(addr_info, driver)
+    await server.async_start(loop)
+    sock = server.server.sockets[0]
+    assert server.connections == {}
+    _, port = sock.getsockname()
+    _, writer = await asyncio.open_connection("127.0.0.1", port)
+    assert server.connections != {}
+    server.async_stop()
+    writer.close()
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@
 # pylint: disable=line-too-long, pointless-string-statement
 
 import hashlib
+
 from pyhap.hsrp import Server
 from pyhap.params import get_srp_context
 from pyhap.util import long_to_bytes
