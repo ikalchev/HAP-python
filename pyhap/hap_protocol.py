@@ -106,6 +106,12 @@ class HAPServerProtocol(asyncio.Protocol):
             + self.conn.send(h11.Data(data=response.body))
             + self.conn.send(h11.EndOfMessage())
         )
+        self.transport.resume_reading()
+
+    def finish_and_close(self):
+        """Cleanly finish and close the connection."""
+        self.conn.send(h11.ConnectionClosed())
+        self.close()
 
     def check_idle(self, now) -> None:
         """Abort when do not get any data within the timeout."""
@@ -141,19 +147,18 @@ class HAPServerProtocol(asyncio.Protocol):
             self.conn.receive_data(data)
             logger.debug("%s: Recv unencrypted: %s", self.peername, data)
 
-        while self._process_one_event():
-            pass
+        try:
+            while self._process_one_event():
+                if self.conn.our_state is h11.MUST_CLOSE:
+                    self.finish_and_close()
+        except h11.ProtocolError as protocol_ex:
+            self._handle_invalid_conn_state(protocol_ex)
 
     def _process_one_event(self) -> bool:
         """Process one http event."""
-        if self.conn.our_state is h11.MUST_CLOSE:
-            return self._handle_invalid_conn_state("connection state is must close")
-
         event = self.conn.next_event()
-
         logger.debug("%s: h11 Event: %s", self.peername, event)
-
-        if event is h11.NEED_DATA:
+        if event in (h11.NEED_DATA, h11.ConnectionClosed):
             return False
 
         if event is h11.PAUSED:
@@ -170,6 +175,7 @@ class HAPServerProtocol(asyncio.Protocol):
             return True
 
         if isinstance(event, h11.EndOfMessage):
+            self.transport.pause_reading()
             response = self.handler.dispatch(self.request, bytes(self.request_body))
             self._process_response(response)
             self.request = None
@@ -203,7 +209,10 @@ class HAPServerProtocol(asyncio.Protocol):
         self.response = None
         try:
             response.body = task.result()
-        except Exception:  # pylint: disable=broad-except
+        except Exception as ex:  # pylint: disable=broad-except
+            logger.debug(
+                "%s: exception during delayed response", self.peername, exc_info=ex
+            )
             response = self.handler.generic_failure_response()
         self.send_response(response)
 

@@ -118,6 +118,57 @@ def test_http10_close(driver):
     hap_proto.close()
 
 
+def test_invalid_content_length(driver):
+    """Test we handle invalid content length."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 2\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 2\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+
+    assert (
+        writer.call_args_list[0][0][0].startswith(
+            b"HTTP/1.1 500 Internal Server Error\r\n"
+        )
+        is True
+    )
+    assert len(writer.call_args_list) == 1
+    assert connections == {}
+    hap_proto.close()
+
+
+def test_invalid_client_closes_connection(driver):
+    """Test we handle client closing the connection."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+        )
+        hap_proto.data_received(b"")
+
+    assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
+    assert len(writer.call_args_list) == 1
+    assert connections == {}
+    hap_proto.close()
+
+
 def test_pair_setup_split_between_packets(driver):
     """Verify an non-encrypt request."""
     loop = MagicMock()
