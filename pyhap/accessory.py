@@ -368,7 +368,7 @@ class Bridge(Accessory):
     async def run(self):
         """Schedule tasks for each of the accessories' run method."""
         for acc in self.accessories.values():
-            await self.driver.async_add_job(acc.run)
+            self.driver.async_add_job(acc.run)
 
     async def stop(self):
         """Calls stop() on all contained accessories."""

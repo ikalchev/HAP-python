@@ -1,6 +1,7 @@
 """Tests for pyhap.tlv."""
 
 import pytest
+
 from pyhap import tlv
 
 

@@ -1,4 +1,5 @@
 """Tests for pyhap.accessory."""
+import asyncio
 from io import StringIO
 from unittest.mock import patch
 
@@ -6,6 +7,7 @@ import pytest
 
 from pyhap import accessory
 from pyhap.accessory import Accessory, Bridge
+from pyhap.accessory_driver import AccessoryDriver
 from pyhap.const import (
     CATEGORY_CAMERA,
     CATEGORY_TARGET_CONTROLLER,
@@ -20,6 +22,21 @@ from . import AsyncMock
 # #### Accessory ######
 # execute with `-k acc`
 # #####################
+
+
+class TestAccessory(Accessory):
+    """An accessory that keeps track of if its stopped."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._stopped = False
+
+    async def stop(self):
+        self._stopped = True
+
+    @property
+    def stopped(self):
+        return self._stopped
 
 
 def test_acc_init(mock_driver):
@@ -383,15 +400,27 @@ def test_to_hap(mock_driver):
 
 
 @pytest.mark.asyncio
-async def test_bridge_run_stop(mock_driver):
-    mock_driver.async_add_job = AsyncMock()
-    bridge = Bridge(mock_driver, "Test Bridge")
-    acc = Accessory(mock_driver, "Test Accessory", aid=2)
-    assert acc.available is True
-    bridge.add_accessory(acc)
-    acc2 = Accessory(mock_driver, "Test Accessory 2")
-    bridge.add_accessory(acc2)
+async def test_bridge_run_stop():
+    with patch(
+        "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
+    ), patch(
+        "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
+    ), patch(
+        "pyhap.accessory_driver.Zeroconf"
+    ), patch(
+        "pyhap.accessory_driver.AccessoryDriver.persist"
+    ), patch(
+        "pyhap.accessory_driver.AccessoryDriver.load"
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop())
+        bridge = Bridge(driver, "Test Bridge")
+        acc = TestAccessory(driver, "Test Accessory", aid=2)
+        assert acc.available is True
+        bridge.add_accessory(acc)
+        acc2 = TestAccessory(driver, "Test Accessory 2")
+        bridge.add_accessory(acc2)
 
-    await bridge.run()
-    assert mock_driver.async_add_job.called
-    await bridge.stop()
+        await bridge.run()
+        await bridge.stop()
+    assert acc.stopped is True
+    assert acc2.stopped is True
