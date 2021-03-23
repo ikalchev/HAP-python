@@ -2,8 +2,8 @@
 MAJOR_VERSION = 3
 MINOR_VERSION = 4
 PATCH_VERSION = 0
-__short_version__ = '{}.{}'.format(MAJOR_VERSION, MINOR_VERSION)
-__version__ = '{}.{}'.format(__short_version__, PATCH_VERSION)
+__short_version__ = "{}.{}".format(MAJOR_VERSION, MINOR_VERSION)
+__version__ = "{}.{}".format(__short_version__, PATCH_VERSION)
 REQUIRED_PYTHON_VER = (3, 5)
 
 # ### Misc ###
@@ -51,26 +51,42 @@ CATEGORY_TARGET_CONTROLLER = 32  # Remote Controller
 
 
 # ### HAP Permissions ###
-HAP_PERMISSION_HIDDEN = 'hd'
-HAP_PERMISSION_NOTIFY = 'ev'
-HAP_PERMISSION_READ = 'pr'
-HAP_PERMISSION_WRITE = 'pw'
-HAP_PERMISSION_WRITE_RESPONSE = 'wr'
+HAP_PERMISSION_HIDDEN = "hd"
+HAP_PERMISSION_NOTIFY = "ev"
+HAP_PERMISSION_READ = "pr"
+HAP_PERMISSION_WRITE = "pw"
+HAP_PERMISSION_WRITE_RESPONSE = "wr"
 
 
 # ### HAP representation ###
-HAP_REPR_ACCS = 'accessories'
-HAP_REPR_AID = 'aid'
-HAP_REPR_CHARS = 'characteristics'
-HAP_REPR_DESC = 'description'
-HAP_REPR_FORMAT = 'format'
-HAP_REPR_IID = 'iid'
-HAP_REPR_MAX_LEN = 'maxLen'
-HAP_REPR_PERM = 'perms'
-HAP_REPR_PRIMARY = 'primary'
-HAP_REPR_SERVICES = 'services'
-HAP_REPR_LINKED = 'linked'
-HAP_REPR_STATUS = 'status'
-HAP_REPR_TYPE = 'type'
-HAP_REPR_VALUE = 'value'
-HAP_REPR_VALID_VALUES = 'valid-values'
+HAP_REPR_ACCS = "accessories"
+HAP_REPR_AID = "aid"
+HAP_REPR_CHARS = "characteristics"
+HAP_REPR_DESC = "description"
+HAP_REPR_FORMAT = "format"
+HAP_REPR_IID = "iid"
+HAP_REPR_MAX_LEN = "maxLen"
+HAP_REPR_PERM = "perms"
+HAP_REPR_PRIMARY = "primary"
+HAP_REPR_SERVICES = "services"
+HAP_REPR_LINKED = "linked"
+HAP_REPR_STATUS = "status"
+HAP_REPR_TYPE = "type"
+HAP_REPR_VALUE = "value"
+HAP_REPR_VALID_VALUES = "valid-values"
+
+
+# Status codes for underlying HAP calls
+class HAP_SERVER_STATUS:
+    SUCCESS = 0
+    INSUFFICIENT_PRIVILEGES = -70401
+    SERVICE_COMMUNICATION_FAILURE = -70402
+    RESOURCE_BUSY = -70403
+    READ_ONLY_CHARACTERISTIC = -70404
+    WRITE_ONLY_CHARACTERISTIC = -70405
+    NOTIFICATION_NOT_SUPPORTED = -70406
+    OUT_OF_RESOURCE = -70407
+    OPERATION_TIMED_OUT = -70408
+    RESOURCE_DOES_NOT_EXIST = -70409
+    INVALID_VALUE_IN_REQUEST = -70410
+    INSUFFICIENT_AUTHORIZATION = -70411

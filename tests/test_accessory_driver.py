@@ -9,11 +9,7 @@ import pytest
 
 from pyhap import util
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
-from pyhap.accessory_driver import (
-    SERVICE_COMMUNICATION_FAILURE,
-    AccessoryDriver,
-    AccessoryMDNSServiceInfo,
-)
+from pyhap.accessory_driver import AccessoryDriver, AccessoryMDNSServiceInfo
 from pyhap.characteristic import (
     HAP_FORMAT_INT,
     HAP_PERMISSION_READ,
@@ -27,6 +23,7 @@ from pyhap.const import (
     HAP_REPR_IID,
     HAP_REPR_STATUS,
     HAP_REPR_VALUE,
+    HAP_SERVER_STATUS,
 )
 from pyhap.service import Service
 from pyhap.state import State
@@ -303,12 +300,12 @@ def test_service_callbacks_partial_failure(driver):
             {
                 HAP_REPR_AID: acc.aid,
                 HAP_REPR_IID: char_on_iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             },
             {
                 HAP_REPR_AID: acc.aid,
                 HAP_REPR_IID: char_brightness_iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             },
             {
                 HAP_REPR_AID: acc2.aid,
@@ -396,17 +393,17 @@ def test_mixing_service_char_callbacks_partial_failure(driver):
             {
                 HAP_REPR_AID: acc.aid,
                 HAP_REPR_IID: char_on_iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             },
             {
                 HAP_REPR_AID: acc.aid,
                 HAP_REPR_IID: char_brightness_iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             },
             {
                 HAP_REPR_AID: acc2.aid,
                 HAP_REPR_IID: char_on2_iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             },
             {
                 HAP_REPR_AID: acc2.aid,
