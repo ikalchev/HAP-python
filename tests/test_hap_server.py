@@ -43,6 +43,9 @@ async def test_we_can_connect():
     assert server.connections == {}
     _, port = sock.getsockname()
     _, writer = await asyncio.open_connection("127.0.0.1", port)
+    # flush out any call_soon
+    for _ in range(3):
+        await asyncio.sleep(0)
     assert server.connections != {}
     server.async_stop()
     writer.close()

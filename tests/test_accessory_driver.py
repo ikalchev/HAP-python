@@ -9,11 +9,7 @@ import pytest
 
 from pyhap import util
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
-from pyhap.accessory_driver import (
-    SERVICE_COMMUNICATION_FAILURE,
-    AccessoryDriver,
-    AccessoryMDNSServiceInfo,
-)
+from pyhap.accessory_driver import AccessoryDriver, AccessoryMDNSServiceInfo
 from pyhap.characteristic import (
     HAP_FORMAT_INT,
     HAP_PERMISSION_READ,
@@ -27,6 +23,7 @@ from pyhap.const import (
     HAP_REPR_IID,
     HAP_REPR_STATUS,
     HAP_REPR_VALUE,
+    HAP_SERVER_STATUS,
 )
 from pyhap.service import Service
 from pyhap.state import State
@@ -37,6 +34,38 @@ CHAR_PROPS = {
     PROP_FORMAT: HAP_FORMAT_INT,
     PROP_PERMISSIONS: HAP_PERMISSION_READ,
 }
+
+
+class AsyncIntervalAccessory(Accessory):
+    """An accessory increments a counter at interval."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._counter = 0
+
+    @Accessory.run_at_interval(0.001)  # Run this method every 0.001 seconds
+    async def run(self):
+        self._counter += 1
+
+    @property
+    def counter(self):
+        return self._counter
+
+
+class SyncIntervalAccessory(Accessory):
+    """An accessory increments a counter at interval."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._counter = 0
+
+    @Accessory.run_at_interval(0.001)  # Run this method every 0.001 seconds
+    def run(self):  # pylint: disable=invalid-overridden-method
+        self._counter += 1
+
+    @property
+    def counter(self):
+        return self._counter
 
 
 class UnavailableAccessory(Accessory):
@@ -271,12 +300,12 @@ def test_service_callbacks_partial_failure(driver):
             {
                 HAP_REPR_AID: acc.aid,
                 HAP_REPR_IID: char_on_iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             },
             {
                 HAP_REPR_AID: acc.aid,
                 HAP_REPR_IID: char_brightness_iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             },
             {
                 HAP_REPR_AID: acc2.aid,
@@ -364,17 +393,17 @@ def test_mixing_service_char_callbacks_partial_failure(driver):
             {
                 HAP_REPR_AID: acc.aid,
                 HAP_REPR_IID: char_on_iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             },
             {
                 HAP_REPR_AID: acc.aid,
                 HAP_REPR_IID: char_brightness_iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             },
             {
                 HAP_REPR_AID: acc2.aid,
                 HAP_REPR_IID: char_on2_iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             },
             {
                 HAP_REPR_AID: acc2.aid,
@@ -670,3 +699,67 @@ async def test_call_async_add_job_with_callback(driver):
         await asyncio.sleep(0)
         await asyncio.sleep(0)
         assert called is True
+
+
+@pytest.mark.asyncio
+async def test_bridge_with_multiple_async_run_at_interval_accessories():
+    with patch(
+        "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
+    ), patch(
+        "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
+    ), patch(
+        "pyhap.accessory_driver.Zeroconf"
+    ), patch(
+        "pyhap.accessory_driver.AccessoryDriver.persist"
+    ), patch(
+        "pyhap.accessory_driver.AccessoryDriver.load"
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop())
+        bridge = Bridge(driver, "mybridge")
+        acc = AsyncIntervalAccessory(driver, "TestAcc", aid=2)
+        acc2 = AsyncIntervalAccessory(driver, "TestAcc2", aid=3)
+        acc3 = AsyncIntervalAccessory(driver, "TestAcc3", aid=4)
+        bridge.add_accessory(acc)
+        bridge.add_accessory(acc2)
+        bridge.add_accessory(acc3)
+        driver.add_accessory(bridge)
+        driver.start_service()
+        await asyncio.sleep(0.5)
+        assert not driver.loop.is_closed()
+        await driver.async_stop()
+
+    assert acc.counter > 2
+    assert acc2.counter > 2
+    assert acc3.counter > 2
+
+
+@pytest.mark.asyncio
+async def test_bridge_with_multiple_sync_run_at_interval_accessories():
+    with patch(
+        "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
+    ), patch(
+        "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
+    ), patch(
+        "pyhap.accessory_driver.Zeroconf"
+    ), patch(
+        "pyhap.accessory_driver.AccessoryDriver.persist"
+    ), patch(
+        "pyhap.accessory_driver.AccessoryDriver.load"
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop())
+        bridge = Bridge(driver, "mybridge")
+        acc = SyncIntervalAccessory(driver, "TestAcc", aid=2)
+        acc2 = SyncIntervalAccessory(driver, "TestAcc2", aid=3)
+        acc3 = SyncIntervalAccessory(driver, "TestAcc3", aid=4)
+        bridge.add_accessory(acc)
+        bridge.add_accessory(acc2)
+        bridge.add_accessory(acc3)
+        driver.add_accessory(bridge)
+        driver.start_service()
+        await asyncio.sleep(0.5)
+        assert not driver.loop.is_closed()
+        await driver.async_stop()
+
+    assert acc.counter > 2
+    assert acc2.counter > 2
+    assert acc3.counter > 2
