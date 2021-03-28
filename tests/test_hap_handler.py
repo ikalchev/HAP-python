@@ -4,6 +4,7 @@
 from unittest.mock import patch
 from uuid import UUID
 
+import json
 import pytest
 
 from pyhap import hap_handler
@@ -408,7 +409,10 @@ def test_handle_get_characteristics_encrypted(driver):
     handler.path = "/characteristics?id=1.9"
     handler.handle_get_characteristics()
 
-    assert response.status_code == 207
+    assert response.status_code == 200
+    decoded_response = json.loads(response.body.decode())
+    assert "characteristics" in decoded_response
+    assert "status" not in decoded_response["characteristics"][0]
     assert b'"value": 0' in response.body
 
     with patch.object(acc.iid_manager, "get_obj", side_effect=CharacteristicError):
@@ -418,7 +422,10 @@ def test_handle_get_characteristics_encrypted(driver):
         handler.handle_get_characteristics()
 
     assert response.status_code == 207
-    assert b"-70402" in response.body
+    decoded_response = json.loads(response.body.decode())
+    assert "characteristics" in decoded_response
+    assert "status" in decoded_response["characteristics"][0]
+    assert decoded_response["characteristics"][0]["status"] == -70402
 
 
 def test_invalid_pairing_two(driver):

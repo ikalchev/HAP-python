@@ -16,6 +16,12 @@ Sections
 ### Developers
 -->
 
+## [3.4.1] - 2021-03-28
+
+# Fixed
+- Fix `run_at_interval` with multiple accessories. [#335](https://github.com/ikalchev/HAP-python/pull/335)
+- Ensure HTTP 200 status is sent when there are no failures for `get_characteristics`. Improves battery life. [#337](https://github.com/ikalchev/HAP-python/pull/337)
+
 ## [3.4.0] - 2021-03-06
 
 ### Added

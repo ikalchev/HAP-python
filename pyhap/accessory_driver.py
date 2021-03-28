@@ -51,12 +51,11 @@ from pyhap.loader import Loader
 from pyhap.params import get_srp_context
 from pyhap.state import State
 
+from .const import HAP_SERVER_STATUS
 from .util import callback
 
 logger = logging.getLogger(__name__)
 
-CHAR_STAT_OK = 0
-SERVICE_COMMUNICATION_FAILURE = -70402
 SERVICE_CALLBACK = "callback"
 SERVICE_CHARS = "chars"
 SERVICE_IIDS = "iids"
@@ -682,7 +681,7 @@ class AccessoryDriver:
             rep = {
                 HAP_REPR_AID: aid,
                 HAP_REPR_IID: iid,
-                HAP_REPR_STATUS: SERVICE_COMMUNICATION_FAILURE,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             }
 
             try:
@@ -698,7 +697,7 @@ class AccessoryDriver:
 
                 if available:
                     rep[HAP_REPR_VALUE] = char.get_value()
-                    rep[HAP_REPR_STATUS] = CHAR_STAT_OK
+                    rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             except CharacteristicError:
                 logger.error("Error getting value for characteristic %s.", id)
             except Exception:  # pylint: disable=broad-except
@@ -761,10 +760,12 @@ class AccessoryDriver:
                     char.display_name,
                     value,
                 )
-                setter_results[aid][iid] = SERVICE_COMMUNICATION_FAILURE
+                setter_results[aid][
+                    iid
+                ] = HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
                 had_error = True
             else:
-                setter_results[aid][iid] = CHAR_STAT_OK
+                setter_results[aid][iid] = HAP_SERVER_STATUS.SUCCESS
 
             # For some services we want to send all the char value
             # changes at once.  This resolves an issue where we send
@@ -798,10 +799,10 @@ class AccessoryDriver:
                         client_addr,
                         service_name,
                     )
-                    set_result = SERVICE_COMMUNICATION_FAILURE
+                    set_result = HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
                     had_error = True
                 else:
-                    set_result = CHAR_STAT_OK
+                    set_result = HAP_SERVER_STATUS.SUCCESS
 
                 for iid in service_data[SERVICE_IIDS]:
                     setter_results[aid][iid] = set_result
