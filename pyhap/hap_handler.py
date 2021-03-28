@@ -14,7 +14,12 @@ from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 import curve25519
 import ed25519
 
-from pyhap.const import CATEGORY_BRIDGE
+from pyhap.const import (
+    CATEGORY_BRIDGE,
+    HAP_REPR_CHARS,
+    HAP_REPR_STATUS,
+    HAP_SERVER_STATUS,
+)
 import pyhap.tlv as tlv
 from pyhap.util import long_to_bytes
 
@@ -72,22 +77,6 @@ class HAP_TLV_TAGS:
     ERROR_CODE = b"\x07"
     PROOF = b"\x0A"
     PERMISSIONS = b"\x0B"
-
-
-# Status codes for underlying HAP calls
-class HAP_SERVER_STATUS:
-    SUCCESS = 0
-    INSUFFICIENT_PRIVILEGES = -70401
-    SERVICE_COMMUNICATION_FAILURE = -70402
-    RESOURCE_BUSY = -70403
-    READ_ONLY_CHARACTERISTIC = -70404
-    WRITE_ONLY_CHARACTERISTIC = -70405
-    NOTIFICATION_NOT_SUPPORTED = -70406
-    OUT_OF_RESOURCE = -70407
-    OPERATION_TIMED_OUT = -70408
-    RESOURCE_DOES_NOT_EXIST = -70409
-    INVALID_VALUE_IN_REQUEST = -70410
-    INSUFFICIENT_AUTHORIZATION = -70411
 
 
 class HAP_PERMISSIONS:
@@ -576,10 +565,22 @@ class HAPServerHandler:
 
         # Check that char exists and ...
         params = parse_qs(urlparse(self.path).query)
-        chars = self.accessory_handler.get_characteristics(params["id"][0].split(","))
+        response = self.accessory_handler.get_characteristics(
+            params["id"][0].split(",")
+        )
+        chars = response[HAP_REPR_CHARS]
 
-        data = json.dumps(chars).encode("utf-8")
-        self.send_response(HTTPStatus.MULTI_STATUS)
+        had_failure = any(
+            result[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS for result in chars
+        )
+        if had_failure:
+            self.send_response(HTTPStatus.MULTI_STATUS)
+        else:
+            self.send_response(HTTPStatus.OK)
+            for result in chars:
+                del result[HAP_REPR_STATUS]
+
+        data = json.dumps(response).encode("utf-8")
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(data)
 
