@@ -29,7 +29,7 @@ async def test_we_can_start_stop(driver):
 async def test_we_can_connect():
     """Test we can start, connect, and stop."""
     loop = asyncio.get_event_loop()
-    with patch("pyhap.accessory_driver.Zeroconf"), patch(
+    with patch("pyhap.accessory_driver.AsyncZeroconf"), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ):
         driver = AccessoryDriver(loop=loop)
@@ -59,7 +59,7 @@ async def test_idle_connection_cleanup():
     client_1_addr_info = ("1.2.3.4", 44433)
 
     with patch.object(hap_server, "IDLE_CONNECTION_CHECK_INTERVAL_SECONDS", 0), patch(
-        "pyhap.accessory_driver.Zeroconf"
+        "pyhap.accessory_driver.AsyncZeroconf"
     ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
         "pyhap.accessory_driver.AccessoryDriver.load"
     ):

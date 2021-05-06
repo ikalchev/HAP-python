@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import tempfile
 from unittest.mock import MagicMock, patch
 from uuid import uuid1
+from zeroconf import InterfaceChoice
 
 import pytest
 
@@ -89,11 +90,9 @@ def test_not_standalone_aid(driver):
         driver.add_accessory(acc)
 
 
-def test_persist_load():
+def test_persist_load(async_zeroconf):
     with tempfile.NamedTemporaryFile(mode="r+") as file:
-        with patch("pyhap.accessory_driver.HAPServer"), patch(
-            "pyhap.accessory_driver.Zeroconf"
-        ):
+        with patch("pyhap.accessory_driver.HAPServer"):
             driver = AccessoryDriver(port=51234, persist_file=file.name)
             driver.persist()
             pk = driver.state.public_key
@@ -104,11 +103,9 @@ def test_persist_load():
     assert driver.state.public_key == pk
 
 
-def test_persist_cannot_write():
+def test_persist_cannot_write(async_zeroconf):
     with tempfile.NamedTemporaryFile(mode="r+") as file:
-        with patch("pyhap.accessory_driver.HAPServer"), patch(
-            "pyhap.accessory_driver.Zeroconf"
-        ):
+        with patch("pyhap.accessory_driver.HAPServer"):
             driver = AccessoryDriver(port=51234, persist_file=file.name)
             driver.persist_file = "/file/that/will/not/exist"
             with pytest.raises(OSError):
@@ -120,7 +117,7 @@ def test_external_zeroconf():
     with patch("pyhap.accessory_driver.HAPServer"), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ):
-        driver = AccessoryDriver(port=51234, zeroconf_instance=zeroconf)
+        driver = AccessoryDriver(port=51234, async_zeroconf_instance=zeroconf)
     assert driver.advertiser == zeroconf
 
 
@@ -433,13 +430,11 @@ def test_start_from_sync(driver):
 
 
 @pytest.mark.asyncio
-async def test_start_stop_sync_acc():
+async def test_start_stop_sync_acc(async_zeroconf):
     with patch(
         "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
     ), patch(
         "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
-    ), patch(
-        "pyhap.accessory_driver.Zeroconf"
     ), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ), patch(
@@ -466,20 +461,20 @@ async def test_start_stop_sync_acc():
 
 
 @pytest.mark.asyncio
-async def test_start_stop_async_acc():
+async def test_start_stop_async_acc(async_zeroconf):
     """Verify run_at_interval closes the driver."""
     with patch(
         "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
     ), patch(
         "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
     ), patch(
-        "pyhap.accessory_driver.Zeroconf"
-    ), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ), patch(
         "pyhap.accessory_driver.AccessoryDriver.load"
     ):
-        driver = AccessoryDriver(loop=asyncio.get_event_loop())
+        driver = AccessoryDriver(
+            loop=asyncio.get_event_loop(), interface_choice=InterfaceChoice.Default
+        )
         run_event = asyncio.Event()
 
         class Acc(Accessory):
@@ -501,13 +496,11 @@ async def test_start_stop_async_acc():
 
 
 @pytest.mark.asyncio
-async def test_start_from_async_stop_from_executor():
+async def test_start_from_async_stop_from_executor(async_zeroconf):
     with patch(
         "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
     ), patch(
         "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
-    ), patch(
-        "pyhap.accessory_driver.Zeroconf"
     ), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ), patch(
@@ -618,14 +611,12 @@ def test_mdns_service_info(driver):
 
 
 @pytest.mark.asyncio
-async def test_start_service_and_update_config():
+async def test_start_service_and_update_config(async_zeroconf):
     """Test starting service and updating the config."""
     with patch(
         "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
     ), patch(
         "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
-    ), patch(
-        "pyhap.accessory_driver.Zeroconf"
     ), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ), patch(
@@ -660,10 +651,8 @@ def test_call_add_job_with_none(driver):
 async def test_call_async_add_job_with_coroutine(driver):
     """Test calling async_add_job with a coroutine."""
     with patch("pyhap.accessory_driver.HAPServer"), patch(
-        "pyhap.accessory_driver.Zeroconf"
-    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
-        "pyhap.accessory_driver.AccessoryDriver.load"
-    ):
+        "pyhap.accessory_driver.AccessoryDriver.persist"
+    ), patch("pyhap.accessory_driver.AccessoryDriver.load"):
         driver = AccessoryDriver(loop=asyncio.get_event_loop())
         called = False
 
@@ -680,13 +669,11 @@ async def test_call_async_add_job_with_coroutine(driver):
 
 
 @pytest.mark.asyncio
-async def test_call_async_add_job_with_callback(driver):
+async def test_call_async_add_job_with_callback(driver, async_zeroconf):
     """Test calling async_add_job with a coroutine."""
     with patch("pyhap.accessory_driver.HAPServer"), patch(
-        "pyhap.accessory_driver.Zeroconf"
-    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
-        "pyhap.accessory_driver.AccessoryDriver.load"
-    ):
+        "pyhap.accessory_driver.AccessoryDriver.persist"
+    ), patch("pyhap.accessory_driver.AccessoryDriver.load"):
         driver = AccessoryDriver(loop=asyncio.get_event_loop())
         called = False
 
@@ -702,13 +689,11 @@ async def test_call_async_add_job_with_callback(driver):
 
 
 @pytest.mark.asyncio
-async def test_bridge_with_multiple_async_run_at_interval_accessories():
+async def test_bridge_with_multiple_async_run_at_interval_accessories(async_zeroconf):
     with patch(
         "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
     ), patch(
         "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
-    ), patch(
-        "pyhap.accessory_driver.Zeroconf"
     ), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ), patch(
@@ -734,13 +719,11 @@ async def test_bridge_with_multiple_async_run_at_interval_accessories():
 
 
 @pytest.mark.asyncio
-async def test_bridge_with_multiple_sync_run_at_interval_accessories():
+async def test_bridge_with_multiple_sync_run_at_interval_accessories(async_zeroconf):
     with patch(
         "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
     ), patch(
         "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
-    ), patch(
-        "pyhap.accessory_driver.Zeroconf"
     ), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ), patch(

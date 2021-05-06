@@ -28,7 +28,8 @@ import sys
 import tempfile
 import threading
 
-from zeroconf import ServiceInfo, Zeroconf
+from zeroconf import ServiceInfo
+from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
 from pyhap.accessory import get_topic
@@ -138,7 +139,7 @@ class AccessoryDriver:
         listen_address=None,
         advertised_address=None,
         interface_choice=None,
-        zeroconf_instance=None
+        async_zeroconf_instance=None
     ):
         """
         Initialize a new AccessoryDriver object.
@@ -182,7 +183,7 @@ class AccessoryDriver:
         :param interface_choice: The zeroconf interfaces to listen on.
         :type InterfacesType: [InterfaceChoice.Default, InterfaceChoice.All]
 
-        :param zeroconf_instance: A Zeroconf instance. When running multiple accessories or
+        :param async_zeroconf_instance: An AsyncZeroconf instance. When running multiple accessories or
             bridges a single zeroconf instance can be shared to avoid the overhead
             of processing the same data multiple times.
         """
@@ -206,12 +207,9 @@ class AccessoryDriver:
         self.loop = loop
 
         self.accessory = None
-        if zeroconf_instance is not None:
-            self.advertiser = zeroconf_instance
-        elif interface_choice is not None:
-            self.advertiser = Zeroconf(interfaces=interface_choice)
-        else:
-            self.advertiser = Zeroconf()
+        self.advertiser = async_zeroconf_instance
+        self.interface_choice = interface_choice
+
         self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
@@ -303,8 +301,14 @@ class AccessoryDriver:
         # Advertise the accessory as a mDNS service.
         logger.debug("Starting mDNS.")
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory, self.state)
-        await self.loop.run_in_executor(
-            None, self.advertiser.register_service, self.mdns_service_info
+
+        if not self.advertiser:
+            zc_args = {}
+            if self.interface_choice is not None:
+                zc_args["interfaces"] = self.interface_choice
+            self.advertiser = AsyncZeroconf(**zc_args)
+        await self.advertiser.async_register_service(
+            self.mdns_service_info, cooperating_responders=True
         )
 
         # Print accessory setup message
@@ -324,8 +328,11 @@ class AccessoryDriver:
 
     async def async_stop(self):
         """Stops the AccessoryDriver and shutdown all remaining tasks."""
-        await self.async_add_job(self._do_stop)
+        self.stop_event.set()
         logger.debug("Stopping HAP server and event sending")
+        logger.debug("Stopping mDNS advertising for %s", self.accessory.display_name)
+        await self.advertiser.async_unregister_service(self.mdns_service_info)
+        await self.advertiser.async_close()
 
         self.aio_stop_event.set()
 
@@ -351,15 +358,6 @@ class AccessoryDriver:
             self.loop.stop()
 
         logger.debug("Stop completed")
-
-    def _do_stop(self):
-        """Stop the mDNS and set the stop event."""
-        logger.debug("Setting stop events, stopping accessory")
-        self.stop_event.set()
-
-        logger.debug("Stopping mDNS advertising for %s", self.accessory.display_name)
-        self.advertiser.unregister_service(self.mdns_service_info)
-        self.advertiser.close()
 
     def add_job(self, target, *args):
         """Add job to executor pool."""
@@ -523,9 +521,16 @@ class AccessoryDriver:
 
     def update_advertisement(self):
         """Updates the mDNS service info for the accessory."""
+        self.loop.call_soon_threadsafe(self.async_update_advertisement)
+
+    @callback
+    def async_update_advertisement(self):
+        """Updates the mDNS service info for the accessory from the event loop."""
         logger.debug("Updating mDNS advertisement")
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory, self.state)
-        self.advertiser.update_service(self.mdns_service_info)
+        asyncio.ensure_future(
+            self.advertiser.async_update_service(self.mdns_service_info)
+        )
 
     @callback
     def async_persist(self):
