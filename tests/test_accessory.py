@@ -406,7 +406,7 @@ async def test_bridge_run_stop():
     ), patch(
         "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
     ), patch(
-        "pyhap.accessory_driver.Zeroconf"
+        "pyhap.accessory_driver.AsyncZeroconf"
     ), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ), patch(
