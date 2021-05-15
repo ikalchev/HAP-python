@@ -16,8 +16,19 @@ def mock_driver():
     yield MockDriver()
 
 
+@pytest.fixture(name="async_zeroconf")
+def async_zc():
+    with patch("pyhap.accessory_driver.AsyncZeroconf") as mock_async_zeroconf:
+        aiozc = mock_async_zeroconf.return_value
+        aiozc.async_register_service = AsyncMock()
+        aiozc.async_update_service = AsyncMock()
+        aiozc.async_unregister_service = AsyncMock()
+        aiozc.async_close = AsyncMock()
+        yield aiozc
+
+
 @pytest.fixture
-def driver():
+def driver(async_zeroconf):
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
@@ -27,8 +38,6 @@ def driver():
         "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
     ), patch(
         "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
-    ), patch(
-        "pyhap.accessory_driver.Zeroconf"
     ), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ):
