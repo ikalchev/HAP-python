@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import functools
+import json
 import random
 import socket
 from uuid import UUID
@@ -152,3 +153,8 @@ def hap_type_to_uuid(hap_type):
     if "-" in hap_type:
         return UUID(hap_type)
     return UUID("0" * (8 - len(hap_type)) + hap_type + BASE_UUID)
+
+
+def to_hap_json(dump_obj):
+    """Convert an object to HAP json."""
+    return json.dumps(dump_obj, separators=(",", ":")).encode("utf-8")

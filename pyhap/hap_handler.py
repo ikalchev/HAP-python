@@ -24,6 +24,7 @@ import pyhap.tlv as tlv
 from pyhap.util import long_to_bytes
 
 from .hap_crypto import hap_hkdf, pad_tls_nonce
+from .util import to_hap_json
 
 SNAPSHOT_TIMEOUT = 10
 
@@ -240,7 +241,7 @@ class HAPServerHandler:
         """Send a generic HAP status response."""
         self.send_response(http_code)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(json.dumps({"status": hap_server_status}).encode("utf-8"))
+        self.end_response(to_hap_json({"status": hap_server_status}))
 
     def handle_pairing(self):
         """Handles arbitrary step of the pairing process."""
@@ -553,10 +554,9 @@ class HAPServerHandler:
             raise UnprivilegedRequestException
 
         hap_rep = self.accessory_handler.get_accessories()
-        data = json.dumps(hap_rep).encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(data)
+        self.end_response(to_hap_json(hap_rep))
 
     def handle_get_characteristics(self):
         """Handles a client request to get certain characteristics."""
@@ -580,9 +580,8 @@ class HAPServerHandler:
             for result in chars:
                 del result[HAP_REPR_STATUS]
 
-        data = json.dumps(response).encode("utf-8")
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(data)
+        self.end_response(to_hap_json(response))
 
     def handle_set_characteristics(self):
         """Handles a client request to update certain characteristics."""
@@ -607,7 +606,7 @@ class HAPServerHandler:
 
         self.send_response(HTTPStatus.MULTI_STATUS)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(json.dumps(response).encode("utf-8"))
+        self.end_response(to_hap_json(response))
 
     def handle_pairings(self):
         """Handles a client request to update or remove a pairing."""
