@@ -1,8 +1,11 @@
 import asyncio
 import base64
+import functools
 import random
 import socket
-import functools
+from uuid import UUID
+
+from .const import BASE_UUID
 
 ALPHANUM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 HEX_DIGITS = "0123456789ABCDEF"
@@ -134,3 +137,18 @@ async def event_wait(event, timeout):
     except asyncio.TimeoutError:
         pass
     return event.is_set()
+
+
+def uuid_to_hap_type(uuid):
+    """Convert a UUID to a HAP type."""
+    long_type = str(uuid).upper()
+    if not long_type.endswith(BASE_UUID):
+        return long_type
+    return long_type.split("-", 1)[0].lstrip("0")
+
+
+def hap_type_to_uuid(hap_type):
+    """Convert a HAP type to a UUID."""
+    if "-" in hap_type:
+        return UUID(hap_type)
+    return UUID("0" * (8 - len(hap_type)) + hap_type + BASE_UUID)

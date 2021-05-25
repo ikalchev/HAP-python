@@ -6,6 +6,8 @@ __short_version__ = "{}.{}".format(MAJOR_VERSION, MINOR_VERSION)
 __version__ = "{}.{}".format(__short_version__, PATCH_VERSION)
 REQUIRED_PYTHON_VER = (3, 5)
 
+BASE_UUID = "-0000-1000-8000-0026BB765291"
+
 # ### Misc ###
 STANDALONE_AID = 1  # Standalone accessory ID (i.e. not bridged)
 
