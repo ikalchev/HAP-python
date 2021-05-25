@@ -102,6 +102,7 @@ class Characteristic:
         "setter_callback",
         "service",
         "_uuid_str",
+        "_loader_display_name",
     )
 
     def __init__(self, display_name, type_id, properties):
@@ -127,6 +128,7 @@ class Characteristic:
         self.setter_callback = None
         self.service = None
         self._uuid_str = uuid_to_hap_type(type_id)
+        self._loader_display_name = None
 
     def __repr__(self):
         """Return the representation of the characteristic."""
@@ -263,10 +265,17 @@ class Characteristic:
         hap_rep = {
             HAP_REPR_IID: self.broker.iid_manager.get_iid(self),
             HAP_REPR_TYPE: self._uuid_str,
-            HAP_REPR_DESC: self.display_name,
             HAP_REPR_PERM: self.properties[PROP_PERMISSIONS],
             HAP_REPR_FORMAT: self.properties[PROP_FORMAT],
         }
+        # HAP_REPR_DESC (description) is optional and takes up
+        # quite a bit of space in the payload. Only include it
+        # if it has been changed from the default loader version
+        if (
+            not self._loader_display_name
+            or self._loader_display_name != self.display_name
+        ):
+            hap_rep[HAP_REPR_DESC] = self.display_name
 
         value = self.get_value()
         if self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
@@ -287,7 +296,7 @@ class Characteristic:
         return hap_rep
 
     @classmethod
-    def from_dict(cls, name, json_dict):
+    def from_dict(cls, name, json_dict, from_loader=False):
         """Initialize a characteristic object from a dict.
 
         :param json_dict: Dictionary containing at least the keys `Format`,
@@ -295,4 +304,9 @@ class Characteristic:
         :type json_dict: dict
         """
         type_id = hap_type_to_uuid(json_dict.pop("UUID"))
-        return cls(name, type_id, properties=json_dict)
+        char = cls(name, type_id, properties=json_dict)
+        if from_loader:
+            char._loader_display_name = (  # pylint: disable=protected-access
+                char.display_name
+            )
+        return char

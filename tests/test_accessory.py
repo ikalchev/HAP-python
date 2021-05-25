@@ -228,14 +228,12 @@ def test_to_hap(mock_driver):
                 {
                     "characteristics": [
                         {
-                            "description": "Identify",
                             "format": "bool",
                             "iid": 2,
                             "perms": ["pw"],
                             "type": "14",
                         },
                         {
-                            "description": "Manufacturer",
                             "format": "string",
                             "iid": 3,
                             "perms": ["pr"],
@@ -243,7 +241,6 @@ def test_to_hap(mock_driver):
                             "value": "",
                         },
                         {
-                            "description": "Model",
                             "format": "string",
                             "iid": 4,
                             "perms": ["pr"],
@@ -251,7 +248,6 @@ def test_to_hap(mock_driver):
                             "value": "",
                         },
                         {
-                            "description": "Name",
                             "format": "string",
                             "iid": 5,
                             "perms": ["pr"],
@@ -259,7 +255,6 @@ def test_to_hap(mock_driver):
                             "value": "Test Bridge",
                         },
                         {
-                            "description": "SerialNumber",
                             "format": "string",
                             "iid": 6,
                             "perms": ["pr"],
@@ -267,7 +262,6 @@ def test_to_hap(mock_driver):
                             "value": "default",
                         },
                         {
-                            "description": "FirmwareRevision",
                             "format": "string",
                             "iid": 7,
                             "perms": ["pr"],
@@ -286,14 +280,12 @@ def test_to_hap(mock_driver):
                 {
                     "characteristics": [
                         {
-                            "description": "Identify",
                             "format": "bool",
                             "iid": 2,
                             "perms": ["pw"],
                             "type": "14",
                         },
                         {
-                            "description": "Manufacturer",
                             "format": "string",
                             "iid": 3,
                             "perms": ["pr"],
@@ -301,7 +293,6 @@ def test_to_hap(mock_driver):
                             "value": "",
                         },
                         {
-                            "description": "Model",
                             "format": "string",
                             "iid": 4,
                             "perms": ["pr"],
@@ -309,7 +300,6 @@ def test_to_hap(mock_driver):
                             "value": "",
                         },
                         {
-                            "description": "Name",
                             "format": "string",
                             "iid": 5,
                             "perms": ["pr"],
@@ -317,7 +307,6 @@ def test_to_hap(mock_driver):
                             "value": "Test Accessory",
                         },
                         {
-                            "description": "SerialNumber",
                             "format": "string",
                             "iid": 6,
                             "perms": ["pr"],
@@ -325,7 +314,6 @@ def test_to_hap(mock_driver):
                             "value": "default",
                         },
                         {
-                            "description": "FirmwareRevision",
                             "format": "string",
                             "iid": 7,
                             "perms": ["pr"],
@@ -345,14 +333,12 @@ def test_to_hap(mock_driver):
             {
                 "characteristics": [
                     {
-                        "description": "Identify",
                         "format": "bool",
                         "iid": 2,
                         "perms": ["pw"],
                         "type": "14",
                     },
                     {
-                        "description": "Manufacturer",
                         "format": "string",
                         "iid": 3,
                         "perms": ["pr"],
@@ -360,7 +346,6 @@ def test_to_hap(mock_driver):
                         "value": "",
                     },
                     {
-                        "description": "Model",
                         "format": "string",
                         "iid": 4,
                         "perms": ["pr"],
@@ -368,7 +353,6 @@ def test_to_hap(mock_driver):
                         "value": "",
                     },
                     {
-                        "description": "Name",
                         "format": "string",
                         "iid": 5,
                         "perms": ["pr"],
@@ -376,7 +360,6 @@ def test_to_hap(mock_driver):
                         "value": "Test Accessory",
                     },
                     {
-                        "description": "SerialNumber",
                         "format": "string",
                         "iid": 6,
                         "perms": ["pr"],
@@ -384,7 +367,60 @@ def test_to_hap(mock_driver):
                         "value": "default",
                     },
                     {
-                        "description": "FirmwareRevision",
+                        "format": "string",
+                        "iid": 7,
+                        "perms": ["pr"],
+                        "type": "52",
+                        "value": "",
+                    },
+                ],
+                "iid": 1,
+                "type": "3E",
+            }
+        ],
+    }
+    bridge.get_characteristic(2, 2).display_name = "Custom Name Identify"
+    assert acc.to_HAP() == {
+        "aid": 2,
+        "services": [
+            {
+                "characteristics": [
+                    {
+                        "description": "Custom Name Identify",
+                        "format": "bool",
+                        "iid": 2,
+                        "perms": ["pw"],
+                        "type": "14",
+                    },
+                    {
+                        "format": "string",
+                        "iid": 3,
+                        "perms": ["pr"],
+                        "type": "20",
+                        "value": "",
+                    },
+                    {
+                        "format": "string",
+                        "iid": 4,
+                        "perms": ["pr"],
+                        "type": "21",
+                        "value": "",
+                    },
+                    {
+                        "format": "string",
+                        "iid": 5,
+                        "perms": ["pr"],
+                        "type": "23",
+                        "value": "Test Accessory",
+                    },
+                    {
+                        "format": "string",
+                        "iid": 6,
+                        "perms": ["pr"],
+                        "type": "30",
+                        "value": "default",
+                    },
+                    {
                         "format": "string",
                         "iid": 7,
                         "perms": ["pr"],
