@@ -19,7 +19,6 @@ import asyncio
 import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
-import json
 import logging
 import os
 import re
@@ -53,7 +52,7 @@ from pyhap.params import get_srp_context
 from pyhap.state import State
 
 from .const import HAP_SERVER_STATUS
-from .util import callback
+from .util import callback, to_hap_json
 
 logger = logging.getLogger(__name__)
 
@@ -460,7 +459,7 @@ class AccessoryDriver:
             return
 
         data = {HAP_REPR_CHARS: [data]}
-        bytedata = json.dumps(data).encode()
+        bytedata = to_hap_json(data)
 
         if threading.current_thread() == self.tid:
             self.async_send_event(topic, bytedata, sender_client_addr)
