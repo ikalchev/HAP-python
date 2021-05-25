@@ -52,7 +52,7 @@ from pyhap.params import get_srp_context
 from pyhap.state import State
 
 from .const import HAP_SERVER_STATUS
-from .util import callback, to_hap_json
+from .util import callback
 
 logger = logging.getLogger(__name__)
 
@@ -458,18 +458,15 @@ class AccessoryDriver:
         if topic not in self.topics:
             return
 
-        data = {HAP_REPR_CHARS: [data]}
-        bytedata = to_hap_json(data)
-
         if threading.current_thread() == self.tid:
-            self.async_send_event(topic, bytedata, sender_client_addr)
+            self.async_send_event(topic, data, sender_client_addr)
             return
 
         self.loop.call_soon_threadsafe(
-            self.async_send_event, topic, bytedata, sender_client_addr
+            self.async_send_event, topic, data, sender_client_addr
         )
 
-    def async_send_event(self, topic, bytedata, sender_client_addr):
+    def async_send_event(self, topic, data, sender_client_addr):
         """Send an event to a client.
 
         Must be called in the event loop
@@ -481,7 +478,7 @@ class AccessoryDriver:
         logger.debug(
             "Send event: topic(%s), data(%s), sender_client_addr(%s)",
             topic,
-            bytedata,
+            data,
             sender_client_addr,
         )
         unsubs = []
@@ -494,7 +491,7 @@ class AccessoryDriver:
                 )
                 continue
             logger.debug("Sending event to client: %s", client_addr)
-            pushed = self.http_server.push_event(bytedata, client_addr)
+            pushed = self.http_server.push_event(data, client_addr)
             if not pushed:
                 logger.debug(
                     "Could not send event to %s, probably stale socket.", client_addr
