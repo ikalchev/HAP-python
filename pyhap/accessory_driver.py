@@ -52,7 +52,7 @@ from pyhap.params import get_srp_context
 from pyhap.state import State
 
 from .const import HAP_SERVER_STATUS
-from .util import callback
+from .util import callback, to_hap_json
 
 logger = logging.getLogger(__name__)
 
@@ -238,7 +238,8 @@ class AccessoryDriver:
         """
         try:
             logger.info("Starting the event loop")
-            if threading.current_thread() is threading.main_thread():
+            if threading.current_thread() is threading.main_thread() \
+                    and os.name != "nt":
                 logger.debug("Setting child watcher")
                 watcher = asyncio.SafeChildWatcher()
                 watcher.attach_loop(self.loop)
