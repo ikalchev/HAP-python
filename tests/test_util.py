@@ -1,5 +1,6 @@
 """Test for pyhap.util."""
 import functools
+from uuid import UUID
 
 from pyhap import util
 
@@ -29,3 +30,19 @@ def test_iscoro():
     assert util.iscoro(functools.partial(async_function)) is True
     assert util.iscoro(async_is_callback) is False
     assert util.iscoro(async_not_callback) is False
+
+
+def test_generate_setup_id():
+    """Test generate_setup_id."""
+    assert len(util.generate_setup_id()) == 4
+
+
+def test_hap_type_to_uuid():
+    """Test we can convert short types to UUIDs."""
+    assert util.hap_type_to_uuid("32") == UUID("00000032-0000-1000-8000-0026bb765291")
+    assert util.hap_type_to_uuid("00000032") == UUID(
+        "00000032-0000-1000-8000-0026bb765291"
+    )
+    assert util.hap_type_to_uuid("00000032-0000-1000-8000-0026bb765291") == UUID(
+        "00000032-0000-1000-8000-0026bb765291"
+    )

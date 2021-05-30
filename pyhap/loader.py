@@ -45,7 +45,7 @@ class Loader:
             or "UUID" not in char_dict
         ):
             raise KeyError("Could not load char {}!".format(name))
-        return Characteristic.from_dict(name, char_dict)
+        return Characteristic.from_dict(name, char_dict, from_loader=True)
 
     def get_service(self, name):
         """Return new service object."""
