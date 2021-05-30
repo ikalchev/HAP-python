@@ -52,7 +52,7 @@ from pyhap.params import get_srp_context
 from pyhap.state import State
 
 from .const import HAP_SERVER_STATUS
-from .util import callback, to_hap_json
+from .util import callback
 
 logger = logging.getLogger(__name__)
 
