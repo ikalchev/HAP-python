@@ -238,7 +238,8 @@ class AccessoryDriver:
         """
         try:
             logger.info("Starting the event loop")
-            if threading.current_thread() is threading.main_thread():
+            if threading.current_thread() is threading.main_thread() \
+                    and os.name != "nt":
                 logger.debug("Setting child watcher")
                 watcher = asyncio.SafeChildWatcher()
                 watcher.attach_loop(self.loop)
