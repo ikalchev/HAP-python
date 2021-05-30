@@ -11,6 +11,7 @@ import h11
 
 from .hap_crypto import HAPCrypto
 from .hap_handler import HAPResponse, HAPServerHandler
+from .hap_event import create_hap_event
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class HAPServerProtocol(asyncio.Protocol):
 
         self.last_activity = None
         self.hap_crypto = None
+        self._event_queue = []
 
     def connection_lost(self, exc: Exception) -> None:
         """Handle connection lost."""
@@ -87,6 +89,11 @@ class HAPServerProtocol(asyncio.Protocol):
         if self.peername in self.connections:
             del self.connections[self.peername]
         self.transport.close()
+
+    def queue_event(self, data: dict) -> None:
+        """Queue an event for sending."""
+        self._event_queue.append(data)
+        self.loop.call_soon(self._process_events)
 
     def send_response(self, response: HAPResponse) -> None:
         """Send a HAPResponse object."""
@@ -146,13 +153,25 @@ class HAPServerProtocol(asyncio.Protocol):
         else:
             self.conn.receive_data(data)
             logger.debug("%s: Recv unencrypted: %s", self.peername, data)
+        self._process_events()
 
+    def _process_events(self):
+        """Process pending events."""
         try:
             while self._process_one_event():
                 if self.conn.our_state is h11.MUST_CLOSE:
                     self.finish_and_close()
+                    return
+            self._send_events()
         except h11.ProtocolError as protocol_ex:
             self._handle_invalid_conn_state(protocol_ex)
+
+    def _send_events(self):
+        """Send any pending events."""
+        if not self._event_queue:
+            return
+        self.write(create_hap_event(self._event_queue))
+        self._event_queue = []
 
     def _process_one_event(self) -> bool:
         """Process one http event."""

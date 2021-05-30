@@ -28,26 +28,6 @@ class HAPServer:
     implements exclusive access to the send methods.
     """
 
-    EVENT_MSG_STUB = (
-        b"EVENT/1.0 200 OK\r\n"
-        b"Content-Type: application/hap+json\r\n"
-        b"Content-Length: "
-    )
-
-    @classmethod
-    def create_hap_event(cls, bytesdata):
-        """Creates a HAP HTTP EVENT response for the given data.
-
-        @param data: Payload of the request.
-        @type data: bytes
-        """
-        return (
-            cls.EVENT_MSG_STUB
-            + str(len(bytesdata)).encode("utf-8")
-            + b"\r\n" * 2
-            + bytesdata
-        )
-
     def __init__(self, addr_port, accessory_handler):
         """Create a HAP Server."""
         self._addr_port = addr_port
@@ -90,11 +70,11 @@ class HAPServer:
         self.server.close()
         self.connections.clear()
 
-    def push_event(self, bytesdata, client_addr):
-        """Send an event to the current connection with the provided data.
+    def push_event(self, data, client_addr):
+        """Queue an event to the current connection with the provided data.
 
-        :param bytesdata: The data to send.
-        :type bytesdata: bytes
+        :param data: The charateristic changes
+        :type data: dict
 
         :param client_addr: A client (address, port) tuple to which to send the data.
         :type client_addr: tuple <str, int>
@@ -106,5 +86,5 @@ class HAPServer:
         if hap_server_protocol is None:
             logger.debug("No socket for %s", client_addr)
             return False
-        hap_server_protocol.write(self.create_hap_event(bytesdata))
+        hap_server_protocol.queue_event(data)
         return True
