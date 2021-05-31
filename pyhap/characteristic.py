@@ -6,62 +6,75 @@ a temperature measuring or a device status.
 """
 import logging
 
-from uuid import UUID
-
 from pyhap.const import (
-    HAP_PERMISSION_READ, HAP_REPR_DESC, HAP_REPR_FORMAT, HAP_REPR_IID,
-    HAP_REPR_MAX_LEN, HAP_REPR_PERM, HAP_REPR_TYPE, HAP_REPR_VALUE,
-    HAP_REPR_VALID_VALUES)
+    HAP_PERMISSION_READ,
+    HAP_REPR_DESC,
+    HAP_REPR_FORMAT,
+    HAP_REPR_IID,
+    HAP_REPR_MAX_LEN,
+    HAP_REPR_PERM,
+    HAP_REPR_TYPE,
+    HAP_REPR_VALID_VALUES,
+    HAP_REPR_VALUE,
+)
+
+from .util import hap_type_to_uuid, uuid_to_hap_type
 
 logger = logging.getLogger(__name__)
 
 # ### HAP Format ###
-HAP_FORMAT_BOOL = 'bool'
-HAP_FORMAT_INT = 'int'
-HAP_FORMAT_FLOAT = 'float'
-HAP_FORMAT_STRING = 'string'
-HAP_FORMAT_ARRAY = 'array'
-HAP_FORMAT_DICTIONARY = 'dictionary'
-HAP_FORMAT_UINT8 = 'uint8'
-HAP_FORMAT_UINT16 = 'uint16'
-HAP_FORMAT_UINT32 = 'uint32'
-HAP_FORMAT_UINT64 = 'uint64'
-HAP_FORMAT_DATA = 'data'
-HAP_FORMAT_TLV8 = 'tlv8'
+HAP_FORMAT_BOOL = "bool"
+HAP_FORMAT_INT = "int"
+HAP_FORMAT_FLOAT = "float"
+HAP_FORMAT_STRING = "string"
+HAP_FORMAT_ARRAY = "array"
+HAP_FORMAT_DICTIONARY = "dictionary"
+HAP_FORMAT_UINT8 = "uint8"
+HAP_FORMAT_UINT16 = "uint16"
+HAP_FORMAT_UINT32 = "uint32"
+HAP_FORMAT_UINT64 = "uint64"
+HAP_FORMAT_DATA = "data"
+HAP_FORMAT_TLV8 = "tlv8"
 
 HAP_FORMAT_DEFAULTS = {
     HAP_FORMAT_BOOL: False,
     HAP_FORMAT_INT: 0,
-    HAP_FORMAT_FLOAT: 0.,
-    HAP_FORMAT_STRING: '',
-    HAP_FORMAT_ARRAY: '',
-    HAP_FORMAT_DICTIONARY: '',
+    HAP_FORMAT_FLOAT: 0.0,
+    HAP_FORMAT_STRING: "",
+    HAP_FORMAT_ARRAY: "",
+    HAP_FORMAT_DICTIONARY: "",
     HAP_FORMAT_UINT8: 0,
     HAP_FORMAT_UINT16: 0,
     HAP_FORMAT_UINT32: 0,
     HAP_FORMAT_UINT64: 0,
-    HAP_FORMAT_DATA: '',
-    HAP_FORMAT_TLV8: '',
+    HAP_FORMAT_DATA: "",
+    HAP_FORMAT_TLV8: "",
 }
 
-HAP_FORMAT_NUMERICS = (HAP_FORMAT_INT, HAP_FORMAT_FLOAT, HAP_FORMAT_UINT8,
-                       HAP_FORMAT_UINT16, HAP_FORMAT_UINT32, HAP_FORMAT_UINT64)
+HAP_FORMAT_NUMERICS = (
+    HAP_FORMAT_INT,
+    HAP_FORMAT_FLOAT,
+    HAP_FORMAT_UINT8,
+    HAP_FORMAT_UINT16,
+    HAP_FORMAT_UINT32,
+    HAP_FORMAT_UINT64,
+)
 
 # ### HAP Units ###
-HAP_UNIT_ARC_DEGREE = 'arcdegrees'
-HAP_UNIT_CELSIUS = 'celsius'
-HAP_UNIT_LUX = 'lux'
-HAP_UNIT_PERCENTAGE = 'percentage'
-HAP_UNIT_SECONDS = 'seconds'
+HAP_UNIT_ARC_DEGREE = "arcdegrees"
+HAP_UNIT_CELSIUS = "celsius"
+HAP_UNIT_LUX = "lux"
+HAP_UNIT_PERCENTAGE = "percentage"
+HAP_UNIT_SECONDS = "seconds"
 
 # ### Properties ###
-PROP_FORMAT = 'Format'
-PROP_MAX_VALUE = 'maxValue'
-PROP_MIN_STEP = 'minStep'
-PROP_MIN_VALUE = 'minValue'
-PROP_PERMISSIONS = 'Permissions'
-PROP_UNIT = 'unit'
-PROP_VALID_VALUES = 'ValidValues'
+PROP_FORMAT = "Format"
+PROP_MAX_VALUE = "maxValue"
+PROP_MIN_STEP = "minStep"
+PROP_MIN_VALUE = "minValue"
+PROP_PERMISSIONS = "Permissions"
+PROP_UNIT = "unit"
+PROP_VALID_VALUES = "ValidValues"
 
 PROP_NUMERIC = (PROP_MAX_VALUE, PROP_MIN_VALUE, PROP_MIN_STEP, PROP_UNIT)
 
@@ -79,8 +92,18 @@ class Characteristic:
     like format, min and max values, valid values and others.
     """
 
-    __slots__ = ('broker', 'display_name', 'properties', 'type_id',
-                 'value', 'getter_callback', 'setter_callback', 'service', '_uuid_str')
+    __slots__ = (
+        "broker",
+        "display_name",
+        "properties",
+        "type_id",
+        "value",
+        "getter_callback",
+        "setter_callback",
+        "service",
+        "_uuid_str",
+        "_loader_display_name",
+    )
 
     def __init__(self, display_name, type_id, properties):
         """Initialise with the given properties.
@@ -104,12 +127,14 @@ class Characteristic:
         self.getter_callback = None
         self.setter_callback = None
         self.service = None
-        self._uuid_str = str(type_id).upper()
+        self._uuid_str = uuid_to_hap_type(type_id)
+        self._loader_display_name = None
 
     def __repr__(self):
         """Return the representation of the characteristic."""
-        return '<characteristic display_name={} value={} properties={}>' \
-            .format(self.display_name, self.value, self.properties)
+        return "<characteristic display_name={} value={} properties={}>".format(
+            self.display_name, self.value, self.properties
+        )
 
     def _get_default_value(self):
         """Return default value for format."""
@@ -133,8 +158,9 @@ class Characteristic:
         """Perform validation and conversion to valid value."""
         if self.properties.get(PROP_VALID_VALUES):
             if value not in self.properties[PROP_VALID_VALUES].values():
-                error_msg = '{}: value={} is an invalid value.' \
-                            .format(self.display_name, value)
+                error_msg = "{}: value={} is an invalid value.".format(
+                    self.display_name, value
+                )
                 logger.error(error_msg)
                 raise ValueError(error_msg)
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
@@ -143,8 +169,9 @@ class Characteristic:
             value = bool(value)
         elif self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
             if not isinstance(value, (int, float)):
-                error_msg = '{}: value={} is not a numeric value.' \
-                            .format(self.display_name, value)
+                error_msg = "{}: value={} is not a numeric value.".format(
+                    self.display_name, value
+                )
                 logger.error(error_msg)
                 raise ValueError(error_msg)
             value = min(self.properties.get(PROP_MAX_VALUE, value), value)
@@ -163,8 +190,7 @@ class Characteristic:
         :type valid_values: dict
         """
         if not properties and not valid_values:
-            raise ValueError(
-                'No properties or valid_values specified to override.')
+            raise ValueError("No properties or valid_values specified to override.")
 
         if properties:
             self.properties.update(properties)
@@ -196,7 +222,7 @@ class Characteristic:
             subscribed clients. Notify will be performed if the broker is set.
         :type should_notify: bool
         """
-        logger.debug('set_value: %s to %s', self.display_name, value)
+        logger.debug("set_value: %s to %s", self.display_name, value)
         value = self.to_valid_value(value)
         self.value = value
         if should_notify and self.broker:
@@ -207,8 +233,12 @@ class Characteristic:
 
         Change self.value to value and call callback.
         """
-        logger.debug('client_update_value: %s to %s from client: %s',
-                     self.display_name, value, sender_client_addr)
+        logger.debug(
+            "client_update_value: %s to %s from client: %s",
+            self.display_name,
+            value,
+            sender_client_addr,
+        )
         self.value = value
         self.notify(sender_client_addr)
         if self.setter_callback:
@@ -235,19 +265,28 @@ class Characteristic:
         hap_rep = {
             HAP_REPR_IID: self.broker.iid_manager.get_iid(self),
             HAP_REPR_TYPE: self._uuid_str,
-            HAP_REPR_DESC: self.display_name,
             HAP_REPR_PERM: self.properties[PROP_PERMISSIONS],
             HAP_REPR_FORMAT: self.properties[PROP_FORMAT],
         }
+        # HAP_REPR_DESC (description) is optional and takes up
+        # quite a bit of space in the payload. Only include it
+        # if it has been changed from the default loader version
+        if (
+            not self._loader_display_name
+            or self._loader_display_name != self.display_name
+        ):
+            hap_rep[HAP_REPR_DESC] = self.display_name
 
         value = self.get_value()
         if self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
-            hap_rep.update({k: self.properties[k] for k in
-                            self.properties.keys() & PROP_NUMERIC})
+            hap_rep.update(
+                {k: self.properties[k] for k in self.properties.keys() & PROP_NUMERIC}
+            )
 
             if PROP_VALID_VALUES in self.properties:
-                hap_rep[HAP_REPR_VALID_VALUES] = \
-                    sorted(self.properties[PROP_VALID_VALUES].values())
+                hap_rep[HAP_REPR_VALID_VALUES] = sorted(
+                    self.properties[PROP_VALID_VALUES].values()
+                )
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
             if len(value) > 64:
                 hap_rep[HAP_REPR_MAX_LEN] = min(len(value), 256)
@@ -257,12 +296,17 @@ class Characteristic:
         return hap_rep
 
     @classmethod
-    def from_dict(cls, name, json_dict):
+    def from_dict(cls, name, json_dict, from_loader=False):
         """Initialize a characteristic object from a dict.
 
         :param json_dict: Dictionary containing at least the keys `Format`,
             `Permissions` and `UUID`
         :type json_dict: dict
         """
-        type_id = UUID(json_dict.pop('UUID'))
-        return cls(name, type_id, properties=json_dict)
+        type_id = hap_type_to_uuid(json_dict.pop("UUID"))
+        char = cls(name, type_id, properties=json_dict)
+        if from_loader:
+            char._loader_display_name = (  # pylint: disable=protected-access
+                char.display_name
+            )
+        return char

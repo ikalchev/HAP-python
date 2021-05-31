@@ -8,6 +8,7 @@ import pytest
 from pyhap import hap_server
 from pyhap.accessory import Accessory
 from pyhap.accessory_driver import AccessoryDriver
+from pyhap.hap_protocol import HAPServerProtocol
 
 
 @pytest.mark.asyncio
@@ -29,7 +30,7 @@ async def test_we_can_start_stop(driver):
 async def test_we_can_connect():
     """Test we can start, connect, and stop."""
     loop = asyncio.get_event_loop()
-    with patch("pyhap.accessory_driver.Zeroconf"), patch(
+    with patch("pyhap.accessory_driver.AsyncZeroconf"), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ):
         driver = AccessoryDriver(loop=loop)
@@ -59,7 +60,7 @@ async def test_idle_connection_cleanup():
     client_1_addr_info = ("1.2.3.4", 44433)
 
     with patch.object(hap_server, "IDLE_CONNECTION_CHECK_INTERVAL_SECONDS", 0), patch(
-        "pyhap.accessory_driver.Zeroconf"
+        "pyhap.accessory_driver.AsyncZeroconf"
     ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
         "pyhap.accessory_driver.AccessoryDriver.load"
     ):
@@ -78,22 +79,32 @@ async def test_idle_connection_cleanup():
     server.async_stop()
 
 
-def test_push_event(driver):
+@pytest.mark.asyncio
+async def test_push_event(driver):
     """Test we can create and send an event."""
     addr_info = ("1.2.3.4", 1234)
     server = hap_server.HAPServer(addr_info, driver)
+    server.loop = asyncio.get_event_loop()
     hap_events = []
 
     def _save_event(hap_event):
         hap_events.append(hap_event)
 
-    hap_server_protocol = MagicMock()
+    hap_server_protocol = HAPServerProtocol(
+        server.loop, server.connections, server.accessory_handler
+    )
     hap_server_protocol.write = _save_event
 
-    assert server.push_event(b"data", addr_info) is False
+    assert server.push_event({"aid": 1}, addr_info) is False
+    await asyncio.sleep(0)
     server.connections[addr_info] = hap_server_protocol
 
-    assert server.push_event(b"data", addr_info) is True
+    assert server.push_event({"aid": 1}, addr_info) is True
+    assert server.push_event({"aid": 2}, addr_info) is True
+    assert server.push_event({"aid": 3}, addr_info) is True
+
+    await asyncio.sleep(0)
     assert hap_events == [
-        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 4\r\n\r\ndata"
+        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 51\r\n\r\n"
+        b'{"characteristics":[{"aid":1},{"aid":2},{"aid":3}]}'
     ]

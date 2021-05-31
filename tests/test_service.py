@@ -166,13 +166,20 @@ def test_linked_service_to_HAP():
         mock_char_HAP.side_effect = ("Char 1", "Char 2")
         hap_repr = service.to_HAP()
         mock_iid.assert_called_with(service)
-
-    assert hap_repr == {
-        "iid": 2,
-        "type": str(uuid).upper(),
-        "characteristics": ["Char 1", "Char 2"],
-        "linked": [mock_linked_iid()],
-    }
+        assert hap_repr == {
+            "iid": 2,
+            "type": str(uuid).upper(),
+            "characteristics": ["Char 1", "Char 2"],
+            "linked": [mock_linked_iid()],
+        }
+        # Verify we can readd it without dupes
+        service.add_linked_service(linked_service)
+        assert hap_repr == {
+            "iid": 2,
+            "type": str(uuid).upper(),
+            "characteristics": ["Char 1", "Char 2"],
+            "linked": [mock_linked_iid()],
+        }
 
 
 def test_is_primary_service_to_HAP():

@@ -413,7 +413,7 @@ def test_handle_get_characteristics_encrypted(driver):
     decoded_response = json.loads(response.body.decode())
     assert "characteristics" in decoded_response
     assert "status" not in decoded_response["characteristics"][0]
-    assert b'"value": 0' in response.body
+    assert b'"value":0' in response.body
 
     with patch.object(acc.iid_manager, "get_obj", side_effect=CharacteristicError):
         response = hap_handler.HAPResponse()
