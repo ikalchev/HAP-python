@@ -16,6 +16,16 @@ Sections
 ### Developers
 -->
 
+## [3.5.0] - 2021-05-31
+
+# Changed
+- Add async registration for zeroconf. [#342](https://github.com/ikalchev/HAP-python/pull/342)
+- Reduce payload sizes by adding support for short UUIDs and compact json (~40% reduction). [#345](https://github.com/ikalchev/HAP-python/pull/345)
+
+# Fixed
+- Coalesce events when possible. [#346](https://github.com/ikalchev/HAP-python/pull/346)
+- Remove watcher from Windows. [#343](https://github.com/ikalchev/HAP-python/pull/343)
+
 ## [3.4.1] - 2021-03-28
 
 # Fixed
