@@ -595,6 +595,7 @@ def test_mdns_service_info(driver):
     mdns_info = AccessoryMDNSServiceInfo(acc, state)
     assert mdns_info.type == "_hap._tcp.local."
     assert mdns_info.name == "Test Accessory 000000._hap._tcp.local."
+    assert mdns_info.server == "Test-Accessory-000000.local."
     assert mdns_info.port == port
     assert mdns_info.addresses == [b"\xac\x00\x00\x01"]
     assert mdns_info.properties == {
@@ -608,6 +609,42 @@ def test_mdns_service_info(driver):
         "sf": "1",
         "sh": "+KjpzQ==",
     }
+
+
+@pytest.mark.parametrize(
+    "accessory_name, mdns_name, mdns_server",
+    [
+        (
+            "--h a p p y--",
+            "h a p p y AbcDEF._hap._tcp.local.",
+            "h-a-p-p-y-AbcDEF.local.",
+        ),
+        (
+            "--H A P P Y--",
+            "H A P P Y AbcDEF._hap._tcp.local.",
+            "H-A-P-P-Y-AbcDEF.local.",
+        ),
+        (
+            "- - H---A---P---P---Y - -",
+            "H---A---P---P---Y AbcDEF._hap._tcp.local.",
+            "H-A-P-P-Y-AbcDEF.local.",
+        ),
+    ],
+)
+def test_mdns_name_sanity(driver, accessory_name, mdns_name, mdns_server):
+    """Test mdns name sanity."""
+    acc = Accessory(driver, accessory_name)
+    driver.add_accessory(acc)
+    addr = "172.0.0.1"
+    mac = "00:00:00:Ab:cD:EF"
+    pin = b"123-45-678"
+    port = 11111
+    state = State(address=addr, mac=mac, pincode=pin, port=port)
+    state.setup_id = "abc"
+    mdns_info = AccessoryMDNSServiceInfo(acc, state)
+    assert mdns_info.type == "_hap._tcp.local."
+    assert mdns_info.name == mdns_name
+    assert mdns_info.server == mdns_server
 
 
 @pytest.mark.asyncio
