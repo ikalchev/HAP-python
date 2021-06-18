@@ -28,7 +28,11 @@ import tempfile
 import threading
 
 from zeroconf import ServiceInfo
-from zeroconf.asyncio import AsyncZeroconf
+
+try:
+    from zeroconf.aio import AsyncZeroconf
+except ImportError:
+    from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
 from pyhap.accessory import get_topic
