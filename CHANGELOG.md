@@ -16,6 +16,11 @@ Sections
 ### Developers
 -->
 
+## [3.5.1] - 2021-07-03
+
+# Fixed
+- Handle additional cases of invalid hostnames. [#348](https://github.com/ikalchev/HAP-python/pull/348)
+
 ## [3.5.0] - 2021-05-31
 
 # Changed
