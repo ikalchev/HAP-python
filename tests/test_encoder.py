@@ -4,7 +4,7 @@ import uuid
 
 import ed25519
 
-import pyhap.encoder as encoder
+from pyhap import encoder
 from pyhap.state import State
 from pyhap.util import generate_mac
 
