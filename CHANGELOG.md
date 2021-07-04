@@ -16,10 +16,16 @@ Sections
 ### Developers
 -->
 
-## [3.5.1] - 2021-07-03
+## [3.5.1] - 2021-07-04
+
+# Changed
+- Bumped zeroconf to 0.32. [#351](https://github.com/ikalchev/HAP-python/pull/351)
 
 # Fixed
 - Handle additional cases of invalid hostnames. [#348](https://github.com/ikalchev/HAP-python/pull/348)
+
+# Breaking Changes
+- Python 3.5 is no longer supported. [#354](https://github.com/ikalchev/HAP-python/pull/354)
 
 ## [3.5.0] - 2021-05-31
 
