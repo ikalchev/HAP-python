@@ -10,7 +10,7 @@ import pytest
 from pyhap import hap_handler
 from pyhap.accessory import Accessory, Bridge
 from pyhap.characteristic import CharacteristicError
-import pyhap.tlv as tlv
+from pyhap import tlv
 
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
 PUBLIC_KEY = b"\x99\x98d%\x8c\xf6h\x06\xfa\x85\x9f\x90\x82\xf2\xe8\x18\x9f\xf8\xc75\x1f>~\xc32\xc1OC\x13\xbfH\xad"
