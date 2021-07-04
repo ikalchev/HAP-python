@@ -61,6 +61,8 @@ SERVICE_CHARS = "chars"
 SERVICE_IIDS = "iids"
 HAP_SERVICE_TYPE = "_hap._tcp.local."
 VALID_MDNS_REGEX = re.compile(r"[^A-Za-z0-9\-]+")
+LEADING_TRAILING_SPACE_DASH = re.compile(r"^[ -]+|[ -]+$")
+DASH_REGEX = re.compile(r"[-]+")
 
 
 class AccessoryMDNSServiceInfo(ServiceInfo):
@@ -77,9 +79,15 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
             self.state.mac[-8:].replace(":", ""),
             HAP_SERVICE_TYPE,
         )
+        server = "{}-{}.{}".format(
+            self._valid_host_name(),
+            self.state.mac[-8:].replace(":", ""),
+            "local.",
+        )
         super().__init__(
             HAP_SERVICE_TYPE,
             name=name,
+            server=server,
             port=self.state.port,
             weight=0,
             priority=0,
@@ -88,7 +96,21 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         )
 
     def _valid_name(self):
-        return re.sub(VALID_MDNS_REGEX, " ", self.accessory.display_name).strip()
+        return re.sub(
+            LEADING_TRAILING_SPACE_DASH,
+            "",
+            re.sub(VALID_MDNS_REGEX, " ", self.accessory.display_name),
+        )
+
+    def _valid_host_name(self):
+        return re.sub(
+            DASH_REGEX,
+            "-",
+            re.sub(VALID_MDNS_REGEX, " ", self.accessory.display_name)
+            .strip()
+            .replace(" ", "-")
+            .strip("-"),
+        )
 
     def _setup_hash(self):
         setup_hash_material = self.state.setup_id + self.state.mac

@@ -27,7 +27,7 @@ REQUIRES = [
     'curve25519-donna',
     'ed25519',
     'cryptography',
-    'zeroconf>=0.30.0',
+    'zeroconf>=0.32.0',
     'h11'
 ]
 

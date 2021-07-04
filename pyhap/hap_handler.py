@@ -20,7 +20,7 @@ from pyhap.const import (
     HAP_REPR_STATUS,
     HAP_SERVER_STATUS,
 )
-import pyhap.tlv as tlv
+from pyhap import tlv
 from pyhap.util import long_to_bytes
 
 from .hap_crypto import hap_hkdf, pad_tls_nonce
