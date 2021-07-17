@@ -22,7 +22,7 @@ with open("README.md", "r", encoding="utf-8") as f:
     README = f.read()
 
 
-REQUIRES = ["curve25519-donna", "cryptography", "zeroconf>=0.32.0", "h11"]
+REQUIRES = ["cryptography", "zeroconf>=0.32.0", "h11"]
 
 
 setup(
