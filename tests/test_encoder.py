@@ -2,7 +2,8 @@
 import tempfile
 import uuid
 
-import ed25519
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from pyhap import encoder
 from pyhap.state import State
@@ -14,9 +15,16 @@ def test_persist_and_load():
     Accessory. Tests if the two accessories have the same property values.
     """
     mac = generate_mac()
-    _pk, sample_client_pk = ed25519.create_keypair()
+    _pk = ed25519.Ed25519PrivateKey.generate()
+    sample_client_pk = _pk.public_key()
     state = State(mac=mac)
-    state.add_paired_client(uuid.uuid1(), sample_client_pk.to_bytes())
+    state.add_paired_client(
+        uuid.uuid1(),
+        sample_client_pk.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        ),
+    )
 
     config_loaded = State()
     config_loaded.config_version += 2  # change the default state.
@@ -27,7 +35,21 @@ def test_persist_and_load():
         enc.load_into(fp, config_loaded)
 
     assert state.mac == config_loaded.mac
-    assert state.private_key == config_loaded.private_key
-    assert state.public_key == config_loaded.public_key
+    assert state.private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    ) == config_loaded.private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    assert state.public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    ) == config_loaded.public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
     assert state.config_version == config_loaded.config_version
     assert state.paired_clients == config_loaded.paired_clients
