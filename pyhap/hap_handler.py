@@ -9,18 +9,19 @@ import logging
 from urllib.parse import parse_qs, urlparse
 import uuid
 
-from cryptography.exceptions import InvalidTag
+from cryptography.exceptions import InvalidSignature, InvalidTag
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 import curve25519
-import ed25519
 
+from pyhap import tlv
 from pyhap.const import (
     CATEGORY_BRIDGE,
     HAP_REPR_CHARS,
     HAP_REPR_STATUS,
     HAP_SERVER_STATUS,
 )
-from pyhap import tlv
 from pyhap.util import long_to_bytes
 
 from .hap_crypto import hap_hkdf, pad_tls_nonce
@@ -368,11 +369,11 @@ class HAPServerHandler:
         )
 
         data = output_key + client_username + client_ltpk
-        verifying_key = ed25519.VerifyingKey(client_ltpk)
+        verifying_key = ed25519.Ed25519PublicKey.from_public_bytes(client_ltpk)
 
         try:
             verifying_key.verify(client_proof, data)
-        except ed25519.BadSignatureError:
+        except InvalidSignature:
             logger.error("Bad signature, abort.")
             raise
 
@@ -390,7 +391,10 @@ class HAPServerHandler:
             long_to_bytes(session_key), self.PAIRING_5_SALT, self.PAIRING_5_INFO
         )
 
-        server_public = self.state.public_key.to_bytes()
+        server_public = self.state.public_key.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
         mac = self.state.mac.encode()
 
         material = output_key + mac + server_public
@@ -528,10 +532,10 @@ class HAPServerHandler:
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
 
-        verifying_key = ed25519.VerifyingKey(perm_client_public)
+        verifying_key = ed25519.Ed25519PublicKey.from_public_bytes(perm_client_public)
         try:
             verifying_key.verify(dec_tlv_objects[HAP_TLV_TAGS.PROOF], material)
-        except ed25519.BadSignatureError:
+        except InvalidSignature:
             logger.error("%s: Bad signature, abort.", self.client_address)
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return

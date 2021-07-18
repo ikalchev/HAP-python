@@ -6,7 +6,8 @@ it can work properly after a restart.
 import json
 import uuid
 
-import ed25519
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
 
 class AccessoryEncoder:
@@ -57,8 +58,19 @@ class AccessoryEncoder:
             "mac": state.mac,
             "config_version": state.config_version,
             "paired_clients": paired_clients,
-            "private_key": bytes.hex(state.private_key.to_seed()),
-            "public_key": bytes.hex(state.public_key.to_bytes()),
+            "private_key": bytes.hex(
+                state.private_key.private_bytes(
+                    encoding=serialization.Encoding.Raw,
+                    format=serialization.PrivateFormat.Raw,
+                    encryption_algorithm=serialization.NoEncryption(),
+                )
+            ),
+            "public_key": bytes.hex(
+                state.public_key.public_bytes(
+                    encoding=serialization.Encoding.Raw,
+                    format=serialization.PublicFormat.Raw,
+                )
+            ),
         }
         json.dump(config_state, fp)
 
@@ -75,5 +87,9 @@ class AccessoryEncoder:
             uuid.UUID(client): bytes.fromhex(key)
             for client, key in loaded["paired_clients"].items()
         }
-        state.private_key = ed25519.SigningKey(bytes.fromhex(loaded["private_key"]))
-        state.public_key = ed25519.VerifyingKey(bytes.fromhex(loaded["public_key"]))
+        state.private_key = ed25519.Ed25519PrivateKey.from_private_bytes(
+            bytes.fromhex(loaded["private_key"])
+        )
+        state.public_key = ed25519.Ed25519PublicKey.from_public_bytes(
+            bytes.fromhex(loaded["public_key"])
+        )
