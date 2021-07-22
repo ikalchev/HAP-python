@@ -16,6 +16,10 @@ Sections
 ### Developers
 -->
 
+## [3.5.2] - 2021-07-22
+
+- Switch from ed25519 to pynacl. [#355](https://github.com/ikalchev/HAP-python/pull/355)
+
 ## [3.5.1] - 2021-07-04
 
 # Changed
