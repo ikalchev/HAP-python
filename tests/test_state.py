@@ -1,6 +1,7 @@
 """Test for pyhap.state."""
 from unittest.mock import patch
 
+from cryptography.hazmat.primitives.asymmetric import ed25519
 import pytest
 
 from pyhap.state import State
@@ -16,12 +17,15 @@ def test_setup():
     pin = b"123-45-678"
     port = 11111
 
+    private_key = ed25519.Ed25519PrivateKey.generate()
+
     with patch("pyhap.util.get_local_address") as mock_local_addr, patch(
         "pyhap.util.generate_mac"
     ) as mock_gen_mac, patch("pyhap.util.generate_pincode") as mock_gen_pincode, patch(
         "pyhap.util.generate_setup_id"
     ) as mock_gen_setup_id, patch(
-        "ed25519.create_keypair", return_value=(1, 2)
+        "cryptography.hazmat.primitives.asymmetric.ed25519.Ed25519PrivateKey.generate",
+        return_value=private_key,
     ) as mock_create_keypair:
 
         state = State(address=addr, mac=mac, pincode=pin, port=port)
@@ -48,9 +52,7 @@ def test_pairing():
     """Test if pairing methods work."""
     with patch("pyhap.util.get_local_address"), patch("pyhap.util.generate_mac"), patch(
         "pyhap.util.generate_pincode"
-    ), patch("pyhap.util.generate_setup_id"), patch(
-        "ed25519.create_keypair", return_value=(1, 2)
-    ):
+    ), patch("pyhap.util.generate_setup_id"):
         state = State()
 
     assert not state.paired

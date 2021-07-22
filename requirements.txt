@@ -1,5 +1,3 @@
 h11
-curve25519-donna
-ed25519
 cryptography
 zeroconf

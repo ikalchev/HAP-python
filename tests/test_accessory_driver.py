@@ -4,9 +4,10 @@ from concurrent.futures import ThreadPoolExecutor
 import tempfile
 from unittest.mock import MagicMock, patch
 from uuid import uuid1
-from zeroconf import InterfaceChoice
 
+from cryptography.hazmat.primitives import serialization
 import pytest
+from zeroconf import InterfaceChoice
 
 from pyhap import util
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
@@ -100,7 +101,13 @@ def test_persist_load(async_zeroconf):
             # the new accessory.
             driver = AccessoryDriver(port=51234, persist_file=file.name)
             driver.load()
-    assert driver.state.public_key == pk
+    assert driver.state.public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    ) == pk.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
 
 
 def test_persist_cannot_write(async_zeroconf):
