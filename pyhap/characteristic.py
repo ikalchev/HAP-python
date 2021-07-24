@@ -51,14 +51,14 @@ HAP_FORMAT_DEFAULTS = {
     HAP_FORMAT_TLV8: "",
 }
 
-HAP_FORMAT_NUMERICS = (
+HAP_FORMAT_NUMERICS = {
     HAP_FORMAT_INT,
     HAP_FORMAT_FLOAT,
     HAP_FORMAT_UINT8,
     HAP_FORMAT_UINT16,
     HAP_FORMAT_UINT32,
     HAP_FORMAT_UINT64,
-)
+}
 
 # ### HAP Units ###
 HAP_UNIT_ARC_DEGREE = "arcdegrees"
@@ -176,6 +176,8 @@ class Characteristic:
                 raise ValueError(error_msg)
             value = min(self.properties.get(PROP_MAX_VALUE, value), value)
             value = max(self.properties.get(PROP_MIN_VALUE, value), value)
+            if self.properties[PROP_FORMAT] != HAP_FORMAT_FLOAT:
+                value = int(value)
         return value
 
     def override_properties(self, properties=None, valid_values=None):
