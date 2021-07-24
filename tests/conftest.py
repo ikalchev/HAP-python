@@ -49,7 +49,7 @@ class MockDriver:
     def __init__(self):
         self.loader = Loader()
 
-    def publish(self, data, client_addr=None):
+    def publish(self, data, client_addr=None, immediate=False):
         pass
 
     def add_job(self, target, *args):  # pylint: disable=no-self-use

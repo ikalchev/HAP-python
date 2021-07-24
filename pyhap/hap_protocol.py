@@ -23,6 +23,8 @@ HIGH_WRITE_BUFFER_SIZE = 2 ** 19
 # reopen homekit.
 IDLE_CONNECTION_TIMEOUT_SECONDS = 90 * 60 * 60
 
+EVENT_COALESCE_TIME_WINDOW = 0.5
+
 
 class HAPServerProtocol(asyncio.Protocol):
     """A asyncio.Protocol implementing the HAP protocol."""
@@ -42,6 +44,7 @@ class HAPServerProtocol(asyncio.Protocol):
 
         self.last_activity = None
         self.hap_crypto = None
+        self._event_timer = None
         self._event_queue = []
 
     def connection_lost(self, exc: Exception) -> None:
@@ -90,10 +93,16 @@ class HAPServerProtocol(asyncio.Protocol):
             del self.connections[self.peername]
         self.transport.close()
 
-    def queue_event(self, data: dict) -> None:
+    def queue_event(self, data: dict, immediate: bool) -> None:
         """Queue an event for sending."""
+        logger.debug("Appending %s to event queue: %s", data, self._event_queue)
         self._event_queue.append(data)
-        self.loop.call_soon(self._process_events)
+        if immediate:
+            self.loop.call_soon(self._send_events)
+        elif not self._event_timer:
+            self._event_timer = self.loop.call_later(
+                EVENT_COALESCE_TIME_WINDOW, self._send_events
+            )
 
     def send_response(self, response: HAPResponse) -> None:
         """Send a HAPResponse object."""
@@ -162,12 +171,14 @@ class HAPServerProtocol(asyncio.Protocol):
                 if self.conn.our_state is h11.MUST_CLOSE:
                     self.finish_and_close()
                     return
-            self._send_events()
         except h11.ProtocolError as protocol_ex:
             self._handle_invalid_conn_state(protocol_ex)
 
     def _send_events(self):
         """Send any pending events."""
+        if self._event_timer:
+            self._event_timer.cancel()
+            self._event_timer = None
         if not self._event_queue:
             return
         self.write(create_hap_event(self._event_queue))

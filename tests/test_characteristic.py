@@ -1,5 +1,5 @@
 """Tests for pyhap.characteristic."""
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 from uuid import uuid1
 
 import pytest
@@ -8,6 +8,7 @@ from pyhap.characteristic import (
     HAP_FORMAT_DEFAULTS,
     HAP_FORMAT_INT,
     HAP_PERMISSION_READ,
+    CHAR_PROGRAMMABLE_SWITCH_EVENT,
     Characteristic,
 )
 
@@ -123,6 +124,62 @@ def test_set_value():
         assert char.value == 3
         assert mock_notify.call_count == 1
 
+        # No change should not generate another notify
+        char.set_value(3)
+        assert char.value == 3
+        assert mock_notify.call_count == 1
+
+
+def test_set_value_immediate():
+    """Test setting the value of a characteristic generates immediate notify."""
+    char = Characteristic(
+        display_name="Switch Event",
+        type_id=CHAR_PROGRAMMABLE_SWITCH_EVENT,
+        properties=PROPERTIES.copy(),
+    )
+    assert char.value is None
+
+    publish_mock = Mock()
+    char.broker = Mock(publish=publish_mock)
+
+    char.set_value(0)
+    assert char.value is None
+    publish_mock.assert_called_with(0, char, None, True)
+
+    char.set_value(1)
+    assert char.value is None
+    publish_mock.assert_called_with(1, char, None, True)
+
+
+def test_switch_event_always_serializes_to_null_via_set_value():
+    """Test that the switch event char is always null."""
+    char = Characteristic(
+        display_name="Switch Event",
+        type_id=CHAR_PROGRAMMABLE_SWITCH_EVENT,
+        properties=PROPERTIES.copy(),
+    )
+    assert char.value is None
+    char.broker = MagicMock()
+
+    assert char.to_HAP()["value"] is None
+    char.set_value(1)
+    assert char.to_HAP()["value"] is None
+
+
+def test_switch_event_always_serializes_to_null_via_client_update_value():
+    """Test that the switch event char is always null."""
+    char = Characteristic(
+        display_name="Switch Event",
+        type_id=CHAR_PROGRAMMABLE_SWITCH_EVENT,
+        properties=PROPERTIES.copy(),
+    )
+    assert char.value is None
+    char.broker = MagicMock()
+
+    assert char.to_HAP()["value"] is None
+    char.client_update_value(1)
+    assert char.to_HAP()["value"] is None
+
 
 def test_client_update_value():
     """Test updating the characteristic value with call from the driver."""
@@ -143,6 +200,27 @@ def test_client_update_value():
         char.client_update_value(9, "mock_client_addr")
         assert char.value == 9
         mock_notify.assert_called_once_with("mock_client_addr")
+        assert len(mock_notify.mock_calls) == 1
+
+        # Same value, do not call again
+        char.client_update_value(9, "mock_client_addr")
+        assert char.value == 9
+        assert len(mock_notify.mock_calls) == 1
+
+        # New value, should notify
+        char.client_update_value(12, "mock_client_addr")
+        assert char.value == 12
+        assert len(mock_notify.mock_calls) == 2
+
+        # Same value, do not call again
+        char.client_update_value(12, "mock_client_addr")
+        assert char.value == 12
+        assert len(mock_notify.mock_calls) == 2
+
+        # New value, should notify
+        char.client_update_value(9, "mock_client_addr")
+        assert char.value == 9
+        assert len(mock_notify.mock_calls) == 3
 
 
 def test_notify():
@@ -155,11 +233,11 @@ def test_notify():
 
     with patch.object(char, "broker") as mock_broker:
         char.notify()
-    mock_broker.publish.assert_called_with(2, char, None)
+    mock_broker.publish.assert_called_with(2, char, None, False)
 
     with patch.object(char, "broker") as mock_broker:
         char.notify("mock_client_addr")
-    mock_broker.publish.assert_called_with(2, char, "mock_client_addr")
+    mock_broker.publish.assert_called_with(2, char, "mock_client_addr", False)
 
 
 def test_to_HAP_numberic():

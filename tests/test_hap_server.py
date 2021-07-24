@@ -99,11 +99,24 @@ async def test_push_event(driver):
     await asyncio.sleep(0)
     server.connections[addr_info] = hap_server_protocol
 
-    assert server.push_event({"aid": 1}, addr_info) is True
-    assert server.push_event({"aid": 2}, addr_info) is True
-    assert server.push_event({"aid": 3}, addr_info) is True
+    assert server.push_event({"aid": 1}, addr_info, True) is True
+    assert server.push_event({"aid": 2}, addr_info, True) is True
+    assert server.push_event({"aid": 3}, addr_info, True) is True
 
     await asyncio.sleep(0)
+    assert hap_events == [
+        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 51\r\n\r\n"
+        b'{"characteristics":[{"aid":1},{"aid":2},{"aid":3}]}'
+    ]
+
+    hap_events = []
+    assert server.push_event({"aid": 1}, addr_info, False) is True
+    assert server.push_event({"aid": 2}, addr_info, False) is True
+    assert server.push_event({"aid": 3}, addr_info, False) is True
+
+    await asyncio.sleep(0)
+    assert hap_events == []
+    await asyncio.sleep(0.55)
     assert hap_events == [
         b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 51\r\n\r\n"
         b'{"characteristics":[{"aid":1},{"aid":2},{"aid":3}]}'
