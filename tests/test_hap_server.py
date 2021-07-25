@@ -119,7 +119,8 @@ async def test_push_event(driver):
     await asyncio.sleep(0)
     assert hap_events == [
         b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 120\r\n\r\n"
-        b'{"characteristics":[{"aid":1,"iid":33,"value":false},{"aid":2,"iid":33,"value":false},{"aid":3,"iid":33,"value":false}]}'
+        b'{"characteristics":[{"aid":1,"iid":33,"value":false},'
+        b'{"aid":2,"iid":33,"value":false},{"aid":3,"iid":33,"value":false}]}'
     ]
 
     hap_events = []
