@@ -4,6 +4,8 @@ The HAPServerProtocol is a protocol implementation that manages the "TLS" of the
 """
 import asyncio
 import logging
+from pyhap.accessory import get_topic
+from pyhap.const import HAP_REPR_AID, HAP_REPR_IID
 import time
 
 from cryptography.exceptions import InvalidTag
@@ -181,8 +183,20 @@ class HAPServerProtocol(asyncio.Protocol):
             self._event_timer = None
         if not self._event_queue:
             return
-        self.write(create_hap_event(self._event_queue))
+        subscribed_events = self._event_queue_with_active_subscriptions()
+        if subscribed_events:
+            self.write(create_hap_event(subscribed_events))
         self._event_queue = []
+
+    def _event_queue_with_active_subscriptions(self):
+        """Remove any topics that have been unsubscribed after the event was generated."""
+        topics = self.accessory_driver.topics
+        return [
+            event
+            for event in self._event_queue
+            if self.peername
+            in topics.get(get_topic(event[HAP_REPR_AID], event[HAP_REPR_IID]), [])
+        ]
 
     def _process_one_event(self) -> bool:
         """Process one http event."""

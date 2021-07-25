@@ -83,7 +83,7 @@ async def test_idle_connection_cleanup():
 async def test_push_event(driver):
     """Test we can create and send an event."""
     addr_info = ("1.2.3.4", 1234)
-    server = hap_server.HAPServer(addr_info, driver)
+    server = hap_server.HAPServer(("127.0.01", 5555), driver)
     server.loop = asyncio.get_event_loop()
     hap_events = []
 
@@ -94,30 +94,57 @@ async def test_push_event(driver):
         server.loop, server.connections, server.accessory_handler
     )
     hap_server_protocol.write = _save_event
+    hap_server_protocol.peername = addr_info
+    server.accessory_handler.topics["1.33"] = {addr_info}
+    server.accessory_handler.topics["2.33"] = {addr_info}
+    server.accessory_handler.topics["3.33"] = {addr_info}
 
-    assert server.push_event({"aid": 1}, addr_info) is False
+    assert server.push_event({"aid": 1, "iid": 33, "value": False}, addr_info) is False
     await asyncio.sleep(0)
     server.connections[addr_info] = hap_server_protocol
 
-    assert server.push_event({"aid": 1}, addr_info, True) is True
-    assert server.push_event({"aid": 2}, addr_info, True) is True
-    assert server.push_event({"aid": 3}, addr_info, True) is True
+    assert (
+        server.push_event({"aid": 1, "iid": 33, "value": False}, addr_info, True)
+        is True
+    )
+    assert (
+        server.push_event({"aid": 2, "iid": 33, "value": False}, addr_info, True)
+        is True
+    )
+    assert (
+        server.push_event({"aid": 3, "iid": 33, "value": False}, addr_info, True)
+        is True
+    )
 
     await asyncio.sleep(0)
     assert hap_events == [
-        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 51\r\n\r\n"
-        b'{"characteristics":[{"aid":1},{"aid":2},{"aid":3}]}'
+        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 120\r\n\r\n"
+        b'{"characteristics":[{"aid":1,"iid":33,"value":false},{"aid":2,"iid":33,"value":false},{"aid":3,"iid":33,"value":false}]}'
     ]
 
     hap_events = []
-    assert server.push_event({"aid": 1}, addr_info, False) is True
-    assert server.push_event({"aid": 2}, addr_info, False) is True
-    assert server.push_event({"aid": 3}, addr_info, False) is True
+    assert (
+        server.push_event({"aid": 1, "iid": 33, "value": False}, addr_info, False)
+        is True
+    )
+    assert (
+        server.push_event({"aid": 2, "iid": 33, "value": False}, addr_info, False)
+        is True
+    )
+    assert (
+        server.push_event({"aid": 3, "iid": 33, "value": False}, addr_info, False)
+        is True
+    )
 
     await asyncio.sleep(0)
     assert hap_events == []
+
+    # Ensure that a the event is not sent if its unsubscribed during
+    # the coalesce delay
+    server.accessory_handler.topics["1.33"].remove(addr_info)
+
     await asyncio.sleep(0.55)
     assert hap_events == [
-        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 51\r\n\r\n"
-        b'{"characteristics":[{"aid":1},{"aid":2},{"aid":3}]}'
+        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 87\r\n\r\n"
+        b'{"characteristics":[{"aid":2,"iid":33,"value":false},{"aid":3,"iid":33,"value":false}]}'
     ]
