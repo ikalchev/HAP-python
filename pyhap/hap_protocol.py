@@ -4,16 +4,17 @@ The HAPServerProtocol is a protocol implementation that manages the "TLS" of the
 """
 import asyncio
 import logging
-from pyhap.accessory import get_topic
-from pyhap.const import HAP_REPR_AID, HAP_REPR_IID
 import time
 
 from cryptography.exceptions import InvalidTag
 import h11
 
+from pyhap.accessory import get_topic
+from pyhap.const import HAP_REPR_AID, HAP_REPR_IID
+
 from .hap_crypto import HAPCrypto
-from .hap_handler import HAPResponse, HAPServerHandler
 from .hap_event import create_hap_event
+from .hap_handler import HAPResponse, HAPServerHandler
 
 logger = logging.getLogger(__name__)
 
