@@ -36,6 +36,7 @@ from pyhap.accessory import get_topic
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
+    HAP_PROTOCOL_SHORT_VERSION,
     HAP_REPR_ACCS,
     HAP_REPR_AID,
     HAP_REPR_CHARS,
@@ -125,7 +126,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         """Generate advertisement data from the accessory."""
         return {
             "md": self._valid_name(),
-            "pv": "1.0",
+            "pv": HAP_PROTOCOL_SHORT_VERSION,
             "id": self.state.mac,
             # represents the 'configuration version' of an Accessory.
             # Increasing this 'version number' signals iOS devices to
