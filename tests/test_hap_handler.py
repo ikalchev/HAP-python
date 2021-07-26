@@ -325,6 +325,7 @@ def test_handle_set_handle_set_characteristics_encrypted(driver):
     assert response.status_code == 204
     assert response.body == b""
 
+
 def test_handle_set_handle_set_characteristics_encrypted_pid_missing_prepare(driver):
     """Verify an encrypted set_characteristics with a missing prepare."""
     acc = Accessory(driver, "TestAcc", aid=1)
@@ -338,7 +339,9 @@ def test_handle_set_handle_set_characteristics_encrypted_pid_missing_prepare(dri
 
     response = hap_handler.HAPResponse()
     handler.response = response
-    handler.request_body = b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    handler.request_body = (
+        b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    )
     handler.handle_set_characteristics()
 
     assert response.status_code == 207
@@ -366,11 +369,14 @@ def test_handle_set_handle_set_characteristics_encrypted_with_prepare(driver):
 
     response = hap_handler.HAPResponse()
     handler.response = response
-    handler.request_body = b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    handler.request_body = (
+        b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    )
     handler.handle_set_characteristics()
 
     assert response.status_code == 204
     assert response.body == b""
+
 
 def test_handle_set_handle_set_characteristics_encrypted_with_expired_ttl(driver):
     """Verify an encrypted set_characteristics with a prepare expired."""
@@ -393,7 +399,9 @@ def test_handle_set_handle_set_characteristics_encrypted_with_expired_ttl(driver
 
     response = hap_handler.HAPResponse()
     handler.response = response
-    handler.request_body = b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    handler.request_body = (
+        b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    )
     handler.handle_set_characteristics()
 
     assert response.status_code == 207
@@ -421,11 +429,14 @@ def test_handle_set_handle_set_characteristics_encrypted_with_wrong_pid(driver):
 
     response = hap_handler.HAPResponse()
     handler.response = response
-    handler.request_body = b'{"pid":456,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    handler.request_body = (
+        b'{"pid":456,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    )
     handler.handle_set_characteristics()
 
     assert response.status_code == 207
     assert b"-70410" in response.body
+
 
 def test_handle_set_handle_set_characteristics_encrypted_with_exception(driver):
     """Verify an encrypted set_characteristics."""
