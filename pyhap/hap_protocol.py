@@ -98,7 +98,6 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def queue_event(self, data: dict, immediate: bool) -> None:
         """Queue an event for sending."""
-        logger.debug("Appending %s to event queue: %s", data, self._event_queue)
         self._event_queue.append(data)
         if immediate:
             self.loop.call_soon(self._send_events)
