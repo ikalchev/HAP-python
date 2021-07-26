@@ -378,6 +378,62 @@ def test_handle_set_handle_set_characteristics_encrypted_with_prepare(driver):
     assert response.body == b""
 
 
+def test_handle_set_handle_set_characteristics_encrypted_with_multiple_prepare(driver):
+    """Verify an encrypted set_characteristics with multiple prepares."""
+    acc = Accessory(driver, "TestAcc", aid=1)
+    assert acc.aid == 1
+    service = acc.driver.loader.get_service("GarageDoorOpener")
+    acc.add_service(service)
+    driver.add_accessory(acc)
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = b'{"pid":123,"ttl":0}'
+    handler.handle_prepare()
+
+    # Second prepare should overwrite the first
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = b'{"pid":123,"ttl":5000}'
+    handler.handle_prepare()
+
+    assert response.status_code == 200
+    assert response.body == b'{"status":0}'
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = (
+        b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    )
+    handler.handle_set_characteristics()
+
+    assert response.status_code == 204
+    assert response.body == b""
+
+
+def test_handle_set_handle_set_characteristics_encrypted_with_invalid_prepare(driver):
+    """Verify an encrypted set_characteristics with a prepare missing the ttl."""
+    acc = Accessory(driver, "TestAcc", aid=1)
+    assert acc.aid == 1
+    service = acc.driver.loader.get_service("GarageDoorOpener")
+    acc.add_service(service)
+    driver.add_accessory(acc)
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = b'{"pid":123}'
+    handler.handle_prepare()
+
+    assert response.status_code == 200
+    assert response.body == b'{"status":-70410}'
+
+
 def test_handle_set_handle_set_characteristics_encrypted_with_expired_ttl(driver):
     """Verify an encrypted set_characteristics with a prepare expired."""
     acc = Accessory(driver, "TestAcc", aid=1)
