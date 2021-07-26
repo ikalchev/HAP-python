@@ -414,7 +414,7 @@ def test_handle_set_handle_set_characteristics_encrypted_with_multiple_prepare(d
     assert response.body == b""
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_invalid_prepare(driver):
+def test_handle_set_handle_encrypted_with_invalid_prepare(driver):
     """Verify an encrypted set_characteristics with a prepare missing the ttl."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -492,6 +492,25 @@ def test_handle_set_handle_set_characteristics_encrypted_with_wrong_pid(driver):
 
     assert response.status_code == 207
     assert b"-70410" in response.body
+
+
+def test_handle_set_handle_prepare_not_encrypted(driver):
+    """Verify an non-encrypted set_characteristics with a prepare."""
+    acc = Accessory(driver, "TestAcc", aid=1)
+    assert acc.aid == 1
+    service = acc.driver.loader.get_service("GarageDoorOpener")
+    acc.add_service(service)
+    driver.add_accessory(acc)
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = b'{"pid":123,"ttl":5000}'
+    handler.handle_prepare()
+
+    assert response.status_code == 401
 
 
 def test_handle_set_handle_set_characteristics_encrypted_with_exception(driver):
