@@ -596,8 +596,6 @@ class Camera(Accessory):
         session_id = UUID(bytes=session_objs[SETUP_TYPES['SESSION_ID']])
 
         session_info = self.sessions.get(session_id)
-        stream_idx = session_info['stream_idx']
-
         if not session_info:
             logger.error(
                 'Requested to stop stream for session %s, but no '
@@ -606,6 +604,7 @@ class Camera(Accessory):
             )
             return
 
+        stream_idx = session_info['stream_idx']
         await self.stop_stream(session_info)
         del self.sessions[session_id]
 
