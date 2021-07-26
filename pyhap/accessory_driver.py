@@ -25,6 +25,7 @@ import re
 import socket
 import sys
 import tempfile
+import time
 import threading
 
 from zeroconf import ServiceInfo
@@ -39,6 +40,8 @@ from pyhap.const import (
     HAP_REPR_AID,
     HAP_REPR_CHARS,
     HAP_REPR_IID,
+    HAP_REPR_TTL,
+    HAP_REPR_PID,
     HAP_REPR_STATUS,
     HAP_REPR_VALUE,
     MAX_CONFIG_VERSION,
@@ -252,6 +255,7 @@ class AccessoryDriver:
         listen_address = listen_address or address
         network_tuple = (listen_address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
+        self.prepared_writes = {}
 
     def start(self):
         """Start the event loop and call `start_service`.
@@ -466,6 +470,7 @@ class AccessoryDriver:
 
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
+        self.prepared_writes.pop(client, None)
 
     def publish(self, data, sender_client_addr=None):
         """Publishes an event to the client.
@@ -755,11 +760,23 @@ class AccessoryDriver:
         accessory_callbacks = {}
         setter_results = {}
         had_error = False
+        expired = False
+
+        if HAP_REPR_PID in chars_query:
+            pid = chars_query[HAP_REPR_PID]
+            expire_time = self.prepared_writes.get(client_addr, {}).pop(pid, None)
+            if expire_time is None or time.time() > expire_time:
+                expired = True
 
         for cq in chars_query[HAP_REPR_CHARS]:
             aid, iid = cq[HAP_REPR_AID], cq[HAP_REPR_IID]
-            setter_results.setdefault(aid, {})
+            result = setter_results.setdefault(aid, {})
             char = self.accessory.get_characteristic(aid, iid)
+
+            if expired:
+                result[iid] = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
+                had_error = True
+                continue
 
             if HAP_PERMISSION_NOTIFY in cq:
                 char_topic = get_topic(aid, iid)
@@ -784,12 +801,10 @@ class AccessoryDriver:
                     char.display_name,
                     value,
                 )
-                setter_results[aid][
-                    iid
-                ] = HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+                result[iid] = HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
                 had_error = True
             else:
-                setter_results[aid][iid] = HAP_SERVER_STATUS.SUCCESS
+                result[iid] = HAP_SERVER_STATUS.SUCCESS
 
             # For some services we want to send all the char value
             # changes at once.  This resolves an issue where we send
@@ -845,6 +860,29 @@ class AccessoryDriver:
                 for iid, status in iid_status.items()
             ]
         }
+
+    def prepare(self, prepare_query, client_addr):
+        """Called from ``HAPServerHandler`` when iOS wants to prepare a write.
+
+        :param prepare_query: A prepare query. For example:
+
+        .. code-block:: python
+
+           {
+              "ttl": 10000, # in milliseconds
+              "pid": 12345678,
+           }
+
+        :type prepare_query: dict
+        """
+        try:
+            ttl = prepare_query[HAP_REPR_TTL]
+            pid = prepare_query[HAP_REPR_PID]
+            self.prepared_writes.setdefault(client_addr, {})[pid] = time.time() + ttl
+        except (KeyError, ValueError):
+            return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
+
+        return {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
 
     def signal_handler(self, _signal, _frame):
         """Stops the AccessoryDriver for a given signal.
