@@ -878,7 +878,7 @@ class AccessoryDriver:
         try:
             ttl = prepare_query[HAP_REPR_TTL]
             pid = prepare_query[HAP_REPR_PID]
-            self.prepared_writes.setdefault(client_addr, {})[pid] = time.time() + ttl
+            self.prepared_writes.setdefault(client_addr, {})[pid] = time.time() + (ttl / 1000)
         except (KeyError, ValueError):
             return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
 
