@@ -196,11 +196,6 @@ class HAPServerProtocol(asyncio.Protocol):
         if isinstance(event, h11.EndOfMessage):
             self.transport.pause_reading()
             response = self.handler.dispatch(self.request, bytes(self.request_body))
-            logging.debug(
-                "Handling request: %s took %s seconds",
-                self.request,
-                time.time() - time_before,
-            )
             self._process_response(response)
             self.request = None
             self.request_body = None
