@@ -218,6 +218,8 @@ class Characteristic:
         if valid_values:
             self.properties[PROP_VALID_VALUES] = valid_values
 
+        if self.type_id in ALWAYS_NULL:
+            return None
         try:
             self.value = self.to_valid_value(self.value)
         except ValueError:
