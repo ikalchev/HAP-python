@@ -70,7 +70,7 @@ class HAPServer:
         self.server.close()
         self.connections.clear()
 
-    def push_event(self, data, client_addr):
+    def push_event(self, data, client_addr, immediate=False):
         """Queue an event to the current connection with the provided data.
 
         :param data: The charateristic changes
@@ -86,5 +86,5 @@ class HAPServer:
         if hap_server_protocol is None:
             logger.debug("No socket for %s", client_addr)
             return False
-        hap_server_protocol.queue_event(data)
+        hap_server_protocol.queue_event(data, immediate)
         return True

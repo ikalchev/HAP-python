@@ -467,7 +467,7 @@ class AccessoryDriver:
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
 
-    def publish(self, data, sender_client_addr=None):
+    def publish(self, data, sender_client_addr=None, immediate=False):
         """Publishes an event to the client.
 
         The publishing occurs only if the current client is subscribed to the topic for
@@ -482,14 +482,14 @@ class AccessoryDriver:
             return
 
         if threading.current_thread() == self.tid:
-            self.async_send_event(topic, data, sender_client_addr)
+            self.async_send_event(topic, data, sender_client_addr, immediate)
             return
 
         self.loop.call_soon_threadsafe(
-            self.async_send_event, topic, data, sender_client_addr
+            self.async_send_event, topic, data, sender_client_addr, immediate
         )
 
-    def async_send_event(self, topic, data, sender_client_addr):
+    def async_send_event(self, topic, data, sender_client_addr, immediate):
         """Send an event to a client.
 
         Must be called in the event loop
@@ -513,8 +513,8 @@ class AccessoryDriver:
                     client_addr,
                 )
                 continue
-            logger.debug("Sending event to client: %s", client_addr)
-            pushed = self.http_server.push_event(data, client_addr)
+            logger.debug("Sending event to client: %s, immediate: %s", client_addr, immediate)
+            pushed = self.http_server.push_event(data, client_addr, immediate)
             if not pushed:
                 logger.debug(
                     "Could not send event to %s, probably stale socket.", client_addr

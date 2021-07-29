@@ -6,6 +6,9 @@ a temperature measuring or a device status.
 """
 import logging
 
+from uuid import UUID
+
+
 from pyhap.const import (
     HAP_PERMISSION_READ,
     HAP_REPR_DESC,
@@ -78,6 +81,20 @@ PROP_VALID_VALUES = "ValidValues"
 
 PROP_NUMERIC = (PROP_MAX_VALUE, PROP_MIN_VALUE, PROP_MIN_STEP, PROP_UNIT)
 
+CHAR_BUTTON_EVENT = UUID("00000126-0000-1000-8000-0026BB765291")
+CHAR_PROGRAMMABLE_SWITCH_EVENT = UUID("00000073-0000-1000-8000-0026BB765291")
+
+
+IMMEDIATE_NOTIFY = {
+    CHAR_BUTTON_EVENT,  # Button Event
+    CHAR_PROGRAMMABLE_SWITCH_EVENT,  # Programmable Switch Event
+}
+
+# Special case, Programmable Switch Event always have a null value
+ALWAYS_NULL = {
+    CHAR_PROGRAMMABLE_SWITCH_EVENT,  # Programmable Switch Event
+}
+
 
 class CharacteristicError(Exception):
     """Generic exception class for characteristic errors."""
@@ -138,6 +155,9 @@ class Characteristic:
 
     def _get_default_value(self):
         """Return default value for format."""
+        if self.type_id in ALWAYS_NULL:
+            return None
+
         if self.properties.get(PROP_VALID_VALUES):
             return min(self.properties[PROP_VALID_VALUES].values())
 
@@ -198,6 +218,10 @@ class Characteristic:
         if valid_values:
             self.properties[PROP_VALID_VALUES] = valid_values
 
+        if self.type_id in ALWAYS_NULL:
+            self.value = None
+            return
+
         try:
             self.value = self.to_valid_value(self.value)
         except ValueError:
@@ -224,9 +248,12 @@ class Characteristic:
         """
         logger.debug("set_value: %s to %s", self.display_name, value)
         value = self.to_valid_value(value)
+        changed = self.value != value
         self.value = value
-        if should_notify and self.broker:
+        if changed and should_notify and self.broker:
             self.notify()
+        if self.type_id in ALWAYS_NULL:
+            self.value = None
 
     def client_update_value(self, value, sender_client_addr=None):
         """Called from broker for value change in Home app.
@@ -239,11 +266,15 @@ class Characteristic:
             value,
             sender_client_addr,
         )
+        changed = self.value != value
         self.value = value
-        self.notify(sender_client_addr)
+        if changed:
+            self.notify(sender_client_addr)
         if self.setter_callback:
             # pylint: disable=not-callable
             self.setter_callback(value)
+        if self.type_id in ALWAYS_NULL:
+            self.value = None
 
     def notify(self, sender_client_addr=None):
         """Notify clients about a value change. Sends the value.
@@ -251,7 +282,8 @@ class Characteristic:
         .. seealso:: accessory.publish
         .. seealso:: accessory_driver.publish
         """
-        self.broker.publish(self.value, self, sender_client_addr)
+        immediate = self.type_id in IMMEDIATE_NOTIFY
+        self.broker.publish(self.value, self, sender_client_addr, immediate)
 
     # pylint: disable=invalid-name
     def to_HAP(self):
