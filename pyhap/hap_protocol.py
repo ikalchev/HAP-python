@@ -94,6 +94,7 @@ class HAPServerProtocol(asyncio.Protocol):
         """Remove the connection and close the transport."""
         if self.peername in self.connections:
             del self.connections[self.peername]
+        self.transport.write_eof()
         self.transport.close()
 
     def queue_event(self, data: dict, immediate: bool) -> None:
@@ -256,6 +257,12 @@ class HAPServerProtocol(asyncio.Protocol):
                 "%s: exception during delayed response", self.peername, exc_info=ex
             )
             response = self.handler.generic_failure_response()
+        if self.transport.is_closing():
+            logger.debug(
+                "%s: delayed response not sent as the transport as closed.",
+                self.peername,
+            )
+            return
         self.send_response(response)
 
     def _handle_invalid_conn_state(self, message):

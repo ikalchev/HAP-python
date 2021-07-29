@@ -363,10 +363,45 @@ def test_http_11_keep_alive(driver):
     hap_proto.close()
 
 
+@pytest.mark.asyncio
+async def test_camera_snapshot_connection_closed(driver):
+    """Test camera snapshot when the other side closes the connection."""
+    loop = MagicMock()
+    transport = MagicMock()
+    transport.is_closing = Mock(return_value=True)
+    connections = {}
+
+    async def _async_get_snapshot(*_):
+        return b"fakesnap"
+
+    acc = Accessory(driver, "TestAcc")
+    acc.async_get_snapshot = _async_get_snapshot
+    driver.add_accessory(acc)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    hap_proto.hap_crypto = MockHAPCrypto()
+    hap_proto.handler.is_encrypted = True
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+        )
+        hap_proto.close()
+        await hap_proto.response.task
+        await asyncio.sleep(0)
+
+    assert writer.call_args_list == []
+
+    hap_proto.close()
+
+
 def test_camera_snapshot_without_snapshot_support(driver):
     """Test camera snapshot fails if there is not support for it."""
     loop = MagicMock()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
 
     acc = Accessory(driver, "TestAcc")
@@ -392,6 +427,7 @@ async def test_camera_snapshot_works_sync(driver):
     """Test camera snapshot works if there is support for it."""
     loop = MagicMock()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
 
     def _get_snapshot(*_):
@@ -424,6 +460,7 @@ async def test_camera_snapshot_works_async(driver):
     """Test camera snapshot works if there is support for it."""
     loop = MagicMock()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
 
     async def _async_get_snapshot(*_):
@@ -489,6 +526,7 @@ def test_upgrade_to_encrypted(driver):
     """Test we switch to encrypted wen we get a shared_key."""
     loop = MagicMock()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
 
     acc = Accessory(driver, "TestAcc")
@@ -559,6 +597,7 @@ async def test_camera_snapshot_throws_an_exception(driver):
     """Test camera snapshot that throws an exception."""
     loop = MagicMock()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
 
     async def _async_get_snapshot(*_):
@@ -594,6 +633,7 @@ async def test_camera_snapshot_times_out(driver):
     """Test camera snapshot times out."""
     loop = MagicMock()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
 
     def _get_snapshot(*_):
