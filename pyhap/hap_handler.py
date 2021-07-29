@@ -105,7 +105,10 @@ class HAPServerHandler:
             "/accessories": "handle_accessories",
             "/characteristics": "handle_get_characteristics",
         },
-        "PUT": {"/characteristics": "handle_set_characteristics"},
+        "PUT": {
+            "/characteristics": "handle_set_characteristics",
+            "/prepare": "handle_prepare",
+        },
     }
 
     PAIRING_RESPONSE_TYPE = "application/pairing+tlv8"
@@ -620,6 +623,23 @@ class HAPServerHandler:
             return
 
         self.send_response(HTTPStatus.MULTI_STATUS)
+        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
+        self.end_response(to_hap_json(response))
+
+    def handle_prepare(self):
+        """Handles a client request to prepare to write."""
+        if not self.is_encrypted:
+            logger.warning(
+                "%s: Attempt to access unauthorised content", self.client_address
+            )
+            self.send_response(HTTPStatus.UNAUTHORIZED)
+            return
+
+        request = json.loads(self.request_body.decode("utf-8"))
+        logger.debug("%s: prepare content: %s", self.client_address, request)
+
+        response = self.accessory_handler.prepare(request, self.client_address)
+        self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(to_hap_json(response))
 
