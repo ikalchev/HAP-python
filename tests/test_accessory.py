@@ -473,6 +473,6 @@ def test_acc_with_(mock_driver):
         valid_values={"SinglePress": 0},
     )
     char_doorbell_detected_switch.client_update_value(0)
-    char_doorbell_detected_switch.to_HAP()[HAP_REPR_VALUE] is None
+    assert char_doorbell_detected_switch.to_HAP()[HAP_REPR_VALUE] is None
     char_doorbell_detected_switch.client_update_value(None)
-    char_doorbell_detected_switch.to_HAP()[HAP_REPR_VALUE] is None
+    assert char_doorbell_detected_switch.to_HAP()[HAP_REPR_VALUE] is None
