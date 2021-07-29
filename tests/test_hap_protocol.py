@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 from cryptography.exceptions import InvalidTag
 import pytest
 
-from pyhap import hap_protocol
+from pyhap import hap_protocol, hap_handler
 from pyhap.accessory import Accessory, Bridge
 from pyhap.hap_handler import HAPResponse
 
@@ -447,6 +447,40 @@ async def test_camera_snapshot_works_async(driver):
         await asyncio.sleep(0)
 
     assert b"fakesnap" in writer.call_args_list[0][0][0]
+
+    hap_proto.close()
+
+
+@pytest.mark.asyncio
+async def test_camera_snapshot_timeout_async(driver):
+    """Test camera snapshot timeout is handled."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+
+    async def _async_get_snapshot(*_):
+        await asyncio.sleep(10)
+        return b"fakesnap"
+
+    acc = Accessory(driver, "TestAcc")
+    acc.async_get_snapshot = _async_get_snapshot
+    driver.add_accessory(acc)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    hap_proto.hap_crypto = MockHAPCrypto()
+    hap_proto.handler.is_encrypted = True
+
+    with patch.object(hap_handler, "RESPONSE_TIMEOUT", 0.1), patch.object(
+        hap_proto.transport, "write"
+    ) as writer:
+        hap_proto.data_received(
+            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+        )
+        await asyncio.sleep(0.3)
+
+    assert b"-70402" in writer.call_args_list[0][0][0]
 
     hap_proto.close()
 

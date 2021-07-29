@@ -124,7 +124,6 @@ class HAPServerProtocol(asyncio.Protocol):
             + self.conn.send(h11.Data(data=response.body))
             + self.conn.send(h11.EndOfMessage())
         )
-        self.transport.resume_reading()
 
     def finish_and_close(self):
         """Cleanly finish and close the connection."""
@@ -219,7 +218,6 @@ class HAPServerProtocol(asyncio.Protocol):
             return True
 
         if isinstance(event, h11.EndOfMessage):
-            self.transport.pause_reading()
             response = self.handler.dispatch(self.request, bytes(self.request_body))
             self._process_response(response)
             self.request = None
