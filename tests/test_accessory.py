@@ -12,6 +12,7 @@ from pyhap.const import (
     CATEGORY_CAMERA,
     CATEGORY_TARGET_CONTROLLER,
     CATEGORY_TELEVISION,
+    HAP_REPR_VALUE,
     STANDALONE_AID,
 )
 from pyhap.service import Service
@@ -460,3 +461,18 @@ async def test_bridge_run_stop():
         await bridge.stop()
     assert acc.stopped is True
     assert acc2.stopped is True
+
+
+def test_acc_with_(mock_driver):
+    """Test ProgrammableSwitchEvent is always None."""
+    acc = Accessory(mock_driver, "Test Accessory")
+    serv_stateless_switch = acc.add_preload_service("StatelessProgrammableSwitch")
+    char_doorbell_detected_switch = serv_stateless_switch.configure_char(
+        "ProgrammableSwitchEvent",
+        value=0,
+        valid_values={"SinglePress": 0},
+    )
+    char_doorbell_detected_switch.client_update_value(0)
+    char_doorbell_detected_switch.to_HAP()[HAP_REPR_VALUE] is None
+    char_doorbell_detected_switch.client_update_value(None)
+    char_doorbell_detected_switch.to_HAP()[HAP_REPR_VALUE] is None
