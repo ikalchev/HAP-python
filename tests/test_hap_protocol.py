@@ -493,6 +493,7 @@ async def test_camera_snapshot_timeout_async(driver):
     """Test camera snapshot timeout is handled."""
     loop = MagicMock()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
 
     async def _async_get_snapshot(*_):
