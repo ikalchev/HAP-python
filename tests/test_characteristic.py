@@ -7,12 +7,26 @@ import pytest
 from pyhap.characteristic import (
     HAP_FORMAT_DEFAULTS,
     HAP_FORMAT_INT,
+    HAP_FORMAT_UINT8,
+    HAP_FORMAT_UINT16,
+    HAP_FORMAT_UINT32,
+    HAP_FORMAT_UINT64,
+    HAP_FORMAT_FLOAT,
     HAP_PERMISSION_READ,
     CHAR_PROGRAMMABLE_SWITCH_EVENT,
     Characteristic,
 )
 
 PROPERTIES = {"Format": HAP_FORMAT_INT, "Permissions": [HAP_PERMISSION_READ]}
+PROPERTIES_FLOAT = {"Format": HAP_FORMAT_FLOAT, "Permissions": [HAP_PERMISSION_READ]}
+
+HAP_FORMAT_INTS = [
+    HAP_FORMAT_INT,
+    HAP_FORMAT_UINT8,
+    HAP_FORMAT_UINT16,
+    HAP_FORMAT_UINT32,
+    HAP_FORMAT_UINT64,
+]
 
 
 def get_char(props, valid=None, min_value=None, max_value=None):
@@ -105,13 +119,17 @@ def test_override_properties_error():
         char.override_properties()
 
 
-def test_set_value():
+@pytest.mark.parametrize("int_format", HAP_FORMAT_INTS)
+def test_set_value_int(int_format):
     """Test setting the value of a characteristic."""
     path = "pyhap.characteristic.Characteristic.notify"
-    char = get_char(PROPERTIES.copy(), min_value=3, max_value=7)
+    props = PROPERTIES.copy()
+    props["Format"] = int_format
+    char = get_char(props, min_value=3, max_value=7)
 
     with patch(path) as mock_notify:
-        char.set_value(5)
+        char.set_value(5.55)
+        # Ensure floating point is dropped on an int property
         assert char.value == 5
         assert mock_notify.called is False
 
@@ -179,6 +197,27 @@ def test_switch_event_always_serializes_to_null_via_client_update_value():
     assert char.to_HAP()["value"] is None
     char.client_update_value(1)
     assert char.to_HAP()["value"] is None
+
+
+def test_set_value_float():
+    """Test setting the value of a characteristic."""
+    path = "pyhap.characteristic.Characteristic.notify"
+    char = get_char(PROPERTIES_FLOAT.copy(), min_value=2.55, max_value=7.5)
+
+    with patch(path) as mock_notify:
+        char.set_value(5.55)
+        # Ensure floating point is preserved on a float property
+        assert char.value == 5.55
+        assert mock_notify.called is False
+
+        char.broker = Mock()
+        char.set_value(8, should_notify=False)
+        assert char.value == 7.5
+        assert mock_notify.called is False
+
+        char.set_value(1)
+        assert char.value == 2.55
+        assert mock_notify.call_count == 1
 
 
 def test_client_update_value():
