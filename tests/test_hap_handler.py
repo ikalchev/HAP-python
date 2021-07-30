@@ -300,7 +300,7 @@ def test_handle_set_handle_set_characteristics_unencrypted(driver):
 
     response = hap_handler.HAPResponse()
     handler.response = response
-    handler.request_body = b'{"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    handler.request_body = b'{"characteristics":[{"aid":1,"iid":10,"ev":true}]}'
     handler.handle_set_characteristics()
 
     assert response.status_code == 401
@@ -319,7 +319,7 @@ def test_handle_set_handle_set_characteristics_encrypted(driver):
 
     response = hap_handler.HAPResponse()
     handler.response = response
-    handler.request_body = b'{"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+    handler.request_body = b'{"characteristics":[{"aid":1,"iid":10,"ev":true}]}'
     handler.handle_set_characteristics()
 
     assert response.status_code == 204
@@ -531,7 +531,7 @@ def test_handle_set_handle_set_characteristics_encrypted_with_exception(driver):
 
     response = hap_handler.HAPResponse()
     handler.response = response
-    handler.request_body = b'{"characteristics":[{"aid":1,"iid":9,"value":1}]}'
+    handler.request_body = b'{"characteristics":[{"aid":1,"iid":11,"value":1}]}'
     handler.handle_set_characteristics()
 
     assert response.status_code == 207
@@ -593,7 +593,7 @@ def test_handle_get_characteristics_encrypted(driver):
 
     response = hap_handler.HAPResponse()
     handler.response = response
-    handler.path = "/characteristics?id=1.9"
+    handler.path = "/characteristics?id=1.11"
     handler.handle_get_characteristics()
 
     assert response.status_code == 200
@@ -605,7 +605,7 @@ def test_handle_get_characteristics_encrypted(driver):
     with patch.object(acc.iid_manager, "get_obj", side_effect=CharacteristicError):
         response = hap_handler.HAPResponse()
         handler.response = response
-        handler.path = "/characteristics?id=1.9"
+        handler.path = "/characteristics?id=1.10"
         handler.handle_get_characteristics()
 
     assert response.status_code == 207

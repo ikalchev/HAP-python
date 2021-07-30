@@ -216,24 +216,20 @@ def test_cannot_add_bridge_to_bridge(mock_driver):
         bridge.add_accessory(bridge2)
 
 
-def test_to_hap(mock_driver):
+def test_to_hap_bridge(mock_driver):
     bridge = Bridge(mock_driver, "Test Bridge")
     acc = Accessory(mock_driver, "Test Accessory", aid=2)
     assert acc.available is True
     bridge.add_accessory(acc)
 
-    assert bridge.to_HAP() == [
+    hap = bridge.to_HAP()
+    assert hap == [
         {
             "aid": 1,
             "services": [
                 {
                     "characteristics": [
-                        {
-                            "format": "bool",
-                            "iid": 2,
-                            "perms": ["pw"],
-                            "type": "14",
-                        },
+                        {"format": "bool", "iid": 2, "perms": ["pw"], "type": "14"},
                         {
                             "format": "string",
                             "iid": 3,
@@ -272,7 +268,20 @@ def test_to_hap(mock_driver):
                     ],
                     "iid": 1,
                     "type": "3E",
-                }
+                },
+                {
+                    "characteristics": [
+                        {
+                            "format": "string",
+                            "iid": 9,
+                            "perms": ["pr", "ev"],
+                            "type": "37",
+                            "value": "01.01.00",
+                        }
+                    ],
+                    "iid": 8,
+                    "type": "A2",
+                },
             ],
         },
         {
@@ -280,12 +289,7 @@ def test_to_hap(mock_driver):
             "services": [
                 {
                     "characteristics": [
-                        {
-                            "format": "bool",
-                            "iid": 2,
-                            "perms": ["pw"],
-                            "type": "14",
-                        },
+                        {"format": "bool", "iid": 2, "perms": ["pw"], "type": "14"},
                         {
                             "format": "string",
                             "iid": 3,
@@ -328,7 +332,9 @@ def test_to_hap(mock_driver):
             ],
         },
     ]
-    assert acc.to_HAP() == {
+
+    hap = acc.to_HAP()
+    assert hap == {
         "aid": 2,
         "services": [
             {
@@ -381,7 +387,8 @@ def test_to_hap(mock_driver):
         ],
     }
     bridge.get_characteristic(2, 2).display_name = "Custom Name Identify"
-    assert acc.to_HAP() == {
+    hap = acc.to_HAP()
+    assert hap == {
         "aid": 2,
         "services": [
             {
@@ -432,6 +439,73 @@ def test_to_hap(mock_driver):
                 "iid": 1,
                 "type": "3E",
             }
+        ],
+    }
+
+
+def test_to_hap_standalone(mock_driver):
+    acc = Accessory(mock_driver, "Test Accessory", aid=1)
+    assert acc.available is True
+
+    hap = acc.to_HAP()
+    assert hap == {
+        "aid": 1,
+        "services": [
+            {
+                "characteristics": [
+                    {"format": "bool", "iid": 2, "perms": ["pw"], "type": "14"},
+                    {
+                        "format": "string",
+                        "iid": 3,
+                        "perms": ["pr"],
+                        "type": "20",
+                        "value": "",
+                    },
+                    {
+                        "format": "string",
+                        "iid": 4,
+                        "perms": ["pr"],
+                        "type": "21",
+                        "value": "",
+                    },
+                    {
+                        "format": "string",
+                        "iid": 5,
+                        "perms": ["pr"],
+                        "type": "23",
+                        "value": "Test Accessory",
+                    },
+                    {
+                        "format": "string",
+                        "iid": 6,
+                        "perms": ["pr"],
+                        "type": "30",
+                        "value": "default",
+                    },
+                    {
+                        "format": "string",
+                        "iid": 7,
+                        "perms": ["pr"],
+                        "type": "52",
+                        "value": "",
+                    },
+                ],
+                "iid": 1,
+                "type": "3E",
+            },
+            {
+                "characteristics": [
+                    {
+                        "format": "string",
+                        "iid": 9,
+                        "perms": ["pr", "ev"],
+                        "type": "37",
+                        "value": "01.01.00",
+                    }
+                ],
+                "iid": 8,
+                "type": "A2",
+            },
         ],
     }
 

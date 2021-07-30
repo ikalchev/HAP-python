@@ -79,6 +79,9 @@ HAP_REPR_TYPE = "type"
 HAP_REPR_VALUE = "value"
 HAP_REPR_VALID_VALUES = "valid-values"
 
+HAP_PROTOCOL_VERSION = "01.01.00"
+HAP_PROTOCOL_SHORT_VERSION = "1.1"
+
 
 # Status codes for underlying HAP calls
 class HAP_SERVER_STATUS:
