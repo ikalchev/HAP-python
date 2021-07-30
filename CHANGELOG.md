@@ -16,7 +16,11 @@ Sections
 ### Developers
 -->
 
-## [3.6.0] - 2021-7-22
+## [4.0.0] - 2021-07-22
+
+- Add support for HAP v 1.1. [#365](https://github.com/ikalchev/HAP-python/pull/365)
+
+## [3.6.0] - 2021-07-22
 
 - Reduce event overhead. [#360](https://github.com/ikalchev/HAP-python/pull/360)
 - Ensure floating point values are truncated for int formats. [#361](https://github.com/ikalchev/HAP-python/pull/361)
