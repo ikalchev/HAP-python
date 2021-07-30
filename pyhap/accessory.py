@@ -2,21 +2,27 @@
 import itertools
 import logging
 
+from uuid import UUID
 from pyhap import SUPPORT_QR_CODE, util
 from pyhap.const import (
     CATEGORY_BRIDGE,
     CATEGORY_OTHER,
     HAP_REPR_AID,
     HAP_REPR_IID,
+    HAP_PROTOCOL_VERSION,
     HAP_REPR_SERVICES,
     HAP_REPR_VALUE,
     STANDALONE_AID,
 )
 from pyhap.iid_manager import IIDManager
+from pyhap.service import Service
 
 if SUPPORT_QR_CODE:
     import base36
     from pyqrcode import QRCode
+
+
+HAP_PROTOCOL_INFORMATION_SERVICE_UUID = UUID("000000A2-0000-1000-8000-0026BB765291")
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +54,8 @@ class Accessory:
         self.iid_manager = IIDManager()
 
         self.add_info_service()
+        if aid == STANDALONE_AID:
+            self.add_protocol_version_service()
 
     def __repr__(self):
         """Return the representation of the accessory."""
@@ -78,6 +86,16 @@ class Accessory:
         serv_info.configure_char("Name", value=self.display_name)
         serv_info.configure_char("SerialNumber", value="default")
         self.add_service(serv_info)
+
+    def add_protocol_version_service(self):
+        """Helper method to add the required HAP Protocol Information service"""
+        serv_hap_proto_info = Service(
+            HAP_PROTOCOL_INFORMATION_SERVICE_UUID,
+            "HAPProtocolInformation"
+        )
+        serv_hap_proto_info.add_characteristic(self.driver.loader.get_char("Version"))
+        serv_hap_proto_info.configure_char("Version", value=HAP_PROTOCOL_VERSION)
+        self.add_service(serv_hap_proto_info)
 
     def set_info_service(
         self, firmware_revision=None, manufacturer=None, model=None, serial_number=None

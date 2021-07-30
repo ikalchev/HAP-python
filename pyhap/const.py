@@ -1,6 +1,6 @@
 """This module contains constants used by other modules."""
-MAJOR_VERSION = 3
-MINOR_VERSION = 6
+MAJOR_VERSION = 4
+MINOR_VERSION = 0
 PATCH_VERSION = 0
 __short_version__ = "{}.{}".format(MAJOR_VERSION, MINOR_VERSION)
 __version__ = "{}.{}".format(__short_version__, PATCH_VERSION)
@@ -78,6 +78,9 @@ HAP_REPR_TTL = "ttl"
 HAP_REPR_TYPE = "type"
 HAP_REPR_VALUE = "value"
 HAP_REPR_VALID_VALUES = "valid-values"
+
+HAP_PROTOCOL_VERSION = "01.01.00"
+HAP_PROTOCOL_SHORT_VERSION = "1.1"
 
 
 # Status codes for underlying HAP calls

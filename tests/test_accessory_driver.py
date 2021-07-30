@@ -607,7 +607,7 @@ def test_mdns_service_info(driver):
     assert mdns_info.addresses == [b"\xac\x00\x00\x01"]
     assert mdns_info.properties == {
         "md": "Test Accessory",
-        "pv": "1.0",
+        "pv": "1.1",
         "id": "00:00:00:00:00:00",
         "c#": "2",
         "s#": "1",
