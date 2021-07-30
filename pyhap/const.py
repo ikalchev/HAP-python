@@ -1,7 +1,7 @@
 """This module contains constants used by other modules."""
 MAJOR_VERSION = 3
-MINOR_VERSION = 5
-PATCH_VERSION = 2
+MINOR_VERSION = 6
+PATCH_VERSION = 0
 __short_version__ = "{}.{}".format(MAJOR_VERSION, MINOR_VERSION)
 __version__ = "{}.{}".format(__short_version__, PATCH_VERSION)
 REQUIRED_PYTHON_VER = (3, 6)
@@ -69,10 +69,12 @@ HAP_REPR_FORMAT = "format"
 HAP_REPR_IID = "iid"
 HAP_REPR_MAX_LEN = "maxLen"
 HAP_REPR_PERM = "perms"
+HAP_REPR_PID = "pid"
 HAP_REPR_PRIMARY = "primary"
 HAP_REPR_SERVICES = "services"
 HAP_REPR_LINKED = "linked"
 HAP_REPR_STATUS = "status"
+HAP_REPR_TTL = "ttl"
 HAP_REPR_TYPE = "type"
 HAP_REPR_VALUE = "value"
 HAP_REPR_VALID_VALUES = "valid-values"

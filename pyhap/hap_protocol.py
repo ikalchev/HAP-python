@@ -9,9 +9,12 @@ import time
 from cryptography.exceptions import InvalidTag
 import h11
 
+from pyhap.accessory import get_topic
+from pyhap.const import HAP_REPR_AID, HAP_REPR_IID
+
 from .hap_crypto import HAPCrypto
-from .hap_handler import HAPResponse, HAPServerHandler
 from .hap_event import create_hap_event
+from .hap_handler import HAPResponse, HAPServerHandler
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +25,8 @@ HIGH_WRITE_BUFFER_SIZE = 2 ** 19
 # their phone or device before they have to resync when they
 # reopen homekit.
 IDLE_CONNECTION_TIMEOUT_SECONDS = 90 * 60 * 60
+
+EVENT_COALESCE_TIME_WINDOW = 0.5
 
 
 class HAPServerProtocol(asyncio.Protocol):
@@ -42,6 +47,7 @@ class HAPServerProtocol(asyncio.Protocol):
 
         self.last_activity = None
         self.hap_crypto = None
+        self._event_timer = None
         self._event_queue = []
 
     def connection_lost(self, exc: Exception) -> None:
@@ -88,12 +94,18 @@ class HAPServerProtocol(asyncio.Protocol):
         """Remove the connection and close the transport."""
         if self.peername in self.connections:
             del self.connections[self.peername]
+        self.transport.write_eof()
         self.transport.close()
 
-    def queue_event(self, data: dict) -> None:
+    def queue_event(self, data: dict, immediate: bool) -> None:
         """Queue an event for sending."""
         self._event_queue.append(data)
-        self.loop.call_soon(self._process_events)
+        if immediate:
+            self.loop.call_soon(self._send_events)
+        elif not self._event_timer:
+            self._event_timer = self.loop.call_later(
+                EVENT_COALESCE_TIME_WINDOW, self._send_events
+            )
 
     def send_response(self, response: HAPResponse) -> None:
         """Send a HAPResponse object."""
@@ -113,7 +125,6 @@ class HAPServerProtocol(asyncio.Protocol):
             + self.conn.send(h11.Data(data=response.body))
             + self.conn.send(h11.EndOfMessage())
         )
-        self.transport.resume_reading()
 
     def finish_and_close(self):
         """Cleanly finish and close the connection."""
@@ -162,16 +173,30 @@ class HAPServerProtocol(asyncio.Protocol):
                 if self.conn.our_state is h11.MUST_CLOSE:
                     self.finish_and_close()
                     return
-            self._send_events()
         except h11.ProtocolError as protocol_ex:
             self._handle_invalid_conn_state(protocol_ex)
 
     def _send_events(self):
         """Send any pending events."""
+        if self._event_timer:
+            self._event_timer.cancel()
+            self._event_timer = None
         if not self._event_queue:
             return
-        self.write(create_hap_event(self._event_queue))
+        subscribed_events = self._event_queue_with_active_subscriptions()
+        if subscribed_events:
+            self.write(create_hap_event(subscribed_events))
         self._event_queue = []
+
+    def _event_queue_with_active_subscriptions(self):
+        """Remove any topics that have been unsubscribed after the event was generated."""
+        topics = self.accessory_driver.topics
+        return [
+            event
+            for event in self._event_queue
+            if self.peername
+            in topics.get(get_topic(event[HAP_REPR_AID], event[HAP_REPR_IID]), [])
+        ]
 
     def _process_one_event(self) -> bool:
         """Process one http event."""
@@ -194,7 +219,6 @@ class HAPServerProtocol(asyncio.Protocol):
             return True
 
         if isinstance(event, h11.EndOfMessage):
-            self.transport.pause_reading()
             response = self.handler.dispatch(self.request, bytes(self.request_body))
             self._process_response(response)
             self.request = None
@@ -233,6 +257,12 @@ class HAPServerProtocol(asyncio.Protocol):
                 "%s: exception during delayed response", self.peername, exc_info=ex
             )
             response = self.handler.generic_failure_response()
+        if self.transport.is_closing():
+            logger.debug(
+                "%s: delayed response not sent as the transport as closed.",
+                self.peername,
+            )
+            return
         self.send_response(response)
 
     def _handle_invalid_conn_state(self, message):

@@ -283,7 +283,7 @@ class Accessory:
 
     # Driver
 
-    def publish(self, value, sender, sender_client_addr=None):
+    def publish(self, value, sender, sender_client_addr=None, immediate=False):
         """Append AID and IID of the sender and forward it to the driver.
 
         Characteristics call this method to send updates.
@@ -299,7 +299,7 @@ class Accessory:
             HAP_REPR_IID: self.iid_manager.get_iid(sender),
             HAP_REPR_VALUE: value,
         }
-        self.driver.publish(acc_data, sender_client_addr)
+        self.driver.publish(acc_data, sender_client_addr, immediate)
 
 
 class Bridge(Accessory):

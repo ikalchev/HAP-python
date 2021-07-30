@@ -27,7 +27,11 @@ from pyhap.util import long_to_bytes
 from .hap_crypto import hap_hkdf, pad_tls_nonce
 from .util import to_hap_json
 
-SNAPSHOT_TIMEOUT = 10
+
+# iOS will terminate the connection if it does not respond within
+# 10 seconds, so we only allow 9 seconds to avoid this.
+RESPONSE_TIMEOUT = 9
+
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +109,10 @@ class HAPServerHandler:
             "/accessories": "handle_accessories",
             "/characteristics": "handle_get_characteristics",
         },
-        "PUT": {"/characteristics": "handle_set_characteristics"},
+        "PUT": {
+            "/characteristics": "handle_set_characteristics",
+            "/prepare": "handle_prepare",
+        },
     }
 
     PAIRING_RESPONSE_TYPE = "application/pairing+tlv8"
@@ -623,6 +630,23 @@ class HAPServerHandler:
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(to_hap_json(response))
 
+    def handle_prepare(self):
+        """Handles a client request to prepare to write."""
+        if not self.is_encrypted:
+            logger.warning(
+                "%s: Attempt to access unauthorised content", self.client_address
+            )
+            self.send_response(HTTPStatus.UNAUTHORIZED)
+            return
+
+        request = json.loads(self.request_body.decode("utf-8"))
+        logger.debug("%s: prepare content: %s", self.client_address, request)
+
+        response = self.accessory_handler.prepare(request, self.client_address)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
+        self.end_response(to_hap_json(response))
+
     def handle_pairings(self):
         """Handles a client request to update or remove a pairing."""
         if not self.is_encrypted:
@@ -737,7 +761,7 @@ class HAPServerHandler:
                 'does not define a "get_snapshot" or "async_get_snapshot" method'
             )
 
-        task = asyncio.ensure_future(asyncio.wait_for(coro, SNAPSHOT_TIMEOUT))
+        task = asyncio.ensure_future(asyncio.wait_for(coro, RESPONSE_TIMEOUT))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
         self.response.task = task
