@@ -16,6 +16,15 @@ Sections
 ### Developers
 -->
 
+## [3.6.0] - 2021-7-22
+
+- Reduce event overhead. [#360](https://github.com/ikalchev/HAP-python/pull/360)
+- Ensure floating point values are truncated for int formats. [#361](https://github.com/ikalchev/HAP-python/pull/361)
+- Remove python 3.10 alpha from ci workflow. [#362](https://github.com/ikalchev/HAP-python/pull/362)
+- Protocol 1.1: Add support for prepared writes. [#366](https://github.com/ikalchev/HAP-python/pull/366)
+- Decrease snapshot timeout to avoid being disconnected. [#367](https://github.com/ikalchev/HAP-python/pull/367)
+- Avoid writing delayed camera snapshots when the connection is closed. [#368](https://github.com/ikalchev/HAP-python/pull/368)
+
 ## [3.5.2] - 2021-07-22
 
 - Switch from ed25519 to pynacl. [#355](https://github.com/ikalchev/HAP-python/pull/355)
