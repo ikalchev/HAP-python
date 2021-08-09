@@ -2,7 +2,9 @@
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from pyhap import util
-from pyhap.const import DEFAULT_CONFIG_VERSION, DEFAULT_PORT
+from pyhap.const import CLIENT_PROP_PERMS, DEFAULT_CONFIG_VERSION, DEFAULT_PORT
+
+ADMIN_BIT = 0x01
 
 
 class State:
@@ -24,6 +26,7 @@ class State:
 
         self.config_version = DEFAULT_CONFIG_VERSION
         self.paired_clients = {}
+        self.client_properties = {}
 
         self.private_key = ed25519.Ed25519PrivateKey.generate()
         self.public_key = self.private_key.public_key()
@@ -34,7 +37,13 @@ class State:
         """Return if main accessory is currently paired."""
         return len(self.paired_clients) > 0
 
-    def add_paired_client(self, client_uuid, client_public):
+    def is_admin(self, client_uuid):
+        """Check if a paired client is an admin."""
+        if client_uuid not in self.client_properties:
+            return False
+        return bool(self.client_properties[client_uuid][CLIENT_PROP_PERMS] & ADMIN_BIT)
+
+    def add_paired_client(self, client_uuid, client_public, perms):
         """Add a given client to dictionary of paired clients.
 
         :param client_uuid: The client's UUID.
@@ -45,6 +54,7 @@ class State:
         :type client_public: bytes
         """
         self.paired_clients[client_uuid] = client_public
+        self.client_properties[client_uuid] = {CLIENT_PROP_PERMS: ord(perms)}
 
     def remove_paired_client(self, client_uuid):
         """Remove a given client from dictionary of paired clients.
@@ -53,3 +63,9 @@ class State:
         :type client_uuid: uuid.UUID
         """
         self.paired_clients.pop(client_uuid)
+        self.client_properties.pop(client_uuid)
+
+        # All pairings must be removed when the last admin is removed
+        if not any(self.is_admin(client_uuid) for client_uuid in self.paired_clients):
+            self.paired_clients.clear()
+            self.client_properties.clear()

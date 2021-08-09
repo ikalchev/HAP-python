@@ -50,11 +50,14 @@ class HAPServerProtocol(asyncio.Protocol):
         self._event_timer = None
         self._event_queue = []
 
+        self.start_time = None
+
     def connection_lost(self, exc: Exception) -> None:
         """Handle connection lost."""
         logger.debug(
-            "%s: Connection lost to %s: %s",
+            "%s (%s): Connection lost to %s: %s",
             self.peername,
+            self.handler.client_uuid,
             self.accessory_driver.accessory.display_name,
             exc,
         )
@@ -84,10 +87,20 @@ class HAPServerProtocol(asyncio.Protocol):
         self.last_activity = time.time()
         if self.hap_crypto:
             result = self.hap_crypto.encrypt(data)
-            logger.debug("%s: Send encrypted: %s", self.peername, data)
+            logger.debug(
+                "%s (%s): Send encrypted: %s",
+                self.peername,
+                self.handler.client_uuid,
+                data,
+            )
             self.transport.write(result)
         else:
-            logger.debug("%s: Send unencrypted: %s", self.peername, data)
+            logger.debug(
+                "%s (%s): Send unencrypted: %s",
+                self.peername,
+                self.handler.client_uuid,
+                data,
+            )
             self.transport.write(data)
 
     def close(self) -> None:
@@ -152,18 +165,31 @@ class HAPServerProtocol(asyncio.Protocol):
                 unencrypted_data = self.hap_crypto.decrypt()
             except InvalidTag as ex:
                 logger.debug(
-                    "%s: Decrypt failed, closing connection: %s", self.peername, ex
+                    "%s (%s): Decrypt failed, closing connection: %s",
+                    self.peername,
+                    self.handler.client_uuid,
+                    ex,
                 )
                 self.close()
                 return
             if unencrypted_data == b"":
                 logger.debug("No decryptable data")
                 return
-            logger.debug("%s: Recv decrypted: %s", self.peername, unencrypted_data)
+            logger.debug(
+                "%s (%s): Recv decrypted: %s",
+                self.peername,
+                self.handler.client_uuid,
+                unencrypted_data,
+            )
             self.conn.receive_data(unencrypted_data)
         else:
             self.conn.receive_data(data)
-            logger.debug("%s: Recv unencrypted: %s", self.peername, data)
+            logger.debug(
+                "%s (%s): Recv unencrypted: %s",
+                self.peername,
+                self.handler.client_uuid,
+                data,
+            )
         self._process_events()
 
     def _process_events(self):
@@ -201,7 +227,9 @@ class HAPServerProtocol(asyncio.Protocol):
     def _process_one_event(self) -> bool:
         """Process one http event."""
         event = self.conn.next_event()
-        logger.debug("%s: h11 Event: %s", self.peername, event)
+        logger.debug(
+            "%s (%s): h11 Event: %s", self.peername, self.handler.client_uuid, event
+        )
         if event in (h11.NEED_DATA, h11.ConnectionClosed):
             return False
 
@@ -254,13 +282,17 @@ class HAPServerProtocol(asyncio.Protocol):
             response.body = task.result()
         except Exception as ex:  # pylint: disable=broad-except
             logger.debug(
-                "%s: exception during delayed response", self.peername, exc_info=ex
+                "%s (%s): exception during delayed response",
+                self.peername,
+                self.handler.client_uuid,
+                exc_info=ex,
             )
             response = self.handler.generic_failure_response()
         if self.transport.is_closing():
             logger.debug(
-                "%s: delayed response not sent as the transport as closed.",
+                "%s (%s): delayed response not sent as the transport as closed.",
                 self.peername,
+                self.handler.client_uuid,
             )
             return
         self.send_response(response)
@@ -268,9 +300,10 @@ class HAPServerProtocol(asyncio.Protocol):
     def _handle_invalid_conn_state(self, message):
         """Log invalid state and close."""
         logger.debug(
-            "%s: Invalid state: %s: close the client socket",
-            message,
+            "%s (%s): Invalid state: %s: close the client socket",
             self.peername,
+            self.handler.client_uuid,
+            message,
         )
         self.close()
         return False
