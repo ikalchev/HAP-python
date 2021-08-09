@@ -52,6 +52,7 @@ class Accessory:
         self.driver = driver
         self.services = []
         self.iid_manager = IIDManager()
+        self.setter_callback = None
 
         self.add_info_service()
         if aid == STANDALONE_AID:
@@ -90,8 +91,7 @@ class Accessory:
     def add_protocol_version_service(self):
         """Helper method to add the required HAP Protocol Information service"""
         serv_hap_proto_info = Service(
-            HAP_PROTOCOL_INFORMATION_SERVICE_UUID,
-            "HAPProtocolInformation"
+            HAP_PROTOCOL_INFORMATION_SERVICE_UUID, "HAPProtocolInformation"
         )
         serv_hap_proto_info.add_characteristic(self.driver.loader.get_char("Version"))
         serv_hap_proto_info.configure_char("Version", value=HAP_PROTOCOL_VERSION)
