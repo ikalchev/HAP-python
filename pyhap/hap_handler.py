@@ -11,13 +11,13 @@ import uuid
 
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519
-from cryptography.hazmat.primitives.asymmetric import x25519
+from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 from pyhap import tlv
 from pyhap.const import (
     CATEGORY_BRIDGE,
+    HAP_PERMISSIONS,
     HAP_REPR_CHARS,
     HAP_REPR_STATUS,
     HAP_SERVER_STATUS,
@@ -26,7 +26,6 @@ from pyhap.util import long_to_bytes
 
 from .hap_crypto import hap_hkdf, pad_tls_nonce
 from .util import to_hap_json
-
 
 # iOS will terminate the connection if it does not respond within
 # 10 seconds, so we only allow 9 seconds to avoid this.
@@ -85,11 +84,6 @@ class HAP_TLV_TAGS:
     PERMISSIONS = b"\x0B"
 
 
-class HAP_PERMISSIONS:
-    USER = b"\x00"
-    ADMIN = b"\x01"
-
-
 class UnprivilegedRequestException(Exception):
     pass
 
@@ -145,6 +139,7 @@ class HAPServerHandler:
         self.enc_context = None
         self.client_address = client_address
         self.is_encrypted = False
+        self.client_uuid = None
 
         self.path = None
         self.command = None
@@ -421,7 +416,9 @@ class HAPServerHandler:
         aead_message = bytes(cipher.encrypt(self.PAIRING_5_NONCE, bytes(message), b""))
 
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
-        should_confirm = self.accessory_handler.pair(client_uuid, client_ltpk)
+        should_confirm = self.accessory_handler.pair(
+            client_uuid, client_ltpk, HAP_PERMISSIONS.ADMIN
+        )
 
         if not should_confirm:
             self.send_response_with_status(
@@ -568,6 +565,7 @@ class HAPServerHandler:
         self._send_tlv_pairing_response(data)
         self.response.shared_key = self.enc_context["shared_key"]
         self.is_encrypted = True
+        self.client_uuid = client_uuid
         del self.enc_context
 
     def handle_accessories(self):
@@ -649,7 +647,8 @@ class HAPServerHandler:
 
     def handle_pairings(self):
         """Handles a client request to update or remove a pairing."""
-        if not self.is_encrypted:
+        # Must be an admin to handle pairings
+        if not self.is_encrypted or not self.state.is_admin(self.client_uuid):
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M2)
             return
 
@@ -671,8 +670,11 @@ class HAPServerHandler:
         logger.debug("%s: Adding client pairing.", self.client_address)
         client_username = tlv_objects[HAP_TLV_TAGS.USERNAME]
         client_public = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
+        permissions = tlv_objects[HAP_TLV_TAGS.PERMISSIONS]
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
-        should_confirm = self.accessory_handler.pair(client_uuid, client_public)
+        should_confirm = self.accessory_handler.pair(
+            client_uuid, client_public, permissions
+        )
         if not should_confirm:
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M2)
             return
@@ -706,6 +708,7 @@ class HAPServerHandler:
         logger.debug("%s: list pairings", self.client_address)
         response = [HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M2]
         for client_uuid, client_public in self.state.paired_clients.items():
+            admin = self.state.is_admin(client_uuid)
             response.extend(
                 [
                     HAP_TLV_TAGS.USERNAME,
@@ -713,7 +716,7 @@ class HAPServerHandler:
                     HAP_TLV_TAGS.PUBLIC_KEY,
                     client_public,
                     HAP_TLV_TAGS.PERMISSIONS,
-                    HAP_PERMISSIONS.ADMIN,
+                    HAP_PERMISSIONS.ADMIN if admin else HAP_PERMISSIONS.USER,
                 ]
             )
 

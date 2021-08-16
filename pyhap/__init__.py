@@ -13,6 +13,7 @@ SUPPORT_QR_CODE = False
 try:
     import base36  # noqa: F401
     import pyqrcode  # noqa: F401
+
     SUPPORT_QR_CODE = True
 except ImportError:
     pass

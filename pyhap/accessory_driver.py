@@ -593,7 +593,7 @@ class AccessoryDriver:
             self.encoder.load_into(file_handle, self.state)
 
     @callback
-    def pair(self, client_uuid, client_public):
+    def pair(self, client_uuid, client_public, client_permissions):
         """Called when a client has paired with the accessory.
 
         Persist the new accessory state.
@@ -604,11 +604,14 @@ class AccessoryDriver:
         :param client_public: The client's public key.
         :type client_public: bytes
 
+        :param client_permissions: The client's permissions.
+        :type client_permissions: bytes (int)
+
         :return: Whether the pairing is successful.
         :rtype: bool
         """
         logger.info("Paired with %s.", client_uuid)
-        self.state.add_paired_client(client_uuid, client_public)
+        self.state.add_paired_client(client_uuid, client_public, client_permissions)
         self.async_persist()
         return True
 
