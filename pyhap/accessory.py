@@ -52,6 +52,7 @@ class Accessory:
         self.driver = driver
         self.services = []
         self.iid_manager = IIDManager()
+        self.setter_callback = None
 
         self.add_info_service()
         if aid == STANDALONE_AID:

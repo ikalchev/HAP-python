@@ -436,6 +436,213 @@ def test_start_from_sync(driver):
     driver.start()
 
 
+def test_accessory_level_callbacks(driver):
+    bridge = Bridge(driver, "mybridge")
+    acc = Accessory(driver, "TestAcc", aid=2)
+    acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
+
+    service = Service(uuid1(), "Lightbulb")
+    char_on = Characteristic("On", uuid1(), CHAR_PROPS)
+    char_brightness = Characteristic("Brightness", uuid1(), CHAR_PROPS)
+
+    service.add_characteristic(char_on)
+    service.add_characteristic(char_brightness)
+
+    switch_service = Service(uuid1(), "Switch")
+    char_switch_on = Characteristic("On", uuid1(), CHAR_PROPS)
+    switch_service.add_characteristic(char_switch_on)
+
+    mock_callback = MagicMock()
+    acc.setter_callback = mock_callback
+
+    acc.add_service(service)
+    acc.add_service(switch_service)
+    bridge.add_accessory(acc)
+
+    service2 = Service(uuid1(), "Lightbulb")
+    char_on2 = Characteristic("On", uuid1(), CHAR_PROPS)
+    char_brightness2 = Characteristic("Brightness", uuid1(), CHAR_PROPS)
+
+    service2.add_characteristic(char_on2)
+    service2.add_characteristic(char_brightness2)
+
+    mock_callback2 = MagicMock()
+    acc2.setter_callback = mock_callback2
+
+    acc2.add_service(service2)
+    bridge.add_accessory(acc2)
+
+    char_switch_on_iid = char_switch_on.to_HAP()[HAP_REPR_IID]
+    char_on_iid = char_on.to_HAP()[HAP_REPR_IID]
+    char_brightness_iid = char_brightness.to_HAP()[HAP_REPR_IID]
+    char_on2_iid = char_on2.to_HAP()[HAP_REPR_IID]
+    char_brightness2_iid = char_brightness2.to_HAP()[HAP_REPR_IID]
+
+    driver.add_accessory(bridge)
+
+    response = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_on_iid,
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_switch_on_iid,
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_brightness_iid,
+                    HAP_REPR_VALUE: 88,
+                },
+                {
+                    HAP_REPR_AID: acc2.aid,
+                    HAP_REPR_IID: char_on2_iid,
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc2.aid,
+                    HAP_REPR_IID: char_brightness2_iid,
+                    HAP_REPR_VALUE: 12,
+                },
+            ]
+        },
+        "mock_addr",
+    )
+    assert response is None
+
+    mock_callback.assert_called_with(
+        {
+            service: {char_on: True, char_brightness: 88},
+            switch_service: {char_switch_on: True},
+        }
+    )
+    mock_callback2.assert_called_with(
+        {service2: {char_on2: True, char_brightness2: 12}}
+    )
+
+
+def test_accessory_level_callbacks_with_a_failure(driver):
+    bridge = Bridge(driver, "mybridge")
+    acc = Accessory(driver, "TestAcc", aid=2)
+    acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
+
+    service = Service(uuid1(), "Lightbulb")
+    char_on = Characteristic("On", uuid1(), CHAR_PROPS)
+    char_brightness = Characteristic("Brightness", uuid1(), CHAR_PROPS)
+
+    service.add_characteristic(char_on)
+    service.add_characteristic(char_brightness)
+
+    switch_service = Service(uuid1(), "Switch")
+    char_switch_on = Characteristic("On", uuid1(), CHAR_PROPS)
+    switch_service.add_characteristic(char_switch_on)
+
+    mock_callback = MagicMock()
+    acc.setter_callback = mock_callback
+
+    acc.add_service(service)
+    acc.add_service(switch_service)
+    bridge.add_accessory(acc)
+
+    service2 = Service(uuid1(), "Lightbulb")
+    char_on2 = Characteristic("On", uuid1(), CHAR_PROPS)
+    char_brightness2 = Characteristic("Brightness", uuid1(), CHAR_PROPS)
+
+    service2.add_characteristic(char_on2)
+    service2.add_characteristic(char_brightness2)
+
+    mock_callback2 = MagicMock(side_effect=OSError)
+    acc2.setter_callback = mock_callback2
+
+    acc2.add_service(service2)
+    bridge.add_accessory(acc2)
+
+    char_switch_on_iid = char_switch_on.to_HAP()[HAP_REPR_IID]
+    char_on_iid = char_on.to_HAP()[HAP_REPR_IID]
+    char_brightness_iid = char_brightness.to_HAP()[HAP_REPR_IID]
+    char_on2_iid = char_on2.to_HAP()[HAP_REPR_IID]
+    char_brightness2_iid = char_brightness2.to_HAP()[HAP_REPR_IID]
+
+    driver.add_accessory(bridge)
+
+    response = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_on_iid,
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_switch_on_iid,
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_brightness_iid,
+                    HAP_REPR_VALUE: 88,
+                },
+                {
+                    HAP_REPR_AID: acc2.aid,
+                    HAP_REPR_IID: char_on2_iid,
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc2.aid,
+                    HAP_REPR_IID: char_brightness2_iid,
+                    HAP_REPR_VALUE: 12,
+                },
+            ]
+        },
+        "mock_addr",
+    )
+
+    mock_callback.assert_called_with(
+        {
+            service: {char_on: True, char_brightness: 88},
+            switch_service: {char_switch_on: True},
+        }
+    )
+    mock_callback2.assert_called_with(
+        {service2: {char_on2: True, char_brightness2: 12}}
+    )
+
+    assert response == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: char_on_iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS,
+            },
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: char_switch_on_iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS,
+            },
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: char_brightness_iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS,
+            },
+            {
+                HAP_REPR_AID: acc2.aid,
+                HAP_REPR_IID: char_on2_iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
+            },
+            {
+                HAP_REPR_AID: acc2.aid,
+                HAP_REPR_IID: char_brightness2_iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
+            },
+        ]
+    }
+
+
 @pytest.mark.asyncio
 async def test_start_stop_sync_acc(async_zeroconf):
     with patch(

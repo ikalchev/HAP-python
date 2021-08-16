@@ -69,6 +69,55 @@ LEADING_TRAILING_SPACE_DASH = re.compile(r"^[ -]+|[ -]+$")
 DASH_REGEX = re.compile(r"[-]+")
 
 
+def _wrap_char_setter(char, value, client_addr):
+    """Process an characteristic setter callback trapping and logging all exceptions."""
+    try:
+        char.client_update_value(value, client_addr)
+    except Exception:  # pylint: disable=broad-except
+        logger.exception(
+            "%s: Error while setting characteristic %s to %s",
+            client_addr,
+            char.display_name,
+            value,
+        )
+        return HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+    return HAP_SERVER_STATUS.SUCCESS
+
+
+def _wrap_acc_setter(acc, updates_by_service, client_addr):
+    """Process an accessory setter callback trapping and logging all exceptions."""
+    try:
+        acc.setter_callback(updates_by_service)
+    except Exception:  # pylint: disable=broad-except
+        logger.exception(
+            "%s: Error while setting characteristics to %s for the %s accessory",
+            updates_by_service,
+            client_addr,
+            acc,
+        )
+        return HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+    return HAP_SERVER_STATUS.SUCCESS
+
+
+def _wrap_service_setter(service, chars, client_addr):
+    """Process a service setter callback trapping and logging all exceptions."""
+    # Ideally this would pass the chars as is without converting
+    # them to the display_name, but that would break existing
+    # consumers of the data.
+    service_chars = {char.display_name: value for char, value in chars.items()}
+    try:
+        service.setter_callback(service_chars)
+    except Exception:  # pylint: disable=broad-except
+        logger.exception(
+            "%s: Error while setting characteristics to %s for the %s service",
+            service_chars,
+            client_addr,
+            service.display_name,
+        )
+        return HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+    return HAP_SERVER_STATUS.SUCCESS
+
+
 class AccessoryMDNSServiceInfo(ServiceInfo):
     """A mDNS service info representation of an accessory."""
 
@@ -265,8 +314,10 @@ class AccessoryDriver:
         """
         try:
             logger.info("Starting the event loop")
-            if threading.current_thread() is threading.main_thread() \
-                    and os.name != "nt":
+            if (
+                threading.current_thread() is threading.main_thread()
+                and os.name != "nt"
+            ):
                 logger.debug("Setting child watcher")
                 watcher = asyncio.SafeChildWatcher()
                 watcher.attach_loop(self.loop)
@@ -519,7 +570,9 @@ class AccessoryDriver:
                     client_addr,
                 )
                 continue
-            logger.debug("Sending event to client: %s, immediate: %s", client_addr, immediate)
+            logger.debug(
+                "Sending event to client: %s, immediate: %s", client_addr, immediate
+            )
             pushed = self.http_server.push_event(data, client_addr, immediate)
             if not pushed:
                 logger.debug(
@@ -761,7 +814,7 @@ class AccessoryDriver:
         :type chars_query: dict
         """
         # TODO: Add support for chars that do no support notifications.
-        accessory_callbacks = {}
+        updates = {}
         setter_results = {}
         had_error = False
         expired = False
@@ -774,11 +827,10 @@ class AccessoryDriver:
 
         for cq in chars_query[HAP_REPR_CHARS]:
             aid, iid = cq[HAP_REPR_AID], cq[HAP_REPR_IID]
-            result = setter_results.setdefault(aid, {})
-            char = self.accessory.get_characteristic(aid, iid)
+            setter_results.setdefault(aid, {})
 
             if expired:
-                result[iid] = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
+                setter_results[aid][iid] = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
                 had_error = True
                 continue
 
@@ -795,61 +847,49 @@ class AccessoryDriver:
             if HAP_REPR_VALUE not in cq:
                 continue
 
-            value = cq[HAP_REPR_VALUE]
+            updates.setdefault(aid, {})[iid] = cq[HAP_REPR_VALUE]
 
-            try:
-                char.client_update_value(value, client_addr)
-            except Exception:  # pylint: disable=broad-except
-                logger.exception(
-                    "%s: Error while setting characteristic %s to %s",
-                    client_addr,
-                    char.display_name,
-                    value,
-                )
-                result[iid] = HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-                had_error = True
+        for aid, new_iid_values in updates.items():
+            if self.accessory.aid == aid:
+                acc = self.accessory
             else:
-                result[iid] = HAP_SERVER_STATUS.SUCCESS
+                acc = self.accessory.accessories.get(aid)
 
-            # For some services we want to send all the char value
-            # changes at once.  This resolves an issue where we send
-            # ON and then BRIGHTNESS and the light would go to 100%
-            # and then dim to the brightness because each callback
-            # would only send one char at a time.
-            if not char.service or not char.service.setter_callback:
-                continue
+            updates_by_service = {}
+            char_to_iid = {}
+            for iid, value in new_iid_values.items():
+                # Characteristic level setter callbacks
+                char = acc.get_characteristic(aid, iid)
 
-            services = accessory_callbacks.setdefault(aid, {})
-
-            if char.service.display_name not in services:
-                services[char.service.display_name] = {
-                    SERVICE_CALLBACK: char.service.setter_callback,
-                    SERVICE_CHARS: {},
-                    SERVICE_IIDS: [],
-                }
-
-            service_data = services[char.service.display_name]
-            service_data[SERVICE_CHARS][char.display_name] = value
-            service_data[SERVICE_IIDS].append(iid)
-
-        for aid, services in accessory_callbacks.items():
-            for service_name, service_data in services.items():
-                try:
-                    service_data[SERVICE_CALLBACK](service_data[SERVICE_CHARS])
-                except Exception:  # pylint: disable=broad-except
-                    logger.exception(
-                        "%s: Error while setting characteristics to %s for the %s service",
-                        service_data[SERVICE_CHARS],
-                        client_addr,
-                        service_name,
-                    )
-                    set_result = HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+                set_result = _wrap_char_setter(char, value, client_addr)
+                if set_result != HAP_SERVER_STATUS.SUCCESS:
                     had_error = True
-                else:
-                    set_result = HAP_SERVER_STATUS.SUCCESS
+                setter_results[aid][iid] = set_result
 
-                for iid in service_data[SERVICE_IIDS]:
+                if not char.service or (
+                    not acc.setter_callback and not char.service.setter_callback
+                ):
+                    continue
+                char_to_iid[char] = iid
+                updates_by_service.setdefault(char.service, {}).update({char: value})
+
+            # Accessory level setter callbacks
+            if acc.setter_callback:
+                set_result = _wrap_acc_setter(acc, updates_by_service, client_addr)
+                if set_result != HAP_SERVER_STATUS.SUCCESS:
+                    had_error = True
+                for iid in updates[aid]:
                     setter_results[aid][iid] = set_result
+
+            # Service level setter callbacks
+            for service, chars in updates_by_service.items():
+                if not service.setter_callback:
+                    continue
+                set_result = _wrap_service_setter(service, chars, client_addr)
+                if set_result != HAP_SERVER_STATUS.SUCCESS:
+                    had_error = True
+                for char in chars:
+                    setter_results[aid][char_to_iid[char]] = set_result
 
         if not had_error:
             return None
@@ -883,7 +923,9 @@ class AccessoryDriver:
         try:
             ttl = prepare_query[HAP_REPR_TTL]
             pid = prepare_query[HAP_REPR_PID]
-            self.prepared_writes.setdefault(client_addr, {})[pid] = time.time() + (ttl / 1000)
+            self.prepared_writes.setdefault(client_addr, {})[pid] = time.time() + (
+                ttl / 1000
+            )
         except (KeyError, ValueError):
             return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
 
