@@ -339,7 +339,8 @@ class AccessoryDriver:
             self.mdns_service_info, cooperating_responders=True
         )
 
-        await self.accessory.start()
+        # Run the accessory start method
+        await self.async_add_job(self.accessory.start())
 
         # Print accessory setup message
         if not self.state.paired:
