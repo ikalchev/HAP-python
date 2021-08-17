@@ -230,6 +230,7 @@ class AccessoryDriver:
             self.executor = None
 
         self.loop = loop
+        asyncio.set_event_loop(loop)
 
         self.accessory = None
         self.advertiser = async_zeroconf_instance
@@ -337,6 +338,8 @@ class AccessoryDriver:
         await self.advertiser.async_register_service(
             self.mdns_service_info, cooperating_responders=True
         )
+
+        await self.accessory.start()
 
         # Print accessory setup message
         if not self.state.paired:

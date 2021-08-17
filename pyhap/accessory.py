@@ -293,6 +293,12 @@ class Accessory:
         Can be overridden with a normal or async method.
         """
 
+    async def start(self):
+        """Called to do any startup an accessory requires
+
+        Can be overridden with a normal or async method.
+        """
+
     async def stop(self):
         """Called when the Accessory should stop what is doing and clean up any resources.
 
