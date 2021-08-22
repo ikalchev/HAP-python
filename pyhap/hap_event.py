@@ -3,7 +3,6 @@
 from .const import HAP_REPR_CHARS
 from .util import to_hap_json
 
-
 EVENT_MSG_STUB = (
     b"EVENT/1.0 200 OK\r\n"
     b"Content-Type: application/hap+json\r\n"

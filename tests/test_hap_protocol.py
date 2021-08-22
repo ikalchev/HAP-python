@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 from cryptography.exceptions import InvalidTag
 import pytest
 
-from pyhap import hap_protocol, hap_handler
+from pyhap import hap_handler, hap_protocol
 from pyhap.accessory import Accessory, Bridge
 from pyhap.hap_handler import HAPResponse
 

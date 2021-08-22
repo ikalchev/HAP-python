@@ -9,6 +9,8 @@ import uuid
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+from .const import CLIENT_PROP_PERMS
+
 
 class AccessoryEncoder:
     """This class defines the Accessory encoder interface.
@@ -32,6 +34,7 @@ class AccessoryEncoder:
         - UUID and public key of all paired clients.
         - MAC address.
         - Config version - ok, this is debatable, but it retains the consistency.
+        - Accessories Hash
 
     The default implementation persists the above properties.
 
@@ -50,14 +53,20 @@ class AccessoryEncoder:
             - Public and private key.
             - UUID and public key of paired clients.
             - Config version.
+            - Accessories Hash
         """
         paired_clients = {
             str(client): bytes.hex(key) for client, key in state.paired_clients.items()
+        }
+        client_properties = {
+            str(client): props for client, props in state.client_properties.items()
         }
         config_state = {
             "mac": state.mac,
             "config_version": state.config_version,
             "paired_clients": paired_clients,
+            "client_properties": client_properties,
+            "accessories_hash": state.accessories_hash,
             "private_key": bytes.hex(
                 state.private_key.private_bytes(
                     encoding=serialization.Encoding.Raw,
@@ -82,7 +91,20 @@ class AccessoryEncoder:
         """
         loaded = json.load(fp)
         state.mac = loaded["mac"]
+        state.accessories_hash = loaded.get("accessories_hash")
         state.config_version = loaded["config_version"]
+        if "client_properties" in loaded:
+            state.client_properties = {
+                uuid.UUID(client): props
+                for client, props in loaded["client_properties"].items()
+            }
+        else:
+            # If "client_properties" does not exist, everyone
+            # before that was paired as an admin
+            state.client_properties = {
+                uuid.UUID(client): {CLIENT_PROP_PERMS: 1}
+                for client in loaded["paired_clients"]
+            }
         state.paired_clients = {
             uuid.UUID(client): bytes.fromhex(key)
             for client, key in loaded["paired_clients"].items()
