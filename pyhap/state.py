@@ -2,7 +2,12 @@
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from pyhap import util
-from pyhap.const import CLIENT_PROP_PERMS, DEFAULT_CONFIG_VERSION, DEFAULT_PORT
+from pyhap.const import (
+    CLIENT_PROP_PERMS,
+    DEFAULT_CONFIG_VERSION,
+    DEFAULT_PORT,
+    MAX_CONFIG_VERSION,
+)
 
 ADMIN_BIT = 0x01
 
@@ -30,6 +35,7 @@ class State:
 
         self.private_key = ed25519.Ed25519PrivateKey.generate()
         self.public_key = self.private_key.public_key()
+        self.accessories_hash = None
 
     # ### Pairing ###
     @property
@@ -69,3 +75,17 @@ class State:
         if not any(self.is_admin(client_uuid) for client_uuid in self.paired_clients):
             self.paired_clients.clear()
             self.client_properties.clear()
+
+    def set_accessories_hash(self, accessories_hash):
+        """Set the accessories hash and increment the config version if needed."""
+        if self.accessories_hash == accessories_hash:
+            return False
+        self.accessories_hash = accessories_hash
+        self.increment_config_version()
+        return True
+
+    def increment_config_version(self):
+        """Increment the config version."""
+        self.config_version += 1
+        if self.config_version > MAX_CONFIG_VERSION:
+            self.config_version = 1

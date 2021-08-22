@@ -45,7 +45,6 @@ from pyhap.const import (
     HAP_REPR_PID,
     HAP_REPR_STATUS,
     HAP_REPR_VALUE,
-    MAX_CONFIG_VERSION,
     STANDALONE_AID,
 )
 from pyhap.encoder import AccessoryEncoder
@@ -376,6 +375,13 @@ class AccessoryDriver:
         logger.debug("Starting server.")
         await self.http_server.async_start(self.loop)
 
+        # Update the hash of the accessories
+        # in case the config version needs to be
+        # incremented to tell iOS to drop the cache
+        # for /accessories
+        if self.state.set_accessories_hash(self.accessories_hash):
+            self.async_persist()
+
         # Advertise the accessory as a mDNS service.
         logger.debug("Starting mDNS.")
         self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory, self.state)
@@ -591,9 +597,7 @@ class AccessoryDriver:
         restart. Also, updates the mDNS advertisement, so that iOS clients know they need
         to fetch new data.
         """
-        self.state.config_version += 1
-        if self.state.config_version > MAX_CONFIG_VERSION:
-            self.state.config_version = 1
+        self.state.increment_config_version()
         self.persist()
         self.update_advertisement()
 
@@ -642,7 +646,7 @@ class AccessoryDriver:
 
         Must run in executor.
         """
-        with open(self.persist_file, "r") as file_handle:
+        with open(self.persist_file, "r", encoding="utf8") as file_handle:
             self.encoder.load_into(file_handle, self.state)
 
     @callback
@@ -707,6 +711,13 @@ class AccessoryDriver:
         ctx = get_srp_context(3072, hashlib.sha512, 16)
         verifier = SrpServer(ctx, b"Pair-Setup", self.state.pincode)
         self.srp_verifier = verifier
+
+    @property
+    def accessories_hash(self):
+        """Hash the get_accessories response to track configuration changes."""
+        return hashlib.sha512(
+            util.to_sorted_hap_json(self.get_accessories())
+        ).hexdigest()
 
     def get_accessories(self):
         """Returns the accessory in HAP format.

@@ -34,6 +34,7 @@ class AccessoryEncoder:
         - UUID and public key of all paired clients.
         - MAC address.
         - Config version - ok, this is debatable, but it retains the consistency.
+        - Accessories Hash
 
     The default implementation persists the above properties.
 
@@ -52,6 +53,7 @@ class AccessoryEncoder:
             - Public and private key.
             - UUID and public key of paired clients.
             - Config version.
+            - Accessories Hash
         """
         paired_clients = {
             str(client): bytes.hex(key) for client, key in state.paired_clients.items()
@@ -64,6 +66,7 @@ class AccessoryEncoder:
             "config_version": state.config_version,
             "paired_clients": paired_clients,
             "client_properties": client_properties,
+            "accessories_hash": state.accessories_hash,
             "private_key": bytes.hex(
                 state.private_key.private_bytes(
                     encoding=serialization.Encoding.Raw,
@@ -88,6 +91,7 @@ class AccessoryEncoder:
         """
         loaded = json.load(fp)
         state.mac = loaded["mac"]
+        state.accessories_hash = loaded.get("accessories_hash")
         state.config_version = loaded["config_version"]
         if "client_properties" in loaded:
             state.client_properties = {
