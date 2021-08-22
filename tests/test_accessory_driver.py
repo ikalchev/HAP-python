@@ -669,6 +669,7 @@ async def test_start_stop_sync_acc(async_zeroconf):
         driver.add_accessory(acc)
         driver.start_service()
         await run_event.wait()
+        assert driver.state.config_version == 2
         assert not driver.loop.is_closed()
         await driver.async_stop()
         assert not driver.loop.is_closed()
@@ -704,7 +705,35 @@ async def test_start_stop_async_acc(async_zeroconf):
         driver.start_service()
         await asyncio.sleep(0)
         await run_event.wait()
+        assert driver.state.config_version == 2
         assert not driver.loop.is_closed()
+        await driver.async_stop()
+        assert not driver.loop.is_closed()
+
+        run_event.clear()
+        driver.start_service()
+        await asyncio.sleep(0)
+        await run_event.wait()
+        assert driver.state.config_version == 2
+        await driver.async_stop()
+        assert not driver.loop.is_closed()
+        acc.add_preload_service("GarageDoorOpener")
+
+        # Adding a new service should increment the config version
+        run_event.clear()
+        driver.start_service()
+        await asyncio.sleep(0)
+        await run_event.wait()
+        assert driver.state.config_version == 3
+        await driver.async_stop()
+        assert not driver.loop.is_closed()
+
+        # But only once
+        run_event.clear()
+        driver.start_service()
+        await asyncio.sleep(0)
+        await run_event.wait()
+        assert driver.state.config_version == 3
         await driver.async_stop()
         assert not driver.loop.is_closed()
 
@@ -816,7 +845,7 @@ def test_mdns_service_info(driver):
         "md": "Test Accessory",
         "pv": "1.1",
         "id": "00:00:00:00:00:00",
-        "c#": "2",
+        "c#": "1",
         "s#": "1",
         "ff": "0",
         "ci": "1",

@@ -33,7 +33,7 @@ class Loader:
     @staticmethod
     def _read_file(path):
         """Read file and return a dict."""
-        with open(path, "r") as file:
+        with open(path, "r", encoding="utf8") as file:
             return json.load(file)
 
     def get_char(self, name):

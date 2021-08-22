@@ -61,7 +61,7 @@ def long_to_bytes(n):
     :return: ``long int`` in ``bytes`` format.
     :rtype: bytes
     """
-    byteList = list()
+    byteList = []
     x = 0
     off = 0
     while x != n:
@@ -158,3 +158,8 @@ def hap_type_to_uuid(hap_type):
 def to_hap_json(dump_obj):
     """Convert an object to HAP json."""
     return json.dumps(dump_obj, separators=(",", ":")).encode("utf-8")
+
+
+def to_sorted_hap_json(dump_obj):
+    """Convert an object to sorted HAP json."""
+    return json.dumps(dump_obj, sort_keys=True, separators=(",", ":")).encode("utf-8")

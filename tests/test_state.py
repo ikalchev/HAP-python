@@ -46,7 +46,7 @@ def test_setup():
         assert mock_gen_mac.called
         assert mock_gen_pincode.called
         assert state.port == 51827
-        assert state.config_version == 2
+        assert state.config_version == 1
 
 
 def test_pairing_remove_last_admin():
