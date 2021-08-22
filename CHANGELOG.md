@@ -16,6 +16,15 @@ Sections
 ### Developers
 -->
 
+## [4.1.0] - 2021-08-22
+
+### Added
+- Add support for saving permissions when pairing. [#372](https://github.com/ikalchev/HAP-python/pull/372)
+- Add accessory-level callbacks. [#373](https://github.com/ikalchev/HAP-python/pull/373)
+
+### Changed
+- Increment the config version when the accessory changes. [#376](https://github.com/ikalchev/HAP-python/pull/376)
+
 ## [4.0.0] - 2021-07-22
 
 - Add support for HAP v 1.1. [#365](https://github.com/ikalchev/HAP-python/pull/365)
