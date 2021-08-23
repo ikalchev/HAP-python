@@ -63,6 +63,9 @@ HAP_FORMAT_NUMERICS = {
     HAP_FORMAT_UINT64,
 }
 
+DEFAULT_MAX_LENGTH = 64
+ABSOLUTE_MAX_LENGTH = 256
+
 # ### HAP Units ###
 HAP_UNIT_ARC_DEGREE = "arcdegrees"
 HAP_UNIT_CELSIUS = "celsius"
@@ -184,7 +187,11 @@ class Characteristic:
                 logger.error(error_msg)
                 raise ValueError(error_msg)
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
-            value = str(value)[:256]
+            max_length = min(
+                ABSOLUTE_MAX_LENGTH,
+                self.properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH),
+            )
+            value = str(value)[:max_length]
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_BOOL:
             value = bool(value)
         elif self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
@@ -194,6 +201,9 @@ class Characteristic:
                 )
                 logger.error(error_msg)
                 raise ValueError(error_msg)
+            min_step = self.properties.get(PROP_MIN_STEP)
+            if min_step:
+                value = value - (value % min_step)
             value = min(self.properties.get(PROP_MAX_VALUE, value), value)
             value = max(self.properties.get(PROP_MIN_VALUE, value), value)
             if self.properties[PROP_FORMAT] != HAP_FORMAT_FLOAT:
@@ -322,8 +332,12 @@ class Characteristic:
                     self.properties[PROP_VALID_VALUES].values()
                 )
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
-            if len(value) > 64:
-                hap_rep[HAP_REPR_MAX_LEN] = min(len(value), 256)
+            max_length = min(
+                self.properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH),
+                ABSOLUTE_MAX_LENGTH,
+            )
+            if max_length != DEFAULT_MAX_LENGTH:
+                hap_rep[HAP_REPR_MAX_LEN] = max_length
         if HAP_PERMISSION_READ in self.properties[PROP_PERMISSIONS]:
             hap_rep[HAP_REPR_VALUE] = value
 
