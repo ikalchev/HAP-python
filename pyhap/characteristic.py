@@ -103,6 +103,15 @@ class CharacteristicError(Exception):
     """Generic exception class for characteristic errors."""
 
 
+def _validate_properties(properties):
+    """Throw an exception on invalid properties."""
+    if (
+        HAP_REPR_MAX_LEN in properties
+        and properties[HAP_REPR_MAX_LEN] > ABSOLUTE_MAX_LENGTH
+    ):
+        raise ValueError(f"{HAP_REPR_MAX_LEN} may not exceed {ABSOLUTE_MAX_LENGTH}")
+
+
 class Characteristic:
     """Represents a HAP characteristic, the smallest unit of the smart home.
 
@@ -139,6 +148,7 @@ class Characteristic:
             ValidValues, etc.
         :type properties: dict
         """
+        _validate_properties(properties)
         self.broker = None
         self.display_name = display_name
         self.properties = properties
@@ -187,11 +197,9 @@ class Characteristic:
                 logger.error(error_msg)
                 raise ValueError(error_msg)
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
-            max_length = min(
-                ABSOLUTE_MAX_LENGTH,
-                self.properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH),
-            )
-            value = str(value)[:max_length]
+            value = str(value)[
+                : self.properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH)
+            ]
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_BOOL:
             value = bool(value)
         elif self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
@@ -225,6 +233,7 @@ class Characteristic:
             raise ValueError("No properties or valid_values specified to override.")
 
         if properties:
+            _validate_properties(properties)
             self.properties.update(properties)
 
         if valid_values:
@@ -332,10 +341,7 @@ class Characteristic:
                     self.properties[PROP_VALID_VALUES].values()
                 )
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
-            max_length = min(
-                self.properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH),
-                ABSOLUTE_MAX_LENGTH,
-            )
+            max_length = self.properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH)
             if max_length != DEFAULT_MAX_LENGTH:
                 hap_rep[HAP_REPR_MAX_LEN] = max_length
         if HAP_PERMISSION_READ in self.properties[PROP_PERMISSIONS]:
