@@ -104,7 +104,6 @@ def test_override_properties_properties():
     assert char.properties["step"] == new_properties["step"]
 
 
-
 def test_override_properties_exceed_max_length():
     """Test if overriding the properties with invalid values throws."""
     new_properties = {"minValue": 10, "maxValue": 20, "step": 1, "maxLen": 5000}
