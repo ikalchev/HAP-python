@@ -104,6 +104,14 @@ def test_override_properties_properties():
     assert char.properties["step"] == new_properties["step"]
 
 
+def test_override_properties_exceed_max_length():
+    """Test if overriding the properties with invalid values throws."""
+    new_properties = {"minValue": 10, "maxValue": 20, "step": 1, "maxLen": 5000}
+    char = get_char(PROPERTIES.copy(), min_value=0, max_value=1)
+    with pytest.raises(ValueError):
+        char.override_properties(properties=new_properties)
+
+
 def test_override_properties_valid_values():
     """Test if overriding the properties works for valid values."""
     new_valid_values = {"foo2": 2, "bar2": 3}
@@ -117,6 +125,38 @@ def test_override_properties_error():
     char = get_char(PROPERTIES.copy())
     with pytest.raises(ValueError):
         char.override_properties()
+
+
+@pytest.mark.parametrize("int_format", HAP_FORMAT_INTS)
+def test_set_value_invalid_min_step(int_format):
+    """Test setting the value of a characteristic that is outside the minStep."""
+    path = "pyhap.characteristic.Characteristic.notify"
+    props = PROPERTIES.copy()
+    props["Format"] = int_format
+    props["minStep"] = 2
+    char = get_char(props, min_value=4, max_value=8)
+
+    with patch(path) as mock_notify:
+        char.set_value(5.55)
+        # Ensure floating point is dropped on an int property
+        # Ensure value is lowered to match minStep
+        assert char.value == 4
+        assert mock_notify.called is False
+
+        char.broker = Mock()
+        char.set_value(8, should_notify=False)
+        assert char.value == 8
+        assert mock_notify.called is False
+
+        char.set_value(1)
+        # Ensure value is raised to meet minValue
+        assert char.value == 4
+        assert mock_notify.call_count == 1
+
+        # No change should not generate another notify
+        char.set_value(4)
+        assert char.value == 4
+        assert mock_notify.call_count == 1
 
 
 @pytest.mark.parametrize("int_format", HAP_FORMAT_INTS)
@@ -322,13 +362,34 @@ def test_to_HAP_string():
     assert hap_repr["format"] == "string"
     assert "maxLen" not in hap_repr
 
-    char.value = (
+    char.set_value(
         "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffffgggggggggg"
     )
     with patch.object(char, "broker"):
         hap_repr = char.to_HAP()
-    assert hap_repr["maxLen"] == 70
-    assert hap_repr["value"] == char.value
+    assert "maxLen" not in hap_repr
+    assert hap_repr["value"] == char.value[:64]
+
+
+def test_to_HAP_string_max_length_override():
+    """Test created HAP representation for strings."""
+    char = get_char(PROPERTIES.copy())
+    char.properties["Format"] = "string"
+    char.properties["maxLen"] = 256
+    char.value = "aaa"
+    with patch.object(char, "broker"):
+        hap_repr = char.to_HAP()
+    assert hap_repr["format"] == "string"
+    assert "maxLen" in hap_repr
+    longer_than_sixty_four = (
+        "aaaaaaaaaabbbbbbbbbbccccccccccddddddddddeeeeeeeeeeffffffffffgggggggggg"
+    )
+
+    char.set_value(longer_than_sixty_four)
+    with patch.object(char, "broker"):
+        hap_repr = char.to_HAP()
+    assert hap_repr["maxLen"] == 256
+    assert hap_repr["value"] == longer_than_sixty_four
 
 
 def test_to_HAP_bool():
