@@ -120,7 +120,7 @@ def _wrap_service_setter(service, chars, client_addr):
 class AccessoryMDNSServiceInfo(ServiceInfo):
     """A mDNS service info representation of an accessory."""
 
-    def __init__(self, accessory, state):
+    def __init__(self, accessory, state, zeroconf_server=None):
         self.accessory = accessory
         self.state = state
 
@@ -131,7 +131,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
             self.state.mac[-8:].replace(":", ""),
             HAP_SERVICE_TYPE,
         )
-        server = "{}-{}.{}".format(
+        server = zeroconf_server or "{}-{}.{}".format(
             self._valid_host_name(),
             self.state.mac[-8:].replace(":", ""),
             "local.",
@@ -212,7 +212,8 @@ class AccessoryDriver:
         listen_address=None,
         advertised_address=None,
         interface_choice=None,
-        async_zeroconf_instance=None
+        async_zeroconf_instance=None,
+        zeroconf_server=None
     ):
         """
         Initialize a new AccessoryDriver object.
@@ -259,6 +260,10 @@ class AccessoryDriver:
         :param async_zeroconf_instance: An AsyncZeroconf instance. When running multiple accessories or
             bridges a single zeroconf instance can be shared to avoid the overhead
             of processing the same data multiple times.
+
+        :param zeroconf_server: The server name that will be used for the zeroconf
+            ServiceInfo.
+        :type zeroconf_server: str
         """
         if loop is None:
             if sys.platform == "win32":
@@ -281,6 +286,7 @@ class AccessoryDriver:
 
         self.accessory = None
         self.advertiser = async_zeroconf_instance
+        self.zeroconf_server = zeroconf_server
         self.interface_choice = interface_choice
 
         self.persist_file = os.path.expanduser(persist_file)
@@ -384,7 +390,9 @@ class AccessoryDriver:
 
         # Advertise the accessory as a mDNS service.
         logger.debug("Starting mDNS.")
-        self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory, self.state)
+        self.mdns_service_info = AccessoryMDNSServiceInfo(
+            self.accessory, self.state, self.zeroconf_server
+        )
 
         if not self.advertiser:
             zc_args = {}
@@ -609,7 +617,9 @@ class AccessoryDriver:
     def async_update_advertisement(self):
         """Updates the mDNS service info for the accessory from the event loop."""
         logger.debug("Updating mDNS advertisement")
-        self.mdns_service_info = AccessoryMDNSServiceInfo(self.accessory, self.state)
+        self.mdns_service_info = AccessoryMDNSServiceInfo(
+            self.accessory, self.state, self.zeroconf_server
+        )
         asyncio.ensure_future(
             self.advertiser.async_update_service(self.mdns_service_info)
         )
