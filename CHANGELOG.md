@@ -16,6 +16,17 @@ Sections
 ### Developers
 -->
 
+## [4.2.0] - 2021-09-04
+
+### Changed
+- Bump zeroconf to 0.36.2. [#380](https://github.com/ikalchev/HAP-python/pull/380)
+
+### Fixed
+- Handle additional cases of invalid values. [#378](https://github.com/ikalchev/HAP-python/pull/378)
+
+### Added
+- Allow passing the zeroconf server name when creating the AccessoryDriver. [#379](https://github.com/ikalchev/HAP-python/pull/379)
+
 ## [4.1.0] - 2021-08-22
 
 ### Added
