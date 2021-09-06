@@ -16,6 +16,11 @@ Sections
 ### Developers
 -->
 
+## [4.2.1] - 2021-09-6
+
+### Fixed
+- Fix floating point values with minStep. [#382](https://github.com/ikalchev/HAP-python/pull/382)
+
 ## [4.2.0] - 2021-09-04
 
 ### Changed
