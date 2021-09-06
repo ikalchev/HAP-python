@@ -210,8 +210,8 @@ class Characteristic:
                 logger.error(error_msg)
                 raise ValueError(error_msg)
             min_step = self.properties.get(PROP_MIN_STEP)
-            if min_step:
-                value = value - (value % min_step)
+            if value and min_step:
+                value = round(min_step * round(value / min_step), 14)
             value = min(self.properties.get(PROP_MAX_VALUE, value), value)
             value = max(self.properties.get(PROP_MIN_VALUE, value), value)
             if self.properties[PROP_FORMAT] != HAP_FORMAT_FLOAT:
