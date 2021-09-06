@@ -139,8 +139,14 @@ def test_set_value_invalid_min_step(int_format):
     with patch(path) as mock_notify:
         char.set_value(5.55)
         # Ensure floating point is dropped on an int property
-        # Ensure value is lowered to match minStep
-        assert char.value == 4
+        # Ensure value is rounded to match minStep
+        assert char.value == 6
+        assert mock_notify.called is False
+
+        char.set_value(6.00)
+        # Ensure floating point is dropped on an int property
+        # Ensure value is rounded to match minStep
+        assert char.value == 6
         assert mock_notify.called is False
 
         char.broker = Mock()
@@ -157,6 +163,51 @@ def test_set_value_invalid_min_step(int_format):
         char.set_value(4)
         assert char.value == 4
         assert mock_notify.call_count == 1
+
+
+def test_set_value_invalid_min_float():
+    """Test setting the value of a characteristic that is outside the minStep."""
+    props = PROPERTIES.copy()
+    props["Format"] = HAP_FORMAT_FLOAT
+    props["minStep"] = 0.1
+    char = get_char(props, min_value=0, max_value=26)
+
+    char.set_value(5.55)
+    # Ensure value is rounded to match minStep
+    assert char.value == 5.5
+
+    char.set_value(22.2)
+    # Ensure value is rounded to match minStep
+    assert char.value == 22.2
+
+    char.set_value(22.200000)
+    # Ensure value is rounded to match minStep
+    assert char.value == 22.2
+
+    props = PROPERTIES.copy()
+    props["Format"] = HAP_FORMAT_FLOAT
+    props["minStep"] = 0.00001
+    char = get_char(props, min_value=0, max_value=26)
+
+    char.set_value(5.55)
+    # Ensure value is rounded to match minStep
+    assert char.value == 5.55
+
+    char.set_value(22.2)
+    # Ensure value is rounded to match minStep
+    assert char.value == 22.2
+
+    char.set_value(22.200000)
+    # Ensure value is rounded to match minStep
+    assert char.value == 22.2
+
+    char.set_value(22.12345678)
+    # Ensure value is rounded to match minStep
+    assert char.value == 22.12346
+
+    char.set_value(0)
+    # Ensure value is not modified
+    assert char.value == 0
 
 
 @pytest.mark.parametrize("int_format", HAP_FORMAT_INTS)
