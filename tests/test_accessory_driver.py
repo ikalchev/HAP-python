@@ -199,7 +199,7 @@ def test_service_callbacks(driver):
     mock_callback.assert_called_with({"On": True, "Brightness": 88})
 
     get_chars = driver.get_characteristics(
-        ["{}.{}".format(acc.aid, char_on_iid), "{}.{}".format(acc2.aid, char_on2_iid)]
+        [f"{acc.aid}.{char_on_iid}", f"{acc2.aid}.{char_on2_iid}"]
     )
     assert get_chars == {
         "characteristics": [
@@ -214,10 +214,10 @@ def test_service_callbacks(driver):
     char_brightness.getter_callback = _fail_func
     get_chars = driver.get_characteristics(
         [
-            "{}.{}".format(acc.aid, char_on_iid),
-            "{}.{}".format(acc2.aid, char_on2_iid),
-            "{}.{}".format(acc2.aid, char_brightness_iid),
-            "{}.{}".format(acc.aid, char_brightness2_iid),
+            f"{acc.aid}.{char_on_iid}",
+            f"{acc2.aid}.{char_on2_iid}",
+            f"{acc2.aid}.{char_brightness_iid}",
+            f"{acc.aid}.{char_brightness2_iid}",
         ]
     )
     assert get_chars == {

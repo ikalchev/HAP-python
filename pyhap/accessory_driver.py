@@ -125,17 +125,12 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
         self.state = state
 
         adv_data = self._get_advert_data()
+        valid_name = self._valid_name()
+        short_mac = self.state.mac[-8:].replace(":", "")
         # Append part of MAC address to prevent name conflicts
-        name = "{} {}.{}".format(
-            self._valid_name(),
-            self.state.mac[-8:].replace(":", ""),
-            HAP_SERVICE_TYPE,
-        )
-        server = zeroconf_server or "{}-{}.{}".format(
-            self._valid_host_name(),
-            self.state.mac[-8:].replace(":", ""),
-            "local.",
-        )
+        name = f"{valid_name} {short_mac}.{HAP_SERVICE_TYPE}"
+        valid_host_name = self._valid_host_name()
+        server = zeroconf_server or f"{valid_host_name}-{short_mac}.local."
         super().__init__(
             HAP_SERVICE_TYPE,
             name=name,

@@ -101,7 +101,7 @@ def test_bridge_add_accessory(mock_driver):
     bridge.add_accessory(acc)
     acc2 = Accessory(mock_driver, "Test Accessory 2")
     bridge.add_accessory(acc2)
-    assert acc2.aid != STANDALONE_AID and acc2.aid != acc.aid
+    assert acc2.aid not in (STANDALONE_AID, acc.aid)
 
 
 def test_bridge_n_add_accessory_bridge_aid(mock_driver):

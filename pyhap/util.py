@@ -80,7 +80,7 @@ def generate_mac():
     :return: MAC address in format XX:XX:XX:XX:XX:XX
     :rtype: str
     """
-    return "{}{}:{}{}:{}{}:{}{}:{}{}:{}{}".format(
+    return "{}{}:{}{}:{}{}:{}{}:{}{}:{}{}".format(  # pylint: disable=consider-using-f-string
         *(rand.choice(HEX_DIGITS) for _ in range(12))
     )
 
@@ -104,9 +104,9 @@ def generate_pincode():
     :return: pincode in format ``xxx-xx-xxx``
     :rtype: bytearray
     """
-    return "{}{}{}-{}{}-{}{}{}".format(*(rand.randint(0, 9) for i in range(8))).encode(
-        "ascii"
-    )
+    return "{}{}{}-{}{}-{}{}{}".format(  # pylint: disable=consider-using-f-string
+        *(rand.randint(0, 9) for i in range(8))
+    ).encode("ascii")
 
 
 def to_base64_str(bytes_input) -> str:

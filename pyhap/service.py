@@ -42,9 +42,8 @@ class Service:
 
     def __repr__(self):
         """Return the representation of the service."""
-        return "<service display_name={} chars={}>".format(
-            self.display_name, {c.display_name: c.value for c in self.characteristics}
-        )
+        chars_dict = {c.display_name: c.value for c in self.characteristics}
+        return f"<service display_name={self.display_name} chars={chars_dict}>"
 
     def add_linked_service(self, service):
         """Add the given service as "linked" to this Service."""
