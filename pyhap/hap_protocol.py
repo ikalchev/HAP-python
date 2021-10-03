@@ -253,7 +253,7 @@ class HAPServerProtocol(asyncio.Protocol):
             self.request_body = None
             return True
 
-        return self._handle_invalid_conn_state("Unexpected event: {}".format(event))
+        return self._handle_invalid_conn_state(f"Unexpected event: {event}")
 
     def _process_response(self, response) -> None:
         """Process a response from the handler."""
