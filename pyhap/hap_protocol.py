@@ -48,7 +48,7 @@ class HAPServerProtocol(asyncio.Protocol):
         self.last_activity = None
         self.hap_crypto = None
         self._event_timer = None
-        self._event_queue = []
+        self._event_queue = {}
 
         self.start_time = None
 
@@ -112,7 +112,7 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def queue_event(self, data: dict, immediate: bool) -> None:
         """Queue an event for sending."""
-        self._event_queue.append(data)
+        self._event_queue[(data[HAP_REPR_AID], data[HAP_REPR_IID])] = data
         if immediate:
             self.loop.call_soon(self._send_events)
         elif not self._event_timer:
@@ -212,14 +212,14 @@ class HAPServerProtocol(asyncio.Protocol):
         subscribed_events = self._event_queue_with_active_subscriptions()
         if subscribed_events:
             self.write(create_hap_event(subscribed_events))
-        self._event_queue = []
+        self._event_queue.clear()
 
     def _event_queue_with_active_subscriptions(self):
         """Remove any topics that have been unsubscribed after the event was generated."""
         topics = self.accessory_driver.topics
         return [
             event
-            for event in self._event_queue
+            for event in self._event_queue.values()
             if self.peername
             in topics.get(get_topic(event[HAP_REPR_AID], event[HAP_REPR_IID]), [])
         ]
