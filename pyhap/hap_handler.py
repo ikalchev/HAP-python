@@ -50,8 +50,8 @@ class HAPResponse:
 
     def __repr__(self):
         """Return a human readable view of the response."""
-        return "<HAPResponse {} {} {} {}>".format(
-            self.status_code, self.reason, self.headers, self.body
+        return (
+            f"<HAPResponse {self.status_code} {self.reason} {self.headers} {self.body}>"
         )
 
 
@@ -453,7 +453,7 @@ class HAPServerHandler:
             self._pair_verify_two(tlv_objects)
         else:
             raise ValueError(
-                "Unknown pairing sequence of %s during pair verify" % (sequence)
+                f"Unknown pairing sequence of {sequence} during pair verify"
             )
 
     def _pair_verify_one(self, tlv_objects):
@@ -662,7 +662,7 @@ class HAPServerHandler:
             self._handle_list_pairings()
         else:
             raise ValueError(
-                "Unknown pairing request type of %s during pair verify" % (request_type)
+                f"Unknown pairing request type of {request_type} during pair verify"
             )
 
     def _handle_add_pairing(self, tlv_objects):
@@ -747,9 +747,7 @@ class HAPServerHandler:
         if self.accessory_handler.accessory.category == CATEGORY_BRIDGE:
             accessory = self.accessory_handler.accessory.accessories.get(data["aid"])
             if not accessory:
-                raise ValueError(
-                    "Accessory with aid == {} not found".format(data["aid"])
-                )
+                raise ValueError(f"Accessory with aid == {data['aid']} not found")
         else:
             accessory = self.accessory_handler.accessory
 
