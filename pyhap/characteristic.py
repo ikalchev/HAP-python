@@ -277,10 +277,14 @@ class Characteristic:
 
         Change self.value to value and call callback.
         """
+        original_value = value
+        if self.type_id not in ALWAYS_NULL or original_value is not None:
+            value = self.to_valid_value(value)
         logger.debug(
-            "client_update_value: %s to %s from client: %s",
+            "client_update_value: %s to %s (original: %s) from client: %s",
             self.display_name,
             value,
+            original_value,
             sender_client_addr,
         )
         changed = self.value != value
