@@ -162,9 +162,7 @@ class Characteristic:
 
     def __repr__(self):
         """Return the representation of the characteristic."""
-        return "<characteristic display_name={} value={} properties={}>".format(
-            self.display_name, self.value, self.properties
-        )
+        return f"<characteristic display_name={self.display_name} value={self.value} properties={self.properties}>"
 
     def _get_default_value(self):
         """Return default value for format."""
@@ -191,9 +189,7 @@ class Characteristic:
         """Perform validation and conversion to valid value."""
         if self.properties.get(PROP_VALID_VALUES):
             if value not in self.properties[PROP_VALID_VALUES].values():
-                error_msg = "{}: value={} is an invalid value.".format(
-                    self.display_name, value
-                )
+                error_msg = f"{self.display_name}: value={value} is an invalid value."
                 logger.error(error_msg)
                 raise ValueError(error_msg)
         elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
@@ -204,8 +200,8 @@ class Characteristic:
             value = bool(value)
         elif self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
             if not isinstance(value, (int, float)):
-                error_msg = "{}: value={} is not a numeric value.".format(
-                    self.display_name, value
+                error_msg = (
+                    f"{self.display_name}: value={value} is not a numeric value."
                 )
                 logger.error(error_msg)
                 raise ValueError(error_msg)
@@ -281,10 +277,14 @@ class Characteristic:
 
         Change self.value to value and call callback.
         """
+        original_value = value
+        if self.type_id not in ALWAYS_NULL or original_value is not None:
+            value = self.to_valid_value(value)
         logger.debug(
-            "client_update_value: %s to %s from client: %s",
+            "client_update_value: %s to %s (original: %s) from client: %s",
             self.display_name,
             value,
+            original_value,
             sender_client_addr,
         )
         changed = self.value != value

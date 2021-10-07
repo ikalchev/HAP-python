@@ -101,7 +101,7 @@ def test_bridge_add_accessory(mock_driver):
     bridge.add_accessory(acc)
     acc2 = Accessory(mock_driver, "Test Accessory 2")
     bridge.add_accessory(acc2)
-    assert acc2.aid != STANDALONE_AID and acc2.aid != acc.aid
+    assert acc2.aid not in (STANDALONE_AID, acc.aid)
 
 
 def test_bridge_n_add_accessory_bridge_aid(mock_driver):
@@ -550,3 +550,13 @@ def test_acc_with_(mock_driver):
     assert char_doorbell_detected_switch.to_HAP()[HAP_REPR_VALUE] is None
     char_doorbell_detected_switch.client_update_value(None)
     assert char_doorbell_detected_switch.to_HAP()[HAP_REPR_VALUE] is None
+
+
+def test_client_sends_invalid_value(mock_driver):
+    """Test cleaning up invalid client value."""
+    acc = Accessory(mock_driver, "Test Accessory")
+    serv_switch = acc.add_preload_service("Switch")
+    char_on = serv_switch.configure_char("On", value=False)
+    # Client sends 1, but it should be True
+    char_on.client_update_value(1)
+    assert char_on.to_HAP()[HAP_REPR_VALUE] is True

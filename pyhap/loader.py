@@ -44,14 +44,14 @@ class Loader:
             or "Permissions" not in char_dict
             or "UUID" not in char_dict
         ):
-            raise KeyError("Could not load char {}!".format(name))
+            raise KeyError(f"Could not load char {name}!")
         return Characteristic.from_dict(name, char_dict, from_loader=True)
 
     def get_service(self, name):
         """Return new service object."""
         service_dict = self.serv_types[name].copy()
         if "RequiredCharacteristics" not in service_dict or "UUID" not in service_dict:
-            raise KeyError("Could not load service {}!".format(name))
+            raise KeyError(f"Could not load service {name}!")
         return Service.from_dict(name, service_dict, self)
 
     @classmethod

@@ -17,8 +17,9 @@ def encode(*args, to_base64=False):
     :return: The args in TLV format
     :rtype: ``bytes`` if ``toBase64`` is False and ``str`` otherwise.
     """
-    if len(args) % 2 != 0:
-        raise ValueError("Even number of args expected (%d given)" % len(args))
+    arg_len = len(args)
+    if arg_len % 2 != 0:
+        raise ValueError(f"Even number of args expected ({arg_len} given)")
 
     pieces = []
     for x in range(0, len(args), 2):

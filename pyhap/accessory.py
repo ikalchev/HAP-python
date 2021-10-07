@@ -61,9 +61,7 @@ class Accessory:
     def __repr__(self):
         """Return the representation of the accessory."""
         services = [s.display_name for s in self.services]
-        return "<accessory display_name='{}' services={}>".format(
-            self.display_name, services
-        )
+        return f"<accessory display_name='{self.display_name}' services={services}>"
 
     @property
     def available(self):
@@ -236,14 +234,13 @@ class Accessory:
         pincode = self.driver.state.pincode.decode()
         if SUPPORT_QR_CODE:
             xhm_uri = self.xhm_uri()
-            print("Setup payload: {}".format(xhm_uri), flush=True)
+            print(f"Setup payload: {xhm_uri}", flush=True)
             print(
                 "Scan this code with your HomeKit app on your iOS device:", flush=True
             )
             print(QRCode(xhm_uri).terminal(quiet_zone=2), flush=True)
             print(
-                "Or enter this code in your HomeKit app on your iOS device: "
-                "{}".format(pincode),
+                f"Or enter this code in your HomeKit app on your iOS device: {pincode}",
                 flush=True,
             )
         else:
@@ -252,9 +249,7 @@ class Accessory:
                 flush=True,
             )
             print(
-                "Enter this code in your HomeKit app on your iOS device: {}".format(
-                    pincode
-                ),
+                f"Enter this code in your HomeKit app on your iOS device: {pincode}",
                 flush=True,
             )
 

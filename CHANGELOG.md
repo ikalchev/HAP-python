@@ -16,7 +16,13 @@ Sections
 ### Developers
 -->
 
-## [4.2.1] - 2021-09-6
+## [4.3.0] - 2021-10-07
+
+### Fixed
+- Only send the latest state in case of multiple events for the same characteristic. [#385](https://github.com/ikalchev/HAP-python/pull/385)
+- Handle invalid formats from clients. [#387](https://github.com/ikalchev/HAP- python/pull/387)
+
+## [4.2.1] - 2021-09-06
 
 ### Fixed
 - Fix floating point values with minStep. [#382](https://github.com/ikalchev/HAP-python/pull/382)
