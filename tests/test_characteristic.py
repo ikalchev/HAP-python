@@ -72,7 +72,7 @@ def test_to_valid_value():
         PROPERTIES.copy(), valid={"foo": 2, "bar": 3}, min_value=2, max_value=7
     )
     with pytest.raises(ValueError):
-        char.to_valid_value(1)
+        char.valid_value_or_raise(1)
     assert char.to_valid_value(2) == 2
 
     del char.properties["ValidValues"]
@@ -351,6 +351,18 @@ def test_client_update_value():
         char.client_update_value(9, "mock_client_addr")
         assert char.value == 9
         assert len(mock_notify.mock_calls) == 3
+
+
+def test_client_update_value_with_invalid_value():
+    """Test updating the characteristic value with call from the driver with invalid values."""
+    char = get_char(PROPERTIES.copy(), valid={"foo": 0, "bar": 2, "baz": 1})
+
+    with patch.object(char, "broker"):
+        with pytest.raises(ValueError):
+            char.client_update_value(4)
+
+        char.allow_invalid_client_values = True
+        char.client_update_value(4)
 
 
 def test_notify():
