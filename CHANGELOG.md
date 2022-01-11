@@ -15,6 +15,10 @@ Sections
 ### Breaking Changes
 ### Developers
 -->
+## [4.4.0] - 2022-11-01
+
+### Added
+- Allow invalid client values when enabled. [#392](https://github.com/ikalchev/HAP- python/pull/392)
 
 ## [4.3.0] - 2021-10-07
 
