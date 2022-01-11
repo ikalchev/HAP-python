@@ -132,9 +132,12 @@ class Characteristic:
         "service",
         "_uuid_str",
         "_loader_display_name",
+        "allow_invalid_client_values",
     )
 
-    def __init__(self, display_name, type_id, properties):
+    def __init__(
+        self, display_name, type_id, properties, allow_invalid_client_values=False
+    ):
         """Initialise with the given properties.
 
         :param display_name: Name that will be displayed for this
@@ -150,6 +153,15 @@ class Characteristic:
         """
         _validate_properties(properties)
         self.broker = None
+        #
+        # As of iOS 15.1, Siri requests TargetHeatingCoolingState
+        # as Auto reguardless if its a valid value or not.
+        #
+        # Consumers of this api may wish to set allow_invalid_client_values
+        # to True and handle converting the Auto state to Cool or Heat
+        # depending on the device.
+        #
+        self.allow_invalid_client_values = allow_invalid_client_values
         self.display_name = display_name
         self.properties = properties
         self.type_id = type_id
@@ -185,14 +197,22 @@ class Characteristic:
             self.value = self.to_valid_value(value=self.getter_callback())
         return self.value
 
+    def valid_value_or_raise(self, value):
+        """Raise ValueError if PROP_VALID_VALUES is set and the value is not present."""
+        if self.type_id in ALWAYS_NULL:
+            return
+        valid_values = self.properties.get(PROP_VALID_VALUES)
+        if not valid_values:
+            return
+        if value in valid_values.values():
+            return
+        error_msg = f"{self.display_name}: value={value} is an invalid value."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
     def to_valid_value(self, value):
         """Perform validation and conversion to valid value."""
-        if self.properties.get(PROP_VALID_VALUES):
-            if value not in self.properties[PROP_VALID_VALUES].values():
-                error_msg = f"{self.display_name}: value={value} is an invalid value."
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-        elif self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
+        if self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
             value = str(value)[
                 : self.properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH)
             ]
@@ -241,6 +261,7 @@ class Characteristic:
 
         try:
             self.value = self.to_valid_value(self.value)
+            self.valid_value_or_raise(self.value)
         except ValueError:
             self.value = self._get_default_value()
 
@@ -265,6 +286,7 @@ class Characteristic:
         """
         logger.debug("set_value: %s to %s", self.display_name, value)
         value = self.to_valid_value(value)
+        self.valid_value_or_raise(value)
         changed = self.value != value
         self.value = value
         if changed and should_notify and self.broker:
@@ -280,6 +302,8 @@ class Characteristic:
         original_value = value
         if self.type_id not in ALWAYS_NULL or original_value is not None:
             value = self.to_valid_value(value)
+        if not self.allow_invalid_client_values:
+            self.valid_value_or_raise(value)
         logger.debug(
             "client_update_value: %s to %s (original: %s) from client: %s",
             self.display_name,
@@ -287,13 +311,14 @@ class Characteristic:
             original_value,
             sender_client_addr,
         )
-        changed = self.value != value
+        previous_value = self.value
         self.value = value
-        if changed:
-            self.notify(sender_client_addr)
         if self.setter_callback:
             # pylint: disable=not-callable
             self.setter_callback(value)
+        changed = self.value != previous_value
+        if changed:
+            self.notify(sender_client_addr)
         if self.type_id in ALWAYS_NULL:
             self.value = None
 
