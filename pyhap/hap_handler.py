@@ -199,6 +199,7 @@ class HAPServerHandler:
         self.command = request.method.decode()
         self.headers = {k.decode(): v.decode() for k, v in request.headers}
         self.request_body = body
+        self.parsed_url = urlparse(self.path)
         response = HAPResponse()
         self.response = response
 
@@ -210,7 +211,7 @@ class HAPServerHandler:
             self.headers,
         )
 
-        path = urlparse(self.path).path
+        path = self.parsed_url.path
         try:
             getattr(self, self.HANDLERS[self.command][path])()
         except UnprivilegedRequestException:
@@ -584,7 +585,7 @@ class HAPServerHandler:
             raise UnprivilegedRequestException
 
         # Check that char exists and ...
-        params = parse_qs(urlparse(self.path).query)
+        params = parse_qs(self.parsed_url.query)
         response = self.accessory_handler.get_characteristics(
             params["id"][0].split(",")
         )
