@@ -145,6 +145,7 @@ class HAPServerHandler:
         self.command = None
         self.headers = None
         self.request_body = None
+        self.parsed_url = None
 
         self.response = None
 
