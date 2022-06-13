@@ -4,7 +4,6 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 """
 import asyncio
 from http import HTTPStatus
-import json
 import logging
 from urllib.parse import parse_qs, urlparse
 import uuid
