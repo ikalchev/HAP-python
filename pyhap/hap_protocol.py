@@ -18,7 +18,7 @@ from .hap_handler import HAPResponse, HAPServerHandler
 
 logger = logging.getLogger(__name__)
 
-HIGH_WRITE_BUFFER_SIZE = 2 ** 19
+HIGH_WRITE_BUFFER_SIZE = 2**19
 # We timeout idle connections after 90 hours as we must
 # clean up unused sockets periodically. 90 hours was choosen
 # as its the longest time we expect a user to be away from

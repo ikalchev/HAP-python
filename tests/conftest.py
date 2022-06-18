@@ -52,5 +52,5 @@ class MockDriver:
     def publish(self, data, client_addr=None, immediate=False):
         pass
 
-    def add_job(self, target, *args):  # pylint: disable=no-self-use
+    def add_job(self, target, *args):
         asyncio.new_event_loop().run_until_complete(target(*args))

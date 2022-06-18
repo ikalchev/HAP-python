@@ -842,7 +842,7 @@ class Camera(Accessory):
 
         return True
 
-    async def stop_stream(self, session_info):  # pylint: disable=no-self-use
+    async def stop_stream(self, session_info):
         """Stop the stream for the given ``session_id``.
 
         This method can be implemented if custom stop stream commands are needed. The
@@ -886,7 +886,7 @@ class Camera(Accessory):
         """
         await self.start_stream(session_info, stream_config)
 
-    def get_snapshot(self, image_size):  # pylint: disable=unused-argument, no-self-use
+    def get_snapshot(self, image_size):  # pylint: disable=unused-argument
         """Return a jpeg of a snapshot from the camera.
 
         Overwrite to implement getting snapshots from your camera.
