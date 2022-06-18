@@ -12,7 +12,7 @@ import uuid
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
-from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 
 from pyhap import tlv
 from pyhap.const import (
