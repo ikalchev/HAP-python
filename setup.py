@@ -3,7 +3,7 @@ from setuptools import setup
 
 import pyhap.const as pyhap_const
 
-NAME = "HAP-python"
+NAME = "ha-HAP-python"
 DESCRIPTION = "HomeKit Accessory Protocol implementation in python"
 URL = "https://github.com/ikalchev/{}".format(NAME)
 AUTHOR = "Ivan Kalchev"
