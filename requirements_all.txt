@@ -1,5 +1,6 @@
 base36
 cryptography
+orjson
 pyqrcode
 h11
 zeroconf
