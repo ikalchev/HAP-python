@@ -3,6 +3,7 @@
 
 import json
 from unittest.mock import patch
+from urllib.parse import urlparse
 from uuid import UUID
 
 import pytest
@@ -697,6 +698,8 @@ def test_handle_get_characteristics_encrypted(driver):
     response = hap_handler.HAPResponse()
     handler.response = response
     handler.path = "/characteristics?id=1.11"
+    handler.parsed_url = urlparse(handler.path)
+
     handler.handle_get_characteristics()
 
     assert response.status_code == 200
