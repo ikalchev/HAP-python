@@ -10,6 +10,5 @@ disable=
   too-many-public-methods,
   too-many-return-statements,
   too-many-statements,
-  bad-continuation,
   unused-argument,
   consider-using-with

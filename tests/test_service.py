@@ -30,9 +30,7 @@ def test_repr():
     """Test service representation."""
     service = Service(uuid1(), "TestService")
     service.characteristics = [get_chars()[0]]
-    assert (
-        service.__repr__() == "<service display_name=TestService chars={'Char 1': 0}>"
-    )
+    assert repr(service) == "<service display_name=TestService chars={'Char 1': 0}>"
 
 
 def test_add_characteristic():

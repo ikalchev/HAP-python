@@ -45,7 +45,7 @@ def test_repr():
     char = get_char(PROPERTIES.copy())
     del char.properties["Permissions"]
     assert (
-        char.__repr__() == "<characteristic display_name=Test Char value=0 "
+        repr(char) == "<characteristic display_name=Test Char value=0 "
         "properties={'Format': 'int'}>"
     )
 

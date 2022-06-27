@@ -28,7 +28,7 @@ class MockHAPCrypto:
         self._crypt_in_buffer = bytearray()  # Encrypted buffer
         return decrypted
 
-    def encrypt(self, data):  # pylint: disable=no-self-use
+    def encrypt(self, data):
         """Mock as plaintext."""
         return data
 

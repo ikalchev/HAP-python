@@ -245,7 +245,7 @@ class Accessory:
             )
         else:
             print(
-                "To use the QR Code feature, use 'pip install " "HAP-python[QRCode]'",
+                "To use the QR Code feature, use 'pip install HAP-python[QRCode]'",
                 flush=True,
             )
             print(
