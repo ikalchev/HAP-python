@@ -5,21 +5,14 @@ import random
 import socket
 from uuid import UUID
 
+import orjson
+
 from .const import BASE_UUID
 
 ALPHANUM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 HEX_DIGITS = "0123456789ABCDEF"
 
 rand = random.SystemRandom()
-
-try:
-    from .orjson import (  # noqa: F401 # pylint: disable=unused-import
-        to_hap_json,
-        to_sorted_hap_json,
-        from_hap_json,
-    )
-except ImportError:
-    from .json import to_hap_json, to_sorted_hap_json, from_hap_json  # noqa: F401
 
 
 def callback(func):
@@ -161,3 +154,18 @@ def hap_type_to_uuid(hap_type):
     if "-" in hap_type:
         return UUID(hap_type)
     return UUID("0" * (8 - len(hap_type)) + hap_type + BASE_UUID)
+
+
+def to_hap_json(dump_obj):
+    """Convert an object to HAP json."""
+    return orjson.dumps(dump_obj)
+
+
+def to_sorted_hap_json(dump_obj):
+    """Convert an object to sorted HAP json."""
+    return orjson.dumps(dump_obj, option=orjson.OPT_SORT_KEYS)
+
+
+def from_hap_json(json_str):
+    """Convert json to an object."""
+    return orjson.loads(json_str)
