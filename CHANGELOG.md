@@ -15,16 +15,25 @@ Sections
 ### Breaking Changes
 ### Developers
 -->
+
+## [4.5.0] - 2022-06-28
+
+- Speed up "get accessories". [#418](https://github.com/ikalchev/HAP-python/pull/418)
+- Increase minimum python version to 3.7. [#417](https://github.com/ikalchev/HAP-python/pull/417)
+- Speed up encryption by using ChaCha20Poly1305Reusable. [#413](https://github.com/ikalchev/HAP-python/pull/413)
+- Speed up serialization using orjson. [#412](https://github.com/ikalchev/HAP-python/pull/412)
+- Avoid redundant parsing of the URL. [#402](https://github.com/ikalchev/HAP-python/pull/402)
+
 ## [4.4.0] - 2022-11-01
 
 ### Added
-- Allow invalid client values when enabled. [#392](https://github.com/ikalchev/HAP- python/pull/392)
+- Allow invalid client values when enabled. [#392](https://github.com/ikalchev/HAP-python/pull/392)
 
 ## [4.3.0] - 2021-10-07
 
 ### Fixed
 - Only send the latest state in case of multiple events for the same characteristic. [#385](https://github.com/ikalchev/HAP-python/pull/385)
-- Handle invalid formats from clients. [#387](https://github.com/ikalchev/HAP- python/pull/387)
+- Handle invalid formats from clients. [#387](https://github.com/ikalchev/HAP-python/pull/387)
 
 ## [4.2.1] - 2021-09-06
 
