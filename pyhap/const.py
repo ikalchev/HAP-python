@@ -1,10 +1,10 @@
 """This module contains constants used by other modules."""
 MAJOR_VERSION = 4
-MINOR_VERSION = 4
+MINOR_VERSION = 5
 PATCH_VERSION = 0
 __short_version__ = f"{MAJOR_VERSION}.{MINOR_VERSION}"
 __version__ = f"{__short_version__}.{PATCH_VERSION}"
-REQUIRED_PYTHON_VER = (3, 6)
+REQUIRED_PYTHON_VER = (3, 7)
 
 BASE_UUID = "-0000-1000-8000-0026BB765291"
 

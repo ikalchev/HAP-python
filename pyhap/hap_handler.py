@@ -4,7 +4,6 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 """
 import asyncio
 from http import HTTPStatus
-import json
 import logging
 from urllib.parse import parse_qs, urlparse
 import uuid
@@ -12,7 +11,7 @@ import uuid
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
-from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 
 from pyhap import tlv
 from pyhap.const import (
@@ -25,7 +24,7 @@ from pyhap.const import (
 from pyhap.util import long_to_bytes
 
 from .hap_crypto import hap_hkdf, pad_tls_nonce
-from .util import to_hap_json
+from .util import to_hap_json, from_hap_json
 
 # iOS will terminate the connection if it does not respond within
 # 10 seconds, so we only allow 9 seconds to avoid this.
@@ -145,6 +144,7 @@ class HAPServerHandler:
         self.command = None
         self.headers = None
         self.request_body = None
+        self.parsed_url = None
 
         self.response = None
 
@@ -199,6 +199,7 @@ class HAPServerHandler:
         self.command = request.method.decode()
         self.headers = {k.decode(): v.decode() for k, v in request.headers}
         self.request_body = body
+        self.parsed_url = urlparse(self.path)
         response = HAPResponse()
         self.response = response
 
@@ -210,7 +211,7 @@ class HAPServerHandler:
             self.headers,
         )
 
-        path = urlparse(self.path).path
+        path = self.parsed_url.path
         try:
             getattr(self, self.HANDLERS[self.command][path])()
         except UnprivilegedRequestException:
@@ -584,7 +585,7 @@ class HAPServerHandler:
             raise UnprivilegedRequestException
 
         # Check that char exists and ...
-        params = parse_qs(urlparse(self.path).query)
+        params = parse_qs(self.parsed_url.query)
         response = self.accessory_handler.get_characteristics(
             params["id"][0].split(",")
         )
@@ -612,7 +613,7 @@ class HAPServerHandler:
             self.send_response(HTTPStatus.UNAUTHORIZED)
             return
 
-        requested_chars = json.loads(self.request_body.decode("utf-8"))
+        requested_chars = from_hap_json(self.request_body.decode("utf-8"))
         logger.debug(
             "%s: Set characteristics content: %s", self.client_address, requested_chars
         )
@@ -637,7 +638,7 @@ class HAPServerHandler:
             self.send_response(HTTPStatus.UNAUTHORIZED)
             return
 
-        request = json.loads(self.request_body.decode("utf-8"))
+        request = from_hap_json(self.request_body.decode("utf-8"))
         logger.debug("%s: prepare content: %s", self.client_address, request)
 
         response = self.accessory_handler.prepare(request, self.client_address)
@@ -742,7 +743,7 @@ class HAPServerHandler:
 
     def handle_resource(self):
         """Get a snapshot from the camera."""
-        data = json.loads(self.request_body.decode("utf-8"))
+        data = from_hap_json(self.request_body.decode("utf-8"))
 
         if self.accessory_handler.accessory.category == CATEGORY_BRIDGE:
             accessory = self.accessory_handler.accessory.accessories.get(data["aid"])

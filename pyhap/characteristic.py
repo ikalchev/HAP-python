@@ -82,7 +82,7 @@ PROP_PERMISSIONS = "Permissions"
 PROP_UNIT = "unit"
 PROP_VALID_VALUES = "ValidValues"
 
-PROP_NUMERIC = (PROP_MAX_VALUE, PROP_MIN_VALUE, PROP_MIN_STEP, PROP_UNIT)
+PROP_NUMERIC = {PROP_MAX_VALUE, PROP_MIN_VALUE, PROP_MIN_STEP, PROP_UNIT}
 
 CHAR_BUTTON_EVENT = UUID("00000126-0000-1000-8000-0026BB765291")
 CHAR_PROGRAMMABLE_SWITCH_EVENT = UUID("00000073-0000-1000-8000-0026BB765291")
@@ -358,7 +358,10 @@ class Characteristic:
         value = self.get_value()
         if self.properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
             hap_rep.update(
-                {k: self.properties[k] for k in self.properties.keys() & PROP_NUMERIC}
+                {
+                    k: self.properties[k]
+                    for k in PROP_NUMERIC.intersection(self.properties)
+                }
             )
 
             if PROP_VALID_VALUES in self.properties:
