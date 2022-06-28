@@ -4,7 +4,6 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 """
 import asyncio
 from http import HTTPStatus
-import json
 import logging
 from urllib.parse import parse_qs, urlparse
 import uuid
@@ -25,7 +24,7 @@ from pyhap.const import (
 from pyhap.util import long_to_bytes
 
 from .hap_crypto import hap_hkdf, pad_tls_nonce
-from .util import to_hap_json
+from .util import to_hap_json, from_hap_json
 
 # iOS will terminate the connection if it does not respond within
 # 10 seconds, so we only allow 9 seconds to avoid this.
@@ -614,7 +613,7 @@ class HAPServerHandler:
             self.send_response(HTTPStatus.UNAUTHORIZED)
             return
 
-        requested_chars = json.loads(self.request_body.decode("utf-8"))
+        requested_chars = from_hap_json(self.request_body.decode("utf-8"))
         logger.debug(
             "%s: Set characteristics content: %s", self.client_address, requested_chars
         )
@@ -639,7 +638,7 @@ class HAPServerHandler:
             self.send_response(HTTPStatus.UNAUTHORIZED)
             return
 
-        request = json.loads(self.request_body.decode("utf-8"))
+        request = from_hap_json(self.request_body.decode("utf-8"))
         logger.debug("%s: prepare content: %s", self.client_address, request)
 
         response = self.accessory_handler.prepare(request, self.client_address)
@@ -744,7 +743,7 @@ class HAPServerHandler:
 
     def handle_resource(self):
         """Get a snapshot from the camera."""
-        data = json.loads(self.request_body.decode("utf-8"))
+        data = from_hap_json(self.request_body.decode("utf-8"))
 
         if self.accessory_handler.accessory.category == CATEGORY_BRIDGE:
             accessory = self.accessory_handler.accessory.accessories.get(data["aid"])
