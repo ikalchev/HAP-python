@@ -1,6 +1,6 @@
 """This module contains constants used by other modules."""
 
-__version__ = "4.4.0"
+__version__ = "4.5.0"
 _split_version = __version__.split(".")
 __short_version__ = ".".join(_split_version[0:2])
 MAJOR_VERSION = _split_version[0]
