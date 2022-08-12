@@ -641,6 +641,8 @@ class AccessoryDriver:
             ) as file_handle:
                 tmp_filename = file_handle.name
                 self.encoder.persist(file_handle, self.state)
+            if os.name == 'nt':  # Or `[WinError 5] Access Denied` will be raised on Windows
+                os.chmod(tmp_filename, 0o644)
             os.replace(tmp_filename, self.persist_file)
         finally:
             if tmp_filename and os.path.exists(tmp_filename):
