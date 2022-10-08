@@ -58,16 +58,16 @@ def test_acc_with_custom_iid_manager(mock_driver):
         def get_iid_for_obj(self, obj):
             """Assign an IID to an object."""
             if isinstance(obj, Service) and obj.unique_id == "service_54":
-                return 5000
+                return 5000 + obj.broker.aid
             return super().get_iid_for_obj(obj)
 
     iid_manager = CustomIIDManager()
-    acc = Accessory(mock_driver, "Test Accessory", iid_manager=iid_manager)
+    acc = Accessory(mock_driver, "Test Accessory", iid_manager=iid_manager, aid=1)
     acc.add_preload_service("GarageDoorOpener", unique_id="service_54")
     acc_info_service = acc.get_service("AccessoryInformation")
     acc_garage_door_opener_service = acc.get_service("GarageDoorOpener")
     assert iid_manager.get_iid(acc_info_service) == 1001
-    assert iid_manager.get_iid(acc_garage_door_opener_service) == 5000
+    assert iid_manager.get_iid(acc_garage_door_opener_service) == 5001
 
 
 def test_acc_publish_no_broker(mock_driver):
