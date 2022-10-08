@@ -18,7 +18,7 @@ from pyhap.const import (
 from pyhap.iid_manager import IIDManager
 from pyhap.service import Service
 from pyhap.state import State
-from pyhap.service import Service
+
 from . import AsyncMock
 
 # #### Accessory ######
