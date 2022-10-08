@@ -5,9 +5,7 @@ A Characteristic is the smallest unit of the smart home, e.g.
 a temperature measuring or a device status.
 """
 import logging
-
 from uuid import UUID
-
 
 from pyhap.const import (
     HAP_PERMISSION_READ,
@@ -181,7 +179,10 @@ class Characteristic:
 
     def __repr__(self):
         """Return the representation of the characteristic."""
-        return f"<characteristic display_name={self.display_name} unique_id={self.unique_id} value={self.value} properties={self.properties}>"
+        return (
+            f"<characteristic display_name={self.display_name} unique_id={self.unique_id} "
+            f"value={self.value} properties={self.properties}>"
+        )
 
     def _get_default_value(self):
         """Return default value for format."""
