@@ -45,6 +45,7 @@ def test_init(mock_driver):
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
 
     management = acc.get_service("CameraRTPStreamManagement")
+    assert management.unique_id is not None
 
     assert (
         management.get_characteristic("SupportedRTPConfiguration").get_value() == "AgEA"
