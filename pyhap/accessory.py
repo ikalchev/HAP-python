@@ -146,12 +146,12 @@ class Accessory:
         :type: Service
         """
         for s in servs:
+            s.broker = self
             self.services.append(s)
             self.iid_manager.assign(s)
-            s.broker = self
             for c in s.characteristics:
-                self.iid_manager.assign(c)
                 c.broker = self
+                self.iid_manager.assign(c)
 
     def get_service(self, name):
         """Return a Service with the given name.
