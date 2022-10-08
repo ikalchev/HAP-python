@@ -119,7 +119,7 @@ class Accessory:
     def add_preload_service(self, service, chars=None, unique_id=None):
         """Create a service with the given name and add it to this acc."""
         service = self.driver.loader.get_service(service)
-        if unique_id:
+        if unique_id is not None:
             service.unique_id = unique_id
         if chars:
             chars = chars if isinstance(chars, list) else [chars]
