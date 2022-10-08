@@ -133,10 +133,16 @@ class Characteristic:
         "_uuid_str",
         "_loader_display_name",
         "allow_invalid_client_values",
+        "unique_id",
     )
 
     def __init__(
-        self, display_name, type_id, properties, allow_invalid_client_values=False
+        self,
+        display_name,
+        type_id,
+        properties,
+        allow_invalid_client_values=False,
+        unique_id=None,
     ):
         """Initialise with the given properties.
 
@@ -169,12 +175,13 @@ class Characteristic:
         self.getter_callback = None
         self.setter_callback = None
         self.service = None
+        self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
         self._loader_display_name = None
 
     def __repr__(self):
         """Return the representation of the characteristic."""
-        return f"<characteristic display_name={self.display_name} value={self.value} properties={self.properties}>"
+        return f"<characteristic display_name={self.display_name} unique_id={self.unique_id} value={self.value} properties={self.properties}>"
 
     def _get_default_value(self):
         """Return default value for format."""

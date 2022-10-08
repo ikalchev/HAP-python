@@ -35,7 +35,7 @@ class Accessory:
 
     category = CATEGORY_OTHER
 
-    def __init__(self, driver, display_name, aid=None):
+    def __init__(self, driver, display_name, aid=None, iid_manager=None):
         """Initialise with the given properties.
 
         :param display_name: Name to be displayed in the Home app.
@@ -51,7 +51,7 @@ class Accessory:
         self.display_name = display_name
         self.driver = driver
         self.services = []
-        self.iid_manager = IIDManager()
+        self.iid_manager = iid_manager or IIDManager()
         self.setter_callback = None
 
         self.add_info_service()
@@ -116,9 +116,11 @@ class Accessory:
                     self.display_name,
                 )
 
-    def add_preload_service(self, service, chars=None):
+    def add_preload_service(self, service, chars=None, unique_id=None):
         """Create a service with the given name and add it to this acc."""
         service = self.driver.loader.get_service(service)
+        if unique_id:
+            service.unique_id = unique_id
         if chars:
             chars = chars if isinstance(chars, list) else [chars]
             for char_name in chars:
@@ -323,8 +325,10 @@ class Bridge(Accessory):
 
     category = CATEGORY_BRIDGE
 
-    def __init__(self, driver, display_name):
-        super().__init__(driver, display_name, aid=STANDALONE_AID)
+    def __init__(self, driver, display_name, iid_manager=None):
+        super().__init__(
+            driver, display_name, aid=STANDALONE_AID, iid_manager=iid_manager
+        )
         self.accessories = {}  # aid: acc
 
     def add_accessory(self, acc):
