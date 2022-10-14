@@ -71,7 +71,7 @@ def test_list_pairings(driver):
 
     assert tlv_objects == {
         hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M2,
-        hap_handler.HAP_TLV_TAGS.USERNAME: str(CLIENT_UUID).encode("utf8"),
+        hap_handler.HAP_TLV_TAGS.USERNAME: str(CLIENT_UUID).encode("utf8").upper(),
         hap_handler.HAP_TLV_TAGS.PUBLIC_KEY: PUBLIC_KEY,
         hap_handler.HAP_TLV_TAGS.PERMISSIONS: hap_handler.HAP_PERMISSIONS.ADMIN,
     }
