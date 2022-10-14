@@ -646,6 +646,7 @@ class AccessoryDriver:
             os.replace(tmp_filename, self.persist_file)
         except Exception:  # pylint: disable=broad-except
             logger.exception("Failed to persist accessory state")
+            raise
         finally:
             if tmp_filename and os.path.exists(tmp_filename):
                 os.remove(tmp_filename)
