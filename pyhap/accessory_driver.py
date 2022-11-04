@@ -801,10 +801,10 @@ class AccessoryDriver:
                     rep[HAP_REPR_VALUE] = char.get_value()
                     rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             except CharacteristicError:
-                logger.error("Error getting value for characteristic %s.", id)
+                logger.error("Error getting value for characteristic %s.", (aid, iid))
             except Exception:  # pylint: disable=broad-except
                 logger.exception(
-                    "Unexpected error getting value for characteristic %s.", id
+                    "Unexpected error getting value for characteristic %s.", (aid, iid)
                 )
 
             chars.append(rep)
