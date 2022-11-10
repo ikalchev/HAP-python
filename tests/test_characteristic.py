@@ -45,9 +45,20 @@ def test_repr():
     char = get_char(PROPERTIES.copy())
     del char.properties["Permissions"]
     assert (
-        repr(char) == "<characteristic display_name=Test Char value=0 "
+        repr(char) == "<characteristic display_name=Test Char unique_id=None value=0 "
         "properties={'Format': 'int'}>"
     )
+
+
+def test_char_with_unique_id():
+    """Test Characteristic with unique_id."""
+    service = Characteristic(
+        display_name="Test Char",
+        type_id=uuid1(),
+        properties={"Format": "int"},
+        unique_id="123",
+    )
+    assert service.unique_id == "123"
 
 
 def test_default_value():

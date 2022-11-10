@@ -28,9 +28,18 @@ def get_chars():
 
 def test_repr():
     """Test service representation."""
-    service = Service(uuid1(), "TestService")
+    service = Service(uuid1(), "TestService", unique_id="my_service_unique_id")
     service.characteristics = [get_chars()[0]]
-    assert repr(service) == "<service display_name=TestService chars={'Char 1': 0}>"
+    assert (
+        repr(service)
+        == "<service display_name=TestService unique_id=my_service_unique_id chars={'Char 1': 0}>"
+    )
+
+
+def test_service_with_unique_id():
+    """Test service with unique_id."""
+    service = Service(uuid1(), "TestService", unique_id="service_unique_id")
+    assert service.unique_id == "service_unique_id"
 
 
 def test_add_characteristic():

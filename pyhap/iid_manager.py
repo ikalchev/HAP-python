@@ -28,9 +28,17 @@ class IIDManager:
             )
             return
 
+        iid = self.get_iid_for_obj(obj)
+        self.iids[obj] = iid
+        self.objs[iid] = obj
+
+    def get_iid_for_obj(self, obj):
+        """Get the IID for the given object.
+
+        Override this method to provide custom IID assignment.
+        """
         self.counter += 1
-        self.iids[obj] = self.counter
-        self.objs[self.counter] = obj
+        return self.counter
 
     def get_obj(self, iid):
         """Get the object that is assigned the given IID."""
