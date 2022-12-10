@@ -16,6 +16,14 @@ Sections
 ### Developers
 -->
 
+## [4.6.0] - 2022-12-10
+
+- Patch for [WinError 5] Access Denied. [#421](https://github.com/ikalchev/HAP-python/pull/421)
+- Add support for a custom iid manager. [#423](https://github.com/ikalchev/HAP-python/pull/423)
+- Fix pairing with iOS 16. [#424](https://github.com/ikalchev/HAP-python/pull/424)
+- Fix error logging when `get_characteristics` fails. [#425](https://github.com/ikalchev/HAP-python/pull/425)
+- Add necessary support for Adaptive Lightning. [#428](https://github.com/ikalchev/HAP-python/pull/428)
+
 ## [4.5.0] - 2022-06-28
 
 - Speed up "get accessories". [#418](https://github.com/ikalchev/HAP-python/pull/418)
