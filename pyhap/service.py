@@ -26,10 +26,11 @@ class Service:
         "linked_services",
         "is_primary_service",
         "setter_callback",
+        "unique_id",
         "_uuid_str",
     )
 
-    def __init__(self, type_id, display_name=None):
+    def __init__(self, type_id, display_name=None, unique_id=None):
         """Initialize a new Service object."""
         self.broker = None
         self.characteristics = []
@@ -38,12 +39,13 @@ class Service:
         self.type_id = type_id
         self.is_primary_service = None
         self.setter_callback = None
+        self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
 
     def __repr__(self):
         """Return the representation of the service."""
         chars_dict = {c.display_name: c.value for c in self.characteristics}
-        return f"<service display_name={self.display_name} chars={chars_dict}>"
+        return f"<service display_name={self.display_name} unique_id={self.unique_id} chars={chars_dict}>"
 
     def add_linked_service(self, service):
         """Add the given service as "linked" to this Service."""

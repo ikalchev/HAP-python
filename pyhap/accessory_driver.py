@@ -626,6 +626,7 @@ class AccessoryDriver:
         Must be run in the event loop.
         """
         loop = asyncio.get_event_loop()
+        logger.debug("Scheduling write of accessory state to disk")
         asyncio.ensure_future(loop.run_in_executor(None, self.persist))
 
     def persist(self):
@@ -633,6 +634,7 @@ class AccessoryDriver:
 
         Must run in executor.
         """
+        logger.debug("Writing of accessory state to disk")
         tmp_filename = None
         try:
             temp_dir = os.path.dirname(self.persist_file)
@@ -641,7 +643,13 @@ class AccessoryDriver:
             ) as file_handle:
                 tmp_filename = file_handle.name
                 self.encoder.persist(file_handle, self.state)
+            if os.name == 'nt':  # Or `[WinError 5] Access Denied` will be raised on Windows
+                os.chmod(tmp_filename, 0o644)
+                os.chmod(self.persist_file, 0o644)
             os.replace(tmp_filename, self.persist_file)
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("Failed to persist accessory state")
+            raise
         finally:
             if tmp_filename and os.path.exists(tmp_filename):
                 os.remove(tmp_filename)
@@ -672,7 +680,9 @@ class AccessoryDriver:
         :return: Whether the pairing is successful.
         :rtype: bool
         """
-        logger.info("Paired with %s.", client_uuid)
+        logger.info(
+            "Paired with %s with permissions %s.", client_uuid, client_permissions
+        )
         self.state.add_paired_client(client_uuid, client_public, client_permissions)
         self.async_persist()
         return True
@@ -801,10 +811,16 @@ class AccessoryDriver:
                     rep[HAP_REPR_VALUE] = char.get_value()
                     rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             except CharacteristicError:
-                logger.error("Error getting value for characteristic %s.", id)
+                logger.error(
+                    "%s: Error getting value for characteristic %s.",
+                    self.accessory.display_name,
+                    (aid, iid),
+                )
             except Exception:  # pylint: disable=broad-except
                 logger.exception(
-                    "Unexpected error getting value for characteristic %s.", id
+                    "%s: Unexpected error getting value for characteristic %s.",
+                    self.accessory.display_name,
+                    (aid, iid),
                 )
 
             chars.append(rep)

@@ -141,6 +141,7 @@ async def event_wait(event, timeout):
     return event.is_set()
 
 
+@functools.lru_cache(maxsize=2048)
 def uuid_to_hap_type(uuid):
     """Convert a UUID to a HAP type."""
     long_type = str(uuid).upper()
@@ -149,6 +150,7 @@ def uuid_to_hap_type(uuid):
     return long_type.split("-", 1)[0].lstrip("0")
 
 
+@functools.lru_cache(maxsize=2048)
 def hap_type_to_uuid(hap_type):
     """Convert a HAP type to a UUID."""
     if "-" in hap_type:

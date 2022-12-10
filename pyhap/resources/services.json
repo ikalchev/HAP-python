@@ -309,7 +309,10 @@
          "Brightness",
          "Hue",
          "Saturation",
-         "Name"
+         "Name",
+         "ActiveTransitionCount",
+         "TransitionControl",
+         "SupportedTransitionConfiguration"
       ],
       "RequiredCharacteristics": [
          "On"
