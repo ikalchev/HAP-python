@@ -18,7 +18,7 @@ The project was developed for a Raspberry Pi, but it should work on other platfo
 you can open `main.py` or `busy_home.py`, where you will find some fake accessories.
 Just run one of them, for example `python3 busy_home.py`, and you can add it in
 the Home app (be sure to be in the same network).
-Stop it by hitting Ctrl+C.
+Stop it by hitting <kbd>Ctrl</kbd>+<kbd>C</kbd>.
 
 There are example accessories as well as integrations with real products
 in [the accessories folder](accessories). See how to configure your camera in
@@ -90,7 +90,7 @@ class TemperatureSensor(Accessory):
         """
         print('Temperature changed to: ', value)
 
-    @Acessory.run_at_interval(3)  # Run this method every 3 seconds
+    @Accessory.run_at_interval(3)  # Run this method every 3 seconds
     # The `run` method can be `async` as well
     def run(self):
         """We override this method to implement what the accessory will do when it is
@@ -151,7 +151,7 @@ class Light(Accessory):
         if "Brightness" in char_values:
             print('Brightness changed to: ', char_values["Brightness"])
 
-    @Acessory.run_at_interval(3)  # Run this method every 3 seconds
+    @Accessory.run_at_interval(3)  # Run this method every 3 seconds
     # The `run` method can be `async` as well
     def run(self):
         """We override this method to implement what the accessory will do when it is
