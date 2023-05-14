@@ -35,7 +35,7 @@ class Loader:
     def _read_file(path):
         """Read file and return a dict."""
         with open(path, "r", encoding="utf8") as file:
-            return orjson.loads(file.read())
+            return orjson.loads(file.read())  # pylint: disable=no-member
 
     def get_char(self, name):
         """Return new Characteristic object."""
