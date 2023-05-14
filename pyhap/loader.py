@@ -7,8 +7,9 @@ The idea is, give a name of a service and you get an
 instance of it (as long as it is described in some
 json file).
 """
-import orjson
 import logging
+
+import orjson
 
 from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
 from pyhap.characteristic import Characteristic
