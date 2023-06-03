@@ -12,9 +12,11 @@ from pyhap import hap_handler, tlv
 from pyhap.accessory import Accessory, Bridge
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import HAP_PERMISSIONS
-
+from pyhap.accessory_driver import AccessoryDriver
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
+CLIENT_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
 CLIENT2_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c2")
+CLIENT2_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
 
 PUBLIC_KEY = b"\x99\x98d%\x8c\xf6h\x06\xfa\x85\x9f\x90\x82\xf2\xe8\x18\x9f\xf8\xc75\x1f>~\xc32\xc1OC\x13\xbfH\xad"
 
@@ -26,13 +28,13 @@ def test_response():
     assert "500" in str(response)
 
 
-def test_list_pairings_unencrypted(driver):
+def test_list_pairings_unencrypted(driver: AccessoryDriver):
     """Verify an unencrypted list pairings request fails."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
     handler = hap_handler.HAPServerHandler(driver, "peername")
     handler.is_encrypted = False
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
     assert CLIENT_UUID in driver.state.paired_clients
 
     response = hap_handler.HAPResponse()
@@ -57,7 +59,7 @@ def test_list_pairings(driver):
     handler = hap_handler.HAPServerHandler(driver, "peername")
     handler.is_encrypted = True
     handler.client_uuid = CLIENT_UUID
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
     assert CLIENT_UUID in driver.state.paired_clients
 
     response = hap_handler.HAPResponse()
@@ -85,7 +87,7 @@ def test_add_pairing_admin(driver):
     handler.is_encrypted = True
     handler.client_uuid = CLIENT_UUID
     assert driver.state.paired is False
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
 
     response = hap_handler.HAPResponse()
     handler.response = response
@@ -116,7 +118,7 @@ def test_add_pairing_user(driver):
     handler.is_encrypted = True
     handler.client_uuid = CLIENT_UUID
     assert driver.state.paired is False
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
 
     response = hap_handler.HAPResponse()
     handler.response = response
@@ -189,8 +191,8 @@ def test_remove_pairing(driver):
     handler.is_encrypted = True
     handler.client_uuid = CLIENT_UUID
 
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
-    driver.pair(CLIENT2_UUID, PUBLIC_KEY, HAP_PERMISSIONS.USER)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    driver.pair(CLIENT2_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.USER)
 
     assert driver.state.paired is True
     assert CLIENT_UUID in driver.state.paired_clients
@@ -240,7 +242,7 @@ def test_non_admin_pairings_request(driver):
     handler.is_encrypted = True
     handler.client_uuid = CLIENT_UUID
 
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.USER)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.USER)
     assert CLIENT_UUID in driver.state.paired_clients
 
     response = hap_handler.HAPResponse()
@@ -264,7 +266,7 @@ def test_invalid_pairings_request(driver):
     handler.is_encrypted = True
     handler.client_uuid = CLIENT_UUID
 
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
     assert CLIENT_UUID in driver.state.paired_clients
 
     response = hap_handler.HAPResponse()
@@ -283,7 +285,7 @@ def test_pair_verify_one(driver):
 
     handler = hap_handler.HAPServerHandler(driver, "peername")
     handler.is_encrypted = False
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
     assert CLIENT_UUID in driver.state.paired_clients
 
     response = hap_handler.HAPResponse()
@@ -335,7 +337,7 @@ def test_pair_verify_two_invaild_state(driver):
 
     handler = hap_handler.HAPServerHandler(driver, "peername")
     handler.is_encrypted = False
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
     assert CLIENT_UUID in driver.state.paired_clients
 
     response = hap_handler.HAPResponse()
@@ -379,7 +381,7 @@ def test_invalid_pairing_request(driver):
 
     handler = hap_handler.HAPServerHandler(driver, "peername")
     handler.is_encrypted = False
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
     assert CLIENT_UUID in driver.state.paired_clients
 
     response = hap_handler.HAPResponse()
@@ -666,7 +668,7 @@ def test_attempt_to_pair_when_already_paired(driver):
 
     handler = hap_handler.HAPServerHandler(driver, "peername")
     handler.is_encrypted = False
-    driver.pair(CLIENT_UUID, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
 
     response = hap_handler.HAPResponse()
     handler.response = response
