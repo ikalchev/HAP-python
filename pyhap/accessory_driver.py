@@ -25,8 +25,8 @@ import re
 import socket
 import sys
 import tempfile
-import time
 import threading
+import time
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
@@ -41,9 +41,9 @@ from pyhap.const import (
     HAP_REPR_AID,
     HAP_REPR_CHARS,
     HAP_REPR_IID,
-    HAP_REPR_TTL,
     HAP_REPR_PID,
     HAP_REPR_STATUS,
+    HAP_REPR_TTL,
     HAP_REPR_VALUE,
     STANDALONE_AID,
 )
@@ -643,7 +643,9 @@ class AccessoryDriver:
             ) as file_handle:
                 tmp_filename = file_handle.name
                 self.encoder.persist(file_handle, self.state)
-            if os.name == 'nt':  # Or `[WinError 5] Access Denied` will be raised on Windows
+            if (
+                os.name == "nt"
+            ):  # Or `[WinError 5] Access Denied` will be raised on Windows
                 os.chmod(tmp_filename, 0o644)
                 os.chmod(self.persist_file, 0o644)
             os.replace(tmp_filename, self.persist_file)
@@ -663,13 +665,18 @@ class AccessoryDriver:
             self.encoder.load_into(file_handle, self.state)
 
     @callback
-    def pair(self, client_uuid, client_public, client_permissions):
+    def pair(
+        self,
+        client_username_bytes: bytes,
+        client_public: bytes,
+        client_permissions: bytes,
+    ) -> bool:
         """Called when a client has paired with the accessory.
 
         Persist the new accessory state.
 
-        :param client_uuid: The client uuid.
-        :type client_uuid: uuid.UUID
+        :param client_username_bytes: The client username bytes.
+        :type client_username_bytes: bytes
 
         :param client_public: The client's public key.
         :type client_public: bytes
@@ -681,9 +688,13 @@ class AccessoryDriver:
         :rtype: bool
         """
         logger.info(
-            "Paired with %s with permissions %s.", client_uuid, client_permissions
+            "Paired with %s with permissions %s.",
+            client_username_bytes,
+            client_permissions,
         )
-        self.state.add_paired_client(client_uuid, client_public, client_permissions)
+        self.state.add_paired_client(
+            client_username_bytes, client_public, client_permissions
+        )
         self.async_persist()
         return True
 
