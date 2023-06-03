@@ -5,6 +5,7 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 import asyncio
 from http import HTTPStatus
 import logging
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 import uuid
 
@@ -23,10 +24,12 @@ from pyhap.const import (
 )
 from pyhap.util import long_to_bytes
 
-from .accessory_driver import AccessoryDriver
 from .hap_crypto import hap_hkdf, pad_tls_nonce
 from .state import State
 from .util import from_hap_json, to_hap_json
+
+if TYPE_CHECKING:
+    from .accessory_driver import AccessoryDriver
 
 # iOS will terminate the connection if it does not respond within
 # 10 seconds, so we only allow 9 seconds to avoid this.
@@ -130,7 +133,7 @@ class HAPServerHandler:
 
     PVERIFY_2_NONCE = pad_tls_nonce(b"PV-Msg03")
 
-    def __init__(self, accessory_handler: AccessoryDriver, client_address):
+    def __init__(self, accessory_handler, client_address):
         """
         @param accessory_handler: An object that controls an accessory's state.
         @type accessory_handler: AccessoryDriver
@@ -428,7 +431,7 @@ class HAPServerHandler:
         cipher = ChaCha20Poly1305(encryption_key)
         aead_message = bytes(cipher.encrypt(self.PAIRING_5_NONCE, bytes(message), b""))
 
-        client_username_str = str(client_username, "utf-8")
+        client_username_str = client_username_bytes.decode("utf-8")
         client_uuid = uuid.UUID(client_username_str)
         logger.debug(
             "Finishing pairing with admin %s uuid=%s", client_username_str, client_uuid
