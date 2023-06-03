@@ -559,9 +559,10 @@ class HAPServerHandler:
         perm_client_public = self.state.paired_clients.get(client_uuid)
         if perm_client_public is None:
             logger.error(
-                "%s: Client %s attempted pair verify without being paired to %s first.",
+                "%s: Client %s with uuid %s attempted pair verify without being paired first (paired clients=%s).",
                 self.client_address,
                 client_uuid,
+                self.state.paired_clients,
                 self.accessory_handler.accessory.display_name,
             )
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
