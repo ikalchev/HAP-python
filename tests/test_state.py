@@ -10,7 +10,7 @@ from pyhap.state import State
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
 CLIENT_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
 CLIENT2_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c2")
-CLIENT2_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
+CLIENT2_UUID_BYTES = str(CLIENT2_UUID).upper().encode("utf-8")
 
 
 def test_setup():

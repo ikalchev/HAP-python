@@ -13,10 +13,11 @@ from pyhap.accessory import Accessory, Bridge
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import HAP_PERMISSIONS
 from pyhap.accessory_driver import AccessoryDriver
+
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
 CLIENT_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
 CLIENT2_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c2")
-CLIENT2_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
+CLIENT2_UUID_BYTES = str(CLIENT2_UUID).upper().encode("utf-8")
 
 PUBLIC_KEY = b"\x99\x98d%\x8c\xf6h\x06\xfa\x85\x9f\x90\x82\xf2\xe8\x18\x9f\xf8\xc75\x1f>~\xc32\xc1OC\x13\xbfH\xad"
 
