@@ -76,7 +76,7 @@ def test_pairing_remove_last_admin():
         CLIENT_UUID: {CLIENT_PROP_PERMS: 1},
         CLIENT2_UUID: {CLIENT_PROP_PERMS: 0},
     }
-    assert state.uuid_to_binary == {
+    assert state.uuid_to_bytes == {
         CLIENT_UUID: CLIENT_UUID_BYTES,
         CLIENT2_UUID: CLIENT2_UUID_BYTES,
     }

@@ -38,7 +38,7 @@ class State:
 
         self.private_key = ed25519.Ed25519PrivateKey.generate()
         self.public_key = self.private_key.public_key()
-        self.uuid_to_binary: Dict[UUID, bytes] = {}
+        self.uuid_to_bytes: Dict[UUID, bytes] = {}
         self.accessories_hash = None
 
     # ### Pairing ###
@@ -67,7 +67,7 @@ class State:
         """
         client_username_str = client_username_bytes.decode("utf-8")
         client_uuid = UUID(client_username_str)
-        self.uuid_to_binary[client_uuid] = client_username_bytes
+        self.uuid_to_bytes[client_uuid] = client_username_bytes
         self.paired_clients[client_uuid] = client_public
         self.client_properties[client_uuid] = {CLIENT_PROP_PERMS: ord(perms)}
 
@@ -79,7 +79,7 @@ class State:
         """
         self.paired_clients.pop(client_uuid)
         self.client_properties.pop(client_uuid)
-        self.uuid_to_binary.pop(client_uuid, None)
+        self.uuid_to_bytes.pop(client_uuid, None)
 
         # All pairings must be removed when the last admin is removed
         if not any(self.is_admin(client_uuid) for client_uuid in self.paired_clients):

@@ -749,7 +749,7 @@ class HAPServerHandler:
                     # or it will unpair the accessory because it thinks
                     # the username is invalid. We try to send back the
                     # exact bytes that was used to pair if we have it
-                    state.uuid_to_binary.get(client_uuid)
+                    state.uuid_to_bytes.get(client_uuid)
                     or str(client_uuid).encode("utf-8").upper(),
                     HAP_TLV_TAGS.PUBLIC_KEY,
                     client_public,

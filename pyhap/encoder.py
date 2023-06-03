@@ -63,7 +63,7 @@ class AccessoryEncoder:
             str(client): props for client, props in state.client_properties.items()
         }
         client_uuid_to_bytes = {
-            str(client): bytes.hex(key) for client, key in state.uuid_to_binary.items()
+            str(client): bytes.hex(key) for client, key in state.uuid_to_bytes.items()
         }
         config_state = {
             "mac": state.mac,
@@ -120,7 +120,7 @@ class AccessoryEncoder:
         state.public_key = ed25519.Ed25519PublicKey.from_public_bytes(
             bytes.fromhex(loaded["public_key"])
         )
-        state.uuid_to_binary = {
+        state.uuid_to_bytes = {
             uuid.UUID(client): bytes.fromhex(key)
             for client, key in loaded.get("client_uuid_to_bytes", {}).items()
         }
