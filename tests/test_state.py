@@ -1,9 +1,10 @@
 """Test for pyhap.state."""
 from unittest.mock import patch
+from uuid import UUID
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
 import pytest
-from uuid import UUID
+
 from pyhap.const import CLIENT_PROP_PERMS, HAP_PERMISSIONS
 from pyhap.state import State
 
