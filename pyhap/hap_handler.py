@@ -751,7 +751,7 @@ class HAPServerHandler:
             # client is removed, otherwise the controller
             # may not remove them all
             logger.debug("%s: updating mdns to unpaired", self.client_address)
-            assert self.response is not None
+            assert self.response is not None  # nosec
             self.response.pairing_changed = True
 
     def _handle_list_pairings(self) -> None:
@@ -799,7 +799,7 @@ class HAPServerHandler:
 
     def handle_resource(self) -> None:
         """Get a snapshot from the camera."""
-        assert self.request_body is not None
+        assert self.request_body is not None  # nosec
         data = from_hap_json(self.request_body.decode("utf-8"))
 
         if self.accessory_handler.accessory.category == CATEGORY_BRIDGE:
@@ -823,5 +823,5 @@ class HAPServerHandler:
         task = asyncio.ensure_future(asyncio.wait_for(coro, RESPONSE_TIMEOUT))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
-        assert self.response is not None
+        assert self.response is not None  # nosec
         self.response.task = task
