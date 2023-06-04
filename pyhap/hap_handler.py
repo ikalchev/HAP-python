@@ -193,18 +193,18 @@ class HAPServerHandler:
         response code.
         Does not add Server or Date
         """
-        assert self.response is not None
+        assert self.response is not None  # nosec
         self.response.status_code = http_status.value
         self.response.reason = http_status.phrase
 
     def send_header(self, header: str, value: str) -> None:
         """Add the response header to the headers buffer."""
-        assert self.response is not None
+        assert self.response is not None  # nosec
         self.response.headers.append((header, value))
 
     def end_response(self, bytesdata: bytes) -> None:
         """Combines adding a length header and actually sending the data."""
-        assert self.response is not None
+        assert self.response is not None  # nosec
         self.response.body = bytesdata
 
     def dispatch(
@@ -466,7 +466,7 @@ class HAPServerHandler:
             HAP_TLV_TAGS.ENCRYPTED_DATA,
             aead_message,
         )
-        assert self.response is not None
+        assert self.response is not None  # nosec
         self.response.pairing_changed = True
         self._send_tlv_pairing_response(tlv_data)
 
@@ -598,7 +598,7 @@ class HAPServerHandler:
 
         data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M4)
         self._send_tlv_pairing_response(data)
-        assert self.response is not None
+        assert self.response is not None  # nosec
         self.response.shared_key = self.enc_context["shared_key"]
         self.is_encrypted = True
         self.client_uuid = client_uuid
@@ -620,7 +620,7 @@ class HAPServerHandler:
             raise UnprivilegedRequestException
 
         # Check that char exists and ...
-        assert self.parsed_url is not None
+        assert self.parsed_url is not None  # nosec
         params = parse_qs(self.parsed_url.query)
         response = self.accessory_handler.get_characteristics(
             params["id"][0].split(",")
@@ -649,7 +649,7 @@ class HAPServerHandler:
             self.send_response(HTTPStatus.UNAUTHORIZED)
             return
 
-        assert self.request_body is not None
+        assert self.request_body is not None  # nosec
         requested_chars = from_hap_json(self.request_body.decode("utf-8"))
         logger.debug(
             "%s: Set characteristics content: %s", self.client_address, requested_chars
@@ -686,7 +686,7 @@ class HAPServerHandler:
     def handle_pairings(self) -> None:
         """Handles a client request to update or remove a pairing."""
         # Must be an admin to handle pairings
-        assert self.client_uuid is not None
+        assert self.client_uuid is not None  # nosec
         if not self.is_encrypted or not self.state.is_admin(self.client_uuid):
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M2)
             return
