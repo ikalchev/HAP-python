@@ -35,6 +35,7 @@ def test_list_pairings_unencrypted(driver: AccessoryDriver):
 
     handler = hap_handler.HAPServerHandler(driver, "peername")
     handler.is_encrypted = False
+    handler.client_uuid = CLIENT_UUID
     driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
     assert CLIENT_UUID in driver.state.paired_clients
 
