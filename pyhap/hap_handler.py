@@ -5,14 +5,15 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 import asyncio
 from http import HTTPStatus
 import logging
-from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, urlparse
+from typing import TYPE_CHECKING, Dict, Optional
+from urllib.parse import ParseResult, parse_qs, urlparse
 import uuid
 
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
+import h11
 
 from pyhap import tlv
 from pyhap.const import (
@@ -143,19 +144,24 @@ class HAPServerHandler:
         self.enc_context = None
         self.client_address = client_address
         self.is_encrypted = False
-        self.client_uuid = None
+        self.client_uuid: Optional[uuid.UUID] = None
 
-        self.path = None
-        self.command = None
-        self.headers = None
-        self.request_body = None
-        self.parsed_url = None
+        self.path: Optional[str] = None
+        self.command: Optional[str] = None
+        self.headers: Optional[Dict[str, str]] = None
+        self.request_body: Optional[bytes] = None
+        self.parsed_url: Optional[ParseResult] = None
 
-        self.response = None
+        self.response: Optional[HAPResponse] = None
 
     def _set_encryption_ctx(
-        self, client_public, private_key, public_key, shared_key, pre_session_key
-    ):
+        self,
+        client_public: bytes,
+        private_key: x25519.X25519PrivateKey,
+        public_key: x25519.X25519PublicKey,
+        shared_key: bytes,
+        pre_session_key: bytes,
+    ) -> None:
         """Sets the encryption context.
 
         The encryption context is generated in pair verify step one and is used to
@@ -182,23 +188,28 @@ class HAPServerHandler:
             "pre_session_key": pre_session_key,
         }
 
-    def send_response(self, http_status):
+    def send_response(self, http_status: HTTPStatus) -> None:
         """Add the response header to the headers buffer and log the
         response code.
         Does not add Server or Date
         """
+        assert self.response is not None
         self.response.status_code = http_status.value
         self.response.reason = http_status.phrase
 
-    def send_header(self, header, value):
+    def send_header(self, header: str, value: str) -> None:
         """Add the response header to the headers buffer."""
+        assert self.response is not None
         self.response.headers.append((header, value))
 
-    def end_response(self, bytesdata):
+    def end_response(self, bytesdata: bytes) -> None:
         """Combines adding a length header and actually sending the data."""
+        assert self.response is not None
         self.response.body = bytesdata
 
-    def dispatch(self, request, body=None):
+    def dispatch(
+        self, request: h11.Request, body: Optional[bytes] = None
+    ) -> HAPResponse:
         """Dispatch the request to the appropriate handler method."""
         self.path = request.target.decode()
         self.command = request.method.decode()
@@ -235,7 +246,7 @@ class HAPServerHandler:
         self.response = None
         return response
 
-    def generic_failure_response(self):
+    def generic_failure_response(self) -> HAPResponse:
         """Generate a generic failure response."""
         self.response = HAPResponse()
         self.send_response_with_status(
@@ -246,13 +257,15 @@ class HAPServerHandler:
         self.response = None
         return response
 
-    def send_response_with_status(self, http_code, hap_server_status):
+    def send_response_with_status(
+        self, http_code: HTTPStatus, hap_server_status: int
+    ) -> None:
         """Send a generic HAP status response."""
         self.send_response(http_code)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(to_hap_json({"status": hap_server_status}))
 
-    def handle_pairing(self):
+    def handle_pairing(self) -> None:
         """Handles arbitrary step of the pairing process."""
         if self.state.paired:
             self._send_tlv_pairing_response(
@@ -275,7 +288,7 @@ class HAPServerHandler:
         elif sequence == HAP_TLV_STATES.M5:
             self._pairing_three(tlv_objects)
 
-    def _pairing_one(self):
+    def _pairing_one(self) -> None:
         """Send the SRP salt and public key to the client.
 
         The SRP verifier is created at this step.
@@ -294,7 +307,7 @@ class HAPServerHandler:
         )
         self._send_tlv_pairing_response(data)
 
-    def _pairing_two(self, tlv_objects):
+    def _pairing_two(self, tlv_objects: Dict[bytes, bytes]) -> None:
         """Obtain the challenge from the client (A) and client's proof that it
         knows the password (M). Verify M and generate the server's proof based on
         A (H_AMK). Send the H_AMK to the client.
@@ -322,7 +335,7 @@ class HAPServerHandler:
         )
         self._send_tlv_pairing_response(data)
 
-    def _pairing_three(self, tlv_objects):
+    def _pairing_three(self, tlv_objects: Dict[bytes, bytes]) -> None:
         """Expand the SRP session key to obtain a new key. Use it to verify and decrypt
             the recieved data. Continue to step four.
 
@@ -361,7 +374,7 @@ class HAPServerHandler:
         client_ltpk: bytes,
         client_proof: bytes,
         encryption_key: bytes,
-    ):
+    ) -> None:
         """Expand the SRP session key to obtain a new key.
             Use it to verify that the client's proof of the private key. Continue to
             step five.
@@ -397,7 +410,7 @@ class HAPServerHandler:
 
     def _pairing_five(
         self, client_username_bytes: bytes, client_ltpk: bytes, encryption_key: bytes
-    ):
+    ) -> None:
         """At that point we know the client has the accessory password and has a valid key
         pair. Add it as a pair and send a sever proof.
 
@@ -437,7 +450,7 @@ class HAPServerHandler:
             "Finishing pairing with admin %s uuid=%s", client_username_str, client_uuid
         )
         should_confirm = self.accessory_handler.pair(
-            client_uuid, client_ltpk, HAP_PERMISSIONS.ADMIN
+            client_username_bytes, client_ltpk, HAP_PERMISSIONS.ADMIN
         )
 
         if not should_confirm:
@@ -453,10 +466,11 @@ class HAPServerHandler:
             HAP_TLV_TAGS.ENCRYPTED_DATA,
             aead_message,
         )
+        assert self.response is not None
         self.response.pairing_changed = True
         self._send_tlv_pairing_response(tlv_data)
 
-    def handle_pair_verify(self):
+    def handle_pair_verify(self) -> None:
         """Handles arbitrary step of the pair verify process.
 
         Pair verify is session negotiation.
@@ -476,14 +490,14 @@ class HAPServerHandler:
                 f"Unknown pairing sequence of {sequence} during pair verify"
             )
 
-    def _pair_verify_one(self, tlv_objects):
+    def _pair_verify_one(self, tlv_objects: Dict[bytes, bytes]) -> None:
         """Generate new session key pair and send a proof to the client.
 
         @param tlv_objects: The TLV data received from the client.
         @type tlv_object: dict
         """
         logger.debug("%s: Pair verify [1/2].", self.client_address)
-        client_public = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
+        client_public: bytes = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
 
         private_key = x25519.X25519PrivateKey.generate()
         public_key = private_key.public_key()
@@ -527,7 +541,7 @@ class HAPServerHandler:
         )
         self._send_tlv_pairing_response(data)
 
-    def _pair_verify_two(self, tlv_objects):
+    def _pair_verify_two(self, tlv_objects: Dict[bytes, bytes]) -> None:
         """Verify the client proof and upgrade to encrypted transport.
 
         @param tlv_objects: The TLV data received from the client.
@@ -584,12 +598,13 @@ class HAPServerHandler:
 
         data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M4)
         self._send_tlv_pairing_response(data)
+        assert self.response is not None
         self.response.shared_key = self.enc_context["shared_key"]
         self.is_encrypted = True
         self.client_uuid = client_uuid
         del self.enc_context
 
-    def handle_accessories(self):
+    def handle_accessories(self) -> None:
         """Handles a client request to get the accessories."""
         if not self.is_encrypted:
             raise UnprivilegedRequestException
@@ -599,12 +614,13 @@ class HAPServerHandler:
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(to_hap_json(hap_rep))
 
-    def handle_get_characteristics(self):
+    def handle_get_characteristics(self) -> None:
         """Handles a client request to get certain characteristics."""
         if not self.is_encrypted:
             raise UnprivilegedRequestException
 
         # Check that char exists and ...
+        assert self.parsed_url is not None
         params = parse_qs(self.parsed_url.query)
         response = self.accessory_handler.get_characteristics(
             params["id"][0].split(",")
@@ -624,7 +640,7 @@ class HAPServerHandler:
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(to_hap_json(response))
 
-    def handle_set_characteristics(self):
+    def handle_set_characteristics(self) -> None:
         """Handles a client request to update certain characteristics."""
         if not self.is_encrypted:
             logger.warning(
@@ -633,6 +649,7 @@ class HAPServerHandler:
             self.send_response(HTTPStatus.UNAUTHORIZED)
             return
 
+        assert self.request_body is not None
         requested_chars = from_hap_json(self.request_body.decode("utf-8"))
         logger.debug(
             "%s: Set characteristics content: %s", self.client_address, requested_chars
@@ -666,9 +683,10 @@ class HAPServerHandler:
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(to_hap_json(response))
 
-    def handle_pairings(self):
+    def handle_pairings(self) -> None:
         """Handles a client request to update or remove a pairing."""
         # Must be an admin to handle pairings
+        assert self.client_uuid is not None
         if not self.is_encrypted or not self.state.is_admin(self.client_uuid):
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M2)
             return
@@ -707,7 +725,7 @@ class HAPServerHandler:
         data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M2)
         self._send_tlv_pairing_response(data)
 
-    def _handle_remove_pairing(self, tlv_objects):
+    def _handle_remove_pairing(self, tlv_objects: Dict[bytes, bytes]) -> None:
         """Remove pairing with the client."""
         client_username_bytes: bytes = tlv_objects[HAP_TLV_TAGS.USERNAME]
         client_username_str = client_username_bytes.decode("utf-8")
@@ -733,9 +751,10 @@ class HAPServerHandler:
             # client is removed, otherwise the controller
             # may not remove them all
             logger.debug("%s: updating mdns to unpaired", self.client_address)
+            assert self.response is not None
             self.response.pairing_changed = True
 
-    def _handle_list_pairings(self):
+    def _handle_list_pairings(self) -> None:
         """List current pairings."""
         logger.debug("%s: list pairings", self.client_address)
         response = [HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M2]
@@ -761,7 +780,7 @@ class HAPServerHandler:
         data = tlv.encode(*response)
         self._send_tlv_pairing_response(data)
 
-    def _send_authentication_error_tlv_response(self, sequence):
+    def _send_authentication_error_tlv_response(self, sequence: bytes) -> None:
         """Send an authentication error tlv response."""
         self._send_tlv_pairing_response(
             tlv.encode(
@@ -772,14 +791,15 @@ class HAPServerHandler:
             )
         )
 
-    def _send_tlv_pairing_response(self, data):
+    def _send_tlv_pairing_response(self, data: bytes) -> None:
         """Send a TLV encoded pairing response."""
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.PAIRING_RESPONSE_TYPE)
         self.end_response(data)
 
-    def handle_resource(self):
+    def handle_resource(self) -> None:
         """Get a snapshot from the camera."""
+        assert self.request_body is not None
         data = from_hap_json(self.request_body.decode("utf-8"))
 
         if self.accessory_handler.accessory.category == CATEGORY_BRIDGE:
@@ -803,4 +823,5 @@ class HAPServerHandler:
         task = asyncio.ensure_future(asyncio.wait_for(coro, RESPONSE_TIMEOUT))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
+        assert self.response is not None
         self.response.task = task
