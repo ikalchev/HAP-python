@@ -22,7 +22,6 @@ import hashlib
 import logging
 import os
 import re
-import socket
 import sys
 import tempfile
 import time
