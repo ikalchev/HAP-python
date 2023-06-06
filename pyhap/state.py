@@ -1,6 +1,7 @@
 """Module for `State` class."""
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+from typing import List, Optional, Union
 from pyhap import util
 from pyhap.const import (
     CLIENT_PROP_PERMS,
@@ -18,12 +19,27 @@ class State:
     That includes all needed for setup of driver and pairing.
     """
 
-    def __init__(self, *, address=None, mac=None, pincode=None, port=None):
+    addreses: List[str]
+
+    def __init__(
+        self,
+        *,
+        address: Optional[Union[str, List[str]]] = None,
+        mac=None,
+        pincode=None,
+        port=None
+    ):
         """Initialize a new object. Create key pair.
 
         Must be called with keyword arguments.
         """
-        self.address = address or util.get_local_address()
+        if address:
+            if isinstance(address, str):
+                self.addresses = [address]
+            else:
+                self.addresses = address
+        else:
+            self.addresses = [util.get_local_address()]
         self.mac = mac or util.generate_mac()
         self.pincode = pincode or util.generate_pincode()
         self.port = port or DEFAULT_PORT
@@ -36,6 +52,11 @@ class State:
         self.private_key = ed25519.Ed25519PrivateKey.generate()
         self.public_key = self.private_key.public_key()
         self.accessories_hash = None
+
+    @property
+    def address(self) -> str:
+        """Return the first address for backwards compat."""
+        return self.addresses[0]
 
     # ### Pairing ###
     @property
