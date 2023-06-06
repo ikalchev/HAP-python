@@ -87,7 +87,6 @@ def test_setup_endpoints(mock_driver):
 
 def test_set_selected_stream_start_stop(mock_driver):
     """Test starting a stream request"""
-
     # mocks for asyncio.Process
     async def communicate():
         return (None, "stderr")
