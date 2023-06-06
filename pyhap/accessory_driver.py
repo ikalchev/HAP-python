@@ -24,14 +24,15 @@ import os
 import re
 import sys
 import tempfile
-import time
 import threading
+import time
+from typing import Optional
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
-from pyhap.accessory import get_topic, Accessory
+from pyhap.accessory import Accessory, get_topic
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
@@ -40,9 +41,9 @@ from pyhap.const import (
     HAP_REPR_AID,
     HAP_REPR_CHARS,
     HAP_REPR_IID,
-    HAP_REPR_TTL,
     HAP_REPR_PID,
     HAP_REPR_STATUS,
+    HAP_REPR_TTL,
     HAP_REPR_VALUE,
     STANDALONE_AID,
 )
@@ -52,7 +53,7 @@ from pyhap.hsrp import Server as SrpServer
 from pyhap.loader import Loader
 from pyhap.params import get_srp_context
 from pyhap.state import State
-from typing import Optional
+
 from .const import HAP_SERVER_STATUS
 from .util import callback
 
