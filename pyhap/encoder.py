@@ -10,6 +10,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from .const import CLIENT_PROP_PERMS
+from .state import State
 
 
 class AccessoryEncoder:
@@ -45,7 +46,7 @@ class AccessoryEncoder:
     """
 
     @staticmethod
-    def persist(fp, state):
+    def persist(fp, state: State):
         """Persist the state of the given Accessory to the given file object.
 
         Persists:
@@ -61,12 +62,16 @@ class AccessoryEncoder:
         client_properties = {
             str(client): props for client, props in state.client_properties.items()
         }
+        client_uuid_to_bytes = {
+            str(client): bytes.hex(key) for client, key in state.uuid_to_bytes.items()
+        }
         config_state = {
             "mac": state.mac,
             "config_version": state.config_version,
             "paired_clients": paired_clients,
             "client_properties": client_properties,
             "accessories_hash": state.accessories_hash,
+            "client_uuid_to_bytes": client_uuid_to_bytes,
             "private_key": bytes.hex(
                 state.private_key.private_bytes(
                     encoding=serialization.Encoding.Raw,
@@ -84,7 +89,7 @@ class AccessoryEncoder:
         json.dump(config_state, fp)
 
     @staticmethod
-    def load_into(fp, state):
+    def load_into(fp, state: State) -> None:
         """Load the accessory state from the given file object into the given Accessory.
 
         @see: AccessoryEncoder.persist
@@ -115,3 +120,7 @@ class AccessoryEncoder:
         state.public_key = ed25519.Ed25519PublicKey.from_public_bytes(
             bytes.fromhex(loaded["public_key"])
         )
+        state.uuid_to_bytes = {
+            uuid.UUID(client): bytes.fromhex(key)
+            for client, key in loaded.get("client_uuid_to_bytes", {}).items()
+        }

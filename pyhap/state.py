@@ -1,5 +1,6 @@
 """Module for `State` class."""
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
+from uuid import UUID
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
@@ -52,6 +53,7 @@ class State:
 
         self.private_key = ed25519.Ed25519PrivateKey.generate()
         self.public_key = self.private_key.public_key()
+        self.uuid_to_bytes: Dict[UUID, bytes] = {}
         self.accessories_hash = None
 
     @property
@@ -61,30 +63,35 @@ class State:
 
     # ### Pairing ###
     @property
-    def paired(self):
+    def paired(self) -> bool:
         """Return if main accessory is currently paired."""
         return len(self.paired_clients) > 0
 
-    def is_admin(self, client_uuid):
+    def is_admin(self, client_uuid: UUID) -> bool:
         """Check if a paired client is an admin."""
         if client_uuid not in self.client_properties:
             return False
         return bool(self.client_properties[client_uuid][CLIENT_PROP_PERMS] & ADMIN_BIT)
 
-    def add_paired_client(self, client_uuid, client_public, perms):
+    def add_paired_client(
+        self, client_username_bytes: bytes, client_public: bytes, perms: bytes
+    ) -> None:
         """Add a given client to dictionary of paired clients.
 
-        :param client_uuid: The client's UUID.
-        :type client_uuid: uuid.UUID
+        :param client_username_bytes: The client's user id bytes.
+        :type client_username_bytes: bytes
 
         :param client_public: The client's public key
             (not the session public key).
         :type client_public: bytes
         """
+        client_username_str = client_username_bytes.decode("utf-8")
+        client_uuid = UUID(client_username_str)
+        self.uuid_to_bytes[client_uuid] = client_username_bytes
         self.paired_clients[client_uuid] = client_public
         self.client_properties[client_uuid] = {CLIENT_PROP_PERMS: ord(perms)}
 
-    def remove_paired_client(self, client_uuid):
+    def remove_paired_client(self, client_uuid: UUID) -> None:
         """Remove a given client from dictionary of paired clients.
 
         :param client_uuid: The client's UUID.
@@ -92,6 +99,7 @@ class State:
         """
         self.paired_clients.pop(client_uuid)
         self.client_properties.pop(client_uuid)
+        self.uuid_to_bytes.pop(client_uuid, None)
 
         # All pairings must be removed when the last admin is removed
         if not any(self.is_admin(client_uuid) for client_uuid in self.paired_clients):
