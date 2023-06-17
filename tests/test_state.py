@@ -42,6 +42,7 @@ def test_setup():
         assert mock_create_keypair.called
 
         assert state.address == addr
+        assert state.addresses == [addr]
         assert state.mac == mac
         assert state.pincode == pin
         assert state.port == port

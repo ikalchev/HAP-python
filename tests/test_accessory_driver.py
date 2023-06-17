@@ -78,14 +78,14 @@ class UnavailableAccessory(Accessory):
         return False
 
 
-def test_auto_add_aid_mac(driver):
+def test_auto_add_aid_mac(driver: AccessoryDriver):
     acc = Accessory(driver, "Test Accessory")
     driver.add_accessory(acc)
     assert acc.aid == STANDALONE_AID
     assert driver.state.mac is not None
 
 
-def test_not_standalone_aid(driver):
+def test_not_standalone_aid(driver: AccessoryDriver):
     acc = Accessory(driver, "Test Accessory", aid=STANDALONE_AID + 1)
     with pytest.raises(ValueError):
         driver.add_accessory(acc)
@@ -128,7 +128,21 @@ def test_external_zeroconf():
     assert driver.advertiser == zeroconf
 
 
-def test_service_callbacks(driver):
+def test_advertised_address():
+    zeroconf = MagicMock()
+    with patch("pyhap.accessory_driver.HAPServer"), patch(
+        "pyhap.accessory_driver.AccessoryDriver.persist"
+    ):
+        driver = AccessoryDriver(
+            port=51234,
+            async_zeroconf_instance=zeroconf,
+            advertised_address=["1.2.3.4", "::1"],
+        )
+    assert driver.advertiser == zeroconf
+    assert driver.state.addresses == ["1.2.3.4", "::1"]
+
+
+def test_service_callbacks(driver: AccessoryDriver):
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -230,7 +244,7 @@ def test_service_callbacks(driver):
     }
 
 
-def test_service_callbacks_partial_failure(driver):
+def test_service_callbacks_partial_failure(driver: AccessoryDriver):
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -418,7 +432,7 @@ def test_mixing_service_char_callbacks_partial_failure(driver):
     }
 
 
-def test_start_from_sync(driver):
+def test_start_from_sync(driver: AccessoryDriver):
     """Start from sync."""
 
     class Acc(Accessory):
@@ -436,7 +450,7 @@ def test_start_from_sync(driver):
     driver.start()
 
 
-def test_accessory_level_callbacks(driver):
+def test_accessory_level_callbacks(driver: AccessoryDriver):
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -525,7 +539,7 @@ def test_accessory_level_callbacks(driver):
     )
 
 
-def test_accessory_level_callbacks_with_a_failure(driver):
+def test_accessory_level_callbacks_with_a_failure(driver: AccessoryDriver):
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -769,13 +783,13 @@ async def test_start_from_async_stop_from_executor(async_zeroconf):
         await driver.aio_stop_event.wait()
 
 
-def test_start_without_accessory(driver):
+def test_start_without_accessory(driver: AccessoryDriver):
     """Verify we throw ValueError if there is no accessory."""
     with pytest.raises(ValueError):
         driver.start_service()
 
 
-def test_send_events(driver):
+def test_send_events(driver: AccessoryDriver):
     """Test we can send events."""
     driver.aio_stop_event = MagicMock(is_set=MagicMock(return_value=False))
 
@@ -812,7 +826,7 @@ def test_send_events(driver):
     }
 
 
-def test_async_subscribe_client_topic(driver):
+def test_async_subscribe_client_topic(driver: AccessoryDriver):
     """Test subscribe and unsubscribe."""
     addr_info = ("1.2.3.4", 5)
     topic = "any"
@@ -825,7 +839,7 @@ def test_async_subscribe_client_topic(driver):
     assert driver.topics == {}
 
 
-def test_mdns_service_info(driver):
+def test_mdns_service_info(driver: AccessoryDriver):
     """Test accessory mdns advert."""
     acc = Accessory(driver, "[@@@Test@@@] Accessory")
     driver.add_accessory(acc)
@@ -854,7 +868,7 @@ def test_mdns_service_info(driver):
     }
 
 
-def test_mdns_service_info_with_specified_server(driver):
+def test_mdns_service_info_with_specified_server(driver: AccessoryDriver):
     """Test accessory mdns advert when the server is specified."""
     acc = Accessory(driver, "Test Accessory")
     driver.add_accessory(acc)
@@ -903,7 +917,9 @@ def test_mdns_service_info_with_specified_server(driver):
         ),
     ],
 )
-def test_mdns_name_sanity(driver, accessory_name, mdns_name, mdns_server):
+def test_mdns_name_sanity(
+    driver: AccessoryDriver, accessory_name, mdns_name, mdns_server
+):
     """Test mdns name sanity."""
     acc = Accessory(driver, accessory_name)
     driver.add_accessory(acc)

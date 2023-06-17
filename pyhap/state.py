@@ -1,5 +1,5 @@
 """Module for `State` class."""
-from typing import Dict
+from typing import Dict, List, Optional, Union
 from uuid import UUID
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -21,12 +21,27 @@ class State:
     That includes all needed for setup of driver and pairing.
     """
 
-    def __init__(self, *, address=None, mac=None, pincode=None, port=None):
+    addreses: List[str]
+
+    def __init__(
+        self,
+        *,
+        address: Optional[Union[str, List[str]]] = None,
+        mac=None,
+        pincode=None,
+        port=None
+    ):
         """Initialize a new object. Create key pair.
 
         Must be called with keyword arguments.
         """
-        self.address = address or util.get_local_address()
+        if address:
+            if isinstance(address, str):
+                self.addresses = [address]
+            else:
+                self.addresses = address
+        else:
+            self.addresses = [util.get_local_address()]
         self.mac = mac or util.generate_mac()
         self.pincode = pincode or util.generate_pincode()
         self.port = port or DEFAULT_PORT
@@ -40,6 +55,11 @@ class State:
         self.public_key = self.private_key.public_key()
         self.uuid_to_bytes: Dict[UUID, bytes] = {}
         self.accessories_hash = None
+
+    @property
+    def address(self) -> str:
+        """Return the first address for backwards compat."""
+        return self.addresses[0]
 
     # ### Pairing ###
     @property
