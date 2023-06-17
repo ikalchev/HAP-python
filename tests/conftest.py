@@ -41,7 +41,6 @@ def driver(async_zeroconf):
     ), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
     ):
-
         yield AccessoryDriver(loop=loop)
 
 

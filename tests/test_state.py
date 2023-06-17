@@ -28,7 +28,6 @@ def test_setup():
         "cryptography.hazmat.primitives.asymmetric.ed25519.Ed25519PrivateKey.generate",
         return_value=private_key,
     ) as mock_create_keypair:
-
         state = State(address=addr, mac=mac, pincode=pin, port=port)
         assert not mock_local_addr.called
         assert not mock_gen_mac.called
@@ -37,6 +36,7 @@ def test_setup():
         assert mock_create_keypair.called
 
         assert state.address == addr
+        assert state.addresses == [addr]
         assert state.mac == mac
         assert state.pincode == pin
         assert state.port == port

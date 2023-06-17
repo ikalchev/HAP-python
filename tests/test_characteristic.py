@@ -5,15 +5,15 @@ from uuid import uuid1
 import pytest
 
 from pyhap.characteristic import (
+    CHAR_PROGRAMMABLE_SWITCH_EVENT,
     HAP_FORMAT_DEFAULTS,
+    HAP_FORMAT_FLOAT,
     HAP_FORMAT_INT,
     HAP_FORMAT_UINT8,
     HAP_FORMAT_UINT16,
     HAP_FORMAT_UINT32,
     HAP_FORMAT_UINT64,
-    HAP_FORMAT_FLOAT,
     HAP_PERMISSION_READ,
-    CHAR_PROGRAMMABLE_SWITCH_EVENT,
     Characteristic,
 )
 

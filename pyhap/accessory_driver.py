@@ -22,17 +22,17 @@ import hashlib
 import logging
 import os
 import re
-import socket
 import sys
 import tempfile
-import time
 import threading
+import time
+from typing import Optional
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
-from pyhap.accessory import get_topic
+from pyhap.accessory import Accessory, get_topic
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
@@ -41,9 +41,9 @@ from pyhap.const import (
     HAP_REPR_AID,
     HAP_REPR_CHARS,
     HAP_REPR_IID,
-    HAP_REPR_TTL,
     HAP_REPR_PID,
     HAP_REPR_STATUS,
+    HAP_REPR_TTL,
     HAP_REPR_VALUE,
     STANDALONE_AID,
 )
@@ -122,7 +122,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
 
     def __init__(self, accessory, state, zeroconf_server=None):
         self.accessory = accessory
-        self.state = state
+        self.state: State = state
 
         adv_data = self._get_advert_data()
         valid_name = self._valid_name()
@@ -139,7 +139,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
             weight=0,
             priority=0,
             properties=adv_data,
-            addresses=[socket.inet_aton(self.state.address)],
+            parsed_addresses=self.state.addresses,
         )
 
     def _valid_name(self):
@@ -244,10 +244,10 @@ class AccessoryDriver:
             If not given, the value of the address parameter will be used.
         :type listen_address: str
 
-        :param advertised_address: The address of the HAPServer announced via mDNS.
+        :param advertised_address: The addresses of the HAPServer announced via mDNS.
             This can be used to announce an external address from behind a NAT.
             If not given, the value of the address parameter will be used.
-        :type advertised_address: str
+        :type advertised_address: str | list[str]
 
         :param interface_choice: The zeroconf interfaces to listen on.
         :type InterfacesType: [InterfaceChoice.Default, InterfaceChoice.All]
@@ -279,7 +279,7 @@ class AccessoryDriver:
 
         self.loop = loop
 
-        self.accessory = None
+        self.accessory: Optional[Accessory] = None
         self.advertiser = async_zeroconf_instance
         self.zeroconf_server = zeroconf_server
         self.interface_choice = interface_choice
@@ -366,9 +366,9 @@ class AccessoryDriver:
         self.aio_stop_event = asyncio.Event()
 
         logger.info(
-            "Starting accessory %s on address %s, port %s.",
+            "Starting accessory %s on addresses %s, port %s.",
             self.accessory.display_name,
-            self.state.address,
+            self.state.addresses,
             self.state.port,
         )
 
@@ -428,7 +428,7 @@ class AccessoryDriver:
         logger.info(
             "Stopping accessory %s on address %s, port %s.",
             self.accessory.display_name,
-            self.state.address,
+            self.state.addresses,
             self.state.port,
         )
 
@@ -643,7 +643,9 @@ class AccessoryDriver:
             ) as file_handle:
                 tmp_filename = file_handle.name
                 self.encoder.persist(file_handle, self.state)
-            if os.name == 'nt':  # Or `[WinError 5] Access Denied` will be raised on Windows
+            if (
+                os.name == "nt"
+            ):  # Or `[WinError 5] Access Denied` will be raised on Windows
                 os.chmod(tmp_filename, 0o644)
                 os.chmod(self.persist_file, 0o644)
             os.replace(tmp_filename, self.persist_file)
