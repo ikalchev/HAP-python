@@ -21,7 +21,6 @@ DUMMY_A = b"Ve\xce\xd4\x90LExKD\x9d7\x16\\@\xb6\xb8\x9f\x01\x1a]\x86\xa4\x1c"
 
 
 def test_srp_basic():
-
     ctx = get_srp_context(3072, hashlib.sha512, 16)
     b = 191304991611724068381190663629083136274
     s = long_to_bytes(227710976386754876301088769828140156049)

@@ -21,8 +21,9 @@ def test_persist_and_load():
     sample_client_pk = _pk.public_key()
     state = State(mac=mac)
     admin_client_uuid = uuid.uuid1()
+    admin_client_bytes = str(admin_client_uuid).upper().encode("utf-8")
     state.add_paired_client(
-        admin_client_uuid,
+        admin_client_bytes,
         sample_client_pk.public_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PublicFormat.Raw,
@@ -31,8 +32,9 @@ def test_persist_and_load():
     )
     assert state.is_admin(admin_client_uuid)
     user_client_uuid = uuid.uuid1()
+    user_client_bytes = str(user_client_uuid).upper().encode("utf-8")
     state.add_paired_client(
-        user_client_uuid,
+        user_client_bytes,
         sample_client_pk.public_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PublicFormat.Raw,
@@ -77,8 +79,9 @@ def test_migration_to_include_client_properties():
     sample_client_pk = _pk.public_key()
     state = State(mac=mac)
     admin_client_uuid = uuid.uuid1()
+    admin_client_bytes = str(admin_client_uuid).upper().encode("utf-8")
     state.add_paired_client(
-        admin_client_uuid,
+        admin_client_bytes,
         sample_client_pk.public_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PublicFormat.Raw,
@@ -87,8 +90,9 @@ def test_migration_to_include_client_properties():
     )
     assert state.is_admin(admin_client_uuid)
     user_client_uuid = uuid.uuid1()
+    user_client_bytes = str(user_client_uuid).upper().encode("utf-8")
     state.add_paired_client(
-        user_client_uuid,
+        user_client_bytes,
         sample_client_pk.public_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PublicFormat.Raw,

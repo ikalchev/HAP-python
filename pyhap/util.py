@@ -35,7 +35,7 @@ def iscoro(func):
     return asyncio.iscoroutinefunction(func)
 
 
-def get_local_address():
+def get_local_address() -> str:
     """
     Grabs the local IP address using a socket.
 
@@ -49,7 +49,7 @@ def get_local_address():
         addr = s.getsockname()[0]
     finally:
         s.close()
-    return addr
+    return str(addr)
 
 
 def long_to_bytes(n):

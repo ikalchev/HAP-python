@@ -1,6 +1,6 @@
 """This module contains constants used by other modules."""
 MAJOR_VERSION = 4
-MINOR_VERSION = 6
+MINOR_VERSION = 7
 PATCH_VERSION = 0
 __short_version__ = f"{MAJOR_VERSION}.{MINOR_VERSION}"
 __version__ = f"{__short_version__}.{PATCH_VERSION}"
