@@ -16,6 +16,13 @@ Sections
 ### Developers
 -->
 
+## [4.7.0] - 2023-06-18
+
+- Allow passing multiple ip to advertise on to AccessoryDriver. [#442](https://github.com/ikalchev/HAP-python/pull/442)
+- Fix for the new home architecture - retain the original format of the UUID. [#441](https://github.com/ikalchev/HAP-python/pull/441)
+- Add python 3.11 to the CI. [#440](https://github.com/ikalchev/HAP-python/pull/440)
+- Use orjson.loads in loader to speed up startup. [#436](https://github.com/ikalchev/HAP-python/pull/436)
+
 ## [4.6.0] - 2022-12-10
 
 - Patch for [WinError 5] Access Denied. [#421](https://github.com/ikalchev/HAP-python/pull/421)
