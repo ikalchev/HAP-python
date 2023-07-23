@@ -17,6 +17,7 @@ streaming.
 """
 
 import asyncio
+import async_timeout
 import functools
 import os
 import ipaddress
@@ -859,8 +860,8 @@ class Camera(Accessory):
             logger.info('[%s] Stopping stream.', session_id)
             try:
                 ffmpeg_process.terminate()
-                _, stderr = await asyncio.wait_for(
-                    ffmpeg_process.communicate(), timeout=2.0)
+                async with async_timeout.timeout(2.0):
+                    _, stderr = await ffmpeg_process.communicate()
                 logger.debug('Stream command stderr: %s', stderr)
             except asyncio.TimeoutError:
                 logger.error(

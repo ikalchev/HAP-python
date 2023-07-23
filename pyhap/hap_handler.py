@@ -3,6 +3,7 @@
 The HAPServerHandler manages the state of the connection and handles incoming requests.
 """
 import asyncio
+import async_timeout
 from http import HTTPStatus
 import logging
 from typing import TYPE_CHECKING, Dict, Optional
@@ -91,6 +92,12 @@ class HAP_TLV_TAGS:
 
 class UnprivilegedRequestException(Exception):
     pass
+
+
+async def _run_with_timeout(coro, timeout: float) -> None:
+    """Run a coroutine with a timeout."""
+    async with async_timeout.timeout(timeout):
+        await coro
 
 
 class HAPServerHandler:
@@ -820,7 +827,7 @@ class HAPServerHandler:
                 'does not define a "get_snapshot" or "async_get_snapshot" method'
             )
 
-        task = asyncio.ensure_future(asyncio.wait_for(coro, RESPONSE_TIMEOUT))
+        task = asyncio.ensure_future(_run_with_timeout(coro, RESPONSE_TIMEOUT))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
         assert self.response is not None  # nosec

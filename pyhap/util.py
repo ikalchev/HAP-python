@@ -1,4 +1,5 @@
 import asyncio
+import async_timeout
 import base64
 import functools
 import random
@@ -135,7 +136,8 @@ async def event_wait(event, timeout):
     :rtype: bool
     """
     try:
-        await asyncio.wait_for(event.wait(), timeout)
+        async with async_timeout.timeout(timeout):
+           await event.wait()
     except asyncio.TimeoutError:
         pass
     return event.is_set()
