@@ -137,7 +137,7 @@ async def event_wait(event, timeout):
     """
     try:
         async with async_timeout.timeout(timeout):
-           await event.wait()
+            await event.wait()
     except asyncio.TimeoutError:
         pass
     return event.is_set()
