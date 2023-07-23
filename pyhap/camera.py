@@ -17,20 +17,19 @@ streaming.
 """
 
 import asyncio
-import async_timeout
 import functools
-import os
 import ipaddress
 import logging
+import os
 import struct
 from uuid import UUID
 
-from pyhap import RESOURCE_DIR
+import async_timeout
+
+from pyhap import RESOURCE_DIR, tlv
 from pyhap.accessory import Accessory
 from pyhap.const import CATEGORY_CAMERA
-from pyhap.util import to_base64_str, byte_bool
-from pyhap import tlv
-
+from pyhap.util import byte_bool, to_base64_str
 
 SETUP_TYPES = {
     'SESSION_ID': b'\x01',

@@ -3,13 +3,13 @@
 The HAPServerHandler manages the state of the connection and handles incoming requests.
 """
 import asyncio
-import async_timeout
 from http import HTTPStatus
 import logging
 from typing import TYPE_CHECKING, Dict, Optional
 from urllib.parse import ParseResult, parse_qs, urlparse
 import uuid
 
+import async_timeout
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import serialization
