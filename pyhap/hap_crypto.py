@@ -1,7 +1,8 @@
 """This module partially implements crypto for HAP."""
 import logging
 import struct
-
+from functools import partial
+from struct import Struct
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
@@ -10,6 +11,9 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 logger = logging.getLogger(__name__)
 
 CRYPTO_BACKEND = default_backend()
+
+PACK_NONCE = partial(Struct("<LQ").pack, 0)
+PACK_LENGTH = Struct("H").pack
 
 
 class HAP_CRYPTO:
@@ -74,34 +78,35 @@ class HAPCrypto:
         blocks are buffered locally.
         """
         result = b""
+        crypt_in_buffer = self._crypt_in_buffer
+        length_length = self.LENGTH_LENGTH
+        tag_length = HAP_CRYPTO.TAG_LENGTH
 
-        while len(self._crypt_in_buffer) > self.MIN_BLOCK_LENGTH:
-            block_length_bytes = self._crypt_in_buffer[: self.LENGTH_LENGTH]
+        while len(crypt_in_buffer) > self.MIN_BLOCK_LENGTH:
+            block_length_bytes = crypt_in_buffer[:length_length]
             block_size = struct.unpack("H", block_length_bytes)[0]
-            block_size_with_length = (
-                self.LENGTH_LENGTH + block_size + HAP_CRYPTO.TAG_LENGTH
-            )
+            block_size_with_length = length_length + block_size + tag_length
 
-            if len(self._crypt_in_buffer) < block_size_with_length:
+            if len(crypt_in_buffer) < block_size_with_length:
                 logger.debug("Incoming buffer does not have the full block")
                 return result
 
             # Trim off the length
-            del self._crypt_in_buffer[: self.LENGTH_LENGTH]
+            del crypt_in_buffer[:length_length]
 
-            data_size = block_size + HAP_CRYPTO.TAG_LENGTH
-            nonce = pad_tls_nonce(struct.pack("Q", self._in_count))
+            data_size = block_size + tag_length
+            nonce = PACK_NONCE(self._in_count)
 
             result += self._in_cipher.decrypt(
                 nonce,
-                bytes(self._crypt_in_buffer[:data_size]),
+                bytes(crypt_in_buffer[:data_size]),
                 bytes(block_length_bytes),
             )
 
             self._in_count += 1
 
             # Now trim out the decrypted data
-            del self._crypt_in_buffer[:data_size]
+            del crypt_in_buffer[:data_size]
 
         return result
 
@@ -112,9 +117,9 @@ class HAPCrypto:
         total = len(data)
         while offset < total:
             length = min(total - offset, self.MAX_BLOCK_LENGTH)
-            length_bytes = struct.pack("H", length)
+            length_bytes = PACK_LENGTH(length)
             block = bytes(data[offset : offset + length])
-            nonce = pad_tls_nonce(struct.pack("Q", self._out_count))
+            nonce = PACK_NONCE(self._out_count)
             ciphertext = length_bytes + self._out_cipher.encrypt(
                 nonce, block, length_bytes
             )
