@@ -2,6 +2,7 @@
 import logging
 import struct
 from functools import partial
+from typing import List
 from struct import Struct
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.hazmat.backends import default_backend
@@ -112,7 +113,7 @@ class HAPCrypto:
 
     def encrypt(self, data: bytes) -> bytes:
         """Encrypt and send the return bytes."""
-        result = b""
+        result: List[bytes] = []
         offset = 0
         total = len(data)
         while offset < total:
@@ -120,10 +121,12 @@ class HAPCrypto:
             length_bytes = PACK_LENGTH(length)
             block = bytes(data[offset : offset + length])
             nonce = PACK_NONCE(self._out_count)
-            ciphertext = length_bytes + self._out_cipher.encrypt(
-                nonce, block, length_bytes
-            )
+            result.append(length_bytes)
+            result.append(self._out_cipher.encrypt(nonce, block, length_bytes))
             offset += length
             self._out_count += 1
-            result += ciphertext
-        return result
+
+        # Join the result once instead of concatenating each time
+        # as this is much faster than generating an new immutable
+        # byte string each time.
+        return b"".join(result)
