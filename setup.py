@@ -22,7 +22,14 @@ with open("README.md", "r", encoding="utf-8") as f:
     README = f.read()
 
 
-REQUIRES = ["cryptography", "chacha20poly1305-reuseable", "orjson>=3.7.2", "zeroconf>=0.36.2", "h11"]
+REQUIRES = [
+    "async_timeout",
+    "cryptography",
+    "chacha20poly1305-reuseable",
+    "orjson>=3.7.2",
+    "zeroconf>=0.36.2",
+    "h11",
+]
 
 
 setup(
