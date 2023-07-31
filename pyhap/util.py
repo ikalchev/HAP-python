@@ -5,6 +5,7 @@ import random
 import socket
 from uuid import UUID
 
+import async_timeout
 import orjson
 
 from .const import BASE_UUID
@@ -135,7 +136,8 @@ async def event_wait(event, timeout):
     :rtype: bool
     """
     try:
-        await asyncio.wait_for(event.wait(), timeout)
+        async with async_timeout.timeout(timeout):
+            await event.wait()
     except asyncio.TimeoutError:
         pass
     return event.is_set()

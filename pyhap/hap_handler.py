@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 from urllib.parse import ParseResult, parse_qs, urlparse
 import uuid
 
+import async_timeout
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import serialization
@@ -91,6 +92,12 @@ class HAP_TLV_TAGS:
 
 class UnprivilegedRequestException(Exception):
     pass
+
+
+async def _run_with_timeout(coro, timeout: float) -> bytes:
+    """Run a coroutine with a timeout."""
+    async with async_timeout.timeout(timeout):
+        return await coro
 
 
 class HAPServerHandler:
@@ -820,7 +827,7 @@ class HAPServerHandler:
                 'does not define a "get_snapshot" or "async_get_snapshot" method'
             )
 
-        task = asyncio.ensure_future(asyncio.wait_for(coro, RESPONSE_TIMEOUT))
+        task = asyncio.ensure_future(_run_with_timeout(coro, RESPONSE_TIMEOUT))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
         assert self.response is not None  # nosec

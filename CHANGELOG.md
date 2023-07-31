@@ -16,6 +16,11 @@ Sections
 ### Developers
 -->
 
+## [4.7.1] - 2023-07-31
+
+- Improve encryption performance. [#448](https://github.com/ikalchev/HAP-python/pull/448)
+- Switch timeouts to use `async_timeout`. [#447](https://github.com/ikalchev/HAP-python/pull/447)
+
 ## [4.7.0] - 2023-06-18
 
 - Allow passing multiple ip to advertise on to AccessoryDriver. [#442](https://github.com/ikalchev/HAP-python/pull/442)

@@ -1,15 +1,15 @@
 """Module for the Accessory classes."""
 import itertools
 import logging
-
 from uuid import UUID
+
 from pyhap import SUPPORT_QR_CODE, util
 from pyhap.const import (
     CATEGORY_BRIDGE,
     CATEGORY_OTHER,
+    HAP_PROTOCOL_VERSION,
     HAP_REPR_AID,
     HAP_REPR_IID,
-    HAP_PROTOCOL_VERSION,
     HAP_REPR_SERVICES,
     HAP_REPR_VALUE,
     STANDALONE_AID,
