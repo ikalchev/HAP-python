@@ -20,6 +20,7 @@ CLIENT2_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c2")
 CLIENT2_UUID_BYTES = str(CLIENT2_UUID).upper().encode("utf-8")
 
 PUBLIC_KEY = b"\x99\x98d%\x8c\xf6h\x06\xfa\x85\x9f\x90\x82\xf2\xe8\x18\x9f\xf8\xc75\x1f>~\xc32\xc1OC\x13\xbfH\xad"
+PUBLIC_KEY2 = b"\x99\x98d%\x8c\xf6h\x06\xfa\x85\x9f\x90\x82\xf2\xe8\x18\x9f\xf8\xc75\x1f>~\xc32\xc1OC\x13\xbfH\xac"
 
 
 def test_response():
@@ -78,6 +79,39 @@ def test_list_pairings(driver):
         hap_handler.HAP_TLV_TAGS.USERNAME: str(CLIENT_UUID).encode("utf8").upper(),
         hap_handler.HAP_TLV_TAGS.PUBLIC_KEY: PUBLIC_KEY,
         hap_handler.HAP_TLV_TAGS.PERMISSIONS: hap_handler.HAP_PERMISSIONS.ADMIN,
+    }
+
+
+def test_list_pairings_multiple(driver: AccessoryDriver):
+    """Verify an encrypted list pairings request."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+    handler.client_uuid = CLIENT_UUID
+    driver.pair(CLIENT_UUID_BYTES, PUBLIC_KEY, HAP_PERMISSIONS.ADMIN)
+    assert CLIENT_UUID in driver.state.paired_clients
+    driver.pair(CLIENT2_UUID_BYTES, PUBLIC_KEY2, HAP_PERMISSIONS.USER)
+
+    assert driver.state.paired is True
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.REQUEST_TYPE, hap_handler.HAP_TLV_STATES.M5
+    )
+    handler.handle_pairings()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M2,
+        hap_handler.HAP_TLV_TAGS.USERNAME: str(CLIENT_UUID).encode("utf8").upper()
+        + str(CLIENT2_UUID).encode("utf8").upper(),
+        hap_handler.HAP_TLV_TAGS.PUBLIC_KEY: PUBLIC_KEY + PUBLIC_KEY2,
+        hap_handler.HAP_TLV_TAGS.PERMISSIONS: hap_handler.HAP_PERMISSIONS.ADMIN
+        + hap_handler.HAP_PERMISSIONS.USER,
+        hap_handler.HAP_TLV_TAGS.SEPARATOR: b"",
     }
 
 
