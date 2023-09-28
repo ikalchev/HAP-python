@@ -88,6 +88,7 @@ class HAP_TLV_TAGS:
     ERROR_CODE = b"\x07"
     PROOF = b"\x0A"
     PERMISSIONS = b"\x0B"
+    SEPARATOR = b"\xFF"
 
 
 class UnprivilegedRequestException(Exception):
@@ -781,8 +782,14 @@ class HAPServerHandler:
                     client_public,
                     HAP_TLV_TAGS.PERMISSIONS,
                     HAP_PERMISSIONS.ADMIN if admin else HAP_PERMISSIONS.USER,
+                    HAP_TLV_TAGS.SEPARATOR,
+                    None
                 ]
             )
+
+        if response[-2] == HAP_TLV_TAGS.SEPARATOR:
+            response.pop()
+            response.pop()
 
         data = tlv.encode(*response)
         self._send_tlv_pairing_response(data)
