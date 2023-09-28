@@ -5,7 +5,7 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 import asyncio
 from http import HTTPStatus
 import logging
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional, TypedDict
 from urllib.parse import ParseResult, parse_qs, urlparse
 import uuid
 
@@ -100,6 +100,14 @@ async def _run_with_timeout(coro, timeout: float) -> bytes:
         return await coro
 
 
+class EncryptedContext(TypedDict):
+    client_public: bytes
+    private_key: x25519.X25519PrivateKey
+    public_key: x25519.X25519PublicKey
+    shared_key: bytes
+    pre_session_key: bytes
+
+
 class HAPServerHandler:
     """Manages HAP connection state and handles incoming HTTP requests."""
 
@@ -148,7 +156,7 @@ class HAPServerHandler:
         """
         self.accessory_handler: AccessoryDriver = accessory_handler
         self.state: State = self.accessory_handler.state
-        self.enc_context = None
+        self.enc_context: Optional[EncryptedContext] = None
         self.client_address = client_address
         self.is_encrypted = False
         self.client_uuid: Optional[uuid.UUID] = None
@@ -567,24 +575,23 @@ class HAPServerHandler:
 
         dec_tlv_objects = tlv.decode(bytes(decrypted_data))
         client_username = dec_tlv_objects[HAP_TLV_TAGS.USERNAME]
-        material = (
-            self.enc_context["client_public"]
-            + client_username
-            + self.enc_context["public_key"].public_bytes(
-                encoding=serialization.Encoding.Raw,
-                format=serialization.PublicFormat.Raw,
-            )
+        public_key = self.enc_context["public_key"]
+        raw_public_key = public_key.public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
         )
+        material = self.enc_context["client_public"] + client_username + raw_public_key
 
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
         perm_client_public = self.state.paired_clients.get(client_uuid)
         if perm_client_public is None:
             logger.error(
-                "%s: Client %s with uuid %s attempted pair verify without being paired first (paired clients=%s).",
+                "%s: Client %s with uuid %s attempted pair verify without being paired first (public_key=%s, paired clients=%s).",
+                self.accessory_handler.accessory.display_name,
                 self.client_address,
                 client_uuid,
+                raw_public_key.hex(),
                 self.state.paired_clients,
-                self.accessory_handler.accessory.display_name,
             )
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
