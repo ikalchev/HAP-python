@@ -788,6 +788,7 @@ class HAPServerHandler:
             )
 
         if response[-2] == HAP_TLV_TAGS.SEPARATOR:
+            # The last pairing should not have a separator
             response.pop()
             response.pop()
 
