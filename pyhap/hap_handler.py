@@ -783,7 +783,7 @@ class HAPServerHandler:
                     HAP_TLV_TAGS.PERMISSIONS,
                     HAP_PERMISSIONS.ADMIN if admin else HAP_PERMISSIONS.USER,
                     HAP_TLV_TAGS.SEPARATOR,
-                    None
+                    b""
                 ]
             )
 
