@@ -1,21 +1,20 @@
 """Tests for the HAPServerHandler."""
 
-from cryptography.hazmat.primitives import serialization
-
 import json
 from unittest.mock import patch
 from urllib.parse import urlparse
 from uuid import UUID
-from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
-from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
 
+from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
 import pytest
 
 from pyhap import hap_handler, tlv
 from pyhap.accessory import Accessory, Bridge
+from pyhap.accessory_driver import AccessoryDriver
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import HAP_PERMISSIONS
-from pyhap.accessory_driver import AccessoryDriver
 
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
 CLIENT_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
