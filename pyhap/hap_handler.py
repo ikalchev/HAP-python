@@ -593,8 +593,8 @@ class HAPServerHandler:
         verifying_key = ed25519.Ed25519PublicKey.from_public_bytes(perm_client_public)
         try:
             verifying_key.verify(dec_tlv_objects[HAP_TLV_TAGS.PROOF], material)
-        except InvalidSignature:
-            logger.error("%s: Bad signature, abort.", self.client_address)
+        except (InvalidSignature, KeyError) as ex:
+            logger.error("%s: %s, abort.", self.client_address, ex)
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
 
@@ -783,7 +783,7 @@ class HAPServerHandler:
                     HAP_TLV_TAGS.PERMISSIONS,
                     HAP_PERMISSIONS.ADMIN if admin else HAP_PERMISSIONS.USER,
                     HAP_TLV_TAGS.SEPARATOR,
-                    b""
+                    b"",
                 ]
             )
 

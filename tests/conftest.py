@@ -40,6 +40,8 @@ def driver(async_zeroconf):
         "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
     ), patch(
         "pyhap.accessory_driver.AccessoryDriver.persist"
+    ), patch(
+        "pyhap.util.get_local_address", return_value="127.0.0.1"
     ):
         yield AccessoryDriver(loop=loop)
 
