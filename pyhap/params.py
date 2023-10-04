@@ -25,7 +25,6 @@ E0FD108E4B82D120A93AD2CAFFFFFFFFFFFFFFFF""",
 
 
 def get_srp_context(ng_group_len, hashfunc, salt_len=16, secret_len=32):
-
     group = _ng_const[ng_order.index(ng_group_len)]
 
     ctx = {
