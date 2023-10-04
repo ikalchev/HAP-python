@@ -585,7 +585,7 @@ class HAPServerHandler:
                 self.client_address,
                 client_uuid,
                 raw_public_key.hex(),
-                self.state.paired_clients,
+                {uuid: key.hex() for uuid, key in self.state.paired_clients.items()},
             )
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return

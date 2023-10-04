@@ -48,7 +48,7 @@ class State:
         self.setup_id = util.generate_setup_id()
 
         self.config_version = DEFAULT_CONFIG_VERSION
-        self.paired_clients = {}
+        self.paired_clients: Dict[UUID, bytes] = {}
         self.client_properties = {}
 
         self.private_key = ed25519.Ed25519PrivateKey.generate()
