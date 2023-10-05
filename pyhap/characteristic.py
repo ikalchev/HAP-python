@@ -321,14 +321,16 @@ class Characteristic:
         )
         previous_value = self.value
         self.value = value
+        response = None 
         if self.setter_callback:
             # pylint: disable=not-callable
-            self.setter_callback(value)
+            response = self.setter_callback(value)
         changed = self.value != previous_value
         if changed:
             self.notify(sender_client_addr)
         if self.type_id in ALWAYS_NULL:
             self.value = None
+        return response
 
     def notify(self, sender_client_addr=None):
         """Notify clients about a value change. Sends the value.
