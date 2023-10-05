@@ -321,7 +321,7 @@ class Characteristic:
         )
         previous_value = self.value
         self.value = value
-        response = None 
+        response = None
         if self.setter_callback:
             # pylint: disable=not-callable
             response = self.setter_callback(value)
