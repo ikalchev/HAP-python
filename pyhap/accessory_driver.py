@@ -615,7 +615,7 @@ class AccessoryDriver:
         self.mdns_service_info = AccessoryMDNSServiceInfo(
             self.accessory, self.state, self.zeroconf_server
         )
-        asyncio.ensure_future(
+        util.async_create_background_task(
             self.advertiser.async_update_service(self.mdns_service_info)
         )
 
@@ -627,7 +627,7 @@ class AccessoryDriver:
         """
         loop = asyncio.get_event_loop()
         logger.debug("Scheduling write of accessory state to disk")
-        asyncio.ensure_future(loop.run_in_executor(None, self.persist))
+        util.async_create_background_task(loop.run_in_executor(None, self.persist))
 
     def persist(self):
         """Saves the state of the accessory.

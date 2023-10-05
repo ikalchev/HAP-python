@@ -4,6 +4,7 @@ import functools
 import random
 import socket
 from uuid import UUID
+from typing import Awaitable, Set
 
 import async_timeout
 import orjson
@@ -12,6 +13,8 @@ from .const import BASE_UUID
 
 ALPHANUM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 HEX_DIGITS = "0123456789ABCDEF"
+_BACKGROUND_TASKS: Set[asyncio.Task] = set()
+
 
 rand = random.SystemRandom()
 
@@ -175,3 +178,11 @@ def to_sorted_hap_json(dump_obj):
 def from_hap_json(json_str):
     """Convert json to an object."""
     return orjson.loads(json_str)  # pylint: disable=no-member
+
+
+def async_create_background_task(func: Awaitable) -> asyncio.Task:
+    """Create a background task and add it to the set of background tasks."""
+    task = asyncio.ensure_future(func)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task

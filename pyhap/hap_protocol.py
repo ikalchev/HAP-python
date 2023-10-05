@@ -15,6 +15,7 @@ from pyhap.const import HAP_REPR_AID, HAP_REPR_IID
 from .hap_crypto import HAPCrypto
 from .hap_event import create_hap_event
 from .hap_handler import HAPResponse, HAPServerHandler
+from .util import async_create_background_task
 
 logger = logging.getLogger(__name__)
 
@@ -270,7 +271,7 @@ class HAPServerProtocol(asyncio.Protocol):
             self.hap_crypto = HAPCrypto(response.shared_key)
         # Only update mDNS after sending the response
         if response.pairing_changed:
-            asyncio.ensure_future(
+            async_create_background_task(
                 self.loop.run_in_executor(None, self.accessory_driver.finish_pair)
             )
 
