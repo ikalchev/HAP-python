@@ -466,8 +466,8 @@ def test_pair_verify_two_missing_signature(driver: AccessoryDriver):
     }
 
 
-def test_pair_verify_two_success(driver: AccessoryDriver):
-    """Verify a pair verify two."""
+def test_pair_verify_two_success_raw_uuid_bytes_missing(driver: AccessoryDriver):
+    """Verify a pair verify two populated missing raw bytes."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
     client_private_key = ed25519.Ed25519PrivateKey.generate()
     client_public_key = client_private_key.public_key()
@@ -546,6 +546,84 @@ def test_pair_verify_two_success(driver: AccessoryDriver):
     assert handler.is_encrypted is True
     assert handler.client_uuid == CLIENT_UUID
     # Verify we saved the raw bytes of the username
+    assert driver.state.uuid_to_bytes[CLIENT_UUID] == CLIENT_UUID_BYTES
+
+
+def test_pair_verify_two_success(driver: AccessoryDriver):
+    """Verify a pair verify two."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    client_private_key = ed25519.Ed25519PrivateKey.generate()
+    client_public_key = client_private_key.public_key()
+
+    client_public_key_bytes = client_public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    driver.pair(CLIENT_UUID_BYTES, client_public_key_bytes, HAP_PERMISSIONS.ADMIN)
+
+    assert CLIENT_UUID in driver.state.paired_clients
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M1,
+        hap_handler.HAP_TLV_TAGS.PUBLIC_KEY,
+        client_public_key_bytes,
+    )
+    handler.handle_pair_verify()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert (
+        tlv_objects[hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM]
+        == hap_handler.HAP_TLV_STATES.M2
+    )
+    raw_accessory_public_key = tlv_objects[hap_handler.HAP_TLV_TAGS.PUBLIC_KEY]
+
+    server_public_key: x25519.X25519PublicKey = handler.enc_context["public_key"]
+    expected_raw_public_key = server_public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    assert raw_accessory_public_key == expected_raw_public_key
+
+    assert client_public_key_bytes == handler.enc_context["client_public"]
+
+    material = client_public_key_bytes + CLIENT_UUID_BYTES + raw_accessory_public_key
+    client_proof = client_private_key.sign(material)
+
+    unencrypted_data = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.USERNAME,
+        CLIENT_UUID_BYTES,
+        hap_handler.HAP_TLV_TAGS.PROOF,
+        client_proof,
+    )
+    cipher = ChaCha20Poly1305(handler.enc_context["pre_session_key"])
+    encrypted_data = cipher.encrypt(
+        hap_handler.HAPServerHandler.PVERIFY_2_NONCE, bytes(unencrypted_data), b""
+    )
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M3,
+        hap_handler.HAP_TLV_TAGS.ENCRYPTED_DATA,
+        encrypted_data,
+    )
+    handler.handle_pair_verify()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M4,
+    }
+    assert handler.is_encrypted is True
+    assert handler.client_uuid == CLIENT_UUID
     assert driver.state.uuid_to_bytes[CLIENT_UUID] == CLIENT_UUID_BYTES
 
 
