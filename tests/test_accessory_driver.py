@@ -25,6 +25,7 @@ from pyhap.const import (
     HAP_REPR_IID,
     HAP_REPR_STATUS,
     HAP_REPR_VALUE,
+    HAP_REPR_WRITE_RESPONSE,
     HAP_SERVER_STATUS,
 )
 from pyhap.service import Service
@@ -140,6 +141,121 @@ def test_advertised_address():
         )
     assert driver.advertiser == zeroconf
     assert driver.state.addresses == ["1.2.3.4", "::1"]
+
+
+def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
+    bridge = Bridge(driver, "mybridge")
+    acc = Accessory(driver, "TestAcc", aid=2)
+    service = Service(uuid1(), "NFCAccess")
+    char_nfc_access_control_point = Characteristic("NFCAccessControlPoint", uuid1(), CHAR_PROPS)
+    service.add_characteristic(char_nfc_access_control_point)
+
+    mock_callback = MagicMock()
+    service.setter_callback = mock_callback
+
+    def setter_with_write_response(value=0):
+        return 1
+
+    char_nfc_access_control_point.setter_callback = setter_with_write_response
+    acc.add_service(service)
+
+    char_nfc_access_control_point_iid = char_nfc_access_control_point.to_HAP()[HAP_REPR_IID]
+
+    bridge.add_accessory(acc)
+    driver.add_accessory(bridge)
+
+    response = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_nfc_access_control_point_iid,
+                    HAP_REPR_VALUE: 0,
+                    HAP_REPR_WRITE_RESPONSE: False
+                }
+            ]
+        },
+        "mock_addr",
+    )
+    assert response == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: char_nfc_access_control_point_iid,
+                HAP_REPR_STATUS: 0,
+                HAP_REPR_VALUE: 1
+            },
+        ]
+    }
+
+    response = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_nfc_access_control_point_iid,
+                    HAP_REPR_VALUE: 0,
+                }
+            ]
+        },
+        "mock_addr",
+    )
+    assert response == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: char_nfc_access_control_point_iid,
+                HAP_REPR_STATUS: 0,
+                HAP_REPR_VALUE: 1
+            },
+        ]
+    }
+
+
+def test_write_response_returned_when_requested(driver: AccessoryDriver):
+    bridge = Bridge(driver, "mybridge")
+    acc = Accessory(driver, "TestAcc", aid=2)
+    service = Service(uuid1(), "NFCAccess")
+    char_nfc_access_control_point = Characteristic("NFCAccessControlPoint", uuid1(), CHAR_PROPS)
+    service.add_characteristic(char_nfc_access_control_point)
+
+    mock_callback = MagicMock()
+    service.setter_callback = mock_callback
+
+    def setter_with_write_response(value=0):
+        return 1
+
+    char_nfc_access_control_point.setter_callback = setter_with_write_response
+    acc.add_service(service)
+
+    char_nfc_access_control_point_iid = char_nfc_access_control_point.to_HAP()[HAP_REPR_IID]
+
+    bridge.add_accessory(acc)
+    driver.add_accessory(bridge)
+
+    response = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: char_nfc_access_control_point_iid,
+                    HAP_REPR_VALUE: 0,
+                    HAP_REPR_WRITE_RESPONSE: True
+                }
+            ]
+        },
+        "mock_addr",
+    )
+    assert response == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: char_nfc_access_control_point_iid,
+                HAP_REPR_STATUS: 0,
+                HAP_REPR_VALUE: 1
+            },
+        ]
+    }
 
 
 def test_service_callbacks(driver: AccessoryDriver):
