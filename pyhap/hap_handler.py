@@ -606,6 +606,13 @@ class HAPServerHandler:
 
         data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M4)
         self._send_tlv_pairing_response(data)
+
+        if client_uuid not in self.state.uuid_to_bytes:
+            # We are missing the raw bytes for this client, so we need to
+            # add them to the state and persist so list pairings works.
+            self.state.uuid_to_bytes[client_uuid] = client_username
+            self.accessory_handler.async_persist()
+
         assert self.response is not None  # nosec
         self.response.shared_key = self.enc_context["shared_key"]
         self.is_encrypted = True

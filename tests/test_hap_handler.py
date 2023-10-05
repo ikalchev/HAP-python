@@ -57,7 +57,7 @@ def test_list_pairings_unencrypted(driver: AccessoryDriver):
     }
 
 
-def test_list_pairings(driver):
+def test_list_pairings(driver: AccessoryDriver):
     """Verify an encrypted list pairings request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -117,7 +117,7 @@ def test_list_pairings_multiple(driver: AccessoryDriver):
     }
 
 
-def test_add_pairing_admin(driver):
+def test_add_pairing_admin(driver: AccessoryDriver):
     """Verify an encrypted add pairing request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -148,7 +148,7 @@ def test_add_pairing_admin(driver):
     assert driver.state.is_admin(CLIENT2_UUID)
 
 
-def test_add_pairing_user(driver):
+def test_add_pairing_user(driver: AccessoryDriver):
     """Verify an encrypted add pairing request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -221,7 +221,7 @@ def test_add_pairing_user(driver):
     assert not driver.state.is_admin(CLIENT2_UUID)
 
 
-def test_remove_pairing(driver):
+def test_remove_pairing(driver: AccessoryDriver):
     """Verify an encrypted remove pairing request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -272,7 +272,7 @@ def test_remove_pairing(driver):
     assert driver.state.paired is False
 
 
-def test_non_admin_pairings_request(driver):
+def test_non_admin_pairings_request(driver: AccessoryDriver):
     """Verify only admins can access pairings."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -296,7 +296,7 @@ def test_non_admin_pairings_request(driver):
     }
 
 
-def test_invalid_pairings_request(driver):
+def test_invalid_pairings_request(driver: AccessoryDriver):
     """Verify an encrypted invalid pairings request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -317,7 +317,7 @@ def test_invalid_pairings_request(driver):
         handler.handle_pairings()
 
 
-def test_pair_verify_one(driver):
+def test_pair_verify_one(driver: AccessoryDriver):
     """Verify an unencrypted pair verify one."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -344,7 +344,7 @@ def test_pair_verify_one(driver):
     )
 
 
-def test_pair_verify_one_not_paired(driver):
+def test_pair_verify_one_not_paired(driver: AccessoryDriver):
     """Verify an unencrypted pair verify one."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -369,7 +369,7 @@ def test_pair_verify_one_not_paired(driver):
     }
 
 
-def test_pair_verify_two_invaild_state(driver):
+def test_pair_verify_two_invalid_state(driver: AccessoryDriver):
     """Verify an unencrypted pair verify two."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -413,7 +413,7 @@ def test_pair_verify_two_invaild_state(driver):
     }
 
 
-def test_pair_verify_two_missing_signature(driver):
+def test_pair_verify_two_missing_signature(driver: AccessoryDriver):
     """Verify a pair verify two with a missing signature."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -466,8 +466,8 @@ def test_pair_verify_two_missing_signature(driver):
     }
 
 
-def test_pair_verify_two_success(driver):
-    """Verify a pair verify two."""
+def test_pair_verify_two_success_raw_uuid_bytes_missing(driver: AccessoryDriver):
+    """Verify a pair verify two populated missing raw bytes."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
     client_private_key = ed25519.Ed25519PrivateKey.generate()
     client_public_key = client_private_key.public_key()
@@ -480,6 +480,11 @@ def test_pair_verify_two_success(driver):
     handler = hap_handler.HAPServerHandler(driver, "peername")
     handler.is_encrypted = False
     driver.pair(CLIENT_UUID_BYTES, client_public_key_bytes, HAP_PERMISSIONS.ADMIN)
+
+    # We used to not save the raw bytes of the username, so we need to
+    # remove the entry to simulate that.
+    del driver.state.uuid_to_bytes[CLIENT_UUID]
+
     assert CLIENT_UUID in driver.state.paired_clients
 
     response = hap_handler.HAPResponse()
@@ -540,9 +545,89 @@ def test_pair_verify_two_success(driver):
     }
     assert handler.is_encrypted is True
     assert handler.client_uuid == CLIENT_UUID
+    # Verify we saved the raw bytes of the username
+    assert driver.state.uuid_to_bytes[CLIENT_UUID] == CLIENT_UUID_BYTES
 
 
-def test_invalid_pairing_request(driver):
+def test_pair_verify_two_success(driver: AccessoryDriver):
+    """Verify a pair verify two."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    client_private_key = ed25519.Ed25519PrivateKey.generate()
+    client_public_key = client_private_key.public_key()
+
+    client_public_key_bytes = client_public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    driver.pair(CLIENT_UUID_BYTES, client_public_key_bytes, HAP_PERMISSIONS.ADMIN)
+
+    assert CLIENT_UUID in driver.state.paired_clients
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M1,
+        hap_handler.HAP_TLV_TAGS.PUBLIC_KEY,
+        client_public_key_bytes,
+    )
+    handler.handle_pair_verify()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert (
+        tlv_objects[hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM]
+        == hap_handler.HAP_TLV_STATES.M2
+    )
+    raw_accessory_public_key = tlv_objects[hap_handler.HAP_TLV_TAGS.PUBLIC_KEY]
+
+    server_public_key: x25519.X25519PublicKey = handler.enc_context["public_key"]
+    expected_raw_public_key = server_public_key.public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw,
+    )
+    assert raw_accessory_public_key == expected_raw_public_key
+
+    assert client_public_key_bytes == handler.enc_context["client_public"]
+
+    material = client_public_key_bytes + CLIENT_UUID_BYTES + raw_accessory_public_key
+    client_proof = client_private_key.sign(material)
+
+    unencrypted_data = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.USERNAME,
+        CLIENT_UUID_BYTES,
+        hap_handler.HAP_TLV_TAGS.PROOF,
+        client_proof,
+    )
+    cipher = ChaCha20Poly1305(handler.enc_context["pre_session_key"])
+    encrypted_data = cipher.encrypt(
+        hap_handler.HAPServerHandler.PVERIFY_2_NONCE, bytes(unencrypted_data), b""
+    )
+
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M3,
+        hap_handler.HAP_TLV_TAGS.ENCRYPTED_DATA,
+        encrypted_data,
+    )
+    handler.handle_pair_verify()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M4,
+    }
+    assert handler.is_encrypted is True
+    assert handler.client_uuid == CLIENT_UUID
+    assert driver.state.uuid_to_bytes[CLIENT_UUID] == CLIENT_UUID_BYTES
+
+
+def test_invalid_pairing_request(driver: AccessoryDriver):
     """Verify an unencrypted pair verify with an invalid sequence fails."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -563,7 +648,7 @@ def test_invalid_pairing_request(driver):
         handler.handle_pair_verify()
 
 
-def test_handle_set_handle_set_characteristics_unencrypted(driver):
+def test_handle_set_handle_set_characteristics_unencrypted(driver: AccessoryDriver):
     """Verify an unencrypted set_characteristics."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -582,7 +667,7 @@ def test_handle_set_handle_set_characteristics_unencrypted(driver):
     assert response.status_code == 401
 
 
-def test_handle_set_handle_set_characteristics_encrypted(driver):
+def test_handle_set_handle_set_characteristics_encrypted(driver: AccessoryDriver):
     """Verify an encrypted set_characteristics."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -602,7 +687,9 @@ def test_handle_set_handle_set_characteristics_encrypted(driver):
     assert response.body == b""
 
 
-def test_handle_set_handle_set_characteristics_encrypted_pid_missing_prepare(driver):
+def test_handle_set_handle_set_characteristics_encrypted_pid_missing_prepare(
+    driver: AccessoryDriver,
+):
     """Verify an encrypted set_characteristics with a missing prepare."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -624,7 +711,9 @@ def test_handle_set_handle_set_characteristics_encrypted_pid_missing_prepare(dri
     assert b"-70410" in response.body
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_prepare(driver):
+def test_handle_set_handle_set_characteristics_encrypted_with_prepare(
+    driver: AccessoryDriver,
+):
     """Verify an encrypted set_characteristics with a prepare."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -654,7 +743,9 @@ def test_handle_set_handle_set_characteristics_encrypted_with_prepare(driver):
     assert response.body == b""
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_multiple_prepare(driver):
+def test_handle_set_handle_set_characteristics_encrypted_with_multiple_prepare(
+    driver: AccessoryDriver,
+):
     """Verify an encrypted set_characteristics with multiple prepares."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -690,7 +781,7 @@ def test_handle_set_handle_set_characteristics_encrypted_with_multiple_prepare(d
     assert response.body == b""
 
 
-def test_handle_set_handle_encrypted_with_invalid_prepare(driver):
+def test_handle_set_handle_encrypted_with_invalid_prepare(driver: AccessoryDriver):
     """Verify an encrypted set_characteristics with a prepare missing the ttl."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -710,7 +801,9 @@ def test_handle_set_handle_encrypted_with_invalid_prepare(driver):
     assert response.body == b'{"status":-70410}'
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_expired_ttl(driver):
+def test_handle_set_handle_set_characteristics_encrypted_with_expired_ttl(
+    driver: AccessoryDriver,
+):
     """Verify an encrypted set_characteristics with a prepare expired."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -740,7 +833,9 @@ def test_handle_set_handle_set_characteristics_encrypted_with_expired_ttl(driver
     assert b"-70410" in response.body
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_wrong_pid(driver):
+def test_handle_set_handle_set_characteristics_encrypted_with_wrong_pid(
+    driver: AccessoryDriver,
+):
     """Verify an encrypted set_characteristics with wrong pid."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -770,7 +865,7 @@ def test_handle_set_handle_set_characteristics_encrypted_with_wrong_pid(driver):
     assert b"-70410" in response.body
 
 
-def test_handle_set_handle_prepare_not_encrypted(driver):
+def test_handle_set_handle_prepare_not_encrypted(driver: AccessoryDriver):
     """Verify an non-encrypted set_characteristics with a prepare."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -789,7 +884,9 @@ def test_handle_set_handle_prepare_not_encrypted(driver):
     assert response.status_code == 401
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_exception(driver):
+def test_handle_set_handle_set_characteristics_encrypted_with_exception(
+    driver: AccessoryDriver,
+):
     """Verify an encrypted set_characteristics."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -814,7 +911,7 @@ def test_handle_set_handle_set_characteristics_encrypted_with_exception(driver):
     assert b"-70402" in response.body
 
 
-def test_handle_snapshot_encrypted_non_existant_accessory(driver):
+def test_handle_snapshot_encrypted_non_existant_accessory(driver: AccessoryDriver):
     """Verify an encrypted snapshot with non-existant accessory."""
     bridge = Bridge(driver, "Test Bridge")
     driver.add_accessory(bridge)
@@ -829,7 +926,7 @@ def test_handle_snapshot_encrypted_non_existant_accessory(driver):
         handler.handle_resource()
 
 
-def test_attempt_to_pair_when_already_paired(driver):
+def test_attempt_to_pair_when_already_paired(driver: AccessoryDriver):
     """Verify we respond with unavailable if already paired."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -853,7 +950,7 @@ def test_attempt_to_pair_when_already_paired(driver):
     }
 
 
-def test_handle_get_characteristics_encrypted(driver):
+def test_handle_get_characteristics_encrypted(driver: AccessoryDriver):
     """Verify an encrypted get_characteristics."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -890,7 +987,7 @@ def test_handle_get_characteristics_encrypted(driver):
     assert decoded_response["characteristics"][0]["status"] == -70402
 
 
-def test_invalid_pairing_two(driver):
+def test_invalid_pairing_two(driver: AccessoryDriver):
     """Verify we respond with error with invalid request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -919,7 +1016,7 @@ def test_invalid_pairing_two(driver):
     }
 
 
-def test_invalid_pairing_three(driver):
+def test_invalid_pairing_three(driver: AccessoryDriver):
     """Verify we respond with error with invalid request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
