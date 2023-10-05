@@ -182,7 +182,7 @@ def from_hap_json(json_str):
 
 def async_create_background_task(func: Awaitable) -> asyncio.Task:
     """Create a background task and add it to the set of background tasks."""
-    task = asyncio.create_task(func)
+    task = asyncio.ensure_future(func)
     _BACKGROUND_TASKS.add(task)
     task.add_done_callback(_BACKGROUND_TASKS.discard)
     return task
