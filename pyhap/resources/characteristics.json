@@ -1664,5 +1664,36 @@
       "maxValue": 100,
       "minValue": 0,
       "unit": "percentage"
+   },
+   "HardwareFinish": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000026C-0000-1000-8000-0026BB765291"
+   },
+   "ConfigurationState": {
+      "Format": "uint16",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000263-0000-1000-8000-0026BB765291"
+   },
+   "NFCAccessControlPoint": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "00000264-0000-1000-8000-0026BB765291"
+   },
+   "NFCAccessSupportedConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000265-0000-1000-8000-0026BB765291"
    }
 }

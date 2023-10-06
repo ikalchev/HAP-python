@@ -1,5 +1,6 @@
 """Encodes and decodes Tag-Length-Value (tlv8) data."""
 import struct
+from typing import Any, Dict
 
 from pyhap import util
 
@@ -42,7 +43,7 @@ def encode(*args, to_base64=False):
     return util.to_base64_str(result) if to_base64 else result
 
 
-def decode(data, from_base64=False):
+def decode(data: bytes, from_base64: bool = False) -> Dict[bytes, Any]:
     """Decode the given TLV-encoded ``data`` to a ``dict``.
 
     :param from_base64: Whether the given ``data`` should be base64 decoded first.

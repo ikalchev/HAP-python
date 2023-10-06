@@ -16,6 +16,15 @@ Sections
 ### Developers
 -->
 
+## [4.8.0] - 2023-10-06
+
+- Add AccessoryInformation:HardwareFinish and NFCAccess characteristics/services.
+  [#454](https://github.com/ikalchev/HAP-python/pull/454)
+- Fix handling of multiple pairings. [#456](https://github.com/ikalchev/HAP-python/pull/456)
+- Save raw client username bytes if they are missing on successful pair verify.[#458](https://github.com/ikalchev/HAP-python/pull/458)
+- Add support for Write Responses. [#459](https://github.com/ikalchev/HAP-python/pull/459)
+- Ensure tasks are not garbage-collected before they finish. [#460](https://github.com/ikalchev/HAP-python/pull/460)
+
 ## [4.7.1] - 2023-07-31
 
 - Improve encryption performance. [#448](https://github.com/ikalchev/HAP-python/pull/448)

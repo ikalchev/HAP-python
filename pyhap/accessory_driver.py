@@ -45,6 +45,7 @@ from pyhap.const import (
     HAP_REPR_STATUS,
     HAP_REPR_TTL,
     HAP_REPR_VALUE,
+    HAP_REPR_WRITE_RESPONSE,
     STANDALONE_AID,
 )
 from pyhap.encoder import AccessoryEncoder
@@ -71,7 +72,7 @@ DASH_REGEX = re.compile(r"[-]+")
 def _wrap_char_setter(char, value, client_addr):
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
-        char.client_update_value(value, client_addr)
+        result = char.client_update_value(value, client_addr)
     except Exception:  # pylint: disable=broad-except
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
@@ -79,8 +80,8 @@ def _wrap_char_setter(char, value, client_addr):
             char.display_name,
             value,
         )
-        return HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-    return HAP_SERVER_STATUS.SUCCESS
+        return HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE, None
+    return HAP_SERVER_STATUS.SUCCESS, result
 
 
 def _wrap_acc_setter(acc, updates_by_service, client_addr):
@@ -615,7 +616,7 @@ class AccessoryDriver:
         self.mdns_service_info = AccessoryMDNSServiceInfo(
             self.accessory, self.state, self.zeroconf_server
         )
-        asyncio.ensure_future(
+        util.async_create_background_task(
             self.advertiser.async_update_service(self.mdns_service_info)
         )
 
@@ -627,7 +628,7 @@ class AccessoryDriver:
         """
         loop = asyncio.get_event_loop()
         logger.debug("Scheduling write of accessory state to disk")
-        asyncio.ensure_future(loop.run_in_executor(None, self.persist))
+        util.async_create_background_task(loop.run_in_executor(None, self.persist))
 
     def persist(self):
         """Saves the state of the accessory.
@@ -851,6 +852,7 @@ class AccessoryDriver:
                  "iid": 2,
                  "value": False, # Value to set
                  "ev": True # (Un)subscribe for events from this characteristics.
+                 "r": True # Request write response
               }]
            }
 
@@ -859,7 +861,9 @@ class AccessoryDriver:
         # TODO: Add support for chars that do no support notifications.
         updates = {}
         setter_results = {}
+        setter_responses = {}
         had_error = False
+        had_write_response = False
         expired = False
 
         if HAP_REPR_PID in chars_query:
@@ -871,6 +875,10 @@ class AccessoryDriver:
         for cq in chars_query[HAP_REPR_CHARS]:
             aid, iid = cq[HAP_REPR_AID], cq[HAP_REPR_IID]
             setter_results.setdefault(aid, {})
+
+            if HAP_REPR_WRITE_RESPONSE in cq:
+                setter_responses.setdefault(aid, {})
+                had_write_response = True
 
             if expired:
                 setter_results[aid][iid] = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
@@ -904,10 +912,20 @@ class AccessoryDriver:
                 # Characteristic level setter callbacks
                 char = acc.get_characteristic(aid, iid)
 
-                set_result = _wrap_char_setter(char, value, client_addr)
+                set_result, set_result_value = _wrap_char_setter(char, value, client_addr)
                 if set_result != HAP_SERVER_STATUS.SUCCESS:
                     had_error = True
+
                 setter_results[aid][iid] = set_result
+
+                if set_result_value is not None:
+                    if setter_responses.get(aid, None) is None:
+                        logger.warning(
+                            "Returning write response '%s' when it wasn't requested for %s %s",
+                            set_result_value, aid, iid
+                        )
+                    had_write_response = True
+                    setter_responses.setdefault(aid, {})[iid] = set_result_value
 
                 if not char.service or (
                     not acc.setter_callback and not char.service.setter_callback
@@ -934,7 +952,7 @@ class AccessoryDriver:
                 for char in chars:
                     setter_results[aid][char_to_iid[char]] = set_result
 
-        if not had_error:
+        if not had_error and not had_write_response:
             return None
 
         return {
@@ -943,6 +961,11 @@ class AccessoryDriver:
                     HAP_REPR_AID: aid,
                     HAP_REPR_IID: iid,
                     HAP_REPR_STATUS: status,
+                    **(
+                        {HAP_REPR_VALUE: setter_responses[aid][iid]}
+                        if setter_responses.get(aid, {}).get(iid, None) is not None
+                        else {}
+                    )
                 }
                 for aid, iid_status in setter_results.items()
                 for iid, status in iid_status.items()

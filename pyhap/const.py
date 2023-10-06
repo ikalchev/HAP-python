@@ -1,7 +1,7 @@
 """This module contains constants used by other modules."""
 MAJOR_VERSION = 4
-MINOR_VERSION = 7
-PATCH_VERSION = 1
+MINOR_VERSION = 8
+PATCH_VERSION = 0
 __short_version__ = f"{MAJOR_VERSION}.{MINOR_VERSION}"
 __version__ = f"{__short_version__}.{PATCH_VERSION}"
 REQUIRED_PYTHON_VER = (3, 7)
@@ -78,6 +78,7 @@ HAP_REPR_TTL = "ttl"
 HAP_REPR_TYPE = "type"
 HAP_REPR_VALUE = "value"
 HAP_REPR_VALID_VALUES = "valid-values"
+HAP_REPR_WRITE_RESPONSE = "r"
 
 HAP_PROTOCOL_VERSION = "01.01.00"
 HAP_PROTOCOL_SHORT_VERSION = "1.1"

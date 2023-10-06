@@ -42,13 +42,13 @@ class State:
                 self.addresses = address
         else:
             self.addresses = [util.get_local_address()]
-        self.mac = mac or util.generate_mac()
+        self.mac: str = mac or util.generate_mac()
         self.pincode = pincode or util.generate_pincode()
         self.port = port or DEFAULT_PORT
         self.setup_id = util.generate_setup_id()
 
         self.config_version = DEFAULT_CONFIG_VERSION
-        self.paired_clients = {}
+        self.paired_clients: Dict[UUID, bytes] = {}
         self.client_properties = {}
 
         self.private_key = ed25519.Ed25519PrivateKey.generate()
