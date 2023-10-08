@@ -27,7 +27,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
