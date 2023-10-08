@@ -17,6 +17,7 @@ the Characteristic does not block waiting for the actual send to happen.
 """
 import asyncio
 import base64
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import logging
@@ -865,8 +866,8 @@ class AccessoryDriver:
 
         self._notify(queries, client_addr)
 
-        updates_by_accessories_services = {}
-        results = {}
+        updates_by_accessories_services = defaultdict(lambda: defaultdict(lambda: {}))
+        results = defaultdict(lambda: defaultdict(lambda: {}))
         char_to_iid = {}
 
         expired = False
@@ -905,28 +906,21 @@ class AccessoryDriver:
                 set_result_value is not None and write_response_requested
             )
 
-            if aid not in results:
-                results[aid] = {}
-            if iid not in results[aid]:
-                results[aid][iid] = {}
+            aid_results = results[aid]
 
-            results[aid][iid] = {HAP_REPR_STATUS: set_result}
-
+            aid_results[iid] = {HAP_REPR_STATUS: set_result}
             if return_value_in_response:
-                results[aid][iid][HAP_REPR_VALUE] = set_result_value
+                aid_results[iid][HAP_REPR_VALUE] = set_result_value
 
             char_to_iid[char] = iid
             service = char.service
 
-            if acc not in updates_by_accessories_services:
-                updates_by_accessories_services[acc] = {}
-            if service not in updates_by_accessories_services[acc]:
-                updates_by_accessories_services[acc][service] = {}
             updates_by_accessories_services[acc][service][char] = value
 
         # Proccess accessory and service level setter callbacks
         for acc, updates_by_service in updates_by_accessories_services.items():
             aid = acc.aid
+            aid_results = results[aid]
 
             # Accessory level setter callbacks
             acc_set_result = None
@@ -940,11 +934,11 @@ class AccessoryDriver:
                     char_set_result = _wrap_service_setter(service, chars, client_addr)
                 set_result = char_set_result or acc_set_result
 
-                if set_result:
-                    for char in chars:
-                        results[aid][char_to_iid[char]].update(
-                            {HAP_REPR_STATUS: set_result}
-                        )
+                if not set_result:
+                    continue
+
+                for char in chars:
+                    aid_results[char_to_iid[char]][HAP_REPR_STATUS] = set_result
 
         characteristics = []
         nonempty_results_exist = False
