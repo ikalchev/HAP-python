@@ -867,10 +867,10 @@ class AccessoryDriver:
 
         self._notify(queries, client_addr)
 
-        updates_by_accessories_services: defaultdict[
-            Accessory, defaultdict[Service, dict[Characteristic, Any]]
+        updates_by_accessories_services: Dict[
+            Accessory, Dict[Service, Dict[Characteristic, Any]]
         ] = defaultdict(lambda: defaultdict(dict))
-        results: defaultdict[int, defaultdict[int, dict[str, Any]]] = defaultdict(
+        results: Dict[int, Dict[int, dict[str, Any]]] = defaultdict(
             lambda: defaultdict(dict)
         )
         char_to_iid: Dict[Characteristic, int] = {}
