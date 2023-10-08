@@ -35,7 +35,6 @@ from zeroconf.asyncio import AsyncZeroconf
 from pyhap import util
 from pyhap.accessory import Accessory, get_topic
 from pyhap.characteristic import Characteristic, CharacteristicError
-from pyhap.service import Service
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PROTOCOL_SHORT_VERSION,
@@ -55,6 +54,7 @@ from pyhap.hap_server import HAPServer
 from pyhap.hsrp import Server as SrpServer
 from pyhap.loader import Loader
 from pyhap.params import get_srp_context
+from pyhap.service import Service
 from pyhap.state import State
 
 from .const import HAP_SERVER_STATUS
@@ -997,8 +997,10 @@ class AccessoryDriver:
             logger.error("Could not stop AccessoryDriver because of error: %s", e)
             raise
 
-    def _notify(self, queries: List[Dict[str, Any]], client_addr: Tuple[str, int]) -> None:
-        """Notify the driver that the client has subscribed or unsubscribed."""    
+    def _notify(
+        self, queries: List[Dict[str, Any]], client_addr: Tuple[str, int]
+    ) -> None:
+        """Notify the driver that the client has subscribed or unsubscribed."""
         for query in queries:
             if HAP_PERMISSION_NOTIFY not in query:
                 continue
