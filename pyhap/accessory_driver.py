@@ -997,7 +997,7 @@ class AccessoryDriver:
             logger.error("Could not stop AccessoryDriver because of error: %s", e)
             raise
 
-    def _notify(self, queries, client_addr):
+    def _notify(self, queries: List[Dict[str, Any]], client_addr: Tuple[str, int]) -> None:
         for query in queries:
             if HAP_PERMISSION_NOTIFY not in query:
                 continue
