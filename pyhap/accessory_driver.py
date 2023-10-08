@@ -866,13 +866,13 @@ class AccessoryDriver:
 
         self._notify(queries, client_addr)
 
-        updates_by_accessories_services = defaultdict(lambda: defaultdict(lambda: {}))
-        results = defaultdict(lambda: defaultdict(lambda: {}))
+        updates_by_accessories_services = defaultdict(lambda: defaultdict(dict))
+        results = defaultdict(lambda: defaultdict(dict))
         char_to_iid = {}
 
         expired = False
-        pid = chars_query.get(HAP_REPR_PID, None)
-        if pid is not None:
+        if HAP_REPR_PID in chars_query:
+            pid = chars_query[HAP_REPR_PID]
             expire_time = self.prepared_writes.get(client_addr, {}).pop(pid, None)
             expired = expire_time is None or time.time() > expire_time
 
