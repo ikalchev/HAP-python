@@ -875,7 +875,7 @@ class AccessoryDriver:
                 client_addr, char_topic, ev
             )
 
-        results = {}
+        query_results = {}
         updates_by_accessories_services = {}
         char_to_iid = {}
 
@@ -900,7 +900,7 @@ class AccessoryDriver:
 
             value_in_response = set_result_value is not None and write_response_requested
 
-            results.setdefault(aid, {})[iid] = {
+            query_results.setdefault(aid, {})[iid] = {
                 HAP_REPR_STATUS: set_result,
                 **({HAP_REPR_VALUE: set_result_value} if value_in_response else {}),
             }
@@ -912,49 +912,45 @@ class AccessoryDriver:
                 .setdefault(char.service, {}) \
                 .update({char: value})
 
+        callback_results = {}
+
+        # Proccess accessory and service level setter callbacks
         for acc, updates_by_service in updates_by_accessories_services.items():
             aid = acc.aid
 
             # Accessory level setter callbacks
+            acc_set_result = None
             if acc.setter_callback:
-                set_result = _wrap_acc_setter(acc, updates_by_service, client_addr)
-
-                characteristics = (
-                    char for chars in updates_by_service.values()
-                    for char in chars.keys()
-                )
-                for char in characteristics:
-                    iid = char_to_iid[char]
-                    original = results.get(aid, {}).get(iid, {})
-                    results.setdefault(aid, {})[iid] = {
-                        **original,
-                        HAP_REPR_STATUS: set_result
-                    }
+                acc_set_result = _wrap_acc_setter(acc, updates_by_service, client_addr)
 
             # Service level setter callbacks
             for service, chars in updates_by_service.items():
-                if not service.setter_callback:
-                    continue
-                set_result = _wrap_service_setter(service, chars, client_addr)
-                for char in chars:
-                    iid = char_to_iid[char]
-                    original = results.get(aid, {}).get(iid, {})
-                    results.setdefault(aid, {})[iid] = {
-                        **original,
-                        HAP_REPR_STATUS: set_result
-                    }
+                char_set_result = None
+                if service.setter_callback:
+                    char_set_result = _wrap_service_setter(service, chars, client_addr)
+                set_result = char_set_result or acc_set_result
+
+                callback_results[aid] = {
+                    char_to_iid[char]: {HAP_REPR_STATUS: set_result}
+                    for char in chars if set_result is not None
+                }
 
         results = [
-            {HAP_REPR_AID: aid, HAP_REPR_IID: iid, **result}
-            for aid, iid_result in results.items()
-            for iid, result in iid_result.items()
+            {
+                HAP_REPR_AID: aid,
+                HAP_REPR_IID: iid,
+                **query_results,
+                **callback_results.get(aid, {}).get(iid, {})
+            }
+            for aid, query_iid_results in query_results.items()
+            for iid, query_results in query_iid_results.items()
         ]
-        nonempty_results = [
-            result for result in results
-            if result[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS
+        nonempty_results_exist = any(
+            result[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS
             or HAP_REPR_VALUE in result
-        ]
-        return {HAP_REPR_CHARS: results} if len(nonempty_results) else None
+            for result in results
+        )
+        return {HAP_REPR_CHARS: results} if nonempty_results_exist else None
 
     def prepare(self, prepare_query, client_addr):
         """Called from ``HAPServerHandler`` when iOS wants to prepare a write.
