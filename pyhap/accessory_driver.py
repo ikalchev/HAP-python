@@ -34,7 +34,7 @@ from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
 from pyhap.accessory import Accessory, get_topic
-from pyhap.characteristic import CharacteristicError, Characteristic
+from pyhap.characteristic import Characteristic, CharacteristicError
 from pyhap.service import Service
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
