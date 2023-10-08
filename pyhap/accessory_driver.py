@@ -870,7 +870,7 @@ class AccessoryDriver:
         updates_by_accessories_services: Dict[
             Accessory, Dict[Service, Dict[Characteristic, Any]]
         ] = defaultdict(lambda: defaultdict(dict))
-        results: Dict[int, Dict[int, dict[str, Any]]] = defaultdict(
+        results: Dict[int, Dict[int, Dict[str, Any]]] = defaultdict(
             lambda: defaultdict(dict)
         )
         char_to_iid: Dict[Characteristic, int] = {}
