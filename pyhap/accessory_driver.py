@@ -888,7 +888,8 @@ class AccessoryDriver:
             if HAP_REPR_VALUE not in query and not expired:
                 continue
 
-            aid, iid = query[HAP_REPR_AID], query[HAP_REPR_IID]
+            aid = query[HAP_REPR_AID]
+            iid = query[HAP_REPR_IID]
             value = query.get(HAP_REPR_VALUE)
             write_response_requested = query.get(HAP_REPR_WRITE_RESPONSE, False)
 
