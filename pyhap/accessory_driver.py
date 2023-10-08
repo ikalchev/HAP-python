@@ -67,7 +67,7 @@ HAP_SERVICE_TYPE = "_hap._tcp.local."
 VALID_MDNS_REGEX = re.compile(r"[^A-Za-z0-9\-]+")
 LEADING_TRAILING_SPACE_DASH = re.compile(r"^[ -]+|[ -]+$")
 DASH_REGEX = re.compile(r"[-]+")
-KEYS_TO_EXCLUDE = set((HAP_REPR_IID, HAP_REPR_AID))
+KEYS_TO_EXCLUDE = {HAP_REPR_IID, HAP_REPR_AID}
 
 
 def _wrap_char_setter(char, value, client_addr):
@@ -861,22 +861,12 @@ class AccessoryDriver:
         """
         # TODO: Add support for chars that do no support notifications.
 
-        queries = chars_query.get(HAP_REPR_CHARS, [])
+        queries = chars_query[HAP_REPR_CHARS]
 
-        to_notify = (query for query in queries if HAP_PERMISSION_NOTIFY in query)
-        for query in to_notify:
-            aid, iid, ev = query[HAP_REPR_AID], query[HAP_REPR_IID], query[HAP_PERMISSION_NOTIFY]
-            char_topic = get_topic(aid, iid)
-            action = "Subscribed" if ev else "Unsubscribed"
-            logger.debug(
-                "%s client %s to topic %s", action, client_addr, char_topic
-            )
-            self.async_subscribe_client_topic(
-                client_addr, char_topic, ev
-            )
+        self._notify(queries, client_addr)
 
-        query_results = {}
         updates_by_accessories_services = {}
+        results = {}
         char_to_iid = {}
 
         expired = False
@@ -885,36 +875,54 @@ class AccessoryDriver:
             expire_time = self.prepared_writes.get(client_addr, {}).pop(pid, None)
             expired = expire_time is None or time.time() > expire_time
 
-        to_update = (query for query in queries if HAP_REPR_VALUE in query or expired)
-        for query in to_update:
+        primary_accessory = self.accessory
+        primary_aid = primary_accessory.aid
+
+        for query in queries:
+            if HAP_REPR_VALUE not in query and not expired:
+                continue
+
             aid, iid = query[HAP_REPR_AID], query[HAP_REPR_IID]
             value = query.get(HAP_REPR_VALUE, None)
             write_response_requested = query.get(HAP_REPR_WRITE_RESPONSE, False)
 
-            acc = self.accessory if self.accessory.aid == aid else None
-            acc = acc or self.accessory.accessories.get(aid)
-
+            if aid == primary_aid:
+                acc = primary_accessory
+            else:
+                acc = self.accessory.accessories.get(aid)
             char = acc.get_characteristic(aid, iid)
 
-            set_result, set_result_value = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST, None
+            set_result, set_result_value = (
+                HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST,
+                None,
+            )
             if value is not None:
-                set_result, set_result_value = _wrap_char_setter(char, value, client_addr)
+                set_result, set_result_value = _wrap_char_setter(
+                    char, value, client_addr
+                )
 
-            value_in_response = set_result_value is not None and write_response_requested
+            return_value_in_response = (
+                set_result_value is not None and write_response_requested
+            )
 
-            query_results.setdefault(aid, {})[iid] = {
-                HAP_REPR_STATUS: set_result,
-                **({HAP_REPR_VALUE: set_result_value} if value_in_response else {}),
-            }
+            if aid not in results:
+                results[aid] = {}
+            if iid not in results[aid]:
+                results[aid][iid] = {}
+
+            results[aid][iid] = {HAP_REPR_STATUS: set_result}
+
+            if return_value_in_response:
+                results[aid][iid][HAP_REPR_VALUE] = set_result_value
 
             char_to_iid[char] = iid
+            service = char.service
 
-            updates_by_accessories_services \
-                .setdefault(acc, {}) \
-                .setdefault(char.service, {}) \
-                .update({char: value})
-
-        callback_results = {}
+            if acc not in updates_by_accessories_services:
+                updates_by_accessories_services[acc] = {}
+            if service not in updates_by_accessories_services[acc]:
+                updates_by_accessories_services[acc][service] = {}
+            updates_by_accessories_services[acc][service].update({char: value})
 
         # Proccess accessory and service level setter callbacks
         for acc, updates_by_service in updates_by_accessories_services.items():
@@ -932,27 +940,26 @@ class AccessoryDriver:
                     char_set_result = _wrap_service_setter(service, chars, client_addr)
                 set_result = char_set_result or acc_set_result
 
-                callback_results[aid] = {
-                    char_to_iid[char]: {HAP_REPR_STATUS: set_result}
-                    for char in chars if set_result is not None
-                }
+                if set_result:
+                    for char in chars:
+                        results[aid][char_to_iid[char]].update(
+                            {HAP_REPR_STATUS: set_result}
+                        )
 
-        results = [
-            {
-                HAP_REPR_AID: aid,
-                HAP_REPR_IID: iid,
-                **query_results,
-                **callback_results.get(aid, {}).get(iid, {})
-            }
-            for aid, query_iid_results in query_results.items()
-            for iid, query_results in query_iid_results.items()
-        ]
-        nonempty_results_exist = any(
-            result[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS
-            or HAP_REPR_VALUE in result
-            for result in results
-        )
-        return {HAP_REPR_CHARS: results} if nonempty_results_exist else None
+        characteristics = []
+        nonempty_results_exist = False
+        for aid, iid_results in results.items():
+            for iid, result in iid_results.items():
+                result[HAP_REPR_AID] = aid
+                result[HAP_REPR_IID] = iid
+                characteristics.append(result)
+                if (
+                    result[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS
+                    or HAP_REPR_VALUE in result
+                ):
+                    nonempty_results_exist = True
+
+        return {HAP_REPR_CHARS: characteristics} if nonempty_results_exist else None
 
     def prepare(self, prepare_query, client_addr):
         """Called from ``HAPServerHandler`` when iOS wants to prepare a write.
@@ -995,3 +1002,17 @@ class AccessoryDriver:
         except Exception as e:
             logger.error("Could not stop AccessoryDriver because of error: %s", e)
             raise
+
+    def _notify(self, queries, client_addr):
+        for query in queries:
+            if HAP_PERMISSION_NOTIFY not in query:
+                continue
+            aid, iid, ev = (
+                query[HAP_REPR_AID],
+                query[HAP_REPR_IID],
+                query[HAP_PERMISSION_NOTIFY],
+            )
+            char_topic = get_topic(aid, iid)
+            action = "Subscribed" if ev else "Unsubscribed"
+            logger.debug("%s client %s to topic %s", action, client_addr, char_topic)
+            self.async_subscribe_client_topic(client_addr, char_topic, ev)
