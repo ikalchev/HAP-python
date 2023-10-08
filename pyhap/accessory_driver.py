@@ -27,14 +27,15 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
 from pyhap.accessory import Accessory, get_topic
-from pyhap.characteristic import CharacteristicError
+from pyhap.characteristic import CharacteristicError, Characteristic
+from pyhap.service import Service
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PROTOCOL_SHORT_VERSION,
@@ -862,13 +863,17 @@ class AccessoryDriver:
         """
         # TODO: Add support for chars that do no support notifications.
 
-        queries = chars_query[HAP_REPR_CHARS]
+        queries: List[Dict[str, Any]] = chars_query[HAP_REPR_CHARS]
 
         self._notify(queries, client_addr)
 
-        updates_by_accessories_services = defaultdict(lambda: defaultdict(dict))
-        results = defaultdict(lambda: defaultdict(dict))
-        char_to_iid = {}
+        updates_by_accessories_services: defaultdict[
+            Accessory, defaultdict[Service, dict[Characteristic, Any]]
+        ] = defaultdict(lambda: defaultdict(dict))
+        results: defaultdict[int, defaultdict[int, dict[str, Any]]] = defaultdict(
+            lambda: defaultdict(dict)
+        )
+        char_to_iid: Dict[Characteristic, int] = {}
 
         expired = False
         if HAP_REPR_PID in chars_query:
@@ -884,7 +889,7 @@ class AccessoryDriver:
                 continue
 
             aid, iid = query[HAP_REPR_AID], query[HAP_REPR_IID]
-            value = query.get(HAP_REPR_VALUE, None)
+            value = query.get(HAP_REPR_VALUE)
             write_response_requested = query.get(HAP_REPR_WRITE_RESPONSE, False)
 
             if aid == primary_aid:
@@ -893,28 +898,22 @@ class AccessoryDriver:
                 acc = self.accessory.accessories.get(aid)
             char = acc.get_characteristic(aid, iid)
 
-            set_result, set_result_value = (
-                HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST,
-                None,
-            )
+            set_result = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
+            set_result_value = None
+
             if value is not None:
                 set_result, set_result_value = _wrap_char_setter(
                     char, value, client_addr
                 )
 
-            return_value_in_response = (
-                set_result_value is not None and write_response_requested
-            )
+            if set_result_value is not None and write_response_requested:
+                result = {HAP_REPR_STATUS: set_result, HAP_REPR_VALUE: set_result_value}
+            else:
+                result = {HAP_REPR_STATUS: set_result}
 
-            aid_results = results[aid]
-
-            aid_results[iid] = {HAP_REPR_STATUS: set_result}
-            if return_value_in_response:
-                aid_results[iid][HAP_REPR_VALUE] = set_result_value
-
+            results[aid][iid] = result
             char_to_iid[char] = iid
             service = char.service
-
             updates_by_accessories_services[acc][service][char] = value
 
         # Proccess accessory and service level setter callbacks
@@ -1001,11 +1000,10 @@ class AccessoryDriver:
         for query in queries:
             if HAP_PERMISSION_NOTIFY not in query:
                 continue
-            aid, iid, ev = (
-                query[HAP_REPR_AID],
-                query[HAP_REPR_IID],
-                query[HAP_PERMISSION_NOTIFY],
-            )
+            aid = query[HAP_REPR_AID]
+            iid = query[HAP_REPR_IID]
+            ev = query[HAP_PERMISSION_NOTIFY]
+
             char_topic = get_topic(aid, iid)
             action = "Subscribed" if ev else "Unsubscribed"
             logger.debug("%s client %s to topic %s", action, client_addr, char_topic)
