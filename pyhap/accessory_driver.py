@@ -998,6 +998,7 @@ class AccessoryDriver:
             raise
 
     def _notify(self, queries: List[Dict[str, Any]], client_addr: Tuple[str, int]) -> None:
+        """Notify the driver that the client has subscribed or unsubscribed."""    
         for query in queries:
             if HAP_PERMISSION_NOTIFY not in query:
                 continue
