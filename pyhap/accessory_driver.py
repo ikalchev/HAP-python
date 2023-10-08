@@ -920,7 +920,7 @@ class AccessoryDriver:
                 set_result = _wrap_acc_setter(acc, updates_by_service, client_addr)
 
                 characteristics = (
-                    char for chars in updates_by_accessories_services[acc].values()
+                    char for chars in updates_by_service.values()
                     for char in chars.keys()
                 )
                 for char in characteristics:
