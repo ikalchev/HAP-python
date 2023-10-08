@@ -879,9 +879,11 @@ class AccessoryDriver:
         updates_by_accessories_services = {}
         char_to_iid = {}
 
+        expired = False
         pid = chars_query.get(HAP_REPR_PID, None)
-        expire_time = self.prepared_writes.get(client_addr, {}).pop(pid, None)
-        expired = False if pid is None else expire_time is None or time.time() > expire_time
+        if pid is not None:
+            expire_time = self.prepared_writes.get(client_addr, {}).pop(pid, None)
+            expired = expire_time is None or time.time() > expire_time
 
         to_update = (query for query in queries if HAP_REPR_VALUE in query or expired)
         for query in to_update:
