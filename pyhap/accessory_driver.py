@@ -922,7 +922,7 @@ class AccessoryDriver:
                 updates_by_accessories_services[acc] = {}
             if service not in updates_by_accessories_services[acc]:
                 updates_by_accessories_services[acc][service] = {}
-            updates_by_accessories_services[acc][service].update({char: value})
+            updates_by_accessories_services[acc][service][char] = value
 
         # Proccess accessory and service level setter callbacks
         for acc, updates_by_service in updates_by_accessories_services.items():
