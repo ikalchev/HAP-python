@@ -133,7 +133,7 @@ class Accessory:
         service: Service,
         chars: Optional[Iterable["Characteristic"]] = None,
         unique_id: Optional[str] = None,
-    ) -> None:
+    ) -> Service:
         """Create a service with the given name and add it to this acc."""
         service = self.driver.loader.get_service(service)
         if unique_id is not None:
