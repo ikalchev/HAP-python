@@ -1,7 +1,7 @@
 """Module for the Accessory classes."""
 import itertools
 import logging
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional
 from uuid import UUID
 
 from . import SUPPORT_QR_CODE, util
@@ -23,6 +23,11 @@ if SUPPORT_QR_CODE:
     from pyqrcode import QRCode
 
 
+if TYPE_CHECKING:
+    from .accessory_driver import AccessoryDriver
+    from .characteristic import Characteristic
+
+
 HAP_PROTOCOL_INFORMATION_SERVICE_UUID = UUID("000000A2-0000-1000-8000-0026BB765291")
 
 logger = logging.getLogger(__name__)
@@ -36,7 +41,13 @@ class Accessory:
 
     category = CATEGORY_OTHER
 
-    def __init__(self, driver, display_name, aid=None, iid_manager=None):
+    def __init__(
+        self,
+        driver: "AccessoryDriver",
+        display_name: Optional[str],
+        aid: Optional[int] = None,
+        iid_manager: Optional[IIDManager] = None,
+    ) -> None:
         """Initialise with the given properties.
 
         :param display_name: Name to be displayed in the Home app.
@@ -48,24 +59,24 @@ class Accessory:
             will assign the standalone AID to this `Accessory`.
         :type aid: int
         """
-        self.aid = aid
-        self.display_name = display_name
+        self.aid: Optional[int] = aid
+        self.display_name: Optional[str] = display_name
         self.driver = driver
-        self.services = []
+        self.services: List[Service] = []
         self.iid_manager = iid_manager or IIDManager()
-        self.setter_callback = None
+        self.setter_callback: Optional[Callable[[Any], None]] = None
 
         self.add_info_service()
         if aid == STANDALONE_AID:
             self.add_protocol_version_service()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Return the representation of the accessory."""
         services = [s.display_name for s in self.services]
         return f"<accessory display_name='{self.display_name}' services={services}>"
 
     @property
-    def available(self):
+    def available(self) -> bool:
         """Accessory is available.
 
         If available is False, get_characteristics will return
@@ -76,7 +87,7 @@ class Accessory:
         """
         return True
 
-    def add_info_service(self):
+    def add_info_service(self) -> None:
         """Helper method to add the required `AccessoryInformation` service.
 
         Called in `__init__` to be sure that it is the first service added.
@@ -117,7 +128,12 @@ class Accessory:
                     self.display_name,
                 )
 
-    def add_preload_service(self, service, chars=None, unique_id=None):
+    def add_preload_service(
+        self,
+        service: Service,
+        chars: Optional[Iterable["Characteristic"]] = None,
+        unique_id: Optional[str] = None,
+    ) -> None:
         """Create a service with the given name and add it to this acc."""
         service = self.driver.loader.get_service(service)
         if unique_id is not None:
@@ -130,12 +146,12 @@ class Accessory:
         self.add_service(service)
         return service
 
-    def set_primary_service(self, primary_service):
+    def set_primary_service(self, primary_service: Service) -> None:
         """Set the primary service of the acc."""
         for service in self.services:
             service.is_primary_service = service.type_id == primary_service.type_id
 
-    def add_service(self, *servs):
+    def add_service(self, *servs: Service) -> None:
         """Add the given services to this Accessory.
 
         This also assigns unique IIDS to the services and their Characteristics.
@@ -154,7 +170,7 @@ class Accessory:
                 c.broker = self
                 self.iid_manager.assign(c)
 
-    def get_service(self, name):
+    def get_service(self, name: str) -> Optional[Service]:
         """Return a Service with the given name.
 
         A single Service is returned even if more than one Service with the same name
@@ -169,7 +185,7 @@ class Accessory:
         """
         return next((s for s in self.services if s.display_name == name), None)
 
-    def xhm_uri(self):
+    def xhm_uri(self) -> str:
         """Generates the X-HM:// uri (Setup Code URI)
 
         :rtype: str
@@ -196,7 +212,7 @@ class Accessory:
 
         return "X-HM://" + encoded_payload + self.driver.state.setup_id
 
-    def get_characteristic(self, aid, iid):
+    def get_characteristic(self, aid: int, iid: int) -> Optional["Characteristic"]:
         """Get the characteristic for the given IID.
 
         The AID is used to verify if the search is in the correct accessory.
@@ -326,13 +342,18 @@ class Bridge(Accessory):
 
     category = CATEGORY_BRIDGE
 
-    def __init__(self, driver, display_name, iid_manager=None):
+    def __init__(
+        self,
+        driver: "AccessoryDriver",
+        display_name: Optional[str],
+        iid_manager: Optional[IIDManager] = None,
+    ) -> None:
         super().__init__(
             driver, display_name, aid=STANDALONE_AID, iid_manager=iid_manager
         )
         self.accessories = {}  # aid: acc
 
-    def add_accessory(self, acc):
+    def add_accessory(self, acc: "Accessory") -> None:
         """Add the given ``Accessory`` to this ``Bridge``.
 
         Every ``Accessory`` in a ``Bridge`` must have an AID and this AID must be
@@ -365,14 +386,14 @@ class Bridge(Accessory):
 
         self.accessories[acc.aid] = acc
 
-    def to_HAP(self):
+    def to_HAP(self) -> List[Dict[str, Any]]:
         """Returns a HAP representation of itself and all contained accessories.
 
         .. seealso:: Accessory.to_HAP
         """
         return [acc.to_HAP() for acc in (super(), *self.accessories.values())]
 
-    def get_characteristic(self, aid, iid):
+    def get_characteristic(self, aid: int, iid: int) -> Optional["Characteristic"]:
         """.. seealso:: Accessory.to_HAP"""
         if self.aid == aid:
             return self.iid_manager.get_obj(iid)
@@ -383,17 +404,17 @@ class Bridge(Accessory):
 
         return acc.get_characteristic(aid, iid)
 
-    async def run(self):
+    async def run(self) -> None:
         """Schedule tasks for each of the accessories' run method."""
         for acc in self.accessories.values():
             self.driver.async_add_job(acc.run)
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Calls stop() on all contained accessories."""
         await self.driver.async_add_job(super().stop)
         for acc in self.accessories.values():
             await self.driver.async_add_job(acc.stop)
 
 
-def get_topic(aid, iid):
+def get_topic(aid: int, iid: int) -> str:
     return str(aid) + "." + str(iid)
