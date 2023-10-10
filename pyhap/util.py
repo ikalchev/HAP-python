@@ -3,8 +3,8 @@ import base64
 import functools
 import random
 import socket
-from uuid import UUID
 from typing import Awaitable, Set
+from uuid import UUID
 
 import async_timeout
 import orjson
@@ -147,7 +147,7 @@ async def event_wait(event, timeout):
 
 
 @functools.lru_cache(maxsize=2048)
-def uuid_to_hap_type(uuid):
+def uuid_to_hap_type(uuid: UUID) -> str:
     """Convert a UUID to a HAP type."""
     long_type = str(uuid).upper()
     if not long_type.endswith(BASE_UUID):

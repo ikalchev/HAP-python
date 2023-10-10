@@ -912,7 +912,9 @@ class AccessoryDriver:
                 # Characteristic level setter callbacks
                 char = acc.get_characteristic(aid, iid)
 
-                set_result, set_result_value = _wrap_char_setter(char, value, client_addr)
+                set_result, set_result_value = _wrap_char_setter(
+                    char, value, client_addr
+                )
                 if set_result != HAP_SERVER_STATUS.SUCCESS:
                     had_error = True
 
@@ -922,7 +924,9 @@ class AccessoryDriver:
                     if setter_responses.get(aid, None) is None:
                         logger.warning(
                             "Returning write response '%s' when it wasn't requested for %s %s",
-                            set_result_value, aid, iid
+                            set_result_value,
+                            aid,
+                            iid,
                         )
                     had_write_response = True
                     setter_responses.setdefault(aid, {})[iid] = set_result_value
@@ -965,7 +969,7 @@ class AccessoryDriver:
                         {HAP_REPR_VALUE: setter_responses[aid][iid]}
                         if setter_responses.get(aid, {}).get(iid, None) is not None
                         else {}
-                    )
+                    ),
                 }
                 for aid, iid_status in setter_results.items()
                 for iid, status in iid_status.items()

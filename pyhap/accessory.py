@@ -1,10 +1,11 @@
 """Module for the Accessory classes."""
 import itertools
 import logging
+from typing import Any, Dict
 from uuid import UUID
 
-from pyhap import SUPPORT_QR_CODE, util
-from pyhap.const import (
+from . import SUPPORT_QR_CODE, util
+from .const import (
     CATEGORY_BRIDGE,
     CATEGORY_OTHER,
     HAP_PROTOCOL_VERSION,
@@ -14,8 +15,8 @@ from pyhap.const import (
     HAP_REPR_VALUE,
     STANDALONE_AID,
 )
-from pyhap.iid_manager import IIDManager
-from pyhap.service import Service
+from .iid_manager import IIDManager
+from .service import Service
 
 if SUPPORT_QR_CODE:
     import base36
@@ -205,7 +206,7 @@ class Accessory:
 
         return self.iid_manager.get_obj(iid)
 
-    def to_HAP(self):
+    def to_HAP(self) -> Dict[str, Any]:
         """A HAP representation of this Accessory.
 
         :return: A HAP representation of this accessory. For example:
