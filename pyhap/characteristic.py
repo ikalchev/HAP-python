@@ -261,11 +261,14 @@ class Characteristic:
         """Perform validation and conversion to valid value."""
         properties = self._properties
         prop_format = properties[PROP_FORMAT]
+
         if prop_format == HAP_FORMAT_STRING:
-            value = str(value)[: properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH)]
-        elif prop_format == HAP_FORMAT_BOOL:
-            value = bool(value)
-        elif prop_format in HAP_FORMAT_NUMERICS:
+            return str(value)[: properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH)]
+
+        if prop_format == HAP_FORMAT_BOOL:
+            return bool(value)
+
+        if prop_format in HAP_FORMAT_NUMERICS:
             if not isinstance(value, (int, float)):
                 error_msg = (
                     f"{self._display_name}: value={value} is not a numeric value."
@@ -278,7 +281,8 @@ class Characteristic:
             value = min(properties.get(PROP_MAX_VALUE, value), value)
             value = max(properties.get(PROP_MIN_VALUE, value), value)
             if prop_format != HAP_FORMAT_FLOAT:
-                value = int(value)
+                return int(value)
+
         return value
 
     def override_properties(
@@ -399,24 +403,25 @@ class Characteristic:
         """
         if self._to_hap_cache is not None:
             return self._to_hap_cache
+
         properties = self._properties
+        permissions = properties[PROP_PERMISSIONS]
+        prop_format = properties[PROP_FORMAT]
         hap_rep = {
             HAP_REPR_IID: self.broker.iid_manager.get_iid(self),
             HAP_REPR_TYPE: self._uuid_str,
-            HAP_REPR_PERM: properties[PROP_PERMISSIONS],
-            HAP_REPR_FORMAT: properties[PROP_FORMAT],
+            HAP_REPR_PERM: permissions,
+            HAP_REPR_FORMAT: prop_format,
         }
         # HAP_REPR_DESC (description) is optional and takes up
         # quite a bit of space in the payload. Only include it
         # if it has been changed from the default loader version
-        if (
-            not self._loader_display_name
-            or self._loader_display_name != self._display_name
-        ):
-            hap_rep[HAP_REPR_DESC] = self._display_name
+        loader_display_name = self._loader_display_name
+        display_name = self._display_name
+        if not loader_display_name or loader_display_name != display_name:
+            hap_rep[HAP_REPR_DESC] = display_name
 
-        value = self.get_value()
-        if properties[PROP_FORMAT] in HAP_FORMAT_NUMERICS:
+        if prop_format in HAP_FORMAT_NUMERICS:
             hap_rep.update(
                 {k: properties[k] for k in PROP_NUMERIC.intersection(properties)}
             )
@@ -425,12 +430,13 @@ class Characteristic:
                 hap_rep[HAP_REPR_VALID_VALUES] = sorted(
                     properties[PROP_VALID_VALUES].values()
                 )
-        elif properties[PROP_FORMAT] == HAP_FORMAT_STRING:
+        elif prop_format == HAP_FORMAT_STRING:
             max_length = properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH)
             if max_length != DEFAULT_MAX_LENGTH:
                 hap_rep[HAP_REPR_MAX_LEN] = max_length
-        if HAP_PERMISSION_READ in properties[PROP_PERMISSIONS]:
-            hap_rep[HAP_REPR_VALUE] = value
+
+        if HAP_PERMISSION_READ in permissions:
+            hap_rep[HAP_REPR_VALUE] = self.get_value()
 
         self._to_hap_cache = hap_rep
         return hap_rep
