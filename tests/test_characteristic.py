@@ -220,6 +220,11 @@ def test_set_value_invalid_min_float():
     # Ensure value is not modified
     assert char.value == 0
 
+    char.value = 99
+    assert char.value == 99
+    char.set_value(0)
+    assert char.value == 0
+
 
 @pytest.mark.parametrize("int_format", HAP_FORMAT_INTS)
 def test_set_value_int(int_format):
@@ -468,13 +473,16 @@ def test_to_HAP_string_max_length_override():
 
 def test_to_HAP_bool():
     """Test created HAP representation for booleans."""
+    # pylint: disable=protected-access
     char = get_char(PROPERTIES.copy())
     char.properties["Format"] = "bool"
+    char._to_hap_cache = None
     with patch.object(char, "broker"):
         hap_repr = char.to_HAP()
     assert hap_repr["format"] == "bool"
 
     char.properties["Permissions"] = []
+    char._to_hap_cache = None
     with patch.object(char, "broker"):
         hap_repr = char.to_HAP()
     assert "value" not in hap_repr
