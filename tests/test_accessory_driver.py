@@ -177,16 +177,7 @@ def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
         },
         "mock_addr",
     )
-    assert response == {
-        HAP_REPR_CHARS: [
-            {
-                HAP_REPR_AID: acc.aid,
-                HAP_REPR_IID: char_nfc_access_control_point_iid,
-                HAP_REPR_STATUS: 0,
-                HAP_REPR_VALUE: 1
-            },
-        ]
-    }
+    assert response is None
 
     response = driver.set_characteristics(
         {
@@ -200,16 +191,7 @@ def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
         },
         "mock_addr",
     )
-    assert response == {
-        HAP_REPR_CHARS: [
-            {
-                HAP_REPR_AID: acc.aid,
-                HAP_REPR_IID: char_nfc_access_control_point_iid,
-                HAP_REPR_STATUS: 0,
-                HAP_REPR_VALUE: 1
-            },
-        ]
-    }
+    assert response is None
 
 
 def test_write_response_returned_when_requested(driver: AccessoryDriver):
