@@ -1180,6 +1180,7 @@ async def test_bridge_with_multiple_sync_run_at_interval_accessories(async_zeroc
 
 
 def test_hash_ignores_values(driver: AccessoryDriver):
+    """The hash should change when the config changes but not for a value change."""
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
