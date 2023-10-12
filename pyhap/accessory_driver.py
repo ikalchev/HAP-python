@@ -745,6 +745,13 @@ class AccessoryDriver:
     @property
     def accessories_hash(self):
         """Hash the get_accessories response to track configuration changes."""
+        # We pass include_value=False to avoid including the value
+        # of the characteristics in the hash. This is because the
+        # value of the characteristics is not used by iOS to determine
+        # if the accessory configuration has changed. It only uses the
+        # characteristics metadata. If we included the value in the hash
+        # then iOS would think the accessory configuration has changed
+        # every time a characteristic value changed.
         return hashlib.sha512(
             util.to_sorted_hap_json(self.get_accessories(include_value=False))
         ).hexdigest()
