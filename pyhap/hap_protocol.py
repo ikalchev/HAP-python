@@ -230,7 +230,7 @@ class HAPServerProtocol(asyncio.Protocol):
             self.write(create_hap_event(subscribed_events))
         self._event_queue.clear()
 
-    def _event_queue_with_active_subscriptions(self) -> List[dict[str, Any]]:
+    def _event_queue_with_active_subscriptions(self) -> List[Dict[str, Any]]:
         """Remove any topics that have been unsubscribed after the event was generated."""
         topics = self.accessory_driver.topics
         return [
