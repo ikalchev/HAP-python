@@ -117,7 +117,7 @@ class Service:
         return char
 
     # pylint: disable=invalid-name
-    def to_HAP(self) -> Dict[str, Any]:
+    def to_HAP(self, include_value: bool = True) -> Dict[str, Any]:
         """Create a HAP representation of this Service.
 
         :return: A HAP representation.
@@ -126,7 +126,7 @@ class Service:
         hap = {
             HAP_REPR_IID: self.broker.iid_manager.get_iid(self),
             HAP_REPR_TYPE: self._uuid_str,
-            HAP_REPR_CHARS: [c.to_HAP() for c in self.characteristics],
+            HAP_REPR_CHARS: [c.to_HAP(include_value) for c in self.characteristics],
         }
 
         if self.is_primary_service is not None:

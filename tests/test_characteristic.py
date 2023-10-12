@@ -476,13 +476,13 @@ def test_to_HAP_bool():
     # pylint: disable=protected-access
     char = get_char(PROPERTIES.copy())
     char.properties["Format"] = "bool"
-    char._to_hap_cache = None
+    char._clear_cache()
     with patch.object(char, "broker"):
         hap_repr = char.to_HAP()
     assert hap_repr["format"] == "bool"
 
     char.properties["Permissions"] = []
-    char._to_hap_cache = None
+    char._clear_cache()
     with patch.object(char, "broker"):
         hap_repr = char.to_HAP()
     assert "value" not in hap_repr

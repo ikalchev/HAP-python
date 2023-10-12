@@ -222,7 +222,7 @@ class Accessory:
 
         return self.iid_manager.get_obj(iid)
 
-    def to_HAP(self) -> Dict[str, Any]:
+    def to_HAP(self, include_value: bool = True) -> Dict[str, Any]:
         """A HAP representation of this Accessory.
 
         :return: A HAP representation of this accessory. For example:
@@ -241,7 +241,7 @@ class Accessory:
         """
         return {
             HAP_REPR_AID: self.aid,
-            HAP_REPR_SERVICES: [s.to_HAP() for s in self.services],
+            HAP_REPR_SERVICES: [s.to_HAP(include_value=include_value) for s in self.services],
         }
 
     def setup_message(self):
@@ -386,12 +386,12 @@ class Bridge(Accessory):
 
         self.accessories[acc.aid] = acc
 
-    def to_HAP(self) -> List[Dict[str, Any]]:
+    def to_HAP(self, include_value: bool = True) -> List[Dict[str, Any]]:
         """Returns a HAP representation of itself and all contained accessories.
 
         .. seealso:: Accessory.to_HAP
         """
-        return [acc.to_HAP() for acc in (super(), *self.accessories.values())]
+        return [acc.to_HAP(include_value=include_value) for acc in (super(), *self.accessories.values())]
 
     def get_characteristic(self, aid: int, iid: int) -> Optional["Characteristic"]:
         """.. seealso:: Accessory.to_HAP"""

@@ -136,6 +136,7 @@ class Characteristic:
         "_loader_display_name",
         "allow_invalid_client_values",
         "unique_id",
+        "_to_hap_cache_with_value",
         "_to_hap_cache",
         "_always_null",
     )
@@ -183,6 +184,7 @@ class Characteristic:
         self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
         self._loader_display_name: Optional[str] = None
+        self._to_hap_cache_with_value: Optional[Dict[str, Any]] = None
         self._to_hap_cache: Optional[Dict[str, Any]] = None
 
     @property
@@ -194,7 +196,7 @@ class Characteristic:
     def display_name(self, value: str) -> None:
         """Set the display name of the characteristic."""
         self._display_name = value
-        self._to_hap_cache = None
+        self._clear_cache()
 
     @property
     def value(self) -> Any:
@@ -205,7 +207,7 @@ class Characteristic:
     def value(self, value: Any) -> None:
         """Set the value of the characteristic."""
         self._value = value
-        self._to_hap_cache = None
+        self._clear_cache()
 
     @property
     def properties(self) -> Dict[str, Any]:
@@ -303,14 +305,14 @@ class Characteristic:
         if not properties and not valid_values:
             raise ValueError("No properties or valid_values specified to override.")
 
+        self._clear_cache()
+
         if properties:
             _validate_properties(properties)
             self._properties.update(properties)
 
         if valid_values:
             self._properties[PROP_VALID_VALUES] = valid_values
-
-        self._to_hap_cache = None
 
         if self._always_null:
             self.value = None
@@ -321,6 +323,11 @@ class Characteristic:
             self.valid_value_or_raise(self._value)
         except ValueError:
             self.value = self._get_default_value()
+
+    def _clear_cache(self) -> None:
+        """Clear the cached HAP representation."""
+        self._to_hap_cache = None
+        self._to_hap_cache_with_value = None
 
     def set_value(self, value: Any, should_notify: bool = True) -> None:
         """Set the given raw value. It is checked if it is a valid value.
@@ -393,7 +400,7 @@ class Characteristic:
         self.broker.publish(self.value, self, sender_client_addr, immediate)
 
     # pylint: disable=invalid-name
-    def to_HAP(self) -> Dict[str, Any]:
+    def to_HAP(self, include_value: bool = True) -> Dict[str, Any]:
         """Create a HAP representation of this Characteristic.
 
         Used for json serialization.
@@ -401,8 +408,12 @@ class Characteristic:
         :return: A HAP representation.
         :rtype: dict
         """
-        if self._to_hap_cache is not None:
-            return self._to_hap_cache
+        if include_value:
+            if self._to_hap_cache_with_value is not None:
+                return self._to_hap_cache_with_value
+        else:
+            if self._to_hap_cache is not None:
+                return self._to_hap_cache
 
         properties = self._properties
         permissions = properties[PROP_PERMISSIONS]
@@ -435,10 +446,13 @@ class Characteristic:
             if max_length != DEFAULT_MAX_LENGTH:
                 hap_rep[HAP_REPR_MAX_LEN] = max_length
 
-        if HAP_PERMISSION_READ in permissions:
+        if include_value and HAP_PERMISSION_READ in permissions:
             hap_rep[HAP_REPR_VALUE] = self.get_value()
 
-        self._to_hap_cache = hap_rep
+        if include_value:
+            self._to_hap_cache_with_value = hap_rep
+        else:
+            self._to_hap_cache = hap_rep
         return hap_rep
 
     @classmethod
