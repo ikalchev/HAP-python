@@ -501,3 +501,74 @@ def test_from_dict():
     assert char.display_name == "Test Char"
     assert char.type_id == uuid
     assert char.properties == {"Format": "int", "Permissions": "read"}
+
+
+def test_getter_callback():
+    """Test getter callback."""
+    char = Characteristic(
+        display_name="Test Char", type_id="A1", properties=PROPERTIES.copy()
+    )
+    char.set_value(3)
+    char.override_properties({"minValue": 3, "maxValue": 10})
+    char.broker = Mock()
+    assert char.to_HAP() == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 10,
+        "minValue": 3,
+        "perms": ["pr"],
+        "type": "A1",
+        "value": 3,
+    }
+
+    assert char.to_HAP(include_value=False) == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 10,
+        "minValue": 3,
+        "perms": ["pr"],
+        "type": "A1",
+    }
+    char.override_properties({"minValue": 4, "maxValue": 11})
+    assert char.to_HAP() == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 11,
+        "minValue": 4,
+        "perms": ["pr"],
+        "type": "A1",
+        "value": 4,
+    }
+
+    assert char.to_HAP(include_value=False) == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 11,
+        "minValue": 4,
+        "perms": ["pr"],
+        "type": "A1",
+    }
+    char.getter_callback = lambda: 5
+    assert char.to_HAP() == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 11,
+        "minValue": 4,
+        "perms": ["pr"],
+        "type": "A1",
+        "value": 5,
+    }
+    assert char.to_HAP(include_value=False) == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 11,
+        "minValue": 4,
+        "perms": ["pr"],
+        "type": "A1",
+    }

@@ -409,11 +409,10 @@ class Characteristic:
         :rtype: dict
         """
         if include_value:
-            if self._to_hap_cache_with_value is not None:
+            if self._to_hap_cache_with_value is not None and not self.getter_callback:
                 return self._to_hap_cache_with_value
-        else:
-            if self._to_hap_cache is not None:
-                return self._to_hap_cache
+        elif self._to_hap_cache is not None:
+            return self._to_hap_cache
 
         properties = self._properties
         permissions = properties[PROP_PERMISSIONS]
@@ -449,10 +448,11 @@ class Characteristic:
         if include_value and HAP_PERMISSION_READ in permissions:
             hap_rep[HAP_REPR_VALUE] = self.get_value()
 
-        if include_value:
-            self._to_hap_cache_with_value = hap_rep
-        else:
+        if not include_value:
             self._to_hap_cache = hap_rep
+        elif not self.getter_callback:
+            # Only cache if there is no getter_callback
+            self._to_hap_cache_with_value = hap_rep
         return hap_rep
 
     @classmethod
