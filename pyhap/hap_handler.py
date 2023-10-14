@@ -51,7 +51,7 @@ class HAPResponse:
         self.headers = []
         self.body = b""
         self.shared_key = None
-        self.task = None
+        self.task: Optional[asyncio.Future] = None
         self.pairing_changed = False
 
     def __repr__(self):
