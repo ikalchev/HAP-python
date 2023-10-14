@@ -5,7 +5,7 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 import asyncio
 from http import HTTPStatus
 import logging
-from typing import TYPE_CHECKING, Dict, Optional, Any
+from typing import TYPE_CHECKING, Any, Dict, Optional
 from urllib.parse import ParseResult, parse_qs, urlparse
 import uuid
 

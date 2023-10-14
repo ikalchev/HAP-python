@@ -5,9 +5,10 @@ A Characteristic is the smallest unit of the smart home, e.g.
 a temperature measuring or a device status.
 """
 import logging
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 from uuid import UUID
 
-from pyhap.const import (
+from .const import (
     HAP_PERMISSION_READ,
     HAP_REPR_DESC,
     HAP_REPR_FORMAT,
@@ -18,8 +19,11 @@ from pyhap.const import (
     HAP_REPR_VALID_VALUES,
     HAP_REPR_VALUE,
 )
-
 from .util import hap_type_to_uuid, uuid_to_hap_type
+
+if TYPE_CHECKING:
+    from .accessory import Accessory
+    from .service import Service
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +105,7 @@ class CharacteristicError(Exception):
     """Generic exception class for characteristic errors."""
 
 
-def _validate_properties(properties):
+def _validate_properties(properties: Dict[str, Any]) -> None:
     """Throw an exception on invalid properties."""
     if (
         HAP_REPR_MAX_LEN in properties
@@ -136,12 +140,12 @@ class Characteristic:
 
     def __init__(
         self,
-        display_name,
-        type_id,
-        properties,
-        allow_invalid_client_values=False,
-        unique_id=None,
-    ):
+        display_name: Optional[str],
+        type_id: UUID,
+        properties: Dict[str, Any],
+        allow_invalid_client_values: bool = False,
+        unique_id: Optional[str] = None,
+    ) -> None:
         """Initialise with the given properties.
 
         :param display_name: Name that will be displayed for this
@@ -156,7 +160,7 @@ class Characteristic:
         :type properties: dict
         """
         _validate_properties(properties)
-        self.broker = None
+        self.broker: Optional["Accessory"] = None
         #
         # As of iOS 15.1, Siri requests TargetHeatingCoolingState
         # as Auto reguardless if its a valid value or not.
@@ -167,24 +171,24 @@ class Characteristic:
         #
         self.allow_invalid_client_values = allow_invalid_client_values
         self.display_name = display_name
-        self.properties = properties
+        self.properties: Dict[str, Any] = properties
         self.type_id = type_id
         self.value = self._get_default_value()
-        self.getter_callback = None
-        self.setter_callback = None
-        self.service = None
+        self.getter_callback: Optional[Callable[[], Any]] = None
+        self.setter_callback: Optional[Callable[[Any], None]] = None
+        self.service: Optional["Service"] = None
         self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
-        self._loader_display_name = None
+        self._loader_display_name: Optional[str] = None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Return the representation of the characteristic."""
         return (
             f"<characteristic display_name={self.display_name} unique_id={self.unique_id} "
             f"value={self.value} properties={self.properties}>"
         )
 
-    def _get_default_value(self):
+    def _get_default_value(self) -> Any:
         """Return default value for format."""
         if self.type_id in ALWAYS_NULL:
             return None
@@ -195,7 +199,7 @@ class Characteristic:
         value = HAP_FORMAT_DEFAULTS[self.properties[PROP_FORMAT]]
         return self.to_valid_value(value)
 
-    def get_value(self):
+    def get_value(self) -> Any:
         """This is to allow for calling `getter_callback`
 
         :return: Current Characteristic Value
@@ -205,7 +209,7 @@ class Characteristic:
             self.value = self.to_valid_value(value=self.getter_callback())
         return self.value
 
-    def valid_value_or_raise(self, value):
+    def valid_value_or_raise(self, value: Any) -> None:
         """Raise ValueError if PROP_VALID_VALUES is set and the value is not present."""
         if self.type_id in ALWAYS_NULL:
             return
@@ -218,7 +222,7 @@ class Characteristic:
         logger.error(error_msg)
         raise ValueError(error_msg)
 
-    def to_valid_value(self, value):
+    def to_valid_value(self, value: Any) -> Any:
         """Perform validation and conversion to valid value."""
         if self.properties[PROP_FORMAT] == HAP_FORMAT_STRING:
             value = str(value)[
@@ -242,7 +246,11 @@ class Characteristic:
                 value = int(value)
         return value
 
-    def override_properties(self, properties=None, valid_values=None):
+    def override_properties(
+        self,
+        properties: Optional[Dict[str, Any]] = None,
+        valid_values: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Override characteristic property values and valid values.
 
         :param properties: Dictionary with values to override the existing
@@ -273,7 +281,7 @@ class Characteristic:
         except ValueError:
             self.value = self._get_default_value()
 
-    def set_value(self, value, should_notify=True):
+    def set_value(self, value: Any, should_notify: bool = True) -> None:
         """Set the given raw value. It is checked if it is a valid value.
 
         If not set_value will be aborted and an error message will be
@@ -302,7 +310,9 @@ class Characteristic:
         if self.type_id in ALWAYS_NULL:
             self.value = None
 
-    def client_update_value(self, value, sender_client_addr=None):
+    def client_update_value(
+        self, value: Any, sender_client_addr: Optional[Tuple[str, int]] = None
+    ) -> None:
         """Called from broker for value change in Home app.
 
         Change self.value to value and call callback.
@@ -332,7 +342,7 @@ class Characteristic:
             self.value = None
         return response
 
-    def notify(self, sender_client_addr=None):
+    def notify(self, sender_client_addr: Optional[Tuple[str, int]] = None) -> None:
         """Notify clients about a value change. Sends the value.
 
         .. seealso:: accessory.publish
@@ -342,7 +352,7 @@ class Characteristic:
         self.broker.publish(self.value, self, sender_client_addr, immediate)
 
     # pylint: disable=invalid-name
-    def to_HAP(self):
+    def to_HAP(self) -> Dict[str, Any]:
         """Create a HAP representation of this Characteristic.
 
         Used for json serialization.
@@ -388,7 +398,9 @@ class Characteristic:
         return hap_rep
 
     @classmethod
-    def from_dict(cls, name, json_dict, from_loader=False):
+    def from_dict(
+        cls, name: str, json_dict: Dict[str, Any], from_loader: bool = False
+    ) -> "Characteristic":
         """Initialize a characteristic object from a dict.
 
         :param json_dict: Dictionary containing at least the keys `Format`,
