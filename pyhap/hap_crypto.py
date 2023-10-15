@@ -1,9 +1,10 @@
 """This module partially implements crypto for HAP."""
+from functools import partial
 import logging
 import struct
-from functools import partial
-from typing import List
 from struct import Struct
+from typing import List
+
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes

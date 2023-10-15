@@ -5,7 +5,7 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 import asyncio
 from http import HTTPStatus
 import logging
-from typing import TYPE_CHECKING, Dict, Optional, Any
+from typing import TYPE_CHECKING, Any, Dict, Optional
 from urllib.parse import ParseResult, parse_qs, urlparse
 import uuid
 
@@ -51,7 +51,7 @@ class HAPResponse:
         self.headers = []
         self.body = b""
         self.shared_key = None
-        self.task = None
+        self.task: Optional[asyncio.Future] = None
         self.pairing_changed = False
 
     def __repr__(self):

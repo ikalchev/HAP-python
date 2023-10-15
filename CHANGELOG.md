@@ -16,6 +16,11 @@ Sections
 ### Developers
 -->
 
+## [4.9.0] - 2023-10-15
+
+- Hashing of accessories no longer includes their values, resulting in more reliable syncs between
+  devices. [#464](https://github.com/ikalchev/HAP-python/pull/464)
+
 ## [4.8.0] - 2023-10-06
 
 - Add AccessoryInformation:HardwareFinish and NFCAccess characteristics/services.

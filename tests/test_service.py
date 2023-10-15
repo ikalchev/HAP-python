@@ -125,6 +125,7 @@ def test_add_linked_service():
     assert len(service.linked_services) == 0
 
     linked_service = Service(uuid1(), "Test Linked Service")
+    service.broker = Mock()
     service.add_linked_service(linked_service)
 
     assert len(service.linked_services) == 1
@@ -161,6 +162,7 @@ def test_linked_service_to_HAP():
 
     service = Service(uuid, "Test Service")
     linked_service = Service(uuid1(), "Test Linked Service")
+    service.broker = Mock()
     service.add_linked_service(linked_service)
     service.characteristics = get_chars()
     with patch(pyhap_char_to_HAP) as mock_char_HAP, patch.object(

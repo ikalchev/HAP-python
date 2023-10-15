@@ -147,7 +147,9 @@ def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     service = Service(uuid1(), "NFCAccess")
-    char_nfc_access_control_point = Characteristic("NFCAccessControlPoint", uuid1(), CHAR_PROPS)
+    char_nfc_access_control_point = Characteristic(
+        "NFCAccessControlPoint", uuid1(), CHAR_PROPS
+    )
     service.add_characteristic(char_nfc_access_control_point)
 
     mock_callback = MagicMock()
@@ -159,7 +161,9 @@ def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
     char_nfc_access_control_point.setter_callback = setter_with_write_response
     acc.add_service(service)
 
-    char_nfc_access_control_point_iid = char_nfc_access_control_point.to_HAP()[HAP_REPR_IID]
+    char_nfc_access_control_point_iid = char_nfc_access_control_point.to_HAP()[
+        HAP_REPR_IID
+    ]
 
     bridge.add_accessory(acc)
     driver.add_accessory(bridge)
@@ -171,22 +175,13 @@ def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
                     HAP_REPR_AID: acc.aid,
                     HAP_REPR_IID: char_nfc_access_control_point_iid,
                     HAP_REPR_VALUE: 0,
-                    HAP_REPR_WRITE_RESPONSE: False
+                    HAP_REPR_WRITE_RESPONSE: False,
                 }
             ]
         },
         "mock_addr",
     )
-    assert response == {
-        HAP_REPR_CHARS: [
-            {
-                HAP_REPR_AID: acc.aid,
-                HAP_REPR_IID: char_nfc_access_control_point_iid,
-                HAP_REPR_STATUS: 0,
-                HAP_REPR_VALUE: 1
-            },
-        ]
-    }
+    assert response is None
 
     response = driver.set_characteristics(
         {
@@ -200,23 +195,16 @@ def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
         },
         "mock_addr",
     )
-    assert response == {
-        HAP_REPR_CHARS: [
-            {
-                HAP_REPR_AID: acc.aid,
-                HAP_REPR_IID: char_nfc_access_control_point_iid,
-                HAP_REPR_STATUS: 0,
-                HAP_REPR_VALUE: 1
-            },
-        ]
-    }
+    assert response is None
 
 
 def test_write_response_returned_when_requested(driver: AccessoryDriver):
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     service = Service(uuid1(), "NFCAccess")
-    char_nfc_access_control_point = Characteristic("NFCAccessControlPoint", uuid1(), CHAR_PROPS)
+    char_nfc_access_control_point = Characteristic(
+        "NFCAccessControlPoint", uuid1(), CHAR_PROPS
+    )
     service.add_characteristic(char_nfc_access_control_point)
 
     mock_callback = MagicMock()
@@ -228,7 +216,9 @@ def test_write_response_returned_when_requested(driver: AccessoryDriver):
     char_nfc_access_control_point.setter_callback = setter_with_write_response
     acc.add_service(service)
 
-    char_nfc_access_control_point_iid = char_nfc_access_control_point.to_HAP()[HAP_REPR_IID]
+    char_nfc_access_control_point_iid = char_nfc_access_control_point.to_HAP()[
+        HAP_REPR_IID
+    ]
 
     bridge.add_accessory(acc)
     driver.add_accessory(bridge)
@@ -240,7 +230,7 @@ def test_write_response_returned_when_requested(driver: AccessoryDriver):
                     HAP_REPR_AID: acc.aid,
                     HAP_REPR_IID: char_nfc_access_control_point_iid,
                     HAP_REPR_VALUE: 0,
-                    HAP_REPR_WRITE_RESPONSE: True
+                    HAP_REPR_WRITE_RESPONSE: True,
                 }
             ]
         },
@@ -252,7 +242,7 @@ def test_write_response_returned_when_requested(driver: AccessoryDriver):
                 HAP_REPR_AID: acc.aid,
                 HAP_REPR_IID: char_nfc_access_control_point_iid,
                 HAP_REPR_STATUS: 0,
-                HAP_REPR_VALUE: 1
+                HAP_REPR_VALUE: 1,
             },
         ]
     }
@@ -1187,3 +1177,59 @@ async def test_bridge_with_multiple_sync_run_at_interval_accessories(async_zeroc
     assert acc.counter > 2
     assert acc2.counter > 2
     assert acc3.counter > 2
+
+
+def test_hash_ignores_values(driver: AccessoryDriver):
+    """The hash should change when the config changes but not for a value change."""
+    bridge = Bridge(driver, "mybridge")
+    acc = Accessory(driver, "TestAcc", aid=2)
+    acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
+
+    service = Service(uuid1(), "Lightbulb")
+    char_on = Characteristic("On", uuid1(), CHAR_PROPS)
+    char_brightness = Characteristic("Brightness", uuid1(), CHAR_PROPS)
+
+    service.add_characteristic(char_on)
+    service.add_characteristic(char_brightness)
+
+    switch_service = Service(uuid1(), "Switch")
+    char_switch_on = Characteristic("On", uuid1(), CHAR_PROPS)
+    switch_service.add_characteristic(char_switch_on)
+
+    mock_callback = MagicMock()
+    acc.setter_callback = mock_callback
+
+    acc.add_service(service)
+    acc.add_service(switch_service)
+    bridge.add_accessory(acc)
+
+    service2 = Service(uuid1(), "Lightbulb")
+    char_on2 = Characteristic("On", uuid1(), CHAR_PROPS)
+    char_brightness2 = Characteristic("Brightness", uuid1(), CHAR_PROPS)
+
+    service2.add_characteristic(char_on2)
+    service2.add_characteristic(char_brightness2)
+
+    mock_callback2 = MagicMock(side_effect=OSError)
+    acc2.setter_callback = mock_callback2
+
+    bridge.add_accessory(acc2)
+
+    driver.add_accessory(bridge)
+
+    original_hash = driver.accessories_hash
+
+    char_on.set_value(False)
+    char_on2.set_value(False)
+    char_brightness.set_value(88)
+    char_switch_on.set_value(True)
+
+    assert driver.accessories_hash == original_hash
+
+    acc2.add_service(service2)
+    new_hash = driver.accessories_hash
+    assert new_hash != original_hash
+
+    char_brightness2.set_value(43)
+
+    assert driver.accessories_hash == new_hash

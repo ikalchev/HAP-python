@@ -220,6 +220,11 @@ def test_set_value_invalid_min_float():
     # Ensure value is not modified
     assert char.value == 0
 
+    char.value = 99
+    assert char.value == 99
+    char.set_value(0)
+    assert char.value == 0
+
 
 @pytest.mark.parametrize("int_format", HAP_FORMAT_INTS)
 def test_set_value_int(int_format):
@@ -468,13 +473,16 @@ def test_to_HAP_string_max_length_override():
 
 def test_to_HAP_bool():
     """Test created HAP representation for booleans."""
+    # pylint: disable=protected-access
     char = get_char(PROPERTIES.copy())
     char.properties["Format"] = "bool"
+    char._clear_cache()
     with patch.object(char, "broker"):
         hap_repr = char.to_HAP()
     assert hap_repr["format"] == "bool"
 
     char.properties["Permissions"] = []
+    char._clear_cache()
     with patch.object(char, "broker"):
         hap_repr = char.to_HAP()
     assert "value" not in hap_repr
@@ -493,3 +501,74 @@ def test_from_dict():
     assert char.display_name == "Test Char"
     assert char.type_id == uuid
     assert char.properties == {"Format": "int", "Permissions": "read"}
+
+
+def test_getter_callback():
+    """Test getter callback."""
+    char = Characteristic(
+        display_name="Test Char", type_id="A1", properties=PROPERTIES.copy()
+    )
+    char.set_value(3)
+    char.override_properties({"minValue": 3, "maxValue": 10})
+    char.broker = Mock()
+    assert char.to_HAP() == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 10,
+        "minValue": 3,
+        "perms": ["pr"],
+        "type": "A1",
+        "value": 3,
+    }
+
+    assert char.to_HAP(include_value=False) == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 10,
+        "minValue": 3,
+        "perms": ["pr"],
+        "type": "A1",
+    }
+    char.override_properties({"minValue": 4, "maxValue": 11})
+    assert char.to_HAP() == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 11,
+        "minValue": 4,
+        "perms": ["pr"],
+        "type": "A1",
+        "value": 4,
+    }
+
+    assert char.to_HAP(include_value=False) == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 11,
+        "minValue": 4,
+        "perms": ["pr"],
+        "type": "A1",
+    }
+    char.getter_callback = lambda: 5
+    assert char.to_HAP() == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 11,
+        "minValue": 4,
+        "perms": ["pr"],
+        "type": "A1",
+        "value": 5,
+    }
+    assert char.to_HAP(include_value=False) == {
+        "description": "Test Char",
+        "format": "int",
+        "iid": ANY,
+        "maxValue": 11,
+        "minValue": 4,
+        "perms": ["pr"],
+        "type": "A1",
+    }
