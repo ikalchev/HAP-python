@@ -46,7 +46,7 @@ class HAPServerProtocol(asyncio.Protocol):
         connections: Dict[str, "HAPServerProtocol"],
         accessory_driver: "AccessoryDriver",
     ) -> None:
-        self.loop: asyncio.AbstractEventLoop = loop
+        self.loop = loop
         self.conn = h11.Connection(h11.SERVER)
         self.connections = connections
         self.accessory_driver = accessory_driver
@@ -55,7 +55,7 @@ class HAPServerProtocol(asyncio.Protocol):
         self.transport: Optional[asyncio.Transport] = None
 
         self.request: Optional[h11.Request] = None
-        self.request_body: Optional[bytes] = None
+        self.request_body: List[bytes] = []
         self.response: Optional[HAPResponse] = None
 
         self.last_activity: Optional[float] = None
@@ -246,27 +246,33 @@ class HAPServerProtocol(asyncio.Protocol):
         logger.debug(
             "%s (%s): h11 Event: %s", self.peername, self.handler.client_uuid, event
         )
-        if event in (h11.NEED_DATA, h11.ConnectionClosed):
+        if event is h11.NEED_DATA:
             return False
 
         if event is h11.PAUSED:
             self.conn.start_next_cycle()
             return True
 
-        if isinstance(event, h11.Request):
+        event_type = type(event)
+        if event_type is h11.ConnectionClosed:
+            return False
+
+        if event_type is h11.Request:
             self.request = event
-            self.request_body = b""
+            self.request_body = []
             return True
 
-        if isinstance(event, h11.Data):
-            self.request_body += event.data
+        if event_type is h11.Data:
+            if TYPE_CHECKING:
+                assert isinstance(event, h11.Data)  # nosec
+            self.request_body.append(event.data)
             return True
 
-        if isinstance(event, h11.EndOfMessage):
-            response = self.handler.dispatch(self.request, bytes(self.request_body))
+        if event_type is h11.EndOfMessage:
+            response = self.handler.dispatch(self.request, b"".join(self.request_body))
             self._process_response(response)
             self.request = None
-            self.request_body = None
+            self.request_body = []
             return True
 
         return self._handle_invalid_conn_state(f"Unexpected event: {event}")
