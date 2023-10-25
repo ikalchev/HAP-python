@@ -8,7 +8,28 @@ import pytest
 
 from pyhap import hap_handler, hap_protocol
 from pyhap.accessory import Accessory, Bridge
+from pyhap.accessory_driver import AccessoryDriver
 from pyhap.hap_handler import HAPResponse
+
+
+class MockTransport(asyncio.Transport):  # pylint: disable=abstract-method
+    """A mock transport."""
+
+    _is_closing: bool = False
+
+    def set_write_buffer_limits(self, high=None, low=None):
+        """Set the write buffer limits."""
+
+    def write_eof(self) -> None:
+        """Write EOF to the stream."""
+
+    def close(self) -> None:
+        """Close the stream."""
+        self._is_closing = True
+
+    def is_closing(self) -> bool:
+        """Return True if the transport is closing or closed."""
+        return self._is_closing
 
 
 class MockHAPCrypto:
@@ -734,3 +755,42 @@ async def test_does_not_timeout(driver):
         assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
         hap_proto.check_idle(time.time())
         assert hap_proto_close.called is False
+
+
+def test_explicit_close(driver: AccessoryDriver):
+    """Test an explicit connection close."""
+    loop = MagicMock()
+
+    transport = MockTransport()
+    connections = {}
+
+    acc = Accessory(driver, "TestAcc", aid=1)
+    assert acc.aid == 1
+    service = acc.driver.loader.get_service("TemperatureSensor")
+    acc.add_service(service)
+    driver.add_accessory(acc)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    hap_proto.hap_crypto = MockHAPCrypto()
+    hap_proto.handler.is_encrypted = True
+    assert hap_proto.transport.is_closing() is False
+
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b"GET /characteristics?id=3762173001.7 HTTP/1.1\r\nHost: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
+        )
+        hap_proto.data_received(
+            b"GET /characteristics?id=1.5 HTTP/1.1\r\nConnection: close\r\nHost: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
+        )
+
+    assert b"Content-Length:" in writer.call_args_list[0][0][0]
+    assert b"Transfer-Encoding: chunked\r\n\r\n" not in writer.call_args_list[0][0][0]
+    assert b"-70402" in writer.call_args_list[0][0][0]
+
+    assert b"Content-Length:" in writer.call_args_list[1][0][0]
+    assert b"Transfer-Encoding: chunked\r\n\r\n" not in writer.call_args_list[1][0][0]
+    assert b"TestAcc" in writer.call_args_list[1][0][0]
+
+    assert hap_proto.transport.is_closing() is True
