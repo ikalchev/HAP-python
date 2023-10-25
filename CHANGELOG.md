@@ -16,6 +16,10 @@ Sections
 ### Developers
 -->
 
+## [4.9.1] - 2023-10-25
+
+- Fix handling of explict close. [#467](https://github.com/ikalchev/HAP-python/pull/467)
+
 ## [4.9.0] - 2023-10-15
 
 - Hashing of accessories no longer includes their values, resulting in more reliable syncs between
