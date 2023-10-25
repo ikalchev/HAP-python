@@ -1,8 +1,5 @@
 """Module for the IIDManager class."""
 import logging
-
-logger = logging.getLogger(__name__)
-
 from typing import TYPE_CHECKING, Dict, Optional, Union
 
 if TYPE_CHECKING:
@@ -10,6 +7,8 @@ if TYPE_CHECKING:
     from .service import Service
 
     ServiceOrCharType = Union[Service, Characteristic]
+
+logger = logging.getLogger(__name__)
 
 
 class IIDManager:
