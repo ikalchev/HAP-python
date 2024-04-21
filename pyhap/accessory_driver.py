@@ -642,16 +642,18 @@ class AccessoryDriver:
         tmp_filename = None
         try:
             temp_dir = os.path.dirname(self.persist_file)
+            logger.debug(f"Creating temp persist file in {temp_dir!r}")
             with tempfile.NamedTemporaryFile(
                 mode="w", dir=temp_dir, delete=False
             ) as file_handle:
                 tmp_filename = file_handle.name
+                logger.debug(f"Created temp persist file {file_handle!r} named {tmp_filename!r}")
                 self.encoder.persist(file_handle, self.state)
             if (
                 os.name == "nt"
             ):  # Or `[WinError 5] Access Denied` will be raised on Windows
                 os.chmod(tmp_filename, 0o644)
-                os.chmod(self.persist_file, 0o644)
+                os.path.exists(self.persist_file) and os.chmod(self.persist_file, 0o644)
             os.replace(tmp_filename, self.persist_file)
         except Exception:  # pylint: disable=broad-except
             logger.exception("Failed to persist accessory state")
