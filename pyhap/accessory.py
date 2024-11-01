@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional
 from uuid import UUID
 
-from . import util
+from . import SUPPORT_QR_CODE, util
 from .const import (
     CATEGORY_BRIDGE,
     CATEGORY_OTHER,
@@ -17,6 +17,10 @@ from .const import (
 )
 from .iid_manager import IIDManager
 from .service import Service
+
+if SUPPORT_QR_CODE:
+    import base36
+    from pyqrcode import QRCode
 
 
 if TYPE_CHECKING:
@@ -186,12 +190,6 @@ class Accessory:
 
         :rtype: str
         """
-        try:
-            import base36
-        except ImportError as ie:
-            raise RuntimeError(
-                "The base36 module is required to generate X-HM:// URIs"
-            ) from ie
         payload = 0
         payload |= 0 & 0x7  # version
 
@@ -255,15 +253,7 @@ class Accessory:
         Installation through `pip install HAP-python[QRCode]`
         """
         pincode = self.driver.state.pincode.decode()
-        try:
-            from qrcode import QRCode
-        except ImportError:
-            print(
-                "To use the QR Code feature, use 'pip install HAP-python[QRCode]'\n"
-                f"Enter this code in your HomeKit app on your iOS device: {pincode}",
-                flush=True,
-            )
-        else:
+        if SUPPORT_QR_CODE:
             xhm_uri = self.xhm_uri()
             print(f"Setup payload: {xhm_uri}", flush=True)
             print(
@@ -272,6 +262,15 @@ class Accessory:
             print(QRCode(xhm_uri).terminal(quiet_zone=2), flush=True)
             print(
                 f"Or enter this code in your HomeKit app on your iOS device: {pincode}",
+                flush=True,
+            )
+        else:
+            print(
+                "To use the QR Code feature, use 'pip install HAP-python[QRCode]'",
+                flush=True,
+            )
+            print(
+                f"Enter this code in your HomeKit app on your iOS device: {pincode}",
                 flush=True,
             )
 
