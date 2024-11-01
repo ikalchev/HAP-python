@@ -15,7 +15,7 @@ def test_round_trip():
     crypto.OUT_CIPHER_INFO = crypto.IN_CIPHER_INFO
     crypto.reset(key)
 
-    encrypted = bytearray(crypto.encrypt(plaintext))
+    encrypted = bytearray(b"".join(crypto.encrypt(plaintext)))
 
     # Receive no data
     assert crypto.decrypt() == b""
