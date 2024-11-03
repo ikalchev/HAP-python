@@ -653,7 +653,8 @@ class AccessoryDriver:
                 os.name == "nt"
             ):  # Or `[WinError 5] Access Denied` will be raised on Windows
                 os.chmod(tmp_filename, 0o644)
-                os.path.exists(self.persist_file) and os.chmod(self.persist_file, 0o644)
+                if os.path.exists(self.persist_file):
+                    os.chmod(self.persist_file, 0o644)
             os.replace(tmp_filename, self.persist_file)
         except Exception:  # pylint: disable=broad-except
             logger.exception("Failed to persist accessory state")
