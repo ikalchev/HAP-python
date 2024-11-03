@@ -961,7 +961,7 @@ def test_mdns_service_info(driver: AccessoryDriver):
     assert mdns_info.server == "Test-Accessory-000000.local."
     assert mdns_info.port == port
     assert mdns_info.addresses == [b"\xac\x00\x00\x01"]
-    assert mdns_info.properties == {
+    assert mdns_info.decoded_properties == {
         "md": "Test Accessory",
         "pv": "1.1",
         "id": "00:00:00:00:00:00",
@@ -990,7 +990,7 @@ def test_mdns_service_info_with_specified_server(driver: AccessoryDriver):
     assert mdns_info.server == "hap1.local."
     assert mdns_info.port == port
     assert mdns_info.addresses == [b"\xac\x00\x00\x01"]
-    assert mdns_info.properties == {
+    assert mdns_info.decoded_properties == {
         "md": "Test Accessory",
         "pv": "1.1",
         "id": "00:00:00:00:00:00",

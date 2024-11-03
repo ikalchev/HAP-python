@@ -3,7 +3,7 @@ from functools import partial
 import logging
 import struct
 from struct import Struct
-from typing import List
+from typing import Iterable, List
 
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.hazmat.backends import default_backend
@@ -112,7 +112,7 @@ class HAPCrypto:
 
         return result
 
-    def encrypt(self, data: bytes) -> bytes:
+    def encrypt(self, data: bytes) -> Iterable[bytes]:
         """Encrypt and send the return bytes."""
         result: List[bytes] = []
         offset = 0
@@ -127,7 +127,4 @@ class HAPCrypto:
             offset += length
             self._out_count += 1
 
-        # Join the result once instead of concatenating each time
-        # as this is much faster than generating an new immutable
-        # byte string each time.
-        return b"".join(result)
+        return result

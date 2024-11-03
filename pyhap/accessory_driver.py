@@ -323,7 +323,7 @@ class AccessoryDriver:
                 and os.name != "nt"
             ):
                 logger.debug("Setting child watcher")
-                watcher = asyncio.SafeChildWatcher()
+                watcher = asyncio.SafeChildWatcher() # pylint: disable=deprecated-class
                 watcher.attach_loop(self.loop)
                 asyncio.set_child_watcher(watcher)
             else:
@@ -642,16 +642,19 @@ class AccessoryDriver:
         tmp_filename = None
         try:
             temp_dir = os.path.dirname(self.persist_file)
+            logger.debug("Creating temp persist file in '%s'", temp_dir)
             with tempfile.NamedTemporaryFile(
                 mode="w", dir=temp_dir, delete=False
             ) as file_handle:
                 tmp_filename = file_handle.name
+                logger.debug("Created temp persist file '%s' named '%s'", file_handle, tmp_filename)
                 self.encoder.persist(file_handle, self.state)
             if (
                 os.name == "nt"
             ):  # Or `[WinError 5] Access Denied` will be raised on Windows
                 os.chmod(tmp_filename, 0o644)
-                os.chmod(self.persist_file, 0o644)
+                if os.path.exists(self.persist_file):
+                    os.chmod(self.persist_file, 0o644)
             os.replace(tmp_filename, self.persist_file)
         except Exception:  # pylint: disable=broad-except
             logger.exception("Failed to persist accessory state")
