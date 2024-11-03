@@ -1,7 +1,7 @@
 """This module contains constants used by other modules."""
 MAJOR_VERSION = 4
 MINOR_VERSION = 9
-PATCH_VERSION = 1
+PATCH_VERSION = 2
 __short_version__ = f"{MAJOR_VERSION}.{MINOR_VERSION}"
 __version__ = f"{__short_version__}.{PATCH_VERSION}"
 REQUIRED_PYTHON_VER = (3, 7)

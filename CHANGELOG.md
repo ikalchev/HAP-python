@@ -16,6 +16,11 @@ Sections
 ### Developers
 -->
 
+## [4.9.2] - 2024-11-03
+
+- Implement zerocopy writes for the encrypted protocol. [#476](https://github.com/ikalchev/HAP-python/pull/476)
+- Linter and test fixe.
+
 ## [4.9.1] - 2023-10-25
 
 - Fix handling of explict close. [#467](https://github.com/ikalchev/HAP-python/pull/467)
