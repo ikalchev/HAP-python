@@ -246,13 +246,13 @@ def test_get_accessories_with_crypto(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
             b"GET /accessories HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
         )
 
     hap_proto.close()
-    assert b"accessories" in writer.call_args_list[0][0][0]
+    assert b"accessories" in b"".join(writelines.call_args_list[0][0])
 
 
 def test_get_characteristics_with_crypto(driver):
@@ -273,7 +273,7 @@ def test_get_characteristics_with_crypto(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
             b"GET /characteristics?id=3762173001.7 HTTP/1.1\r\nHost: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
         )
@@ -282,13 +282,15 @@ def test_get_characteristics_with_crypto(driver):
         )
 
     hap_proto.close()
-    assert b"Content-Length:" in writer.call_args_list[0][0][0]
-    assert b"Transfer-Encoding: chunked\r\n\r\n" not in writer.call_args_list[0][0][0]
-    assert b"-70402" in writer.call_args_list[0][0][0]
+    joined0 = b"".join(writelines.call_args_list[0][0])
+    assert b"Content-Length:" in joined0
+    assert b"Transfer-Encoding: chunked\r\n\r\n" not in joined0
+    assert b"-70402" in joined0
 
-    assert b"Content-Length:" in writer.call_args_list[1][0][0]
-    assert b"Transfer-Encoding: chunked\r\n\r\n" not in writer.call_args_list[1][0][0]
-    assert b"TestAcc" in writer.call_args_list[1][0][0]
+    joined1 = b"".join(writelines.call_args_list[1][0])
+    assert b"Content-Length:" in joined1
+    assert b"Transfer-Encoding: chunked\r\n\r\n" not in joined1
+    assert b"TestAcc" in joined1
 
 
 def test_set_characteristics_with_crypto(driver):
@@ -309,13 +311,15 @@ def test_set_characteristics_with_crypto(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
             b'PUT /characteristics HTTP/1.1\r\nHost: HASS12\\032AD1C22._hap._tcp.local\r\nContent-Length: 49\r\nContent-Type: application/hap+json\r\n\r\n{"characteristics":[{"aid":1,"iid":9,"ev":true}]}'  # pylint: disable=line-too-long
         )
 
     hap_proto.close()
-    assert writer.call_args_list[0][0][0] == b"HTTP/1.1 204 No Content\r\n\r\n"
+    assert (
+        b"".join(writelines.call_args_list[0][0]) == b"HTTP/1.1 204 No Content\r\n\r\n"
+    )
 
 
 def test_crypto_failure_closes_connection(driver):
@@ -352,14 +356,14 @@ def test_empty_encrypted_data(driver):
 
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(b"")
         hap_proto.data_received(
             b"GET /accessories HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
         )
 
     hap_proto.close()
-    assert b"accessories" in writer.call_args_list[0][0][0]
+    assert b"accessories" in b"".join(writelines.call_args_list[0][0])
 
 
 def test_http_11_keep_alive(driver):
@@ -434,13 +438,13 @@ def test_camera_snapshot_without_snapshot_support(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
             b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
         )
 
     hap_proto.close()
-    assert b"-70402" in writer.call_args_list[0][0][0]
+    assert b"-70402" in b"".join(writelines.call_args_list[0][0])
 
 
 @pytest.mark.asyncio
@@ -464,14 +468,14 @@ async def test_camera_snapshot_works_sync(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
             b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
         )
         await hap_proto.response.task
         await asyncio.sleep(0)
 
-    assert b"fakesnap" in writer.call_args_list[0][0][0]
+    assert b"fakesnap" in b"".join(writelines.call_args_list[0][0])
 
     hap_proto.close()
 
@@ -497,14 +501,14 @@ async def test_camera_snapshot_works_async(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
             b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
         )
         await hap_proto.response.task
         await asyncio.sleep(0)
 
-    assert b"fakesnap" in writer.call_args_list[0][0][0]
+    assert b"fakesnap" in b"".join(writelines.call_args_list[0][0])
 
     hap_proto.close()
 
@@ -532,14 +536,14 @@ async def test_camera_snapshot_timeout_async(driver):
     hap_proto.handler.is_encrypted = True
 
     with patch.object(hap_handler, "RESPONSE_TIMEOUT", 0.1), patch.object(
-        hap_proto.transport, "write"
-    ) as writer:
+        hap_proto.transport, "writelines"
+    ) as writelines:
         hap_proto.data_received(
             b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
         )
         await asyncio.sleep(0.3)
 
-    assert b"-70402" in writer.call_args_list[0][0][0]
+    assert b"-70402" in b"".join(writelines.call_args_list[0][0])
 
     hap_proto.close()
 
@@ -564,7 +568,7 @@ def test_upgrade_to_encrypted(driver):
         response.shared_key = b"newkey"
         return response
 
-    with patch.object(hap_proto.transport, "write"), patch.object(
+    with patch.object(hap_proto.transport, "writelines"), patch.object(
         hap_proto.handler, "dispatch", _make_response
     ):
         hap_proto.data_received(
@@ -635,7 +639,7 @@ async def test_camera_snapshot_throws_an_exception(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
             b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
         )
@@ -645,7 +649,7 @@ async def test_camera_snapshot_throws_an_exception(driver):
             pass
         await asyncio.sleep(0)
 
-    assert b"-70402" in writer.call_args_list[0][0][0]
+    assert b"-70402" in b"".join(writelines.call_args_list[0][0])
 
     hap_proto.close()
 
@@ -671,7 +675,7 @@ async def test_camera_snapshot_times_out(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
             b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
         )
@@ -681,7 +685,7 @@ async def test_camera_snapshot_times_out(driver):
             pass
         await asyncio.sleep(0)
 
-    assert b"-70402" in writer.call_args_list[0][0][0]
+    assert b"-70402" in b"".join(writelines.call_args_list[0][0])
 
     hap_proto.close()
 
@@ -702,14 +706,14 @@ async def test_camera_snapshot_missing_accessory(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
             b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
         )
         await asyncio.sleep(0)
 
     assert hap_proto.response is None
-    assert b"-70402" in writer.call_args_list[0][0][0]
+    assert b"-70402" in b"".join(writelines.call_args_list[0][0])
     hap_proto.close()
 
 
@@ -777,7 +781,7 @@ def test_explicit_close(driver: AccessoryDriver):
     hap_proto.handler.is_encrypted = True
     assert hap_proto.transport.is_closing() is False
 
-    with patch.object(hap_proto.transport, "write") as writer:
+    with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
             b"GET /characteristics?id=3762173001.7 HTTP/1.1\r\nHost: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
         )
@@ -785,12 +789,14 @@ def test_explicit_close(driver: AccessoryDriver):
             b"GET /characteristics?id=1.5 HTTP/1.1\r\nConnection: close\r\nHost: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
         )
 
-    assert b"Content-Length:" in writer.call_args_list[0][0][0]
-    assert b"Transfer-Encoding: chunked\r\n\r\n" not in writer.call_args_list[0][0][0]
-    assert b"-70402" in writer.call_args_list[0][0][0]
+    join0 = b"".join(writelines.call_args_list[0][0])
+    assert b"Content-Length:" in join0
+    assert b"Transfer-Encoding: chunked\r\n\r\n" not in join0
+    assert b"-70402" in join0
 
-    assert b"Content-Length:" in writer.call_args_list[1][0][0]
-    assert b"Transfer-Encoding: chunked\r\n\r\n" not in writer.call_args_list[1][0][0]
-    assert b"TestAcc" in writer.call_args_list[1][0][0]
+    join1 = b"".join(writelines.call_args_list[1][0])
+    assert b"Content-Length:" in join1
+    assert b"Transfer-Encoding: chunked\r\n\r\n" not in join1
+    assert b"TestAcc" in join1
 
     assert hap_proto.transport.is_closing() is True
