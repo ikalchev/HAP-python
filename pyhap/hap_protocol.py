@@ -104,7 +104,7 @@ class HAPServerProtocol(asyncio.Protocol):
                 self.handler.client_uuid,
                 data,
             )
-            self.transport.write(result)
+            self.transport.writelines(result)
         else:
             logger.debug(
                 "%s (%s): Send unencrypted: %s",
