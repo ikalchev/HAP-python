@@ -323,7 +323,7 @@ class AccessoryDriver:
                 and os.name != "nt"
             ):
                 logger.debug("Setting child watcher")
-                watcher = asyncio.SafeChildWatcher()
+                watcher = asyncio.SafeChildWatcher() # pylint: disable=deprecated-class
                 watcher.attach_loop(self.loop)
                 asyncio.set_child_watcher(watcher)
             else:
