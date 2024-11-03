@@ -642,12 +642,12 @@ class AccessoryDriver:
         tmp_filename = None
         try:
             temp_dir = os.path.dirname(self.persist_file)
-            logger.debug(f"Creating temp persist file in {temp_dir!r}")
+            logger.debug("Creating temp persist file in '%s'", temp_dir)
             with tempfile.NamedTemporaryFile(
                 mode="w", dir=temp_dir, delete=False
             ) as file_handle:
                 tmp_filename = file_handle.name
-                logger.debug(f"Created temp persist file {file_handle!r} named {tmp_filename!r}")
+                logger.debug("Created temp persist file '%s' named '%s'", file_handle, tmp_filename)
                 self.encoder.persist(file_handle, self.state)
             if (
                 os.name == "nt"
