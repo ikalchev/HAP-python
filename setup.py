@@ -44,7 +44,7 @@ setup(
     project_urls=PROJECT_URLS,
     python_requires=">={}".format(MIN_PY_VERSION),
     install_requires=REQUIRES,
-    license="Apache License 2.0",
+    license="Apache-2.0",
     license_file="LICENSE",
     classifiers=[
         "Development Status :: 5 - Production/Stable",
