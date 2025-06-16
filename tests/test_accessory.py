@@ -1,4 +1,5 @@
 """Tests for pyhap.accessory."""
+
 import asyncio
 from io import StringIO
 from unittest.mock import patch
@@ -28,6 +29,7 @@ from . import AsyncMock
 
 class TestAccessory(Accessory):
     """An accessory that keeps track of if its stopped."""
+
     __test__ = False
 
     def __init__(self, *args, **kwargs):
@@ -538,16 +540,12 @@ def test_to_hap_standalone(mock_driver):
 
 
 async def test_bridge_run_stop():
-    with patch(
-        "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
-    ), patch(
-        "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
-    ), patch(
-        "pyhap.accessory_driver.AsyncZeroconf"
-    ), patch(
-        "pyhap.accessory_driver.AccessoryDriver.persist"
-    ), patch(
-        "pyhap.accessory_driver.AccessoryDriver.load"
+    with (
+        patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock),
+        patch("pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock),
+        patch("pyhap.accessory_driver.AsyncZeroconf"),
+        patch("pyhap.accessory_driver.AccessoryDriver.persist"),
+        patch("pyhap.accessory_driver.AccessoryDriver.load"),
     ):
         driver = AccessoryDriver(loop=asyncio.get_event_loop())
         bridge = Bridge(driver, "Test Bridge")

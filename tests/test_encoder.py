@@ -1,4 +1,5 @@
 """Tests for pyhap.encoder."""
+
 import json
 import tempfile
 import uuid

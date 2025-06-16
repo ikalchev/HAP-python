@@ -4,6 +4,7 @@ All things for a HAP characteristic.
 A Characteristic is the smallest unit of the smart home, e.g.
 a temperature measuring or a device status.
 """
+
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 from uuid import UUID

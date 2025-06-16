@@ -1,4 +1,5 @@
 """Test for pyhap.util."""
+
 import functools
 from uuid import UUID
 

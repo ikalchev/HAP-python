@@ -2,6 +2,7 @@
 
 The HAPServerHandler manages the state of the connection and handles incoming requests.
 """
+
 import asyncio
 from http import HTTPStatus
 import logging
@@ -86,9 +87,9 @@ class HAP_TLV_TAGS:
     ENCRYPTED_DATA = b"\x05"
     SEQUENCE_NUM = b"\x06"
     ERROR_CODE = b"\x07"
-    PROOF = b"\x0A"
-    PERMISSIONS = b"\x0B"
-    SEPARATOR = b"\xFF"
+    PROOF = b"\x0a"
+    PERMISSIONS = b"\x0b"
+    SEPARATOR = b"\xff"
 
 
 class UnprivilegedRequestException(Exception):

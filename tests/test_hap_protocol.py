@@ -1,4 +1,5 @@
 """Tests for the HAPServerProtocol."""
+
 import asyncio
 import time
 from unittest.mock import MagicMock, Mock, patch
@@ -530,9 +531,10 @@ async def test_camera_snapshot_timeout_async(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_handler, "RESPONSE_TIMEOUT", 0.1), patch.object(
-        hap_proto.transport, "writelines"
-    ) as writelines:
+    with (
+        patch.object(hap_handler, "RESPONSE_TIMEOUT", 0.1),
+        patch.object(hap_proto.transport, "writelines") as writelines,
+    ):
         hap_proto.data_received(
             b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
         )
@@ -563,8 +565,9 @@ def test_upgrade_to_encrypted(driver):
         response.shared_key = b"newkey"
         return response
 
-    with patch.object(hap_proto.transport, "writelines"), patch.object(
-        hap_proto.handler, "dispatch", _make_response
+    with (
+        patch.object(hap_proto.transport, "writelines"),
+        patch.object(hap_proto.handler, "dispatch", _make_response),
     ):
         hap_proto.data_received(
             b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
@@ -600,8 +603,9 @@ async def test_pairing_changed(driver):
         response.pairing_changed = True
         return response
 
-    with patch.object(hap_proto.transport, "write"), patch.object(
-        hap_proto.handler, "dispatch", _make_response
+    with (
+        patch.object(hap_proto.transport, "write"),
+        patch.object(hap_proto.handler, "dispatch", _make_response),
     ):
         hap_proto.data_received(
             b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
@@ -718,9 +722,11 @@ async def test_idle_timeout(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    with patch.object(hap_protocol, "IDLE_CONNECTION_TIMEOUT_SECONDS", 0), patch.object(
-        hap_proto, "close"
-    ) as hap_proto_close, patch.object(hap_proto.transport, "write") as writer:
+    with (
+        patch.object(hap_protocol, "IDLE_CONNECTION_TIMEOUT_SECONDS", 0),
+        patch.object(hap_proto, "close") as hap_proto_close,
+        patch.object(hap_proto.transport, "write") as writer,
+    ):
         hap_proto.data_received(
             b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
         )
@@ -739,9 +745,10 @@ async def test_does_not_timeout(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    with patch.object(hap_proto, "close") as hap_proto_close, patch.object(
-        hap_proto.transport, "write"
-    ) as writer:
+    with (
+        patch.object(hap_proto, "close") as hap_proto_close,
+        patch.object(hap_proto.transport, "write") as writer,
+    ):
         hap_proto.data_received(
             b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
         )

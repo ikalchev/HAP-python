@@ -1,4 +1,5 @@
 """Tests for pyhap.iid_manager module."""
+
 from unittest.mock import Mock
 
 from pyhap.iid_manager import IIDManager

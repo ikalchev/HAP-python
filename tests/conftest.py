@@ -34,12 +34,10 @@ def driver(async_zeroconf):
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    with patch(
-        "pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock
-    ), patch(
-        "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
-    ), patch(
-        "pyhap.accessory_driver.AccessoryDriver.persist"
+    with (
+        patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock),
+        patch("pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock),
+        patch("pyhap.accessory_driver.AccessoryDriver.persist"),
     ):
         yield AccessoryDriver(loop=loop)
 

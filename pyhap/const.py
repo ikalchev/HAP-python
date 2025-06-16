@@ -1,4 +1,5 @@
 """This module contains constants used by other modules."""
+
 MAJOR_VERSION = 4
 MINOR_VERSION = 9
 PATCH_VERSION = 2

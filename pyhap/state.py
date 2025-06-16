@@ -1,4 +1,5 @@
 """Module for `State` class."""
+
 from typing import Dict, List, Optional, Union
 from uuid import UUID
 
@@ -29,7 +30,7 @@ class State:
         address: Optional[Union[str, List[str]]] = None,
         mac=None,
         pincode=None,
-        port=None
+        port=None,
     ):
         """Initialize a new object. Create key pair.
 

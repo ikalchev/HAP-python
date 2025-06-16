@@ -1,4 +1,5 @@
 """Module for the Accessory classes."""
+
 import itertools
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional
@@ -207,7 +208,8 @@ class Accessory:
             int(self.driver.state.pincode.replace(b"-", b""), 10) & 0x7FFFFFFF
         )  # pincode
 
-        encoded_payload = base36.dumps(payload).upper()  # pylint: disable=possibly-used-before-assignment
+        # pylint: disable-next=possibly-used-before-assignment
+        encoded_payload = base36.dumps(payload).upper()
         encoded_payload = encoded_payload.rjust(9, "0")
 
         return "X-HM://" + encoded_payload + self.driver.state.setup_id
