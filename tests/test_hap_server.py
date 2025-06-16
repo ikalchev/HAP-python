@@ -3,15 +3,12 @@
 import asyncio
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from pyhap import hap_server
 from pyhap.accessory import Accessory
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.hap_protocol import HAPServerProtocol
 
 
-@pytest.mark.asyncio
 async def test_we_can_start_stop(driver):
     """Test we can start and stop."""
     loop = asyncio.get_event_loop()
@@ -26,7 +23,6 @@ async def test_we_can_start_stop(driver):
     server.async_stop()
 
 
-@pytest.mark.asyncio
 async def test_we_can_connect():
     """Test we can start, connect, and stop."""
     loop = asyncio.get_event_loop()
@@ -52,7 +48,6 @@ async def test_we_can_connect():
     writer.close()
 
 
-@pytest.mark.asyncio
 async def test_idle_connection_cleanup():
     """Test we cleanup idle connections."""
     loop = asyncio.get_event_loop()
@@ -79,7 +74,6 @@ async def test_idle_connection_cleanup():
     server.async_stop()
 
 
-@pytest.mark.asyncio
 async def test_push_event(driver):
     """Test we can create and send an event."""
     addr_info = ("1.2.3.4", 1234)
@@ -151,7 +145,6 @@ async def test_push_event(driver):
     ]
 
 
-@pytest.mark.asyncio
 async def test_push_event_overwrites_old_pending_events(driver):
     """Test push event overwrites old events in the event queue.
 

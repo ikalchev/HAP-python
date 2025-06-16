@@ -28,6 +28,7 @@ from . import AsyncMock
 
 class TestAccessory(Accessory):
     """An accessory that keeps track of if its stopped."""
+    __test__ = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -536,7 +537,6 @@ def test_to_hap_standalone(mock_driver):
     }
 
 
-@pytest.mark.asyncio
 async def test_bridge_run_stop():
     with patch(
         "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock

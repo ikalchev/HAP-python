@@ -1,7 +1,7 @@
 """Test fictures and mocks."""
 
 import asyncio
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -35,7 +35,7 @@ def driver(async_zeroconf):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
     with patch(
-        "pyhap.accessory_driver.HAPServer.async_stop", new_callable=AsyncMock
+        "pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock
     ), patch(
         "pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock
     ), patch(

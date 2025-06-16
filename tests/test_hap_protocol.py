@@ -4,7 +4,6 @@ import time
 from unittest.mock import MagicMock, Mock, patch
 
 from cryptography.exceptions import InvalidTag
-import pytest
 
 from pyhap import hap_handler, hap_protocol
 from pyhap.accessory import Accessory, Bridge
@@ -388,7 +387,6 @@ def test_http_11_keep_alive(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_connection_closed(driver):
     """Test camera snapshot when the other side closes the connection."""
     loop = MagicMock()
@@ -447,7 +445,6 @@ def test_camera_snapshot_without_snapshot_support(driver):
     assert b"-70402" in b"".join(writelines.call_args_list[0][0])
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_works_sync(driver):
     """Test camera snapshot works if there is support for it."""
     loop = MagicMock()
@@ -480,7 +477,6 @@ async def test_camera_snapshot_works_sync(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_works_async(driver):
     """Test camera snapshot works if there is support for it."""
     loop = MagicMock()
@@ -513,7 +509,6 @@ async def test_camera_snapshot_works_async(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_timeout_async(driver):
     """Test camera snapshot timeout is handled."""
     loop = MagicMock()
@@ -580,7 +575,6 @@ def test_upgrade_to_encrypted(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_pairing_changed(driver):
     """Test we update mdns when the pairing changes."""
     loop = MagicMock()
@@ -618,7 +612,6 @@ async def test_pairing_changed(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_throws_an_exception(driver):
     """Test camera snapshot that throws an exception."""
     loop = MagicMock()
@@ -654,7 +647,6 @@ async def test_camera_snapshot_throws_an_exception(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_times_out(driver):
     """Test camera snapshot times out."""
     loop = MagicMock()
@@ -690,7 +682,6 @@ async def test_camera_snapshot_times_out(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_missing_accessory(driver):
     """Test camera snapshot that throws an exception."""
     loop = MagicMock()
@@ -717,7 +708,6 @@ async def test_camera_snapshot_missing_accessory(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_idle_timeout(driver):
     """Test we close the connection once we reach the idle timeout."""
     loop = asyncio.get_event_loop()
@@ -739,7 +729,6 @@ async def test_idle_timeout(driver):
         assert hap_proto_close.called is True
 
 
-@pytest.mark.asyncio
 async def test_does_not_timeout(driver):
     """Test we do not timeout the connection if we have not reached the idle."""
     loop = asyncio.get_event_loop()
