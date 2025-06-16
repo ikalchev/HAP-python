@@ -4,7 +4,6 @@ MINOR_VERSION = 9
 PATCH_VERSION = 2
 __short_version__ = f"{MAJOR_VERSION}.{MINOR_VERSION}"
 __version__ = f"{__short_version__}.{PATCH_VERSION}"
-REQUIRED_PYTHON_VER = (3, 7)
 
 BASE_UUID = "-0000-1000-8000-0026BB765291"
 
