@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import functools
+import inspect
 import random
 import socket
 import sys
@@ -41,7 +42,7 @@ def iscoro(func):
     """
     if isinstance(func, functools.partial):
         func = func.func
-    return asyncio.iscoroutinefunction(func)
+    return inspect.iscoroutinefunction(func)
 
 
 def get_local_address() -> str:
