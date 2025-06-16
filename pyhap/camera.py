@@ -22,14 +22,18 @@ import ipaddress
 import logging
 import os
 import struct
+import sys
 from uuid import UUID
-
-import async_timeout
 
 from pyhap import RESOURCE_DIR, tlv
 from pyhap.accessory import Accessory
 from pyhap.const import CATEGORY_CAMERA
 from pyhap.util import byte_bool, to_base64_str
+
+if sys.version_info >= (3, 11):
+    from asyncio import timeout as async_timeout
+else:
+    from async_timeout import timeout as async_timeout
 
 SETUP_TYPES = {
     "SESSION_ID": b"\x01",
@@ -937,7 +941,7 @@ class Camera(Accessory):
             logger.info("[%s] Stopping stream.", session_id)
             try:
                 ffmpeg_process.terminate()
-                async with async_timeout.timeout(2.0):
+                async with async_timeout(2.0):
                     _, stderr = await ffmpeg_process.communicate()
                 logger.debug("Stream command stderr: %s", stderr)
             except asyncio.TimeoutError:

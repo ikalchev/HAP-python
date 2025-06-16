@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "async_timeout",
+    "async_timeout;python_version<'3.11'",
     "cryptography",
     "chacha20poly1305-reuseable",
     "orjson>=3.7.2",
