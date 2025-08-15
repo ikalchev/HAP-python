@@ -1,6 +1,5 @@
 """Tests for the HAPCrypto."""
 
-
 from pyhap import hap_crypto
 
 

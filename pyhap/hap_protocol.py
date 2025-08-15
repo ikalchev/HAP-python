@@ -2,6 +2,7 @@
 
 The HAPServerProtocol is a protocol implementation that manages the "TLS" of the connection.
 """
+
 import asyncio
 import logging
 import time

@@ -1,4 +1,5 @@
 """Test for pyhap.state."""
+
 from unittest.mock import patch
 from uuid import UUID
 
@@ -26,14 +27,16 @@ def test_setup():
 
     private_key = ed25519.Ed25519PrivateKey.generate()
 
-    with patch("pyhap.util.get_local_address") as mock_local_addr, patch(
-        "pyhap.util.generate_mac"
-    ) as mock_gen_mac, patch("pyhap.util.generate_pincode") as mock_gen_pincode, patch(
-        "pyhap.util.generate_setup_id"
-    ) as mock_gen_setup_id, patch(
-        "cryptography.hazmat.primitives.asymmetric.ed25519.Ed25519PrivateKey.generate",
-        return_value=private_key,
-    ) as mock_create_keypair:
+    with (
+        patch("pyhap.util.get_local_address") as mock_local_addr,
+        patch("pyhap.util.generate_mac") as mock_gen_mac,
+        patch("pyhap.util.generate_pincode") as mock_gen_pincode,
+        patch("pyhap.util.generate_setup_id") as mock_gen_setup_id,
+        patch(
+            "cryptography.hazmat.primitives.asymmetric.ed25519.Ed25519PrivateKey.generate",
+            return_value=private_key,
+        ) as mock_create_keypair,
+    ):
         state = State(address=addr, mac=mac, pincode=pin, port=port)
         assert not mock_local_addr.called
         assert not mock_gen_mac.called
@@ -57,9 +60,12 @@ def test_setup():
 
 def test_pairing_remove_last_admin():
     """Test if pairing methods work."""
-    with patch("pyhap.util.get_local_address"), patch("pyhap.util.generate_mac"), patch(
-        "pyhap.util.generate_pincode"
-    ), patch("pyhap.util.generate_setup_id"):
+    with (
+        patch("pyhap.util.get_local_address"),
+        patch("pyhap.util.generate_mac"),
+        patch("pyhap.util.generate_pincode"),
+        patch("pyhap.util.generate_setup_id"),
+    ):
         state = State()
 
     assert not state.paired
@@ -90,9 +96,12 @@ def test_pairing_remove_last_admin():
 
 def test_pairing_two_admins():
     """Test if pairing methods work."""
-    with patch("pyhap.util.get_local_address"), patch("pyhap.util.generate_mac"), patch(
-        "pyhap.util.generate_pincode"
-    ), patch("pyhap.util.generate_setup_id"):
+    with (
+        patch("pyhap.util.get_local_address"),
+        patch("pyhap.util.generate_mac"),
+        patch("pyhap.util.generate_pincode"),
+        patch("pyhap.util.generate_setup_id"),
+    ):
         state = State()
 
     assert not state.paired

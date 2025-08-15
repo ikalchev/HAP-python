@@ -2,14 +2,15 @@
 
 The HAPServerHandler manages the state of the connection and handles incoming requests.
 """
+
 import asyncio
 from http import HTTPStatus
 import logging
+import sys
 from typing import TYPE_CHECKING, Any, Dict, Optional
 from urllib.parse import ParseResult, parse_qs, urlparse
 import uuid
 
-import async_timeout
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import serialization
@@ -29,6 +30,11 @@ from pyhap.util import long_to_bytes
 from .hap_crypto import hap_hkdf, pad_tls_nonce
 from .state import State
 from .util import from_hap_json, to_hap_json
+
+if sys.version_info >= (3, 11):
+    from asyncio import timeout as async_timeout
+else:
+    from async_timeout import timeout as async_timeout
 
 if TYPE_CHECKING:
     from .accessory_driver import AccessoryDriver
@@ -86,9 +92,9 @@ class HAP_TLV_TAGS:
     ENCRYPTED_DATA = b"\x05"
     SEQUENCE_NUM = b"\x06"
     ERROR_CODE = b"\x07"
-    PROOF = b"\x0A"
-    PERMISSIONS = b"\x0B"
-    SEPARATOR = b"\xFF"
+    PROOF = b"\x0a"
+    PERMISSIONS = b"\x0b"
+    SEPARATOR = b"\xff"
 
 
 class UnprivilegedRequestException(Exception):
@@ -97,7 +103,7 @@ class UnprivilegedRequestException(Exception):
 
 async def _run_with_timeout(coro, timeout: float) -> bytes:
     """Run a coroutine with a timeout."""
-    async with async_timeout.timeout(timeout):
+    async with async_timeout(timeout):
         return await coro
 
 

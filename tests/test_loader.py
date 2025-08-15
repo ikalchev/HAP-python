@@ -1,4 +1,5 @@
 """Tests for pyhap.loader."""
+
 import pytest
 
 from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE

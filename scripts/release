@@ -11,15 +11,11 @@ if [ -n "$(ls | grep 'build')" ]; then
   rm -r build/
 fi
 
-echo "====================================="
-echo "=   Generation source distribution  ="
-echo "====================================="
-python3 setup.py sdist
 
-echo "===================================="
-echo "=   Generation build distribution  ="
-echo "===================================="
-python3 setup.py bdist_wheel
+echo "=============================================="
+echo "=   Generate source and build distributions  ="
+echo "=============================================="
+python3 -m build
 
 echo "====================="
 echo "=   Upload to pypi  ="
