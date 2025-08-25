@@ -3,15 +3,12 @@
 import asyncio
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from pyhap import hap_server
 from pyhap.accessory import Accessory
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.hap_protocol import HAPServerProtocol
 
 
-@pytest.mark.asyncio
 async def test_we_can_start_stop(driver):
     """Test we can start and stop."""
     loop = asyncio.get_event_loop()
@@ -26,12 +23,12 @@ async def test_we_can_start_stop(driver):
     server.async_stop()
 
 
-@pytest.mark.asyncio
 async def test_we_can_connect():
     """Test we can start, connect, and stop."""
     loop = asyncio.get_event_loop()
-    with patch("pyhap.accessory_driver.AsyncZeroconf"), patch(
-        "pyhap.accessory_driver.AccessoryDriver.persist"
+    with (
+        patch("pyhap.accessory_driver.AsyncZeroconf"),
+        patch("pyhap.accessory_driver.AccessoryDriver.persist"),
     ):
         driver = AccessoryDriver(loop=loop)
 
@@ -52,17 +49,17 @@ async def test_we_can_connect():
     writer.close()
 
 
-@pytest.mark.asyncio
 async def test_idle_connection_cleanup():
     """Test we cleanup idle connections."""
     loop = asyncio.get_event_loop()
     addr_info = ("0.0.0.0", None)
     client_1_addr_info = ("1.2.3.4", 44433)
 
-    with patch.object(hap_server, "IDLE_CONNECTION_CHECK_INTERVAL_SECONDS", 0), patch(
-        "pyhap.accessory_driver.AsyncZeroconf"
-    ), patch("pyhap.accessory_driver.AccessoryDriver.persist"), patch(
-        "pyhap.accessory_driver.AccessoryDriver.load"
+    with (
+        patch.object(hap_server, "IDLE_CONNECTION_CHECK_INTERVAL_SECONDS", 0),
+        patch("pyhap.accessory_driver.AsyncZeroconf"),
+        patch("pyhap.accessory_driver.AccessoryDriver.persist"),
+        patch("pyhap.accessory_driver.AccessoryDriver.load"),
     ):
         driver = AccessoryDriver(loop=loop)
         server = hap_server.HAPServer(addr_info, driver)
@@ -79,7 +76,6 @@ async def test_idle_connection_cleanup():
     server.async_stop()
 
 
-@pytest.mark.asyncio
 async def test_push_event(driver):
     """Test we can create and send an event."""
     addr_info = ("1.2.3.4", 1234)
@@ -151,7 +147,6 @@ async def test_push_event(driver):
     ]
 
 
-@pytest.mark.asyncio
 async def test_push_event_overwrites_old_pending_events(driver):
     """Test push event overwrites old events in the event queue.
 

@@ -1,4 +1,5 @@
 """Tests for pyhap.service."""
+
 from unittest.mock import Mock, call, patch
 from uuid import uuid1
 
@@ -76,9 +77,10 @@ def test_configure_char():
         service.configure_char("Char not found")
     assert service.configure_char("Char 1") == chars[0]
 
-    with patch(pyhap_char + ".override_properties") as mock_override_prop, patch(
-        pyhap_char + ".set_value"
-    ) as mock_set_value:
+    with (
+        patch(pyhap_char + ".override_properties") as mock_override_prop,
+        patch(pyhap_char + ".set_value") as mock_set_value,
+    ):
         service.configure_char("Char 1")
         mock_override_prop.assert_not_called()
         mock_set_value.assert_not_called()
@@ -139,9 +141,10 @@ def test_to_HAP():
 
     service = Service(uuid, "Test Service")
     service.characteristics = get_chars()
-    with patch(pyhap_char_to_HAP) as mock_char_HAP, patch.object(
-        service, "broker"
-    ) as mock_broker:
+    with (
+        patch(pyhap_char_to_HAP) as mock_char_HAP,
+        patch.object(service, "broker") as mock_broker,
+    ):
         mock_iid = mock_broker.iid_manager.get_iid
         mock_iid.return_value = 2
         mock_char_HAP.side_effect = ("Char 1", "Char 2")
@@ -165,9 +168,11 @@ def test_linked_service_to_HAP():
     service.broker = Mock()
     service.add_linked_service(linked_service)
     service.characteristics = get_chars()
-    with patch(pyhap_char_to_HAP) as mock_char_HAP, patch.object(
-        service, "broker"
-    ) as mock_broker, patch.object(linked_service, "broker") as mock_linked_broker:
+    with (
+        patch(pyhap_char_to_HAP) as mock_char_HAP,
+        patch.object(service, "broker") as mock_broker,
+        patch.object(linked_service, "broker") as mock_linked_broker,
+    ):
         mock_iid = mock_broker.iid_manager.get_iid
         mock_iid.return_value = 2
         mock_linked_iid = mock_linked_broker.iid_manager.get_iid
@@ -199,9 +204,10 @@ def test_is_primary_service_to_HAP():
     service = Service(uuid, "Test Service")
     service.characteristics = get_chars()
     service.is_primary_service = True
-    with patch(pyhap_char_to_HAP) as mock_char_HAP, patch.object(
-        service, "broker"
-    ) as mock_broker:
+    with (
+        patch(pyhap_char_to_HAP) as mock_char_HAP,
+        patch.object(service, "broker") as mock_broker,
+    ):
         mock_iid = mock_broker.iid_manager.get_iid
         mock_iid.return_value = 2
         mock_char_HAP.side_effect = ("Char 1", "Char 2")

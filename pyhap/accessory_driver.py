@@ -15,6 +15,7 @@ one Accessory in it). If so, a task is created to send the event to the subscrib
 terminates the call chain and concludes the publishing process from the Characteristic,
 the Characteristic does not block waiting for the actual send to happen.
 """
+
 import asyncio
 import base64
 from collections import defaultdict
@@ -212,7 +213,7 @@ class AccessoryDriver:
         advertised_address=None,
         interface_choice=None,
         async_zeroconf_instance=None,
-        zeroconf_server=None
+        zeroconf_server=None,
     ):
         """
         Initialize a new AccessoryDriver object.
@@ -323,7 +324,7 @@ class AccessoryDriver:
                 and os.name != "nt"
             ):
                 logger.debug("Setting child watcher")
-                watcher = asyncio.SafeChildWatcher() # pylint: disable=deprecated-class
+                watcher = asyncio.SafeChildWatcher()  # pylint: disable=deprecated-class
                 watcher.attach_loop(self.loop)
                 asyncio.set_child_watcher(watcher)
             else:
@@ -647,7 +648,11 @@ class AccessoryDriver:
                 mode="w", dir=temp_dir, delete=False
             ) as file_handle:
                 tmp_filename = file_handle.name
-                logger.debug("Created temp persist file '%s' named '%s'", file_handle, tmp_filename)
+                logger.debug(
+                    "Created temp persist file '%s' named '%s'",
+                    file_handle,
+                    tmp_filename,
+                )
                 self.encoder.persist(file_handle, self.state)
             if (
                 os.name == "nt"

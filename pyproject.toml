@@ -1,5 +1,56 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=77.0"]
+
+[project]
+name = "HAP-python"
+license = "Apache-2.0"
+description = "HomeKit Accessory Protocol implementation in python"
+readme = "README.md"
+authors = [{ name = "Ivan Kalchev" }]
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Home Automation",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "async_timeout;python_version<'3.11'",
+    "cryptography",
+    "chacha20poly1305-reuseable",
+    "orjson>=3.7.2",
+    "zeroconf>=0.36.2",
+    "h11",
+]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+QRCode = [
+    "base36",
+    "pyqrcode",
+]
+
+[project.urls]
+"Source" = "https://github.com/ikalchev/HAP-python"
+"Bug Reports" = "https://github.com/ikalchev/HAP-python/issues"
+"Documentation" = "http://hap-python.readthedocs.io/en/latest/"
+
+[tool.setuptools.packages.find]
+include = ["pyhap*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "pyhap.const.__version__" }
+
 [tool.black]
-target-version = ["py35", "py36", "py37", "py38"]
 exclude = 'generated'
 
 [tool.isort]
@@ -113,3 +164,4 @@ norecursedirs = [
     ".git",
     "testing_config",
 ]
+asyncio_mode = "auto"

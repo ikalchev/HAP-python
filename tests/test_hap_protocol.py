@@ -1,10 +1,10 @@
 """Tests for the HAPServerProtocol."""
+
 import asyncio
 import time
 from unittest.mock import MagicMock, Mock, patch
 
 from cryptography.exceptions import InvalidTag
-import pytest
 
 from pyhap import hap_handler, hap_protocol
 from pyhap.accessory import Accessory, Bridge
@@ -388,7 +388,6 @@ def test_http_11_keep_alive(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_connection_closed(driver):
     """Test camera snapshot when the other side closes the connection."""
     loop = MagicMock()
@@ -447,7 +446,6 @@ def test_camera_snapshot_without_snapshot_support(driver):
     assert b"-70402" in b"".join(writelines.call_args_list[0][0])
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_works_sync(driver):
     """Test camera snapshot works if there is support for it."""
     loop = MagicMock()
@@ -480,7 +478,6 @@ async def test_camera_snapshot_works_sync(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_works_async(driver):
     """Test camera snapshot works if there is support for it."""
     loop = MagicMock()
@@ -513,7 +510,6 @@ async def test_camera_snapshot_works_async(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_timeout_async(driver):
     """Test camera snapshot timeout is handled."""
     loop = MagicMock()
@@ -535,9 +531,10 @@ async def test_camera_snapshot_timeout_async(driver):
     hap_proto.hap_crypto = MockHAPCrypto()
     hap_proto.handler.is_encrypted = True
 
-    with patch.object(hap_handler, "RESPONSE_TIMEOUT", 0.1), patch.object(
-        hap_proto.transport, "writelines"
-    ) as writelines:
+    with (
+        patch.object(hap_handler, "RESPONSE_TIMEOUT", 0.1),
+        patch.object(hap_proto.transport, "writelines") as writelines,
+    ):
         hap_proto.data_received(
             b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
         )
@@ -568,8 +565,9 @@ def test_upgrade_to_encrypted(driver):
         response.shared_key = b"newkey"
         return response
 
-    with patch.object(hap_proto.transport, "writelines"), patch.object(
-        hap_proto.handler, "dispatch", _make_response
+    with (
+        patch.object(hap_proto.transport, "writelines"),
+        patch.object(hap_proto.handler, "dispatch", _make_response),
     ):
         hap_proto.data_received(
             b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
@@ -580,7 +578,6 @@ def test_upgrade_to_encrypted(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_pairing_changed(driver):
     """Test we update mdns when the pairing changes."""
     loop = MagicMock()
@@ -606,8 +603,9 @@ async def test_pairing_changed(driver):
         response.pairing_changed = True
         return response
 
-    with patch.object(hap_proto.transport, "write"), patch.object(
-        hap_proto.handler, "dispatch", _make_response
+    with (
+        patch.object(hap_proto.transport, "write"),
+        patch.object(hap_proto.handler, "dispatch", _make_response),
     ):
         hap_proto.data_received(
             b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
@@ -618,7 +616,6 @@ async def test_pairing_changed(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_throws_an_exception(driver):
     """Test camera snapshot that throws an exception."""
     loop = MagicMock()
@@ -654,7 +651,6 @@ async def test_camera_snapshot_throws_an_exception(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_times_out(driver):
     """Test camera snapshot times out."""
     loop = MagicMock()
@@ -690,7 +686,6 @@ async def test_camera_snapshot_times_out(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_camera_snapshot_missing_accessory(driver):
     """Test camera snapshot that throws an exception."""
     loop = MagicMock()
@@ -717,7 +712,6 @@ async def test_camera_snapshot_missing_accessory(driver):
     hap_proto.close()
 
 
-@pytest.mark.asyncio
 async def test_idle_timeout(driver):
     """Test we close the connection once we reach the idle timeout."""
     loop = asyncio.get_event_loop()
@@ -728,9 +722,11 @@ async def test_idle_timeout(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    with patch.object(hap_protocol, "IDLE_CONNECTION_TIMEOUT_SECONDS", 0), patch.object(
-        hap_proto, "close"
-    ) as hap_proto_close, patch.object(hap_proto.transport, "write") as writer:
+    with (
+        patch.object(hap_protocol, "IDLE_CONNECTION_TIMEOUT_SECONDS", 0),
+        patch.object(hap_proto, "close") as hap_proto_close,
+        patch.object(hap_proto.transport, "write") as writer,
+    ):
         hap_proto.data_received(
             b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
         )
@@ -739,7 +735,6 @@ async def test_idle_timeout(driver):
         assert hap_proto_close.called is True
 
 
-@pytest.mark.asyncio
 async def test_does_not_timeout(driver):
     """Test we do not timeout the connection if we have not reached the idle."""
     loop = asyncio.get_event_loop()
@@ -750,9 +745,10 @@ async def test_does_not_timeout(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    with patch.object(hap_proto, "close") as hap_proto_close, patch.object(
-        hap_proto.transport, "write"
-    ) as writer:
+    with (
+        patch.object(hap_proto, "close") as hap_proto_close,
+        patch.object(hap_proto.transport, "write") as writer,
+    ):
         hap_proto.data_received(
             b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
         )

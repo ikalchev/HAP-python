@@ -1,4 +1,5 @@
 """This module partially implements crypto for HAP."""
+
 from functools import partial
 import logging
 import struct

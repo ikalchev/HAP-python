@@ -1,4 +1,5 @@
 """Tests for pyhap.characteristic."""
+
 from unittest.mock import ANY, MagicMock, Mock, patch
 from uuid import uuid1
 

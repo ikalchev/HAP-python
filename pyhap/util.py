@@ -1,15 +1,21 @@
 import asyncio
 import base64
 import functools
+import inspect
 import random
 import socket
+import sys
 from typing import Awaitable, Set
 from uuid import UUID
 
-import async_timeout
 import orjson
 
 from .const import BASE_UUID
+
+if sys.version_info >= (3, 11):
+    from asyncio import timeout as async_timeout
+else:
+    from async_timeout import timeout as async_timeout
 
 ALPHANUM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 HEX_DIGITS = "0123456789ABCDEF"
@@ -36,7 +42,7 @@ def iscoro(func):
     """
     if isinstance(func, functools.partial):
         func = func.func
-    return asyncio.iscoroutinefunction(func)
+    return inspect.iscoroutinefunction(func)
 
 
 def get_local_address() -> str:
@@ -139,7 +145,7 @@ async def event_wait(event, timeout):
     :rtype: bool
     """
     try:
-        async with async_timeout.timeout(timeout):
+        async with async_timeout(timeout):
             await event.wait()
     except asyncio.TimeoutError:
         pass

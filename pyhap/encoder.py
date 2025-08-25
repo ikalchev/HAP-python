@@ -3,6 +3,7 @@
 These are used to persist and load the state of the Accessory, so that
 it can work properly after a restart.
 """
+
 import json
 import uuid
 

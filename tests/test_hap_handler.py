@@ -32,7 +32,7 @@ def test_response():
     assert "500" in str(response)
 
 
-def test_list_pairings_unencrypted(driver: AccessoryDriver):
+async def test_list_pairings_unencrypted(driver: AccessoryDriver):
     """Verify an unencrypted list pairings request fails."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -57,7 +57,7 @@ def test_list_pairings_unencrypted(driver: AccessoryDriver):
     }
 
 
-def test_list_pairings(driver: AccessoryDriver):
+async def test_list_pairings(driver: AccessoryDriver):
     """Verify an encrypted list pairings request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -84,7 +84,7 @@ def test_list_pairings(driver: AccessoryDriver):
     }
 
 
-def test_list_pairings_multiple(driver: AccessoryDriver):
+async def test_list_pairings_multiple(driver: AccessoryDriver):
     """Verify an encrypted list pairings request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -117,7 +117,7 @@ def test_list_pairings_multiple(driver: AccessoryDriver):
     }
 
 
-def test_add_pairing_admin(driver: AccessoryDriver):
+async def test_add_pairing_admin(driver: AccessoryDriver):
     """Verify an encrypted add pairing request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -148,7 +148,7 @@ def test_add_pairing_admin(driver: AccessoryDriver):
     assert driver.state.is_admin(CLIENT2_UUID)
 
 
-def test_add_pairing_user(driver: AccessoryDriver):
+async def test_add_pairing_user(driver: AccessoryDriver):
     """Verify an encrypted add pairing request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -221,7 +221,7 @@ def test_add_pairing_user(driver: AccessoryDriver):
     assert not driver.state.is_admin(CLIENT2_UUID)
 
 
-def test_remove_pairing(driver: AccessoryDriver):
+async def test_remove_pairing(driver: AccessoryDriver):
     """Verify an encrypted remove pairing request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -272,7 +272,7 @@ def test_remove_pairing(driver: AccessoryDriver):
     assert driver.state.paired is False
 
 
-def test_non_admin_pairings_request(driver: AccessoryDriver):
+async def test_non_admin_pairings_request(driver: AccessoryDriver):
     """Verify only admins can access pairings."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -296,7 +296,7 @@ def test_non_admin_pairings_request(driver: AccessoryDriver):
     }
 
 
-def test_invalid_pairings_request(driver: AccessoryDriver):
+async def test_invalid_pairings_request(driver: AccessoryDriver):
     """Verify an encrypted invalid pairings request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -317,7 +317,7 @@ def test_invalid_pairings_request(driver: AccessoryDriver):
         handler.handle_pairings()
 
 
-def test_pair_verify_one(driver: AccessoryDriver):
+async def test_pair_verify_one(driver: AccessoryDriver):
     """Verify an unencrypted pair verify one."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -369,7 +369,7 @@ def test_pair_verify_one_not_paired(driver: AccessoryDriver):
     }
 
 
-def test_pair_verify_two_invalid_state(driver: AccessoryDriver):
+async def test_pair_verify_two_invalid_state(driver: AccessoryDriver):
     """Verify an unencrypted pair verify two."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -413,7 +413,7 @@ def test_pair_verify_two_invalid_state(driver: AccessoryDriver):
     }
 
 
-def test_pair_verify_two_missing_signature(driver: AccessoryDriver):
+async def test_pair_verify_two_missing_signature(driver: AccessoryDriver):
     """Verify a pair verify two with a missing signature."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -466,7 +466,7 @@ def test_pair_verify_two_missing_signature(driver: AccessoryDriver):
     }
 
 
-def test_pair_verify_two_success_raw_uuid_bytes_missing(driver: AccessoryDriver):
+async def test_pair_verify_two_success_raw_uuid_bytes_missing(driver: AccessoryDriver):
     """Verify a pair verify two populated missing raw bytes."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
     client_private_key = ed25519.Ed25519PrivateKey.generate()
@@ -549,7 +549,7 @@ def test_pair_verify_two_success_raw_uuid_bytes_missing(driver: AccessoryDriver)
     assert driver.state.uuid_to_bytes[CLIENT_UUID] == CLIENT_UUID_BYTES
 
 
-def test_pair_verify_two_success(driver: AccessoryDriver):
+async def test_pair_verify_two_success(driver: AccessoryDriver):
     """Verify a pair verify two."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
     client_private_key = ed25519.Ed25519PrivateKey.generate()
@@ -627,7 +627,7 @@ def test_pair_verify_two_success(driver: AccessoryDriver):
     assert driver.state.uuid_to_bytes[CLIENT_UUID] == CLIENT_UUID_BYTES
 
 
-def test_invalid_pairing_request(driver: AccessoryDriver):
+async def test_invalid_pairing_request(driver: AccessoryDriver):
     """Verify an unencrypted pair verify with an invalid sequence fails."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -926,7 +926,7 @@ def test_handle_snapshot_encrypted_non_existant_accessory(driver: AccessoryDrive
         handler.handle_resource()
 
 
-def test_attempt_to_pair_when_already_paired(driver: AccessoryDriver):
+async def test_attempt_to_pair_when_already_paired(driver: AccessoryDriver):
     """Verify we respond with unavailable if already paired."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
 

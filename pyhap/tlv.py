@@ -1,4 +1,5 @@
 """Encodes and decodes Tag-Length-Value (tlv8) data."""
+
 import struct
 from typing import Any, Dict
 
@@ -32,7 +33,7 @@ def encode(*args, to_base64=False):
         else:
             encoded = b""
             for y in range(0, total_length // 255):
-                encoded = encoded + tag + b"\xFF" + data[y * 255 : (y + 1) * 255]
+                encoded = encoded + tag + b"\xff" + data[y * 255 : (y + 1) * 255]
             remaining = total_length % 255
             encoded = encoded + tag + struct.pack("B", remaining) + data[-remaining:]
 
