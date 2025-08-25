@@ -16,6 +16,11 @@ Sections
 ### Developers
 -->
 
+## [5.0.0] - 2025-08-25
+
+- Modernize packaging + drop support for 3.7 and 3.8.
+  [#487](https://github.com/ikalchev/HAP-python/pull/487)
+
 ## [4.9.2] - 2024-11-03
 
 - Implement zerocopy writes for the encrypted protocol. [#476](https://github.com/ikalchev/HAP-python/pull/476)
