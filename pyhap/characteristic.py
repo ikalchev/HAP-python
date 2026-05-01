@@ -320,10 +320,16 @@ class Characteristic:
             return
 
         try:
-            self.value = self.to_valid_value(self._value)
-            self.valid_value_or_raise(self._value)
+            candidate = self.to_valid_value(self._value)
         except ValueError:
             self.value = self._get_default_value()
+            return
+
+        valid_values_dict = self._properties.get(PROP_VALID_VALUES)
+        if valid_values_dict and candidate not in valid_values_dict.values():
+            self.value = self._get_default_value()
+        else:
+            self.value = candidate
 
     def _clear_cache(self) -> None:
         """Clear the cached HAP representation."""
