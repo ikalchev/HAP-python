@@ -428,6 +428,20 @@
       ],
       "UUID": "000000B9-0000-1000-8000-0026BB765291"
    },
+   "SmartSpeaker": {
+      "OptionalCharacteristics": [
+         "Name",
+         "ConfiguredName",
+         "AirPlayEnable",
+         "Volume",
+         "Mute"
+      ],
+      "RequiredCharacteristics": [
+         "CurrentMediaState",
+         "TargetMediaState"
+      ],
+      "UUID": "00000228-0000-1000-8000-0026BB765291"
+   },
    "SmokeSensor": {
       "OptionalCharacteristics": [
          "StatusActive",
