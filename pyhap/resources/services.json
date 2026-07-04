@@ -61,8 +61,23 @@
       ],
       "UUID": "00000096-0000-1000-8000-0026BB765291"
    },
+   "CameraOperatingMode": {
+      "OptionalCharacteristics": [
+         "CameraOperatingModeIndicator",
+         "ManuallyDisabled",
+         "NightVision",
+         "PeriodicSnapshotsActive",
+         "ThirdPartyCameraActive"
+      ],
+      "RequiredCharacteristics": [
+         "EventSnapshotsActive",
+         "HomeKitCameraActive"
+      ],
+      "UUID": "0000021A-0000-1000-8000-0026BB765291"
+   },
    "CameraRTPStreamManagement": {
       "OptionalCharacteristics": [
+         "Active",
          "Name"
       ],
       "RequiredCharacteristics": [
@@ -74,6 +89,19 @@
          "SetupEndpoints"
       ],
       "UUID": "00000110-0000-1000-8000-0026BB765291"
+   },
+   "CameraRecordingManagement": {
+      "OptionalCharacteristics": [
+         "RecordingAudioActive"
+      ],
+      "RequiredCharacteristics": [
+         "Active",
+         "SupportedCameraRecordingConfiguration",
+         "SupportedVideoRecordingConfiguration",
+         "SupportedAudioRecordingConfiguration",
+         "SelectedCameraRecordingConfiguration"
+      ],
+      "UUID": "00000204-0000-1000-8000-0026BB765291"
    },
    "CarbonDioxideSensor": {
       "OptionalCharacteristics": [
@@ -117,6 +145,15 @@
          "ContactSensorState"
       ],
       "UUID": "00000080-0000-1000-8000-0026BB765291"
+   },
+   "DataStreamTransportManagement": {
+      "OptionalCharacteristics": [],
+      "RequiredCharacteristics": [
+         "SetupDataStreamTransport",
+         "SupportedDataStreamTransportConfiguration",
+         "Version"
+      ],
+      "UUID": "00000129-0000-1000-8000-0026BB765291"
    },
    "Door": {
       "OptionalCharacteristics": [
