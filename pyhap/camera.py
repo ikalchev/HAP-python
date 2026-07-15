@@ -27,6 +27,7 @@ from uuid import UUID
 
 from pyhap import RESOURCE_DIR, tlv
 from pyhap.accessory import Accessory
+from pyhap.camera_talkback import TalkbackReceiver, talkback_available
 from pyhap.const import CATEGORY_CAMERA
 from pyhap.util import byte_bool, to_base64_str
 
@@ -427,6 +428,13 @@ class Camera(Accessory):
 
             Additional optional values are:
             - srtp - boolean, defaults to False. Whether the camera supports SRTP.
+            - talkback - boolean, defaults to False. Whether the camera supports
+                receiving two-way ("talkback") audio from the controller during a
+                live view session. Requires the optional ``pylibsrtp`` dependency
+                (``pip install HAP-python[Talkback]``). When enabled, a "Speaker"
+                service is added so that HAP clients know the accessory supports
+                it, and :meth:`talkback_audio_received` is called with the
+                received audio for each session that negotiates it.
             - start_stream_cmd - string specifying the command to be executed to start
                 the stream. The string can contain the keywords, corresponding to the
                 video and audio configuration that was negotiated between the camera
@@ -435,6 +443,12 @@ class Camera(Accessory):
         :type options: ``dict``
         """
         self.has_srtp = options.get("srtp", False)
+        self.support_talkback = options.get("talkback", False)
+        if self.support_talkback and not talkback_available():
+            raise ValueError(
+                "The 'talkback' option requires the optional 'pylibsrtp' "
+                "dependency. Install it with: pip install HAP-python[Talkback]"
+            )
         self.start_stream_cmd = options.get("start_stream_cmd", FFMPEG_CMD)
 
         self.stream_address = options["address"]
@@ -448,6 +462,8 @@ class Camera(Accessory):
         super().__init__(*args, **kwargs)
 
         self.add_preload_service("Microphone")
+        if self.support_talkback:
+            self.add_preload_service("Speaker").configure_char("Mute", value=False)
         self._streaming_status = []
         self._management = []
         self._setup_stream_management(options)
@@ -625,6 +641,7 @@ class Camera(Accessory):
             logger.error(
                 "[%s] Failed to start/reconfigure stream, deleting session.", session_id
             )
+            self._close_talkback(session_info)
             del self.sessions[session_id]
             self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
 
@@ -657,9 +674,48 @@ class Camera(Accessory):
 
         stream_idx = session_info["stream_idx"]
         await self.stop_stream(session_info)
+        self._close_talkback(session_info)
         del self.sessions[session_id]
 
         self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
+
+    @staticmethod
+    def _close_talkback(session_info):
+        """Stop the talkback audio receiver for a session, if any."""
+        audio_backchannel = session_info.pop("audio_backchannel", None)
+        if audio_backchannel is not None:
+            audio_backchannel.stop()
+
+    def _talkback_payload_received(self, session_id, payload: bytes) -> None:
+        """Dispatch a received talkback RTP payload to the accessory implementation.
+
+        Called from the :class:`~pyhap.camera_talkback.TalkbackReceiver`
+        background thread, so this hops back onto the accessory driver's event
+        loop before calling the (synchronous) public callback, to keep
+        :meth:`talkback_audio_received` easy to implement without every caller
+        having to worry about thread-safety.
+        """
+        self.driver.loop.call_soon_threadsafe(
+            self.talkback_audio_received, session_id, payload
+        )
+
+    def talkback_audio_received(
+        self, session_id, payload: bytes
+    ) -> None:  # pylint: disable=unused-argument
+        """Handle received two-way ("talkback") audio for a streaming session.
+
+        Only called for sessions of accessories constructed with the
+        ``talkback`` option enabled (see ``__init__``). Override to consume the
+        received audio, e.g. decode it (the codec is whichever was negotiated,
+        see ``a_codec`` in the stream configuration passed to
+        :meth:`start_stream`) and play it out through a speaker.
+
+        :param session_id: The session ID this audio belongs to.
+        :type session_id: :class:`~uuid.UUID`
+        :param payload: The RTP payload of one received packet, still encoded
+            with the negotiated audio codec (not decoded by pyhap).
+        :type payload: ``bytes``
+        """
 
     def set_selected_stream_configuration(self, value):
         """Set the selected stream configuration.
@@ -787,6 +843,27 @@ class Camera(Accessory):
         video_ssrc = int.from_bytes(os.urandom(3), byteorder="big")
         audio_ssrc = int.from_bytes(os.urandom(3), byteorder="big")
 
+        # If talkback is enabled, open a local receiver for the audio the
+        # controller will send back during the session, and report *its* real
+        # port below instead of echoing the controller's own port back at it.
+        # Per the HAP spec (section 11, "IP Cameras"), the "Accessory Address"
+        # TLV in this response carries the accessory's own address/ports (the
+        # "Controller Address" received above carries the controller's), so
+        # echoing the controller's port here left HAP clients with nowhere
+        # valid to send the talkback audio to.
+        audio_backchannel = None
+        audio_rtp_port = target_audio_port
+        if self.support_talkback:
+            audio_backchannel = TalkbackReceiver(
+                srtp_key_and_salt=audio_master_key + audio_master_salt,
+                on_payload=functools.partial(
+                    self._talkback_payload_received, session_id
+                ),
+                is_ipv6=bool(is_ipv6),
+            )
+            audio_backchannel.start()
+            audio_rtp_port = audio_backchannel.local_port
+
         res_address_tlv = tlv.encode(
             SETUP_ADDR_INFO["ADDRESS_VER"],
             self.stream_address_isv6,
@@ -795,7 +872,7 @@ class Camera(Accessory):
             SETUP_ADDR_INFO["VIDEO_RTP_PORT"],
             struct.pack("<H", target_video_port),
             SETUP_ADDR_INFO["AUDIO_RTP_PORT"],
-            struct.pack("<H", target_audio_port),
+            struct.pack("<H", audio_rtp_port),
         )
 
         response_tlv = tlv.encode(
@@ -826,6 +903,7 @@ class Camera(Accessory):
             "a_port": target_audio_port,
             "a_srtp_key": to_base64_str(audio_master_key + audio_master_salt),
             "a_ssrc": audio_ssrc,
+            "audio_backchannel": audio_backchannel,
         }
 
         self._management[stream_idx].get_characteristic("SetupEndpoints").set_value(

@@ -51,6 +51,7 @@ def mock_local_address():
 class MockDriver:
     def __init__(self):
         self.loader = Loader()
+        self.loop = None
 
     def publish(self, data, client_addr=None, immediate=False):
         pass
