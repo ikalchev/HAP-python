@@ -829,7 +829,7 @@ class AccessoryDriver:
             try:
                 if aid == STANDALONE_AID:
                     char = self.accessory.iid_manager.get_obj(iid)
-                    available = True
+                    available = self.accessory.available
                 else:
                     acc = self.accessory.accessories.get(aid)
                     if acc is None:
