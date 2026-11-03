@@ -132,6 +132,8 @@ class Characteristic:
         "_value",
         "getter_callback",
         "setter_callback",
+        "session_getter_callback",
+        "session_setter_callback",
         "service",
         "_uuid_str",
         "_loader_display_name",
@@ -181,6 +183,8 @@ class Characteristic:
         self._value = self._get_default_value()
         self.getter_callback: Optional[Callable[[], Any]] = None
         self.setter_callback: Optional[Callable[[Any], None]] = None
+        self.session_getter_callback = None
+        self.session_setter_callback = None
         self.service: Optional["Service"] = None
         self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
@@ -237,11 +241,15 @@ class Characteristic:
         value = HAP_FORMAT_DEFAULTS[self._properties[PROP_FORMAT]]
         return self.to_valid_value(value)
 
-    def get_value(self) -> Any:
+    def get_value(self, session=None) -> Any:
         """This is to allow for calling `getter_callback`
 
         :return: Current Characteristic Value
         """
+        if session is not None and self.session_getter_callback:
+            if session.closed:
+                raise RuntimeError("HAP session is closed")
+            return self.to_valid_value(value=self.session_getter_callback(session))
         if self.getter_callback:
             # pylint: disable=not-callable
             self.value = self.to_valid_value(value=self.getter_callback())
@@ -360,7 +368,10 @@ class Characteristic:
             self.value = None
 
     def client_update_value(
-        self, value: Any, sender_client_addr: Optional[Tuple[str, int]] = None
+        self,
+        value: Any,
+        sender_client_addr: Optional[Tuple[str, int]] = None,
+        session=None,
     ) -> None:
         """Called from broker for value change in Home app.
 
@@ -378,6 +389,10 @@ class Characteristic:
             original_value,
             sender_client_addr,
         )
+        if session is not None and self.session_setter_callback:
+            if session.closed:
+                raise RuntimeError("HAP session is closed")
+            return self.session_setter_callback(value, session)
         previous_value = self._value
         self.value = value
         response = None

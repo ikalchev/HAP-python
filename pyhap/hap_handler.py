@@ -4,18 +4,18 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 """
 
 import asyncio
-from http import HTTPStatus
 import logging
 import sys
+import uuid
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Dict, Optional
 from urllib.parse import ParseResult, parse_qs, urlparse
-import uuid
 
+import h11
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.exceptions import InvalidSignature, InvalidTag
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
-import h11
 
 from pyhap import tlv
 from pyhap.const import (
@@ -25,6 +25,7 @@ from pyhap.const import (
     HAP_REPR_STATUS,
     HAP_SERVER_STATUS,
 )
+from pyhap.hap_session import HAPSession
 from pyhap.util import long_to_bytes
 
 from .hap_crypto import hap_hkdf, pad_tls_nonce
@@ -45,6 +46,14 @@ RESPONSE_TIMEOUT = 9
 
 
 logger = logging.getLogger(__name__)
+
+
+class HAPStatusError(Exception):
+    """Report a HAP status from a deferred accessory operation."""
+
+    def __init__(self, status: int) -> None:
+        self.status = status
+        super().__init__(status)
 
 
 class HAPResponse:
@@ -159,6 +168,7 @@ class HAPServerHandler:
         self.client_address = client_address
         self.is_encrypted = False
         self.client_uuid: Optional[uuid.UUID] = None
+        self.session = None
 
         self.path: Optional[str] = None
         self.command: Optional[str] = None
@@ -257,6 +267,14 @@ class HAPServerHandler:
                 HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
             )
 
+        self.response = None
+        return response
+
+    def status_error_response(self, status: int) -> HAPResponse:
+        """Generate an explicit HAP status response for a failed operation."""
+        self.response = HAPResponse()
+        self.send_response_with_status(HTTPStatus.MULTI_STATUS, status)
+        response = self.response
         self.response = None
         return response
 
@@ -605,8 +623,7 @@ class HAPServerHandler:
             return
 
         logger.debug(
-            "%s: Pair verify with client completed. Switching to "
-            "encrypted transport.",
+            "%s: Pair verify with client completed. Switching to encrypted transport.",
             self.client_address,
         )
 
@@ -623,6 +640,9 @@ class HAPServerHandler:
         self.response.shared_key = self.enc_context["shared_key"]
         self.is_encrypted = True
         self.client_uuid = client_uuid
+        if self.session is not None:
+            self.session.close()
+        self.session = HAPSession(client_uuid, self.enc_context["shared_key"])
         del self.enc_context
 
     def handle_accessories(self) -> None:
@@ -644,7 +664,7 @@ class HAPServerHandler:
         assert self.parsed_url is not None  # nosec
         params = parse_qs(self.parsed_url.query)
         response = self.accessory_handler.get_characteristics(
-            params["id"][0].split(",")
+            params["id"][0].split(","), self.session
         )
         chars = response[HAP_REPR_CHARS]
 
@@ -677,7 +697,7 @@ class HAPServerHandler:
         )
 
         response = self.accessory_handler.set_characteristics(
-            requested_chars, self.client_address
+            requested_chars, self.client_address, self.session
         )
         if response is None:
             self.send_response(HTTPStatus.NO_CONTENT)

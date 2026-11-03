@@ -16,7 +16,7 @@ from pyhap.const import HAP_REPR_AID, HAP_REPR_IID
 
 from .hap_crypto import HAPCrypto
 from .hap_event import create_hap_event
-from .hap_handler import HAPResponse, HAPServerHandler
+from .hap_handler import HAPResponse, HAPServerHandler, HAPStatusError
 from .util import async_create_background_task
 
 if TYPE_CHECKING:
@@ -117,6 +117,9 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def close(self) -> None:
         """Remove the connection and close the transport."""
+        if self.handler is not None and self.handler.session is not None:
+            self.handler.session.close()
+            self.handler.session = None
         if self.peername in self.connections:
             del self.connections[self.peername]
         self.transport.write_eof()
@@ -303,6 +306,8 @@ class HAPServerProtocol(asyncio.Protocol):
         self.response = None
         try:
             response.body = task.result()
+        except HAPStatusError as ex:
+            response = self.handler.status_error_response(ex.status)
         except Exception as ex:  # pylint: disable=broad-except
             logger.debug(
                 "%s (%s): exception during delayed response",

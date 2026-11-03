@@ -73,10 +73,13 @@ DASH_REGEX = re.compile(r"[-]+")
 KEYS_TO_EXCLUDE = {HAP_REPR_IID, HAP_REPR_AID}
 
 
-def _wrap_char_setter(char, value, client_addr):
+def _wrap_char_setter(char, value, client_addr, session=None):
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
-        response = char.client_update_value(value, client_addr)
+        if session is None:
+            response = char.client_update_value(value, client_addr)
+        else:
+            response = char.client_update_value(value, client_addr, session)
     except Exception:  # pylint: disable=broad-except
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
@@ -322,6 +325,7 @@ class AccessoryDriver:
             if (
                 threading.current_thread() is threading.main_thread()
                 and os.name != "nt"
+                and hasattr(asyncio, "SafeChildWatcher")
             ):
                 logger.debug("Setting child watcher")
                 watcher = asyncio.SafeChildWatcher()  # pylint: disable=deprecated-class
@@ -351,8 +355,7 @@ class AccessoryDriver:
         """Validate we can start."""
         if self.accessory is None:
             raise ValueError(
-                "You must assign an accessory to the driver, "
-                "before you can start it."
+                "You must assign an accessory to the driver, before you can start it."
             )
 
     async def async_start(self):
@@ -797,7 +800,7 @@ class AccessoryDriver:
         logger.debug("Get accessories response: %s", hap_rep)
         return {HAP_REPR_ACCS: hap_rep}
 
-    def get_characteristics(self, char_ids):
+    def get_characteristics(self, char_ids, session=None):
         """Returns values for the required characteristics.
 
         :param char_ids: A list of characteristic "paths", e.g. "1.2" is aid 1, iid 2.
@@ -838,7 +841,10 @@ class AccessoryDriver:
                     char = acc.iid_manager.get_obj(iid)
 
                 if available:
-                    rep[HAP_REPR_VALUE] = char.get_value()
+                    if session is None:
+                        rep[HAP_REPR_VALUE] = char.get_value()
+                    else:
+                        rep[HAP_REPR_VALUE] = char.get_value(session)
                     rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             except CharacteristicError:
                 logger.error(
@@ -857,7 +863,7 @@ class AccessoryDriver:
         logger.debug("Get chars response: %s", chars)
         return {HAP_REPR_CHARS: chars}
 
-    def set_characteristics(self, chars_query, client_addr):
+    def set_characteristics(self, chars_query, client_addr, session=None):
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.
 
         :param chars_query: A configuration query. For example:
@@ -919,7 +925,7 @@ class AccessoryDriver:
 
             if value is not None:
                 set_result, set_result_value = _wrap_char_setter(
-                    char, value, client_addr
+                    char, value, client_addr, session
                 )
 
             if set_result_value is not None and write_response_requested:

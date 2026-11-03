@@ -796,3 +796,40 @@ def test_explicit_close(driver: AccessoryDriver):
     assert b"TestAcc" in join1
 
     assert hap_proto.transport.is_closing() is True
+
+
+def test_delayed_hap_status_error(driver):
+    """A deferred operation can report a specific HAP failure status."""
+    import json
+
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    protocol = hap_protocol.HAPServerProtocol(MagicMock(), {}, driver)
+    protocol.handler = hap_handler.HAPServerHandler(driver, "peer")
+    protocol.transport = Mock()
+    protocol.transport.is_closing.return_value = False
+    protocol.send_response = Mock()
+    protocol.response = HAPResponse()
+    task = Mock()
+    task.result.side_effect = hap_handler.HAPStatusError(-70412)
+    protocol._handle_response_ready(task)
+    response = protocol.send_response.call_args.args[0]
+    assert response.status_code == 207
+    assert json.loads(response.body) == {"status": -70412}
+    assert ("Content-Type", "application/hap+json") in response.headers
+
+
+def test_delayed_unexpected_error_stays_generic(driver):
+    """Unexpected failures do not expose details or change behavior."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    protocol = hap_protocol.HAPServerProtocol(MagicMock(), {}, driver)
+    protocol.handler = hap_handler.HAPServerHandler(driver, "peer")
+    protocol.transport = Mock()
+    protocol.transport.is_closing.return_value = False
+    protocol.send_response = Mock()
+    protocol.response = HAPResponse()
+    task = Mock()
+    task.result.side_effect = RuntimeError("private")
+    protocol._handle_response_ready(task)
+    response = protocol.send_response.call_args.args[0]
+    assert response.status_code == 500
+    assert b"private" not in response.body

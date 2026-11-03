@@ -626,6 +626,37 @@ async def test_pair_verify_two_success(driver: AccessoryDriver):
     assert handler.client_uuid == CLIENT_UUID
     assert driver.state.uuid_to_bytes[CLIENT_UUID] == CLIENT_UUID_BYTES
 
+    # Exercise the authenticated context all the way through the request handler,
+    # driver and characteristic, including a per-connection write response.
+    service = driver.loader.get_service("GarageDoorOpener")
+    driver.accessory.add_service(service)
+    char = service.get_characteristic("TargetDoorState")
+    iid = driver.accessory.iid_manager.get_iid(char)
+    seen = []
+    char.session_setter_callback = lambda value, session: (
+        seen.append((value, session)) or value
+    )
+    char.session_getter_callback = lambda session: (
+        1 if session is handler.session else 0
+    )
+    assert handler.session.client_uuid == CLIENT_UUID
+    assert handler.session.shared_key == response.shared_key
+    handler.response = hap_handler.HAPResponse()
+    handler.request_body = json.dumps(
+        {"characteristics": [{"aid": 1, "iid": iid, "value": 1, "r": True}]}
+    ).encode()
+    handler.handle_set_characteristics()
+    assert seen == [(1, handler.session)]
+    assert json.loads(handler.response.body)["characteristics"][0]["value"] == 1
+    handler.response = hap_handler.HAPResponse()
+    handler.parsed_url = urlparse(f"/characteristics?id=1.{iid}")
+    handler.handle_get_characteristics()
+    assert json.loads(handler.response.body)["characteristics"][0]["value"] == 1
+    handler.session.close()
+    handler.response = hap_handler.HAPResponse()
+    handler.handle_get_characteristics()
+    assert handler.response.status_code == 207
+
 
 async def test_invalid_pairing_request(driver: AccessoryDriver):
     """Verify an unencrypted pair verify with an invalid sequence fails."""
