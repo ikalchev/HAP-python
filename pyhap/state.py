@@ -1,6 +1,6 @@
 """Module for `State` class."""
 
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -56,6 +56,8 @@ class State:
         self.public_key = self.private_key.public_key()
         self.uuid_to_bytes: Dict[UUID, bytes] = {}
         self.accessories_hash = None
+        # Per-accessory state by aid, e.g. {"recording": {...}} of a camera.
+        self.accessory_states: Dict[int, Dict[str, Any]] = {}
 
     @property
     def address(self) -> str:
@@ -106,6 +108,8 @@ class State:
         if not any(self.is_admin(client_uuid) for client_uuid in self.paired_clients):
             self.paired_clients.clear()
             self.client_properties.clear()
+            # A new home must not inherit the previous home's settings.
+            self.accessory_states.clear()
 
     def set_accessories_hash(self, accessories_hash):
         """Set the accessories hash and increment the config version if needed."""

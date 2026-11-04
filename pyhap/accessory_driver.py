@@ -489,6 +489,8 @@ class AccessoryDriver:
         if os.path.exists(self.persist_file):
             logger.info("Loading Accessory state from `%s`", self.persist_file)
             self.load()
+            # Accessories built before load() have not seen their stored state.
+            accessory.restore_accessory_state()
         else:
             logger.info("Storing Accessory state in `%s`", self.persist_file)
             self.persist()
@@ -728,6 +730,8 @@ class AccessoryDriver:
         """
         logger.info("Unpairing client %s.", client_uuid)
         self.state.remove_paired_client(client_uuid)
+        if not self.state.paired:
+            self.accessory.reset_accessory_state()
         self.async_persist()
 
     def finish_pair(self):
