@@ -36,6 +36,7 @@ from zeroconf.asyncio import AsyncZeroconf
 from pyhap import util
 from pyhap.accessory import Accessory, get_topic
 from pyhap.characteristic import Characteristic, CharacteristicError
+from pyhap.client_context import ClientContext
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PROTOCOL_SHORT_VERSION,
@@ -73,10 +74,10 @@ DASH_REGEX = re.compile(r"[-]+")
 KEYS_TO_EXCLUDE = {HAP_REPR_IID, HAP_REPR_AID}
 
 
-def _wrap_char_setter(char, value, client_addr):
+def _wrap_char_setter(char, value, client_addr, client_context=None):
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
-        response = char.client_update_value(value, client_addr)
+        response = char.client_update_value(value, client_addr, client_context)
     except Exception:  # pylint: disable=broad-except
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
@@ -292,9 +293,6 @@ class AccessoryDriver:
         self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
-        # Per-session HAP shared keys, keyed by client (address, port). Needed
-        # by transports derived from the session, e.g. HomeKit Data Stream.
-        self.session_shared_keys: Dict[Tuple[str, int], bytes] = {}
         self.loader = loader or Loader()
         self.aio_stop_event = None
         self.stop_event = threading.Event()
@@ -543,7 +541,6 @@ class AccessoryDriver:
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
         self.prepared_writes.pop(client, None)
-        self.session_shared_keys.pop(client, None)
 
     def publish(self, data, sender_client_addr=None, immediate=False):
         """Publishes an event to the client.
@@ -864,6 +861,11 @@ class AccessoryDriver:
         logger.debug("Get chars response: %s", chars)
         return {HAP_REPR_CHARS: chars}
 
+    def client_context(self, client_addr):
+        """Return the :class:`ClientContext` of the HAP connection ``client_addr``."""
+        connection = self.http_server.connections.get(client_addr)
+        return ClientContext(client_addr, connection.shared_key if connection else None)
+
     def set_characteristics(self, chars_query, client_addr):
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.
 
@@ -925,8 +927,13 @@ class AccessoryDriver:
             set_result_value = None
 
             if value is not None:
+                client_context = (
+                    self.client_context(client_addr)
+                    if char.setter_callback_with_context
+                    else None
+                )
                 set_result, set_result_value = _wrap_char_setter(
-                    char, value, client_addr
+                    char, value, client_addr, client_context
                 )
 
             if set_result_value is not None and write_response_requested:

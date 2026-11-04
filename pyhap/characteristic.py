@@ -5,11 +5,11 @@ A Characteristic is the smallest unit of the smart home, e.g.
 a temperature measuring or a device status.
 """
 
-import inspect
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 from uuid import UUID
 
+from .client_context import ClientContext
 from .const import (
     HAP_PERMISSION_READ,
     HAP_REPR_DESC,
@@ -28,23 +28,6 @@ if TYPE_CHECKING:
     from .service import Service
 
 logger = logging.getLogger(__name__)
-
-
-def _setter_wants_client_addr(setter: Callable) -> bool:
-    """Whether ``setter`` opts in to receiving the sender's client address.
-
-    A setter opts in by declaring a parameter literally named
-    ``sender_client_addr`` (used e.g. for HDS transport setup that needs the HAP
-    session). Every other setter - including the common two-argument
-    default-value closures ``lambda value, option=option: ...`` - is called with
-    the value alone, unchanged.
-    """
-    try:
-        parameters = inspect.signature(setter).parameters
-    except (TypeError, ValueError):
-        return False
-    return "sender_client_addr" in parameters
-
 
 # ### HAP Format ###
 HAP_FORMAT_BOOL = "bool"
@@ -158,8 +141,7 @@ class Characteristic:
         "_to_hap_cache_with_value",
         "_to_hap_cache",
         "_always_null",
-        "_setter_addr_cache",
-        "_setter_addr_cache_for",
+        "setter_callback_with_context",
     )
 
     def __init__(
@@ -201,10 +183,12 @@ class Characteristic:
         self._value = self._get_default_value()
         self.getter_callback: Optional[Callable[[], Any]] = None
         self.setter_callback: Optional[Callable[[Any], None]] = None
-        # Cache of whether ``setter_callback`` opts into the client address,
-        # recomputed only when the setter object itself changes.
-        self._setter_addr_cache: bool = False
-        self._setter_addr_cache_for: Optional[Callable] = None
+        # Alternative to setter_callback for setters that need the HAP session,
+        # e.g. HDS transport setup. Called with (value, ClientContext) and takes
+        # precedence: setter_callback is not called when this is set.
+        self.setter_callback_with_context: Optional[
+            Callable[[Any, ClientContext], Any]
+        ] = None
         self.service: Optional["Service"] = None
         self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
@@ -390,11 +374,17 @@ class Characteristic:
             self.value = None
 
     def client_update_value(
-        self, value: Any, sender_client_addr: Optional[Tuple[str, int]] = None
-    ) -> None:
+        self,
+        value: Any,
+        sender_client_addr: Optional[Tuple[str, int]] = None,
+        client_context: Optional[ClientContext] = None,
+    ) -> Any:
         """Called from broker for value change in Home app.
 
         Change self.value to value and call callback.
+
+        ``client_context`` is supplied by the driver's write path. Without it,
+        ``setter_callback_with_context`` gets a context without a shared key.
         """
         original_value = value
         if not self._always_null or original_value is not None:
@@ -411,33 +401,20 @@ class Characteristic:
         previous_value = self._value
         self.value = value
         response = None
-        if self.setter_callback:
+        if self.setter_callback_with_context:
             # pylint: disable=not-callable
-            if self._setter_wants_addr():
-                response = self.setter_callback(value, sender_client_addr)
-            else:
-                response = self.setter_callback(value)
+            response = self.setter_callback_with_context(
+                value, client_context or ClientContext(sender_client_addr)
+            )
+        elif self.setter_callback:
+            # pylint: disable=not-callable
+            response = self.setter_callback(value)
         changed = self._value != previous_value
         if changed:
             self.notify(sender_client_addr)
         if self._always_null:
             self.value = None
         return response
-
-    def _setter_wants_addr(self) -> bool:
-        """Whether the current setter opts into the sender's client address.
-
-        Signature introspection is done once per setter object and cached, so
-        the common write path does not call :func:`inspect.signature` on every
-        client write.
-        """
-        setter = self.setter_callback
-        if setter is not self._setter_addr_cache_for:
-            self._setter_addr_cache_for = setter
-            self._setter_addr_cache = setter is not None and _setter_wants_client_addr(
-                setter
-            )
-        return self._setter_addr_cache
 
     def notify(self, sender_client_addr: Optional[Tuple[str, int]] = None) -> None:
         """Notify clients about a value change. Sends the value.

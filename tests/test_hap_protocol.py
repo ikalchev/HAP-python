@@ -574,8 +574,26 @@ def test_upgrade_to_encrypted(driver):
         )
 
     assert hap_proto.hap_crypto is not None
+    assert hap_proto.shared_key == b"newkey"
 
     hap_proto.close()
+    assert hap_proto.shared_key is None
+
+
+def test_close_keeps_newer_connection_with_same_peername(driver):
+    """Test closing a stale connection does not drop a newer one."""
+    loop = MagicMock()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    old_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    old_proto.connection_made(MagicMock())
+    new_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    new_proto.connection_made(old_proto.transport)
+    assert connections[old_proto.peername] is new_proto
+
+    old_proto.close()
+
+    assert connections[new_proto.peername] is new_proto
 
 
 async def test_pairing_changed(driver):

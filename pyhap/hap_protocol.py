@@ -61,6 +61,7 @@ class HAPServerProtocol(asyncio.Protocol):
 
         self.last_activity: Optional[float] = None
         self.hap_crypto: Optional[HAPCrypto] = None
+        self.shared_key: Optional[bytes] = None
         self._event_timer: Optional[asyncio.TimerHandle] = None
         self._event_queue: Dict[Tuple[int, int], Dict[str, Any]] = {}
 
@@ -117,8 +118,10 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def close(self) -> None:
         """Remove the connection and close the transport."""
-        if self.peername in self.connections:
+        # A newer connection may already be registered under the same peername.
+        if self.connections.get(self.peername) is self:
             del self.connections[self.peername]
+        self.shared_key = None
         self.transport.write_eof()
         self.transport.close()
 
@@ -291,11 +294,8 @@ class HAPServerProtocol(asyncio.Protocol):
         # If we get a shared key, upgrade to encrypted
         if response.shared_key:
             self.hap_crypto = HAPCrypto(response.shared_key)
-            # Publish the session key so transports derived from this session
-            # (e.g. HomeKit Data Stream) can be set up from a characteristic write.
-            self.accessory_driver.session_shared_keys[self.peername] = (
-                response.shared_key
-            )
+            # Kept for transports derived from this session, e.g. HomeKit Data Stream.
+            self.shared_key = response.shared_key
         # Only update mDNS after sending the response
         if response.pairing_changed:
             async_create_background_task(

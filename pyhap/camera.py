@@ -622,7 +622,7 @@ class Camera(Accessory):
         """Create the Data Stream Transport Management service used by HDS.
 
         SetupDataStreamTransport needs the HAP session shared secret, so its
-        setter receives the sender's client address to look the secret up.
+        setter receives the client context of the writing connection.
         """
         transport = self.add_preload_service("DataStreamTransportManagement")
         transport.configure_char("Version", value="1.0")
@@ -632,7 +632,7 @@ class Camera(Accessory):
         )
         transport.configure_char(
             "SetupDataStreamTransport",
-            setter_callback=self.set_data_stream_transport,
+            setter_callback_with_context=self.set_data_stream_transport,
         )
         # HKSV requires the recording management service to link the data stream
         # transport it records over; without the link the controller rejects
@@ -656,7 +656,7 @@ class Camera(Accessory):
         connection.add_close_callback(self._hds_connections.discard)
         hds_recording.RecordingStreamManager(connection, self._recording_delegate)
 
-    def set_data_stream_transport(self, value, sender_client_addr=None):
+    def set_data_stream_transport(self, value, client_context):
         """Handle a write to SetupDataStreamTransport (HDS session setup).
 
         SetupDataStreamTransport is a write-response ('wr') characteristic: the
@@ -668,7 +668,7 @@ class Camera(Accessory):
         the port, so it can never open the HDS connection.
         """
         request = hds.SetupRequest.decode(base64_to_bytes(value))
-        shared_secret = self.driver.session_shared_keys.get(sender_client_addr)
+        shared_secret = client_context.shared_key
         if shared_secret is None or self._hds_listener is None:
             response = hds.encode_setup_response(
                 0, b"", status=hds.SETUP_STATUS_GENERIC_ERROR
