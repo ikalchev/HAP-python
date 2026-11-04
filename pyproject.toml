@@ -8,14 +8,13 @@ license = "Apache-2.0"
 description = "HomeKit Accessory Protocol implementation in python"
 readme = "README.md"
 authors = [{ name = "Ivan Kalchev" }]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: End Users/Desktop",
     "Natural Language :: English",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -37,6 +36,9 @@ dynamic = ["version"]
 QRCode = [
     "base36",
     "pyqrcode",
+]
+Talkback = [
+    "pylibsrtp",
 ]
 
 [project.urls]

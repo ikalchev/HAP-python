@@ -2,7 +2,7 @@
 
 import asyncio
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -19,8 +19,6 @@ from pyhap.const import (
 from pyhap.iid_manager import IIDManager
 from pyhap.service import Service
 from pyhap.state import State
-
-from . import AsyncMock
 
 # #### Accessory ######
 # execute with `-k acc`
@@ -303,7 +301,7 @@ def test_to_hap_bridge(mock_driver):
                         {
                             "format": "string",
                             "iid": 9,
-                            "perms": ["pr", "ev"],
+                            "perms": ["pr"],
                             "type": "37",
                             "value": "01.01.00",
                         }
@@ -527,7 +525,7 @@ def test_to_hap_standalone(mock_driver):
                     {
                         "format": "string",
                         "iid": 9,
-                        "perms": ["pr", "ev"],
+                        "perms": ["pr"],
                         "type": "37",
                         "value": "01.01.00",
                     }

@@ -291,6 +291,11 @@ class HAPServerProtocol(asyncio.Protocol):
         # If we get a shared key, upgrade to encrypted
         if response.shared_key:
             self.hap_crypto = HAPCrypto(response.shared_key)
+            # Publish the session key so transports derived from this session
+            # (e.g. HomeKit Data Stream) can be set up from a characteristic write.
+            self.accessory_driver.session_shared_keys[self.peername] = (
+                response.shared_key
+            )
         # Only update mDNS after sending the response
         if response.pairing_changed:
             async_create_background_task(

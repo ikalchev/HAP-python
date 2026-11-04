@@ -16,6 +16,20 @@ Sections
 ### Developers
 -->
 
+## [5.1.0] - 2026-11-04
+
+- Add support for camera talkback (two-way) audio.
+  [#494](https://github.com/ikalchev/HAP-python/pull/494)
+- Add classic HomeKit Secure Video recording.
+  [#493](https://github.com/ikalchev/HAP-python/pull/493)
+- Add AirPlayEnable characteristic and SmartSpeaker service.
+  [#492](https://github.com/ikalchev/HAP-python/pull/492)
+- Respect availability when reading standalone accessories.
+  [#496](https://github.com/ikalchev/HAP-python/pull/496)
+- Silence ERROR log on the override_properties recovery path.
+  [#491](https://github.com/ikalchev/HAP-python/pull/491)
+- Drop support for Python 3.9 (EOL); fix tests and lints.
+
 ## [5.0.0] - 2025-08-25
 
 - Modernize packaging + drop support for 3.7 and 3.8.

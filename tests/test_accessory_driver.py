@@ -3,7 +3,7 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid1
 
 from cryptography.hazmat.primitives import serialization
@@ -31,8 +31,6 @@ from pyhap.const import (
 )
 from pyhap.service import Service
 from pyhap.state import State
-
-from . import AsyncMock
 
 CHAR_PROPS = {
     PROP_FORMAT: HAP_FORMAT_INT,
@@ -78,6 +76,53 @@ class UnavailableAccessory(Accessory):
     @property
     def available(self):
         return False
+
+
+@pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
+@pytest.mark.parametrize("available", [False, True], ids=["unavailable", "available"])
+def test_get_characteristics_honors_availability(driver, bridged, available):
+    """Respect accessory availability for standalone and bridged reads."""
+    accessory_type = Accessory if available else UnavailableAccessory
+    acc = accessory_type(
+        driver, "Test Accessory", aid=2 if bridged else STANDALONE_AID
+    )
+    service = Service(uuid1(), "Test Service")
+    char = Characteristic("Value", uuid1(), CHAR_PROPS)
+    getter = MagicMock(return_value=42)
+    char.getter_callback = getter
+    service.add_characteristic(char)
+    acc.add_service(service)
+    if bridged:
+        bridge = Bridge(driver, "Test Bridge")
+        bridge.add_accessory(acc)
+        driver.add_accessory(bridge)
+    else:
+        driver.add_accessory(acc)
+    iid = acc.iid_manager.get_iid(char)
+
+    result = driver.get_characteristics([f"{acc.aid}.{iid}"])
+
+    expected = {
+        HAP_REPR_AID: acc.aid,
+        HAP_REPR_IID: iid,
+        HAP_REPR_STATUS: HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
+    }
+    if available:
+        expected[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
+        expected[HAP_REPR_VALUE] = 42
+        getter.assert_called_once_with()
+    else:
+        getter.assert_not_called()
+    assert result == {HAP_REPR_CHARS: [expected]}
+
+    if not available:
+        with patch.object(UnavailableAccessory, "available", True):
+            expected[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
+            expected[HAP_REPR_VALUE] = 42
+            assert driver.get_characteristics([f"{acc.aid}.{iid}"]) == {
+                HAP_REPR_CHARS: [expected]
+            }
+        getter.assert_called_once_with()
 
 
 def test_auto_add_aid_mac(driver: AccessoryDriver):
