@@ -3,7 +3,7 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid1
 
 from cryptography.hazmat.primitives import serialization
@@ -31,8 +31,6 @@ from pyhap.const import (
 )
 from pyhap.service import Service
 from pyhap.state import State
-
-from . import AsyncMock
 
 CHAR_PROPS = {
     PROP_FORMAT: HAP_FORMAT_INT,

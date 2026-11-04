@@ -153,7 +153,8 @@ def test_set_selected_stream_start_stop(mock_driver):
 def test_no_talkback_by_default(mock_driver):
     """Without the ``talkback`` option, no Speaker service is added and
     SetupEndpoints keeps echoing the controller's port back (unchanged,
-    pre-existing behavior for accessories that don't opt in)."""
+    pre-existing behavior for accessories that don't opt in).
+    """
     set_endpoint_req = (
         "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
         "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
@@ -174,7 +175,8 @@ def test_no_talkback_by_default(mock_driver):
 
 def _controller_audio_port(request_b64: str) -> int:
     """Extract the controller's requested audio port from a SetupEndpoints
-    write value, for comparison against the accessory's response."""
+    write value, for comparison against the accessory's response.
+    """
     objs = tlv.decode(request_b64, from_base64=True)
     address_objs = tlv.decode(objs[camera.SETUP_TYPES["ADDRESS"]])
     return struct.unpack("<H", address_objs[camera.SETUP_ADDR_INFO["AUDIO_RTP_PORT"]])[
@@ -184,7 +186,8 @@ def _controller_audio_port(request_b64: str) -> int:
 
 def _accessory_audio_port(response_b64: str) -> int:
     """Extract the accessory's reported audio port from a SetupEndpoints
-    response value."""
+    response value.
+    """
     objs = tlv.decode(response_b64, from_base64=True)
     address_objs = tlv.decode(objs[camera.SETUP_TYPES["ADDRESS"]])
     return struct.unpack("<H", address_objs[camera.SETUP_ADDR_INFO["AUDIO_RTP_PORT"]])[
@@ -195,7 +198,8 @@ def _accessory_audio_port(response_b64: str) -> int:
 def _audio_srtp_key_and_salt(request_b64: str) -> bytes:
     """Extract the audio SRTP master key + salt from a SetupEndpoints write
     value, exactly as the accessory itself would when negotiating the
-    session."""
+    session.
+    """
     objs = tlv.decode(request_b64, from_base64=True)
     audio_srtp_objs = tlv.decode(objs[camera.SETUP_TYPES["AUDIO_SRTP_PARAM"]])
     return (
@@ -206,7 +210,8 @@ def _audio_srtp_key_and_salt(request_b64: str) -> bytes:
 
 def test_talkback_enabled_adds_speaker_service(mock_driver):
     """With ``talkback=True``, a muted-by-default Speaker service is added so
-    that HAP clients know the accessory supports receiving two-way audio."""
+    that HAP clients know the accessory supports receiving two-way audio.
+    """
     options = dict(_OPTIONS, talkback=True)
     acc = camera.Camera(options, mock_driver, "Camera")
 
@@ -219,7 +224,8 @@ def test_setup_endpoints_reports_real_port_when_talkback_enabled(mock_driver):
     """The accessory must report a real local listening port for the audio
     talkback channel, not echo the controller's own port back at it (the bug
     this module fixes: HAP clients had nowhere valid to send the talkback
-    audio to, because the accessory never actually listened anywhere)."""
+    audio to, because the accessory never actually listened anywhere).
+    """
     set_endpoint_req = (
         "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
         "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
@@ -248,7 +254,8 @@ def test_setup_endpoints_reports_real_port_when_talkback_enabled(mock_driver):
 async def test_talkback_audio_is_received_and_dispatched(mock_driver):
     """End-to-end: an SRTP audio packet sent to the reported port (as a HAP
     client would during a live view session) is decrypted, RTP-parsed, and
-    dispatched to ``talkback_audio_received`` with the raw codec payload."""
+    dispatched to ``talkback_audio_received`` with the raw codec payload.
+    """
     pylibsrtp = pytest.importorskip("pylibsrtp")
 
     mock_driver.loop = asyncio.get_running_loop()

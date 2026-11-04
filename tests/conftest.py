@@ -1,14 +1,12 @@
 """Test fictures and mocks."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.loader import Loader
-
-from . import AsyncMock
 
 
 @pytest.fixture(scope="session")

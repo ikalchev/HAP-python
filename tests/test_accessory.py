@@ -2,7 +2,7 @@
 
 import asyncio
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -19,8 +19,6 @@ from pyhap.const import (
 from pyhap.iid_manager import IIDManager
 from pyhap.service import Service
 from pyhap.state import State
-
-from . import AsyncMock
 
 # #### Accessory ######
 # execute with `-k acc`
