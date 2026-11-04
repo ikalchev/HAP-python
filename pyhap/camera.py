@@ -474,7 +474,6 @@ class Camera(Accessory):
         self._motion_detected_char = None
         self._hds_listener = None
         self._hds_connections = set()
-        # The RecordingStreamManager holding this camera's single recording slot.
         self._recording_stream = None
         if options.get("video"):
             self._setup_stream_management(options)
