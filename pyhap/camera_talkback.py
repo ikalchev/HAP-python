@@ -138,7 +138,9 @@ class TalkbackReceiver:
 
         family = socket.AF_INET6 if is_ipv6 else socket.AF_INET
         self._sock = socket.socket(family, socket.SOCK_DGRAM)
-        self._sock.bind(("::" if is_ipv6 else "0.0.0.0", 0))
+        # Bind to all interfaces only to obtain an ephemeral port; the
+        # receiver is handed to the controller, not exposed publicly.
+        self._sock.bind(("::" if is_ipv6 else "0.0.0.0", 0))  # nosec
         self._sock.settimeout(0.5)
 
         self._stop_event = threading.Event()

@@ -178,7 +178,7 @@ class HDSConnection(asyncio.Protocol):
                 payload = trial.decrypt_frame(probe)
             # Wrong keys fail the auth tag; try the next pending transport.
             except Exception:  # pylint: disable=broad-exception-caught
-                continue
+                continue  # nosec B112
             if payload is None:
                 # Right keys but the frame is not complete yet; wait for more.
                 return False
@@ -263,10 +263,12 @@ class HDSListener:
         self._connections = set()
         self.on_connection: Optional[Callable[[HDSConnection], None]] = None
 
-    async def start(self, host: str = "0.0.0.0") -> int:
+    async def start(self, host: str = "0.0.0.0") -> int:  # nosec B104
         """Bind the server to an ephemeral port and return it."""
         loop = asyncio.get_running_loop()
-        self._server = await loop.create_server(self._make_connection, host, 0)
+        # The host is a caller-configurable parameter; the default matches the
+        # HAP server, which also listens on all interfaces by default.
+        self._server = await loop.create_server(self._make_connection, host, 0)  # nosec B104
         return self.port
 
     def _make_connection(self) -> HDSConnection:

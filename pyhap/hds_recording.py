@@ -157,7 +157,8 @@ class RecordingStreamManager:
                 try:
                     await aclose()
                 except Exception:  # pylint: disable=broad-exception-caught
-                    pass
+                    # Cleanup is best-effort; the connection is gone either way.
+                    pass  # nosec B110
 
     async def _send_fragment(
         self, fragment: bytes, sequence_number: int, initialization: bool, is_last: bool
