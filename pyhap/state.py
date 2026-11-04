@@ -56,7 +56,6 @@ class State:
         self.public_key = self.private_key.public_key()
         self.uuid_to_bytes: Dict[UUID, bytes] = {}
         self.accessories_hash = None
-        # Per-accessory state by aid, e.g. {"recording": {...}} of a camera.
         self.accessory_states: Dict[int, Dict[str, Any]] = {}
 
     @property

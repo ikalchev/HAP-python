@@ -231,7 +231,6 @@ FFMPEG_CMD = (
 logger = logging.getLogger(__name__)
 
 SELECTED_RECORDING_CHAR = "SelectedCameraRecordingConfiguration"
-# Recording state kept across restarts, as (service, characteristic).
 PERSISTED_RECORDING_CHARS = (
     ("CameraRecordingManagement", "Active"),
     ("CameraRecordingManagement", "RecordingAudioActive"),
@@ -490,7 +489,7 @@ class Camera(Accessory):
         self._selected_recording_config = None
         # Last selection that decoded, the char may hold a rejected write.
         self._selected_recording_raw = None
-        self._recording_defaults = {}  # persisted char: default value
+        self._recording_defaults = {}
         self._recording_save_pending = False
         self._motion_detected_char = None
         self._hds_listener = None
