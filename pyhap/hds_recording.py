@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import functools
 from enum import IntEnum
 import logging
 from typing import AsyncIterator, Callable, Optional
@@ -60,6 +61,8 @@ class RecordingPacket:
 # A delegate is called with the stream id and yields RecordingPackets. The first
 # yielded packet is the MP4 initialization segment.
 RecordingDelegate = Callable[[int], AsyncIterator[RecordingPacket]]
+# An open gate returns a reason to reject a dataSend/open, or None to accept it.
+OpenGate = Callable[["RecordingStreamManager"], Optional[RecordingReason]]
 
 
 class RecordingStreamManager:
@@ -70,10 +73,12 @@ class RecordingStreamManager:
         connection,
         delegate: RecordingDelegate,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
+        open_gate: Optional[OpenGate] = None,
     ) -> None:
         self._connection = connection
-        self._delegate = delegate
+        self._delegate = functools.partial(self._guard_delegate, delegate)
         self._chunk_size = chunk_size
+        self._open_gate = open_gate
         self._stream_id: Optional[int] = None
         self._task: Optional[asyncio.Task] = None
         self._closed = False
@@ -91,6 +96,40 @@ class RecordingStreamManager:
         # header and the specific reason in the message body.
         return HDSStatus.PROTOCOL_SPECIFIC_ERROR, {"status": reason}
 
+    @property
+    def streaming(self) -> bool:
+        """Whether a stream runs and is not being stopped."""
+        task = self._task
+        return task is not None and not task.done() and not self._stopping
+
+    async def _guard_delegate(
+        self, delegate: RecordingDelegate, stream_id: int
+    ) -> AsyncIterator[RecordingPacket]:
+        # Tell the controller when the delegate raises or runs out early instead
+        # of leaving it waiting. The stream stops iterating after the last
+        # packet, so falling off the loop means the delegate ended too soon.
+        generator = delegate(stream_id)
+        try:
+            async for packet in generator:
+                yield packet
+        except Exception:
+            self._send_failure(stream_id)
+            raise
+        finally:
+            # The stream only closes this wrapper, so close the delegate here.
+            aclose = getattr(generator, "aclose", None)
+            if aclose is not None:
+                await aclose()
+        self._send_failure(stream_id)
+
+    def _send_failure(self, stream_id: int) -> None:
+        if not self._closed:
+            self._connection.send_event(
+                _DATA_SEND,
+                "close",
+                {"streamId": stream_id, "reason": RecordingReason.UNEXPECTED_FAILURE},
+            )
+
     def _handle_open(self, message: Message):
         body = message.message
         if not isinstance(body, dict) or "streamId" not in body:
@@ -100,6 +139,12 @@ class RecordingStreamManager:
             or body.get("type") != _TYPE_RECORDING
         ):
             return self._reject(RecordingReason.UNEXPECTED_FAILURE)
+        if self._open_gate is not None:
+            reason = self._open_gate(self)
+            if reason is not None:
+                return self._reject(reason)
+        # On one connection a new stream waits for the old task's cleanup, as
+        # both share this manager's stream state.
         if self._task is not None and not self._task.done():
             return self._reject(RecordingReason.BUSY)
         self._stream_id = body["streamId"]
