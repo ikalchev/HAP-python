@@ -6,7 +6,7 @@ The HAPServer is the point of contact to and from the world.
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 from .hap_protocol import HAPServerProtocol
 from .util import callback
@@ -43,6 +43,11 @@ class HAPServer:
         self.server: Optional[asyncio.Server] = None
         self._connection_cleanup: Optional[asyncio.TimerHandle] = None
         self.loop: Optional[asyncio.AbstractEventLoop] = None
+
+    @property
+    def listen_address(self) -> Union[str, List[str]]:
+        """The address, or list of addresses, the server listens on."""
+        return self._addr_port[0]
 
     async def async_start(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start the http-hap server."""

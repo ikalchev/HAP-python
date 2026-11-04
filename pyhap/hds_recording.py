@@ -132,6 +132,7 @@ class RecordingStreamManager:
             task.cancel()
 
     async def _stream(self) -> None:
+        self._connection.track_task(asyncio.current_task())
         generator = self._delegate(self._stream_id)
         try:
             sequence_number = 1

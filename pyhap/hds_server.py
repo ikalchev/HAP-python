@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import errno
 import logging
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from pyhap import hds
 from pyhap.hds_protocol import EVENT, REQUEST, RESPONSE, HDSStatus, Message
@@ -36,6 +37,12 @@ _BIND_TIMEOUT = 10.0
 # Controllers re-run SetupDataStreamTransport and may abandon transports; bound
 # the registrations we keep (and trial-decrypt against) so they cannot pile up.
 _MAX_PENDING_TRANSPORTS = 16
+# A peer that has not drained our send buffer for this long is gone.
+_DRAIN_TIMEOUT = 30.0
+# Tries to find a port that is free for every listen address.
+_BIND_ATTEMPTS = 3
+# How long stop() waits for recording tasks to run their cleanup.
+_STOP_TIMEOUT = 10.0
 
 
 @dataclass
@@ -110,10 +117,20 @@ class HDSConnection(asyncio.Protocol):
         if self._transport is not None:
             self._transport.close()
 
+    def abort(self) -> None:
+        """Close without flushing the send buffer (dead or stalled peer)."""
+        if self._transport is not None:
+            self._transport.abort()
+
+    def track_task(self, task: asyncio.Task) -> None:
+        """Let the listener await ``task`` (e.g. a recording stream) on stop."""
+        self._listener.track_task(task)
+
     # --- asyncio.Protocol ---
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self._transport = transport  # type: ignore[assignment]
+        self._listener._connections.add(self)  # pylint: disable=protected-access
         self._bind_timeout_handle = asyncio.get_running_loop().call_later(
             _BIND_TIMEOUT, self._on_bind_timeout
         )
@@ -145,8 +162,19 @@ class HDSConnection(asyncio.Protocol):
         self._can_write.set()
 
     async def drain(self) -> None:
-        """Wait until the transport can accept more data (write back-pressure)."""
-        await self._can_write.wait()
+        """Wait until the transport can accept more data (write back-pressure).
+
+        A peer that stops reading is aborted after ``_DRAIN_TIMEOUT`` seconds.
+        """
+        try:
+            await asyncio.wait_for(self._can_write.wait(), _DRAIN_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.info("Aborting HDS connection: peer stopped reading")
+            self.abort()
+            # connection_lost wakes us and cancels the recording streams, so a
+            # stalled hub is not reported as a failed stream.
+            await self._can_write.wait()
+            raise ConnectionResetError("HDS peer stopped reading") from None
 
     def connection_lost(self, exc: Optional[Exception]) -> None:
         if self._bind_timeout_handle is not None:
@@ -188,7 +216,6 @@ class HDSConnection(asyncio.Protocol):
                 self._bind_timeout_handle.cancel()
                 self._bind_timeout_handle = None
             self._listener._pending.remove(pending)
-            self._listener._connections.add(self)
             self._dispatch(payload)
             return True
         return False
@@ -258,18 +285,47 @@ class HDSListener:
     """An asyncio TCP server accepting HDS connections."""
 
     def __init__(self) -> None:
-        self._server: Optional[asyncio.AbstractServer] = None
+        self._servers: List[asyncio.AbstractServer] = []
         self._pending = []
         self._connections = set()
+        self._tasks: Set[asyncio.Task] = set()
         self.on_connection: Optional[Callable[[HDSConnection], None]] = None
 
-    async def start(self, host: str = "0.0.0.0") -> int:  # nosec B104
-        """Bind the server to an ephemeral port and return it."""
+    async def start(
+        self, host: Union[str, Sequence[str]] = "0.0.0.0"  # nosec B104
+    ) -> int:
+        """Bind one address or several to one ephemeral port and return it."""
+        hosts = [host] if isinstance(host, str) else list(host)
+        if not hosts:
+            raise ValueError("HDS listener needs at least one address")
         loop = asyncio.get_running_loop()
-        # The host is a caller-configurable parameter; the default matches the
-        # HAP server, which also listens on all interfaces by default.
-        self._server = await loop.create_server(self._make_connection, host, 0)  # nosec B104
-        return self.port
+        attempts = _BIND_ATTEMPTS
+        while True:
+            try:
+                for bind_host in hosts:
+                    # The setup response carries a single port, so every
+                    # socket must listen on the one the first bind picked.
+                    port = self.port if self._servers else 0
+                    server = await loop.create_server(
+                        self._make_connection, bind_host, port
+                    )
+                    self._servers.append(server)
+                    if len({sock.getsockname()[1] for sock in server.sockets}) > 1:
+                        # A wildcard host binds each family on its own port.
+                        port = server.sockets[0].getsockname()[1]
+                        server.close()
+                        # Nobody knows the port yet, so no connection holds this up.
+                        await server.wait_closed()
+                        self._servers[-1] = await loop.create_server(
+                            self._make_connection, bind_host, port
+                        )
+                return self.port
+            except OSError as err:
+                await self.stop()
+                attempts -= 1
+                # That port may be taken in another address family, try a new one.
+                if err.errno != errno.EADDRINUSE or not attempts:
+                    raise
 
     def _make_connection(self) -> HDSConnection:
         connection = HDSConnection(self)
@@ -279,7 +335,12 @@ class HDSListener:
 
     @property
     def port(self) -> int:
-        return self._server.sockets[0].getsockname()[1]
+        return self._servers[0].sockets[0].getsockname()[1]
+
+    def track_task(self, task: asyncio.Task) -> None:
+        """Await ``task`` (e.g. a recording stream) with timeout on stop."""
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     def register_transport(
         self, shared_secret: bytes, controller_key_salt: bytes
@@ -301,9 +362,20 @@ class HDSListener:
             self._pending.pop(0)
         return accessory_key_salt
 
-    async def stop(self) -> None:
+    async def stop(self, timeout: float = _STOP_TIMEOUT) -> None:
+        """Drop all connections and wait up to ``timeout`` for their streams."""
         for connection in list(self._connections):
-            connection.close()
-        if self._server is not None:
-            self._server.close()
-            await self._server.wait_closed()
+            connection.abort()
+        for server in self._servers:
+            server.close()
+            await server.wait_closed()
+        self._servers = []
+        if self._tasks:
+            # Losing the connection cancels each stream, let its cleanup finish.
+            _, pending = await asyncio.wait(set(self._tasks), timeout=timeout)
+            if pending:
+                logger.warning(
+                    "%d HDS recording tasks did not stop within %s s",
+                    len(pending),
+                    timeout,
+                )

@@ -472,6 +472,8 @@ class Camera(Accessory):
         self._recording_service = None
         self._selected_recording_config = None
         self._motion_detected_char = None
+        # Bumped on stop so a start still binding does not publish its listener.
+        self._hds_generation = 0
         self._hds_listener = None
         self._hds_connections = set()
         if options.get("video"):
@@ -647,9 +649,17 @@ class Camera(Accessory):
 
     async def _ensure_hds_listener(self):
         if self._hds_listener is None:
-            self._hds_listener = hds_server.HDSListener()
-            self._hds_listener.on_connection = self._on_hds_connection
-            await self._hds_listener.start()
+            generation = self._hds_generation
+            listener = hds_server.HDSListener()
+            listener.on_connection = self._on_hds_connection
+            # Bind where HAP listens: the controller opens HDS to that address.
+            await listener.start(self.driver.http_server.listen_address)
+            # Publish only a bound listener, SetupDataStreamTransport reads its
+            # port. A concurrent start or a stop may have come in meanwhile.
+            if self._hds_listener is None and generation == self._hds_generation:
+                self._hds_listener = listener
+            else:
+                await listener.stop()
 
     def _on_hds_connection(self, connection):
         self._hds_connections.add(connection)
@@ -682,15 +692,14 @@ class Camera(Accessory):
             )
         return to_base64_str(response)
 
-    async def _recording_delegate(self, stream_id):
-        """Yield recording fragments for ``stream_id``.
+    def _recording_delegate(self, stream_id):
+        """Return the recording generator for ``stream_id``.
 
         Override ``handle_recording_stream`` to produce the fragmented MP4
-        packets; this adapter exists so the transport can await an async
-        generator.
+        packets. Its generator is handed over as is, so the stream's
+        ``aclose()`` runs its cleanup inside the tracked recording task.
         """
-        async for packet in self.handle_recording_stream(stream_id):
-            yield packet
+        return self.handle_recording_stream(stream_id)
 
     async def handle_recording_stream(self, stream_id):
         """Produce the fragmented-MP4 recording for ``stream_id``.
@@ -1136,17 +1145,30 @@ class Camera(Accessory):
     async def run(self):
         """Start the HDS listener when recording transport is available."""
         await super().run()
+        await self.start_recording_transport()
+
+    async def start_recording_transport(self):
+        """Start the HDS listener on the HAP server's listen address(es).
+
+        ``run()`` calls this. Call it directly when ``run()`` is not awaited.
+        Does nothing without the recording service.
+        """
         if self._recording_service is not None:
             await self._ensure_hds_listener()
+
+    async def stop_recording_transport(self):
+        """Close the HDS listener and its connections, then await recordings."""
+        self._hds_generation += 1
+        listener, self._hds_listener = self._hds_listener, None
+        if listener is not None:
+            await listener.stop()
 
     async def stop(self):
         """Stop all streaming sessions and the HDS listener."""
         await asyncio.gather(
             *(self.stop_stream(session_info) for session_info in self.sessions.values())
         )
-        if self._hds_listener is not None:
-            await self._hds_listener.stop()
-            self._hds_listener = None
+        await self.stop_recording_transport()
 
     # ### For client extensions ###
 
