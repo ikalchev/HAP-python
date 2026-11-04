@@ -38,6 +38,9 @@ QRCode = [
     "base36",
     "pyqrcode",
 ]
+Talkback = [
+    "pylibsrtp",
+]
 
 [project.urls]
 "Source" = "https://github.com/ikalchev/HAP-python"
