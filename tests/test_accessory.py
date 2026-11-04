@@ -303,7 +303,7 @@ def test_to_hap_bridge(mock_driver):
                         {
                             "format": "string",
                             "iid": 9,
-                            "perms": ["pr", "ev"],
+                            "perms": ["pr"],
                             "type": "37",
                             "value": "01.01.00",
                         }
@@ -527,7 +527,7 @@ def test_to_hap_standalone(mock_driver):
                     {
                         "format": "string",
                         "iid": 9,
-                        "perms": ["pr", "ev"],
+                        "perms": ["pr"],
                         "type": "37",
                         "value": "01.01.00",
                     }

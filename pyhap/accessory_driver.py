@@ -292,6 +292,9 @@ class AccessoryDriver:
         self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
+        # Per-session HAP shared keys, keyed by client (address, port). Needed
+        # by transports derived from the session, e.g. HomeKit Data Stream.
+        self.session_shared_keys: Dict[Tuple[str, int], bytes] = {}
         self.loader = loader or Loader()
         self.aio_stop_event = None
         self.stop_event = threading.Event()
@@ -322,6 +325,9 @@ class AccessoryDriver:
             if (
                 threading.current_thread() is threading.main_thread()
                 and os.name != "nt"
+                # The child watcher API was removed in Python 3.14; there the
+                # default event loop reaps subprocesses without one.
+                and hasattr(asyncio, "SafeChildWatcher")
             ):
                 logger.debug("Setting child watcher")
                 watcher = asyncio.SafeChildWatcher()  # pylint: disable=deprecated-class
@@ -537,6 +543,7 @@ class AccessoryDriver:
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
         self.prepared_writes.pop(client, None)
+        self.session_shared_keys.pop(client, None)
 
     def publish(self, data, sender_client_addr=None, immediate=False):
         """Publishes an event to the client.

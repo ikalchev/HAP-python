@@ -122,6 +122,15 @@
       "minValue": 0,
       "unit": "percentage"
    },
+   "CameraOperatingModeIndicator": {
+      "Format": "bool",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "0000021D-0000-1000-8000-0026BB765291"
+   },
    "CarbonDioxideDetected": {
       "Format": "uint8",
       "Permissions": [
@@ -482,6 +491,19 @@
       ],
       "UUID": "00000136-0000-1000-8000-0026BB765291"
    },
+   "EventSnapshotsActive": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000223-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "Disable": 0,
+         "Enable": 1
+      }
+   },
    "FilterChangeIndication": {
       "Format": "uint8",
       "Permissions": [
@@ -538,6 +560,20 @@
          "pw"
       ],
       "UUID": "0000006F-0000-1000-8000-0026BB765291"
+   },
+   "HomeKitCameraActive": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev",
+         "tw"
+      ],
+      "UUID": "0000021B-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "Disable": 0,
+         "Enable": 1
+      }
    },
    "Hue": {
       "Format": "float",
@@ -748,6 +784,14 @@
       ],
       "UUID": "0000001F-0000-1000-8000-0026BB765291"
    },
+   "ManuallyDisabled": {
+      "Format": "bool",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000227-0000-1000-8000-0026BB765291"
+   },
    "Manufacturer": {
       "Format": "string",
       "Permissions": [
@@ -916,6 +960,19 @@
       ],
       "UUID": "00000050-0000-1000-8000-0026BB765291"
    },
+   "PeriodicSnapshotsActive": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000225-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "Disable": 0,
+         "Enable": 1
+      }
+   },
    "PictureMode":{
       "Format": "uint8",
       "Permissions": [
@@ -985,6 +1042,20 @@
          "DoublePress": 1,
          "LongPress": 2,
          "SinglePress": 0
+      }
+   },
+   "RecordingAudioActive": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev",
+         "tw"
+      ],
+      "UUID": "00000226-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "Disable": 0,
+         "Enable": 1
       }
    },
    "RelativeHumidityDehumidifierThreshold": {
@@ -1138,6 +1209,15 @@
          "StayArm": 0
       }
    },
+   "SelectedCameraRecordingConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000209-0000-1000-8000-0026BB765291"
+   },
    "SelectedRTPStreamConfiguration": {
       "Format": "tlv8",
       "Permissions": [
@@ -1186,6 +1266,15 @@
       "maxValue": 3600,
       "minStep": 1,
       "minValue": 0
+   },
+   "SetupDataStreamTransport": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "00000131-0000-1000-8000-0026BB765291"
    },
    "SetupEndpoints": {
       "Format": "tlv8",
@@ -1305,6 +1394,14 @@
       "minStep": 1,
       "minValue": 0
    },
+   "SupportedAudioRecordingConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000207-0000-1000-8000-0026BB765291"
+   },
    "SupportedAudioStreamConfiguration": {
       "Format": "tlv8",
       "Permissions": [
@@ -1312,12 +1409,35 @@
       ],
       "UUID": "00000115-0000-1000-8000-0026BB765291"
    },
+   "SupportedCameraRecordingConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000205-0000-1000-8000-0026BB765291"
+   },
+   "SupportedDataStreamTransportConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000130-0000-1000-8000-0026BB765291"
+   },
    "SupportedRTPConfiguration": {
       "Format": "tlv8",
       "Permissions": [
          "pr"
       ],
       "UUID": "00000116-0000-1000-8000-0026BB765291"
+   },
+   "SupportedVideoRecordingConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000206-0000-1000-8000-0026BB765291"
    },
    "SupportedVideoStreamConfiguration": {
       "Format": "tlv8",
@@ -1573,6 +1693,15 @@
          "Fahrenheit": 1
       }
    },
+   "ThirdPartyCameraActive": {
+      "Format": "bool",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "0000021C-0000-1000-8000-0026BB765291"
+   },
    "TransitionControl": {
       "Format": "tlv8",
       "Permissions": [
@@ -1611,8 +1740,7 @@
       "Format": "string",
       "MaximumLength": 64,
       "Permissions": [
-         "pr",
-         "ev"
+         "pr"
       ],
       "UUID": "00000037-0000-1000-8000-0026BB765291"
    },
