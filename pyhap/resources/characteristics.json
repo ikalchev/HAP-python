@@ -72,6 +72,17 @@
          "2.5\u03bcm": 0
       }
    },
+   "AirPlayEnable": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "0000025B-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0
+   },
    "AirQuality": {
       "Format": "uint8",
       "Permissions": [
