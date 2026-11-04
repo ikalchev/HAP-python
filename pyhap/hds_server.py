@@ -39,9 +39,7 @@ _BIND_TIMEOUT = 10.0
 _MAX_PENDING_TRANSPORTS = 16
 # A peer that has not drained our send buffer for this long is gone.
 _DRAIN_TIMEOUT = 30.0
-# Tries to find a port that is free for every listen address.
 _BIND_ATTEMPTS = 3
-# How long stop() waits for recording tasks to run their cleanup.
 _STOP_TIMEOUT = 10.0
 
 
