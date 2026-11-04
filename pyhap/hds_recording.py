@@ -196,25 +196,33 @@ class RecordingStreamManager:
                 break
 
 
-async def _read_mp4_box(reader: asyncio.StreamReader) -> Optional[bytes]:
+# Cap what is buffered, so a non-MP4 source or a corrupt box size fails at
+# once instead of being buffered until the source ends. Real init segments
+# are a few KiB. A 10 s fragment at 50 Mbit/s is about 60 MiB.
+_MAX_INIT_SIZE = 4 * 1024 * 1024
+_MAX_FRAGMENT_SIZE = 64 * 1024 * 1024
+
+
+async def _read_mp4_box(reader: asyncio.StreamReader, max_size: int) -> Optional[bytes]:
     """Read one top-level MP4 box (header + body) from ``reader``.
 
-    Returns ``None`` at end of stream.
+    Returns ``None`` at end of stream (also mid-box) and for a size smaller
+    than the header, including 0 (box runs to end of file). Raises
+    ``ValueError`` for a box larger than ``max_size``, before reading its body.
     """
     try:
         header = await reader.readexactly(8)
+        size = int.from_bytes(header[0:4], "big")
+        if size == 1:  # 64-bit extended size
+            header += await reader.readexactly(8)
+            size = int.from_bytes(header[8:16], "big")
+        if size < len(header):
+            return None
+        if size > max_size:
+            raise ValueError(f"MP4 box of {size} bytes exceeds limit of {max_size}")
+        return header + await reader.readexactly(size - len(header))
     except asyncio.IncompleteReadError:
         return None
-    size = int.from_bytes(header[0:4], "big")
-    if size == 1:  # 64-bit extended size
-        ext = await reader.readexactly(8)
-        size = int.from_bytes(ext, "big")
-        body = await reader.readexactly(size - 16)
-        return header + ext + body
-    if size < 8:
-        return None
-    body = await reader.readexactly(size - 8)
-    return header + body
 
 
 async def fmp4_recording_packets(
@@ -224,10 +232,16 @@ async def fmp4_recording_packets(
 
     Reads MP4 boxes from ``reader`` - any object with an ``readexactly``
     coroutine, e.g. an ffmpeg subprocess' ``stdout`` or an aiohttp/go2rtc
-    response body. The leading ``ftyp``+``moov`` boxes are yielded as the single
-    initialization packet; each following ``moof``(+``mdat``) fragment is
-    yielded as a media fragment, and the fragment produced right before end of
-    stream is flagged ``is_last`` so the recording ends gracefully.
+    response body. Everything up to and including ``moov`` is yielded as the
+    initialization packet once ``moov`` is complete, and each ``moof``+``mdat``
+    fragment once its ``mdat`` is complete. Fragments must have one ``mdat``
+    per ``moof`` (CMAF style, as ffmpeg writes them). Other boxes between
+    fragments (``styp``, ``sidx``, ffmpeg's trailing ``mfra``, a second
+    ``mdat``) are dropped. End of stream counts as a normal end and is
+    signalled with an empty packet flagged ``is_last``. A caller that knows
+    the source failed (e.g. from ffmpeg's exit code) should raise instead.
+    Raises ``ValueError`` if no ``moov`` shows up within ``_MAX_INIT_SIZE``
+    bytes or a fragment exceeds ``_MAX_FRAGMENT_SIZE`` bytes.
 
     This is source-agnostic: point it at whatever produces keyframe-aligned
     fragmented MP4 whose fragment length matches the selected recording
@@ -237,27 +251,34 @@ async def fmp4_recording_packets(
     """
     init = bytearray()
     sent_init = False
-    pending: Optional[bytearray] = None
+    fragment: Optional[bytearray] = None
+    warned_mdat = False
     while True:
-        box = await _read_mp4_box(reader)
+        if sent_init:
+            max_size = _MAX_FRAGMENT_SIZE - len(fragment or b"")
+        else:
+            max_size = _MAX_INIT_SIZE - len(init)
+        box = await _read_mp4_box(reader, max_size)
         if box is None:
             break
         box_type = bytes(box[4:8])
-        if box_type in (b"ftyp", b"moov"):
+        if not sent_init:
             init += box
-        elif box_type == b"moof":
-            if not sent_init:
+            if box_type == b"moov":
                 yield RecordingPacket(bytes(init))
                 sent_init = True
-            # A new fragment starts; flush the previous one (not the last).
-            if pending is not None:
-                yield RecordingPacket(bytes(pending))
-            pending = bytearray(box)
-        elif pending is not None:
-            # mdat (and any styp / other boxes) belong to the current fragment.
-            pending += box
-        elif not sent_init:
-            init += box
-    # End of stream: the buffered fragment is the last one.
-    if pending is not None:
-        yield RecordingPacket(bytes(pending), is_last=True)
+        elif box_type == b"moof":
+            fragment = bytearray(box)
+        elif fragment is not None:
+            fragment += box
+            if box_type == b"mdat":
+                yield RecordingPacket(bytes(fragment))
+                fragment = None
+        elif box_type == b"mdat" and not warned_mdat:
+            # Once per stream: several mdat per moof would hit this every fragment.
+            logger.warning("Dropping mdat outside a fragment, expected one per moof")
+            warned_mdat = True
+    # Fragments go out before we know which one is last, so end with an empty
+    # packet. An incomplete fragment is dropped.
+    if sent_init:
+        yield RecordingPacket(b"", is_last=True)
