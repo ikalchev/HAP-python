@@ -65,6 +65,8 @@ def parse_rtp_packet(packet: bytes) -> RtpPacket:
 
     b0, b1, seq, timestamp, ssrc = struct.unpack("!BBHII", packet[:12])
     version = b0 >> 6
+    if version != 2:
+        raise ValueError(f"Unsupported RTP version: {version}")
     padding = bool((b0 >> 5) & 1)
     extension = (b0 >> 4) & 1
     csrc_count = b0 & 0x0F
@@ -80,6 +82,11 @@ def parse_rtp_packet(packet: bytes) -> RtpPacket:
 
     if padding and packet:
         pad_len = packet[-1]
+        if pad_len > len(packet) - offset:
+            raise ValueError(
+                f"RTP padding length ({pad_len}) exceeds packet "
+                f"({len(packet)} bytes with {offset} header)"
+            )
         payload = packet[offset : len(packet) - pad_len]
     else:
         payload = packet[offset:]
@@ -163,7 +170,11 @@ class TalkbackReceiver:
         while not self._stop_event.is_set():
             try:
                 data, _addr = self._sock.recvfrom(2048)
-            except TimeoutError:
+            except socket.timeout:
+                # socket.timeout aliases TimeoutError from Python 3.10 on, but
+                # is an OSError subclass on 3.9, which this project supports,
+                # so catching TimeoutError here would kill the receiver thread
+                # on the first (0.5s) poll timeout on Python 3.9.
                 continue
             except OSError:
                 break

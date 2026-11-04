@@ -909,9 +909,13 @@ class Camera(Accessory):
         :meth:`talkback_audio_received` easy to implement without every caller
         having to worry about thread-safety.
         """
-        self.driver.loop.call_soon_threadsafe(
-            self.talkback_audio_received, session_id, payload
-        )
+        loop = getattr(self.driver, "loop", None)
+        if loop is None:
+            logger.warning(
+                "Dropping talkback audio packet: driver event loop is not available."
+            )
+            return
+        loop.call_soon_threadsafe(self.talkback_audio_received, session_id, payload)
 
     def talkback_audio_received(
         self, session_id, payload: bytes
@@ -1065,6 +1069,11 @@ class Camera(Accessory):
         # "Controller Address" received above carries the controller's), so
         # echoing the controller's port here left HAP clients with nowhere
         # valid to send the talkback audio to.
+        #
+        # Stop any previous receiver for this session first, so a
+        # re-sent SetupEndpoints for the same session ID doesn't leak its
+        # receiver thread and UDP socket.
+        self._close_talkback(self.sessions.get(session_id, {}))
         audio_backchannel = None
         audio_rtp_port = target_audio_port
         if self.support_talkback:
