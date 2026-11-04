@@ -79,8 +79,9 @@ class RecordingStreamManager:
         self._closed = False
         self._stopping = False
         connection.add_request_handler(_DATA_SEND, "open", self._handle_open)
-        connection.add_request_handler(_DATA_SEND, "close", self._handle_close)
-        connection.add_request_handler(_DATA_SEND, "ack", self._handle_ack)
+        # The controller sends close and ack as events, not requests.
+        connection.add_event_handler(_DATA_SEND, "close", self._handle_close)
+        connection.add_event_handler(_DATA_SEND, "ack", self._handle_ack)
         # Stop the recording task (and its delegate/subprocess) if the controller
         # drops the connection instead of sending a clean dataSend/close.
         connection.add_close_callback(lambda _connection: self._stop())
@@ -108,17 +109,25 @@ class RecordingStreamManager:
         self._task = asyncio.get_running_loop().create_task(self._stream())
         return HDSStatus.SUCCESS, {}
 
-    def _handle_close(self, message: Message):
-        body = message.message
+    def _handle_close(self, message: Message) -> None:
         # A stale or duplicate close for an earlier stream must not stop the
         # currently running one.
-        if isinstance(body, dict) and body.get("streamId") != self._stream_id:
-            return self._reject(RecordingReason.UNEXPECTED_FAILURE)
-        self._stop()
-        return HDSStatus.SUCCESS, {}
+        if self._is_current_stream(message):
+            logger.debug(
+                "Recording stream %s closed by controller, reason %s",
+                self._stream_id,
+                message.message.get("reason"),
+            )
+            self._stop()
 
-    def _handle_ack(self, message: Message):
-        return HDSStatus.SUCCESS, {}
+    def _handle_ack(self, message: Message) -> None:
+        # The controller acknowledges endOfStream, which completes the stream.
+        if self._is_current_stream(message):
+            self._stop()
+
+    def _is_current_stream(self, message: Message) -> bool:
+        body = message.message
+        return isinstance(body, dict) and body.get("streamId") == self._stream_id
 
     def _stop(self) -> None:
         # Cancel at most once: _stop() is reached from both dataSend/close and
@@ -150,6 +159,9 @@ class RecordingStreamManager:
         except Exception:  # pylint: disable=broad-exception-caught
             logger.warning("Recording stream %s failed", self._stream_id, exc_info=True)
         finally:
+            # A close, ack or connection loss from here on must not cancel the
+            # delegate's cleanup below.
+            self._stopping = True
             # Deterministically run the delegate's cleanup (e.g. terminate its
             # ffmpeg subprocess) even when the controller dropped the connection.
             aclose = getattr(generator, "aclose", None)
