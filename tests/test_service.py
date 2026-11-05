@@ -33,7 +33,8 @@ def test_repr():
     service.characteristics = [get_chars()[0]]
     assert (
         repr(service)
-        == "<service display_name=TestService unique_id=my_service_unique_id chars={'Char 1': 0}>"
+        == "<service display_name=TestService unique_id=my_service_unique_id"
+        " chars={'Char 1': 0}>"
     )
 
 
@@ -48,7 +49,7 @@ def test_add_characteristic():
     service = Service(uuid1(), "Test Service")
     chars = get_chars()
     service.add_characteristic(*chars)
-    for char_service, char_original in zip(service.characteristics, chars):
+    for char_service, char_original in zip(service.characteristics, chars, strict=True):
         assert char_service == char_original
 
     service.add_characteristic(chars[0])

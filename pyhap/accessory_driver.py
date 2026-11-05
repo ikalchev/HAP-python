@@ -2,18 +2,19 @@
 
 Sending updates to clients
 
-The process of sending value changes to clients happens in two parts - on one hand, the
-value change is indicated by a Characteristic and, on the other, that change is sent to a
-client. To begin, typically, something in the Accessory's run method will do
+The process of sending value changes to clients happens in two parts - on one hand,
+the value change is indicated by a Characteristic and, on the other, that change is
+sent to a client. To begin, typically, something in the Accessory's run method will do
 set_value(foo, notify=True) on one of its contained Characteristic. This in turn will
 create a HAP representation of the change and publish it to the Accessory. This will
 then add some more information and eventually the value change will reach the
 AccessoryDriver (all this happens through the publish() interface). The AccessoryDriver
 will then check if there is a client that subscribed for events from this exact
-Characteristic from this exact Accessory (remember, it could be a Bridge with more than
-one Accessory in it). If so, a task is created to send the event to the subscribers. This
-terminates the call chain and concludes the publishing process from the Characteristic,
-the Characteristic does not block waiting for the actual send to happen.
+Characteristic from this exact Accessory (remember, it could be a Bridge with more
+than one Accessory in it). If so, a task is created to send the event to the
+subscribers. This terminates the call chain and concludes the publishing process
+from the Characteristic, the Characteristic does not block waiting for the actual
+send to happen.
 """
 
 import asyncio
@@ -28,13 +29,13 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
-from pyhap.accessory import Accessory, get_topic
+from pyhap.accessory import Accessory, Bridge, get_topic
 from pyhap.characteristic import Characteristic, CharacteristicError
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
@@ -77,7 +78,7 @@ def _wrap_char_setter(char, value, client_addr):
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
         response = char.client_update_value(value, client_addr)
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
             client_addr,
@@ -92,7 +93,7 @@ def _wrap_acc_setter(acc, updates_by_service, client_addr):
     """Process an accessory setter callback trapping and logging all exceptions."""
     try:
         acc.setter_callback(updates_by_service)
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         logger.exception(
             "%s: Error while setting characteristics to %s for the %s accessory",
             updates_by_service,
@@ -111,7 +112,7 @@ def _wrap_service_setter(service, chars, client_addr):
     service_chars = {char.display_name: value for char, value in chars.items()}
     try:
         service.setter_callback(service_chars)
-    except Exception:  # pylint: disable=broad-except
+    except Exception:
         logger.exception(
             "%s: Error while setting characteristics to %s for the %s service",
             service_chars,
@@ -190,8 +191,7 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
 
 
 class AccessoryDriver:
-    """
-    An AccessoryDriver mediates between incoming requests from the HAPServer and
+    """An AccessoryDriver mediates between incoming requests from the HAPServer and
     the Accessory.
 
     The driver starts and stops the HAPServer, the mDNS advertisements and responds
@@ -215,8 +215,7 @@ class AccessoryDriver:
         async_zeroconf_instance=None,
         zeroconf_server=None,
     ):
-        """
-        Initialize a new AccessoryDriver object.
+        """Initialize a new AccessoryDriver object.
 
         :param pincode: The pincode that HAP clients must prove they know in order
             to pair with this `Accessory`. Defaults to None, in which case a random
@@ -257,9 +256,9 @@ class AccessoryDriver:
         :param interface_choice: The zeroconf interfaces to listen on.
         :type InterfacesType: [InterfaceChoice.Default, InterfaceChoice.All]
 
-        :param async_zeroconf_instance: An AsyncZeroconf instance. When running multiple accessories or
-            bridges a single zeroconf instance can be shared to avoid the overhead
-            of processing the same data multiple times.
+        :param async_zeroconf_instance: An AsyncZeroconf instance. When running multiple
+            accessories or bridges a single zeroconf instance can be shared to avoid
+            the overhead of processing the same data multiple times.
 
         :param zeroconf_server: The server name that will be used for the zeroconf
             ServiceInfo.
@@ -271,11 +270,9 @@ class AccessoryDriver:
             else:
                 loop = asyncio.new_event_loop()
 
-            executor_opts = {"max_workers": None}
-            if sys.version_info >= (3, 6):
-                executor_opts["thread_name_prefix"] = "SyncWorker"
-
-            self.executor = ThreadPoolExecutor(**executor_opts)
+            self.executor = ThreadPoolExecutor(
+                max_workers=None, thread_name_prefix="SyncWorker"
+            )
             loop.set_default_executor(self.executor)
             self.tid = threading.current_thread()
         else:
@@ -284,8 +281,8 @@ class AccessoryDriver:
 
         self.loop = loop
 
-        self.accessory: Optional[Accessory] = None
-        self.advertiser = async_zeroconf_instance
+        self.accessory: Accessory | None = None
+        self.advertiser: AsyncZeroconf | None = async_zeroconf_instance
         self.zeroconf_server = zeroconf_server
         self.interface_choice = interface_choice
 
@@ -294,15 +291,15 @@ class AccessoryDriver:
         self.topics = {}  # topic: set of (address, port) of subscribed clients
         # Per-session HAP shared keys, keyed by client (address, port). Needed
         # by transports derived from the session, e.g. HomeKit Data Stream.
-        self.session_shared_keys: Dict[Tuple[str, int], bytes] = {}
+        self.session_shared_keys: dict[tuple[str, int], bytes] = {}
         self.loader = loader or Loader()
-        self.aio_stop_event = None
+        self.aio_stop_event: asyncio.Event | None = None
         self.stop_event = threading.Event()
 
         self.safe_mode = False
 
-        self.mdns_service_info = None
-        self.srp_verifier = None
+        self.mdns_service_info: ServiceInfo | None = None
+        self._srp_verifier: SrpServer | None = None
 
         address = address or util.get_local_address()
         advertised_address = advertised_address or address
@@ -315,7 +312,7 @@ class AccessoryDriver:
         self.http_server = HAPServer(network_tuple, self)
         self.prepared_writes = {}
 
-    def listen_address(self) -> Union[str, List[str]]:
+    def listen_address(self) -> str | list[str]:
         """Return the address, or list of addresses, the HAP server listens on."""
         return self._listen_address
 
@@ -334,9 +331,11 @@ class AccessoryDriver:
                 and hasattr(asyncio, "SafeChildWatcher")
             ):
                 logger.debug("Setting child watcher")
-                watcher = asyncio.SafeChildWatcher()  # pylint: disable=deprecated-class
+                watcher = asyncio.SafeChildWatcher()
                 watcher.attach_loop(self.loop)
-                asyncio.set_child_watcher(watcher)
+                # Deprecated in 3.12, removed in 3.14; the hasattr guard
+                # above keeps this branch unreachable on 3.14+.
+                asyncio.set_child_watcher(watcher)  # ty: ignore[deprecated]
             else:
                 logger.debug(
                     "Not setting a child watcher. Set one if "
@@ -361,8 +360,7 @@ class AccessoryDriver:
         """Validate we can start."""
         if self.accessory is None:
             raise ValueError(
-                "You must assign an accessory to the driver, "
-                "before you can start it."
+                "You must assign an accessory to the driver, before you can start it."
             )
 
     async def async_start(self):
@@ -378,6 +376,7 @@ class AccessoryDriver:
         daemon.
         """
         self._validate_start()
+        assert self.accessory is not None  # noqa: S101
         self.aio_stop_event = asyncio.Event()
 
         logger.info(
@@ -431,8 +430,13 @@ class AccessoryDriver:
     async def async_stop(self):
         """Stops the AccessoryDriver and shutdown all remaining tasks."""
         self.stop_event.set()
+        accessory = self.accessory
+        assert accessory is not None  # noqa: S101
+        assert self.advertiser is not None  # noqa: S101
+        assert self.mdns_service_info is not None  # noqa: S101
+        assert self.aio_stop_event is not None  # noqa: S101
         logger.debug("Stopping HAP server and event sending")
-        logger.debug("Stopping mDNS advertising for %s", self.accessory.display_name)
+        logger.debug("Stopping mDNS advertising for %s", accessory.display_name)
         await self.advertiser.async_unregister_service(self.mdns_service_info)
         await self.advertiser.async_close()
 
@@ -442,15 +446,15 @@ class AccessoryDriver:
 
         logger.info(
             "Stopping accessory %s on address %s, port %s.",
-            self.accessory.display_name,
+            accessory.display_name,
             self.state.addresses,
             self.state.port,
         )
 
-        await self.async_add_job(self.accessory.stop)
+        await self.async_add_job(accessory.stop)
 
         logger.debug(
-            "AccessoryDriver for %s stopped successfully", self.accessory.display_name
+            "AccessoryDriver for %s stopped successfully", accessory.display_name
         )
 
         # Executor=None means a loop wasn't passed in
@@ -509,9 +513,9 @@ class AccessoryDriver:
         :param topic: The topic to which to subscribe.
         :type topic: str
 
-        :param subscribe: Whether to subscribe or unsubscribe the client. Both subscribing
-            an already subscribed client and unsubscribing a client that is not subscribed
-            do nothing.
+        :param subscribe: Whether to subscribe or unsubscribe the client. Both
+            subscribing an already subscribed client and unsubscribing a client
+            that is not subscribed do nothing.
         :type subscribe: bool
         """
         if subscribe:
@@ -576,6 +580,7 @@ class AccessoryDriver:
 
         Must be called in the event loop
         """
+        assert self.aio_stop_event is not None  # noqa: S101
         if self.aio_stop_event.is_set():
             return
 
@@ -613,8 +618,8 @@ class AccessoryDriver:
         """Notify the driver that the accessory's configuration has changed.
 
         Persists the accessory, so that the new configuration is available on
-        restart. Also, updates the mDNS advertisement, so that iOS clients know they need
-        to fetch new data.
+        restart. Also, updates the mDNS advertisement, so that iOS clients know
+        they need to fetch new data.
         """
         self.state.increment_config_version()
         self.persist()
@@ -628,6 +633,7 @@ class AccessoryDriver:
     def async_update_advertisement(self):
         """Updates the mDNS service info for the accessory from the event loop."""
         logger.debug("Updating mDNS advertisement")
+        assert self.advertiser is not None  # noqa: S101
         self.mdns_service_info = AccessoryMDNSServiceInfo(
             self.accessory, self.state, self.zeroconf_server
         )
@@ -672,7 +678,7 @@ class AccessoryDriver:
                 if os.path.exists(self.persist_file):
                     os.chmod(self.persist_file, 0o644)
             os.replace(tmp_filename, self.persist_file)
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             logger.exception("Failed to persist accessory state")
             raise
         finally:
@@ -684,7 +690,7 @@ class AccessoryDriver:
 
         Must run in executor.
         """
-        with open(self.persist_file, "r", encoding="utf8") as file_handle:
+        with open(self.persist_file, encoding="utf8") as file_handle:
             self.encoder.load_into(file_handle, self.state)
 
     @callback
@@ -754,12 +760,18 @@ class AccessoryDriver:
         if not self.safe_mode:
             self.update_advertisement()
 
-    def setup_srp_verifier(self):
+    @property
+    def srp_verifier(self) -> SrpServer:
+        """Return the SRP verifier (created by setup_srp_verifier)."""
+        assert self._srp_verifier is not None  # noqa: S101
+        return self._srp_verifier
+
+    def setup_srp_verifier(self) -> None:
         """Create an SRP verifier for the accessory's info."""
         # TODO: Move the below hard-coded values somewhere nice.
         ctx = get_srp_context(3072, hashlib.sha512, 16)
         verifier = SrpServer(ctx, b"Pair-Setup", self.state.pincode)
-        self.srp_verifier = verifier
+        self._srp_verifier = verifier
 
     @property
     def accessories_hash(self):
@@ -800,6 +812,7 @@ class AccessoryDriver:
 
         :rtype: dict
         """
+        assert self.accessory is not None  # noqa: S101
         hap_rep = self.accessory.to_HAP(include_value=include_value)
         if not isinstance(hap_rep, list):
             hap_rep = [
@@ -828,6 +841,7 @@ class AccessoryDriver:
 
         :rtype: dict
         """
+        assert self.accessory is not None  # noqa: S101
         chars = []
         for aid_iid in char_ids:
             aid, iid = (int(i) for i in aid_iid.split("."))
@@ -842,13 +856,23 @@ class AccessoryDriver:
                     char = self.accessory.iid_manager.get_obj(iid)
                     available = self.accessory.available
                 else:
-                    acc = self.accessory.accessories.get(aid)
-                    if acc is None:
-                        continue
-                    available = acc.available
-                    char = acc.iid_manager.get_obj(iid)
+                    # Accessory IIDs other than the standalone one only exist
+                    # on bridged accessories; anything else is unknown and
+                    # keeps the per-characteristic failure status.
+                    bridge = self.accessory
+                    if isinstance(bridge, Bridge):
+                        acc = bridge.accessories.get(aid)
+                        if acc is None:
+                            continue
+                        char = acc.iid_manager.get_obj(iid)
+                        available = acc.available
+                    else:
+                        char = None
+                        available = False
 
-                if available:
+                # A characteristic IID may resolve to a Service or be unknown;
+                # only a Characteristic can report a value.
+                if available and isinstance(char, Characteristic):
                     rep[HAP_REPR_VALUE] = char.get_value()
                     rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             except CharacteristicError:
@@ -857,7 +881,7 @@ class AccessoryDriver:
                     self.accessory.display_name,
                     (aid, iid),
                 )
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 logger.exception(
                     "%s: Unexpected error getting value for characteristic %s.",
                     self.accessory.display_name,
@@ -889,17 +913,17 @@ class AccessoryDriver:
         """
         # TODO: Add support for chars that do no support notifications.
 
-        queries: List[Dict[str, Any]] = chars_query[HAP_REPR_CHARS]
+        queries: list[dict[str, Any]] = chars_query[HAP_REPR_CHARS]
 
         self._notify(queries, client_addr)
 
-        updates_by_accessories_services: Dict[
-            Accessory, Dict[Service, Dict[Characteristic, Any]]
+        updates_by_accessories_services: dict[
+            Accessory, dict[Service, dict[Characteristic, Any]]
         ] = defaultdict(lambda: defaultdict(dict))
-        results: Dict[int, Dict[int, Dict[str, Any]]] = defaultdict(
+        results: dict[int, dict[int, dict[str, Any]]] = defaultdict(
             lambda: defaultdict(dict)
         )
-        char_to_iid: Dict[Characteristic, int] = {}
+        char_to_iid: dict[Characteristic, int] = {}
 
         expired = False
         if HAP_REPR_PID in chars_query:
@@ -908,6 +932,7 @@ class AccessoryDriver:
             expired = expire_time is None or time.time() > expire_time
 
         primary_accessory = self.accessory
+        assert primary_accessory is not None  # noqa: S101
         primary_aid = primary_accessory.aid
 
         for query in queries:
@@ -922,8 +947,17 @@ class AccessoryDriver:
             if aid == primary_aid:
                 acc = primary_accessory
             else:
-                acc = self.accessory.accessories.get(aid)
+                # Accessory IIDs other than the primary one only exist on
+                # bridged accessories.
+                bridge = self.accessory
+                if not isinstance(bridge, Bridge):
+                    continue
+                acc = bridge.accessories.get(aid)
+            if acc is None:
+                continue
             char = acc.get_characteristic(aid, iid)
+            if char is None:
+                continue
 
             set_result = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
             set_result_value = None
@@ -941,11 +975,13 @@ class AccessoryDriver:
             results[aid][iid] = result
             char_to_iid[char] = iid
             service = char.service
+            assert service is not None  # noqa: S101
             updates_by_accessories_services[acc][service][char] = value
 
         # Proccess accessory and service level setter callbacks
         for acc, updates_by_service in updates_by_accessories_services.items():
             aid = acc.aid
+            assert aid is not None  # noqa: S101
             aid_results = results[aid]
 
             # Accessory level setter callbacks
@@ -1014,8 +1050,8 @@ class AccessoryDriver:
         >>> import signal
         >>> signal.signal(signal.SIGINT, anAccDriver.signal_handler)
 
-        Now, when the user hits Ctrl+C, the driver will stop its accessory, the HAP server
-        and everything else that needs stopping and will exit gracefully.
+        Now, when the user hits Ctrl+C, the driver will stop its accessory, the
+        HAP server and everything else that needs stopping and will exit gracefully.
         """
         try:
             self.stop()
@@ -1024,7 +1060,7 @@ class AccessoryDriver:
             raise
 
     def _notify(
-        self, queries: List[Dict[str, Any]], client_addr: Tuple[str, int]
+        self, queries: list[dict[str, Any]], client_addr: tuple[str, int]
     ) -> None:
         """Notify the driver that the client has subscribed or unsubscribed."""
         for query in queries:

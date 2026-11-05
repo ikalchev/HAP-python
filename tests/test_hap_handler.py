@@ -21,8 +21,14 @@ CLIENT_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
 CLIENT2_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c2")
 CLIENT2_UUID_BYTES = str(CLIENT2_UUID).upper().encode("utf-8")
 
-PUBLIC_KEY = b"\x99\x98d%\x8c\xf6h\x06\xfa\x85\x9f\x90\x82\xf2\xe8\x18\x9f\xf8\xc75\x1f>~\xc32\xc1OC\x13\xbfH\xad"
-PUBLIC_KEY2 = b"\x99\x98d%\x8c\xf6h\x06\xfa\x85\x9f\x90\x82\xf2\xe8\x18\x9f\xf8\xc75\x1f>~\xc32\xc1OC\x13\xbfH\xac"
+PUBLIC_KEY = (
+    b"\x99\x98d%\x8c\xf6h\x06\xfa\x85\x9f\x90\x82\xf2\xe8\x18\x9f\xf8\xc75\x1f>~"
+    b"\xc32\xc1OC\x13\xbfH\xad"
+)
+PUBLIC_KEY2 = (
+    b"\x99\x98d%\x8c\xf6h\x06\xfa\x85\x9f\x90\x82\xf2\xe8\x18\x9f\xf8\xc75\x1f>~"
+    b"\xc32\xc1OC\x13\xbfH\xac"
+)
 
 
 def test_response():
@@ -443,6 +449,7 @@ async def test_pair_verify_two_missing_signature(driver: AccessoryDriver):
         hap_handler.HAP_TLV_TAGS.USERNAME,
         CLIENT_UUID_BYTES,
     )
+    assert handler.enc_context is not None
     cipher = ChaCha20Poly1305(handler.enc_context["pre_session_key"])
     encrypted_data = cipher.encrypt(
         hap_handler.HAPServerHandler.PVERIFY_2_NONCE, bytes(unencrypted_data), b""
@@ -505,6 +512,7 @@ async def test_pair_verify_two_success_raw_uuid_bytes_missing(driver: AccessoryD
     )
     raw_accessory_public_key = tlv_objects[hap_handler.HAP_TLV_TAGS.PUBLIC_KEY]
 
+    assert handler.enc_context is not None
     server_public_key: x25519.X25519PublicKey = handler.enc_context["public_key"]
     expected_raw_public_key = server_public_key.public_bytes(
         encoding=serialization.Encoding.Raw,
@@ -512,6 +520,7 @@ async def test_pair_verify_two_success_raw_uuid_bytes_missing(driver: AccessoryD
     )
     assert raw_accessory_public_key == expected_raw_public_key
 
+    assert handler.enc_context is not None
     assert client_public_key_bytes == handler.enc_context["client_public"]
 
     material = client_public_key_bytes + CLIENT_UUID_BYTES + raw_accessory_public_key
@@ -523,6 +532,7 @@ async def test_pair_verify_two_success_raw_uuid_bytes_missing(driver: AccessoryD
         hap_handler.HAP_TLV_TAGS.PROOF,
         client_proof,
     )
+    assert handler.enc_context is not None
     cipher = ChaCha20Poly1305(handler.enc_context["pre_session_key"])
     encrypted_data = cipher.encrypt(
         hap_handler.HAPServerHandler.PVERIFY_2_NONCE, bytes(unencrypted_data), b""
@@ -584,6 +594,7 @@ async def test_pair_verify_two_success(driver: AccessoryDriver):
     )
     raw_accessory_public_key = tlv_objects[hap_handler.HAP_TLV_TAGS.PUBLIC_KEY]
 
+    assert handler.enc_context is not None
     server_public_key: x25519.X25519PublicKey = handler.enc_context["public_key"]
     expected_raw_public_key = server_public_key.public_bytes(
         encoding=serialization.Encoding.Raw,
@@ -591,6 +602,7 @@ async def test_pair_verify_two_success(driver: AccessoryDriver):
     )
     assert raw_accessory_public_key == expected_raw_public_key
 
+    assert handler.enc_context is not None
     assert client_public_key_bytes == handler.enc_context["client_public"]
 
     material = client_public_key_bytes + CLIENT_UUID_BYTES + raw_accessory_public_key
@@ -602,6 +614,7 @@ async def test_pair_verify_two_success(driver: AccessoryDriver):
         hap_handler.HAP_TLV_TAGS.PROOF,
         client_proof,
     )
+    assert handler.enc_context is not None
     cipher = ChaCha20Poly1305(handler.enc_context["pre_session_key"])
     encrypted_data = cipher.encrypt(
         hap_handler.HAPServerHandler.PVERIFY_2_NONCE, bytes(unencrypted_data), b""
@@ -921,7 +934,10 @@ def test_handle_snapshot_encrypted_non_existant_accessory(driver: AccessoryDrive
 
     response = hap_handler.HAPResponse()
     handler.response = response
-    handler.request_body = b'{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'
+    handler.request_body = (
+        b'{"image-height":360,"resource-type":"image",'
+        b'"image-width":640,"aid":1411620844}'
+    )
     with pytest.raises(ValueError):
         handler.handle_resource()
 

@@ -62,7 +62,7 @@ class SyncIntervalAccessory(Accessory):
         self._counter = 0
 
     @Accessory.run_at_interval(0.001)  # Run this method every 0.001 seconds
-    def run(self):  # pylint: disable=invalid-overridden-method
+    def run(self):
         self._counter += 1
 
     @property
@@ -83,9 +83,7 @@ class UnavailableAccessory(Accessory):
 def test_get_characteristics_honors_availability(driver, bridged, available):
     """Respect accessory availability for standalone and bridged reads."""
     accessory_type = Accessory if available else UnavailableAccessory
-    acc = accessory_type(
-        driver, "Test Accessory", aid=2 if bridged else STANDALONE_AID
-    )
+    acc = accessory_type(driver, "Test Accessory", aid=2 if bridged else STANDALONE_AID)
     service = Service(uuid1(), "Test Service")
     char = Characteristic("Value", uuid1(), CHAR_PROPS)
     getter = MagicMock(return_value=42)
@@ -846,7 +844,7 @@ async def test_start_stop_sync_acc(async_zeroconf):
 
         class Acc(Accessory):
             @Accessory.run_at_interval(0)
-            def run(self):  # pylint: disable=invalid-overridden-method
+            def run(self):
                 run_event.set()
 
             def setup_message(self):
@@ -933,7 +931,7 @@ async def test_start_from_async_stop_from_executor(async_zeroconf):
 
         class Acc(Accessory):
             @Accessory.run_at_interval(0)
-            def run(self):  # pylint: disable=invalid-overridden-method
+            def run(self):
                 run_event.set()
 
             def setup_message(self):
@@ -945,6 +943,7 @@ async def test_start_from_async_stop_from_executor(async_zeroconf):
         await run_event.wait()
         assert not driver.loop.is_closed()
         await driver.loop.run_in_executor(None, driver.stop)
+        assert driver.aio_stop_event is not None
         await driver.aio_stop_event.wait()
 
 
@@ -979,13 +978,17 @@ def test_send_events(driver: AccessoryDriver):
         def get_pushed_events(self):
             return self.pushed_events
 
-    driver.http_server = HapServerMock()
+    # Inject a fake server to capture pushed events; it is
+    # intentionally not a HAPServer subclass.
+    driver.http_server = HapServerMock()  # ty: ignore[invalid-assignment]
     driver.loop = LoopMock()
     driver.topics = {"mocktopic": {"client1", "client2", "client3"}}
     driver.async_send_event("mocktopic", "bytedata", "client1", True)
 
     # Only client2 and client3 get the event when client1 sent it
-    assert driver.http_server.get_pushed_events() == {
+    # Read back through the injected fake above, not the typed attribute.
+    pushed = driver.http_server.get_pushed_events()  # ty: ignore[unresolved-attribute]
+    assert pushed == {
         ("bytedata", "client2"),
         ("bytedata", "client3"),
     }

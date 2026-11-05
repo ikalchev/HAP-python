@@ -1,7 +1,0 @@
-async_timeout;python_version<'3.11'
-base36
-cryptography
-orjson
-pyqrcode
-h11
-zeroconf

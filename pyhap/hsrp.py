@@ -88,9 +88,10 @@ class Server:
         hG = self._digest(self.gb)
         hGroup = bytes(hN[i] ^ hG[i] for i in range(0, len(hN)))
         hU = self._digest(self.I)
+        assert self.Ab is not None  # noqa: S101
         return self._digest(hGroup + hU + self.s + self.Ab + self.Bb + self.Kb)
 
-    def set_A(self, bytes_A):
+    def set_A(self, bytes_A: bytes) -> None:
         self.A = bytes_to_long(bytes_A)
         self.Ab = bytes_A
         self.S = self._derive_premaster_secret()
@@ -100,7 +101,11 @@ class Server:
         self.M = self._get_M()
         self.HAMK = self._get_HAMK()
 
-    def _get_HAMK(self):
+    def _get_HAMK(self) -> bytes:
+        # Called from set_A, after Ab/M/Kb are all assigned.
+        assert self.Ab is not None  # noqa: S101
+        assert self.M is not None  # noqa: S101
+        assert self.Kb is not None  # noqa: S101
         return self._digest(self.Ab + self.M + self.Kb)
 
     def get_challenge(self):

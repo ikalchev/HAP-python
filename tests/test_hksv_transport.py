@@ -1,7 +1,5 @@
 """Tests for the HDS transport lifecycle: binding, start/stop and timeouts."""
 
-# pylint: disable=protected-access
-
 import asyncio
 import errno
 import logging
