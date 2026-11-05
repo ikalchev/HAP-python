@@ -558,7 +558,7 @@ async def test_double_stop_does_not_abort_delegate_cleanup():
 
 @pytest.mark.asyncio
 async def test_fmp4_recording_packets_splits_init_and_fragments():
-    """Yield ftyp+moov as init and each moof+mdat as a fragment, last flagged.
+    """Yield ftyp+moov as init and each moof+mdat as a fragment, then end.
 
     Exercises the source-agnostic framer end to end over a synthetic stream.
     """
@@ -579,14 +579,15 @@ async def test_fmp4_recording_packets_splits_init_and_fragments():
     reader.feed_eof()
 
     packets = [p async for p in hds_recording.fmp4_recording_packets(reader)]
-    assert len(packets) == 3
+    assert len(packets) == 4
     # init packet carries both ftyp and moov, not flagged last
     assert packets[0].data[4:8] == b"ftyp"
     assert b"moov" in packets[0].data
     assert not packets[0].is_last
     assert packets[1].data[4:8] == b"moof" and not packets[1].is_last
-    # the fragment right before EOF is the last one
-    assert packets[2].data[4:8] == b"moof" and packets[2].is_last
+    assert packets[2].data[4:8] == b"moof" and not packets[2].is_last
+    # EOF is signalled with an empty last packet
+    assert packets[3].data == b"" and packets[3].is_last
 
 
 @pytest.mark.asyncio
@@ -600,9 +601,10 @@ async def test_fmp4_recording_packets_handles_64bit_box_size():
         (1).to_bytes(4, "big") + b"moof" + (16 + len(body)).to_bytes(8, "big") + body
     )
     reader = asyncio.StreamReader()
-    reader.feed_data(ftyp + moov + big_moof)
+    mdat = (8).to_bytes(4, "big") + b"mdat"
+    reader.feed_data(ftyp + moov + big_moof + mdat)
     reader.feed_eof()
     packets = [p async for p in hds_recording.fmp4_recording_packets(reader)]
-    assert len(packets) == 2
-    assert packets[1].data[4:8] == b"moof" and packets[1].data.endswith(body)
-    assert packets[1].is_last
+    assert len(packets) == 3
+    assert packets[1].data == big_moof + mdat
+    assert packets[2].is_last
