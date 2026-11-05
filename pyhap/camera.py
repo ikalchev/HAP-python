@@ -1236,6 +1236,16 @@ class Camera(Accessory):
             stream_config,
         )
 
+        try:
+            self._validate_stream_config(stream_config)
+        except ValueError as ex:
+            logger.error(
+                "[%s] Refusing to start stream with unsafe configuration: %s",
+                session_info["id"],
+                ex,
+            )
+            return False
+
         cmd = self.start_stream_cmd.format(**stream_config).split()
         logger.debug('Executing start stream command: "%s"', " ".join(cmd))
         try:
@@ -1259,6 +1269,32 @@ class Camera(Accessory):
         )
 
         return True
+
+    @staticmethod
+    def _validate_stream_config(stream_config):
+        """Reject controller-supplied values unsafe to format into a command.
+
+        The default start stream command is built by formatting the negotiated
+        configuration into a template and splitting it on whitespace before
+        exec, so a controller-supplied string containing whitespace could
+        inject additional command-line arguments into the streaming process.
+        The stream address must be a valid IP address (per the HAP spec that is
+        all a controller may send) and no formatted string value may contain
+        whitespace.
+
+        :raises ValueError: If any value is unsafe.
+        """
+        address = stream_config["address"]
+        try:
+            ipaddress.ip_address(address)
+        except ValueError as ex:
+            raise ValueError(f"invalid stream address {address!r}") from ex
+
+        for key, value in stream_config.items():
+            if not isinstance(value, str):
+                continue
+            if not value or value.split() != [value]:
+                raise ValueError(f"value for {key!r} contains whitespace")
 
     async def stop_stream(self, session_info):
         """Stop the stream for the given ``session_id``.

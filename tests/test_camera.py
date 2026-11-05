@@ -307,3 +307,72 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver):
         receiver.stop()
 
     assert received == [(session_id, rtp_payload)]
+
+
+@pytest.mark.asyncio
+async def test_start_stream_rejects_argument_injection(mock_driver):
+    """Verify controller-supplied values cannot inject stream command args.
+
+    The default stream command is formatted with the negotiated configuration
+    and split on whitespace, so a malicious paired controller could otherwise
+    smuggle extra command-line arguments into ffmpeg via the address (or any
+    other string value) it writes during setup.
+    """
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    session_info = {"id": UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")}
+    safe_config = {
+        "address": "192.168.1.100",
+        "v_port": 1234,
+        "v_srtp_key": "a2V5",
+        "fps": 30,
+        "width": 320,
+        "height": 240,
+        "v_ssrc": 123,
+        "v_max_bitrate": 500,
+    }
+
+    # An address with whitespace (argument injection attempt) is refused.
+    with (
+        patch.object(asyncio, "create_subprocess_exec") as exec_mock,
+    ):
+        assert (
+            await acc.start_stream(
+                session_info, dict(safe_config, address="192.168.1.100 -i /etc/passwd")
+            )
+            is False
+        )
+        exec_mock.assert_not_called()
+
+    # A non-IP address is refused as well.
+    with (
+        patch.object(asyncio, "create_subprocess_exec") as exec_mock,
+    ):
+        assert (
+            await acc.start_stream(session_info, dict(safe_config, address="host"))
+            is False
+        )
+        exec_mock.assert_not_called()
+
+    # Whitespace in any other formatted string value is refused too.
+    with (
+        patch.object(asyncio, "create_subprocess_exec") as exec_mock,
+    ):
+        assert (
+            await acc.start_stream(
+                session_info, dict(safe_config, v_srtp_key="key with spaces")
+            )
+            is False
+        )
+        exec_mock.assert_not_called()
+
+    # A valid configuration still starts the stream.
+    async def subprocess_exec(*_args, **_kwargs):
+        return Mock(pid=42)
+
+    with (
+        patch.object(
+            asyncio, "create_subprocess_exec", side_effect=subprocess_exec
+        ) as exec_mock,
+    ):
+        assert await acc.start_stream(session_info, safe_config) is True
+        exec_mock.assert_called_once()
