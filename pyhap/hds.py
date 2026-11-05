@@ -14,9 +14,10 @@ protocol (control/dataSend topics) build on top of it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import functools
 import os
 import struct
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple, cast
 
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
@@ -118,9 +119,33 @@ def derive_keys(
     controller->accessory frames. The salt is the concatenation of the two key
     salts, matching the controller's derivation.
     """
+    # hap_hkdf always returns a key, so this is never None.
+    return cast(
+        Tuple[bytes, bytes],
+        derive_session_keys(
+            functools.partial(hap_hkdf, shared_secret),
+            controller_key_salt,
+            accessory_key_salt,
+        ),
+    )
+
+
+def derive_session_keys(
+    derive_key: Callable[[bytes, bytes], Optional[bytes]],
+    controller_key_salt: bytes,
+    accessory_key_salt: bytes,
+) -> Optional[Tuple[bytes, bytes]]:
+    """Derive the (encrypt, decrypt) HDS keys like :func:`derive_keys`.
+
+    ``derive_key(salt, info)`` derives from the HAP session key, e.g.
+    ``AccessoryDriver.derive_session_key`` bound to the client, so the session
+    key itself is never read. Returns ``None`` when it has no session.
+    """
     salt = controller_key_salt + accessory_key_salt
-    encrypt_key = hap_hkdf(shared_secret, salt, _KEY_INFO_ACCESSORY_ENCRYPT)
-    decrypt_key = hap_hkdf(shared_secret, salt, _KEY_INFO_ACCESSORY_DECRYPT)
+    encrypt_key = derive_key(salt, _KEY_INFO_ACCESSORY_ENCRYPT)
+    decrypt_key = derive_key(salt, _KEY_INFO_ACCESSORY_DECRYPT)
+    if encrypt_key is None or decrypt_key is None:
+        return None
     return encrypt_key, decrypt_key
 
 

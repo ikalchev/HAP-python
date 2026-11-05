@@ -103,7 +103,6 @@ class Service:
         value=None,
         setter_callback=None,
         getter_callback=None,
-        setter_callback_with_context=None,
     ) -> Characteristic:
         """Helper method to return fully configured characteristic."""
         char = self.get_characteristic(char_name)
@@ -115,8 +114,6 @@ class Service:
             char.setter_callback = setter_callback
         if getter_callback:
             char.getter_callback = getter_callback
-        if setter_callback_with_context:
-            char.setter_callback_with_context = setter_callback_with_context
         return char
 
     # pylint: disable=invalid-name

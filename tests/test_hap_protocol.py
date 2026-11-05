@@ -9,6 +9,7 @@ from cryptography.exceptions import InvalidTag
 from pyhap import hap_handler, hap_protocol
 from pyhap.accessory import Accessory, Bridge
 from pyhap.accessory_driver import AccessoryDriver
+from pyhap.hap_crypto import hap_hkdf
 from pyhap.hap_handler import HAPResponse
 
 
@@ -574,10 +575,35 @@ def test_upgrade_to_encrypted(driver):
         )
 
     assert hap_proto.hap_crypto is not None
-    assert hap_proto.shared_key == b"newkey"
+    assert hap_proto.derive_key(b"salt", b"info") == hap_hkdf(
+        b"newkey", b"salt", b"info"
+    )
 
     hap_proto.close()
-    assert hap_proto.shared_key is None
+    assert hap_proto.derive_key(b"salt", b"info") is None
+
+
+def _pair_verify(hap_proto, shared_key):
+    """Process a handler response that upgrades to ``shared_key``."""
+    response = HAPResponse()
+    response.shared_key = shared_key
+    with patch.object(hap_proto, "send_response"):
+        hap_proto._process_response(response)  # pylint: disable=protected-access
+
+
+def test_derive_key_uses_latest_pair_verify(driver):
+    """Test a repeated pair-verify replaces the session key."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    hap_proto = hap_protocol.HAPServerProtocol(MagicMock(), {}, driver)
+    hap_proto.connection_made(MagicMock())
+    assert hap_proto.derive_key(b"salt", b"info") is None
+
+    _pair_verify(hap_proto, b"firstkey")
+    _pair_verify(hap_proto, b"secondkey")
+
+    assert hap_proto.derive_key(b"salt", b"info") == hap_hkdf(
+        b"secondkey", b"salt", b"info"
+    )
 
 
 def test_close_keeps_newer_connection_with_same_peername(driver):
@@ -587,13 +613,17 @@ def test_close_keeps_newer_connection_with_same_peername(driver):
     driver.add_accessory(Accessory(driver, "TestAcc"))
     old_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     old_proto.connection_made(MagicMock())
+    _pair_verify(old_proto, b"oldkey")
     new_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     new_proto.connection_made(old_proto.transport)
+    _pair_verify(new_proto, b"newkey")
     assert connections[old_proto.peername] is new_proto
 
     old_proto.close()
 
     assert connections[new_proto.peername] is new_proto
+    assert old_proto.derive_key(b"salt", b"info") is None
+    assert new_proto.derive_key(b"salt", b"info") is not None
 
 
 async def test_pairing_changed(driver):

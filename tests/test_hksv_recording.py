@@ -16,8 +16,8 @@ import pytest
 from pyhap import camera as camera_module, hds, hksv_recording as hr, tlv
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
-from pyhap.client_context import ClientContext
 from pyhap.const import HAP_REPR_AID, HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_VALUE
+from pyhap.hap_protocol import HAPServerProtocol
 from pyhap.util import base64_to_bytes, to_base64_str
 
 
@@ -215,74 +215,95 @@ def test_setup_data_stream_transport_without_session_errors(recording_camera):
     # response is RETURNED from the setter (so HAP puts it in the write
     # response), not stored on the characteristic.
     value = camera.set_data_stream_transport(
-        to_base64_str(request), ClientContext(("10.0.0.9", 5000))
+        to_base64_str(request), sender_client_addr=("10.0.0.9", 5000)
     )
     objs = tlv.decode(base64_to_bytes(value))
     assert objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_GENERIC_ERROR
 
 
-@pytest.mark.asyncio
-async def test_setup_data_stream_transport_write_response_plumbing(recording_camera):
-    # The HAP write path builds the client context from the writing connection
-    # and forwards the setter's RETURN value as the write response.
-    camera = recording_camera
+def _hap_connection(camera, client, shared_key=None):
+    """Register a HAP connection from ``client`` with the camera's driver."""
     driver = camera.driver
     driver.accessory = camera
+    transport = MagicMock()
+    transport.get_extra_info.return_value = client
+    connection = HAPServerProtocol(MagicMock(), driver.http_server.connections, driver)
+    connection.connection_made(transport)
+    connection._shared_key = shared_key  # as set by pair-verify
+    return connection
+
+
+def _write_setup(camera, client, controller_key_salt):
+    """Write SetupDataStreamTransport through the HAP write-response path."""
+    char = camera.get_service("DataStreamTransportManagement").get_characteristic(
+        "SetupDataStreamTransport"
+    )
+    request = tlv.encode(hds.SETUP_TYPES["CONTROLLER_KEY_SALT"], controller_key_salt)
+    response = camera.driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: camera.aid,
+                    HAP_REPR_IID: char.broker.iid_manager.get_iid(char),
+                    HAP_REPR_VALUE: to_base64_str(request),
+                    "r": True,
+                }
+            ]
+        },
+        client,
+    )
+    return tlv.decode(base64_to_bytes(response[HAP_REPR_CHARS][0][HAP_REPR_VALUE]))
+
+
+@pytest.mark.asyncio
+async def test_setup_data_stream_transport_write_response_plumbing(recording_camera):
+    # The HAP write path hands the setter the sender's address and forwards its
+    # RETURN value. The HDS keys come from that connection's session key.
+    camera = recording_camera
     await camera._ensure_hds_listener()
     try:
         client = ("10.0.0.9", 5000)
-        driver.http_server.connections[client] = MagicMock(shared_key=os.urandom(32))
-        char = camera.get_service("DataStreamTransportManagement").get_characteristic(
-            "SetupDataStreamTransport"
-        )
-        request = tlv.encode(hds.SETUP_TYPES["CONTROLLER_KEY_SALT"], os.urandom(32))
-        response = driver.set_characteristics(
-            {
-                HAP_REPR_CHARS: [
-                    {
-                        HAP_REPR_AID: camera.aid,
-                        HAP_REPR_IID: char.broker.iid_manager.get_iid(char),
-                        HAP_REPR_VALUE: to_base64_str(request),
-                        "r": True,
-                    }
-                ]
-            },
-            client,
-        )
-        value = response[HAP_REPR_CHARS][0][HAP_REPR_VALUE]
-        objs = tlv.decode(base64_to_bytes(value))
+        shared_key, controller_key_salt = os.urandom(32), os.urandom(32)
+        _hap_connection(camera, ("10.0.0.8", 5000), os.urandom(32))
+        _hap_connection(camera, client, shared_key)
+        objs = _write_setup(camera, client, controller_key_salt)
         assert objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_SUCCESS
+        accessory_key_salt = objs[hds.SETUP_RESPONSE_TYPES["ACCESSORY_KEY_SALT"]]
+        (pending,) = camera._hds_listener._pending
+        # Same keys as the controller derives from the raw session key.
+        assert (pending.encrypt_key, pending.decrypt_key) == hds.derive_keys(
+            shared_key, controller_key_salt, accessory_key_salt
+        )
     finally:
         await camera.stop()
 
 
-def test_client_context_without_connection(recording_camera):
-    driver = recording_camera.driver
-    context = driver.client_context(("10.0.0.9", 5000))
-    assert context == ClientContext(("10.0.0.9", 5000))
-    assert context.shared_key is None
-    assert "shared_key" not in repr(context)
+@pytest.mark.asyncio
+async def test_setup_data_stream_transport_unencrypted_connection_errors(
+    recording_camera,
+):
+    camera = recording_camera
+    await camera._ensure_hds_listener()
+    try:
+        client = ("10.0.0.9", 5000)
+        _hap_connection(camera, client)
+        objs = _write_setup(camera, client, os.urandom(32))
+        assert (
+            objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_GENERIC_ERROR
+        )
+        assert not camera._hds_listener._pending
+    finally:
+        await camera.stop()
 
 
-def test_context_setter_takes_precedence(recording_camera):
-    mute = recording_camera.get_service("Microphone").get_characteristic("Mute")
-    plain, with_context = [], []
-    mute.setter_callback = plain.append
-    mute.setter_callback_with_context = lambda value, context: with_context.append(
-        (value, context)
-    )
-    mute.client_update_value(True, ("10.0.0.9", 5000))
-    assert not plain
-    # Without a driver-supplied context the setter gets one without a key.
-    assert with_context == [(True, ClientContext(("10.0.0.9", 5000)))]
-    assert with_context[0][1].shared_key is None
-
-
-def test_plain_setter_called_with_value_only(recording_camera):
-    # A plain setter is still invoked with the value alone.
+def test_single_argument_setter_still_called_with_one_argument(recording_camera):
+    # Regression guard for the characteristic change: a plain single-argument
+    # setter must still be invoked with the value alone even when a client
+    # address is available.
     mute = recording_camera.get_service("Microphone").get_characteristic("Mute")
     seen = []
     mute.setter_callback = seen.append
+    assert mute._setter_wants_addr() is False
     mute.client_update_value(True, ("10.0.0.9", 5000))
     assert seen == [True]
 
@@ -292,10 +313,11 @@ async def test_setup_data_stream_transport_with_session(recording_camera):
     camera = recording_camera
     await camera._ensure_hds_listener()
     try:
+        client = ("10.0.0.9", 5000)
+        _hap_connection(camera, client, os.urandom(32))
         request = tlv.encode(hds.SETUP_TYPES["CONTROLLER_KEY_SALT"], os.urandom(32))
         value = camera.set_data_stream_transport(
-            to_base64_str(request),
-            ClientContext(("10.0.0.9", 5000), os.urandom(32)),
+            to_base64_str(request), sender_client_addr=client
         )
         objs = tlv.decode(base64_to_bytes(value))
         assert objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_SUCCESS

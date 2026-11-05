@@ -36,7 +36,6 @@ from zeroconf.asyncio import AsyncZeroconf
 from pyhap import util
 from pyhap.accessory import Accessory, get_topic
 from pyhap.characteristic import Characteristic, CharacteristicError
-from pyhap.client_context import ClientContext
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PROTOCOL_SHORT_VERSION,
@@ -74,10 +73,10 @@ DASH_REGEX = re.compile(r"[-]+")
 KEYS_TO_EXCLUDE = {HAP_REPR_IID, HAP_REPR_AID}
 
 
-def _wrap_char_setter(char, value, client_addr, client_context=None):
+def _wrap_char_setter(char, value, client_addr):
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
-        response = char.client_update_value(value, client_addr, client_context)
+        response = char.client_update_value(value, client_addr)
     except Exception:  # pylint: disable=broad-except
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
@@ -861,10 +860,22 @@ class AccessoryDriver:
         logger.debug("Get chars response: %s", chars)
         return {HAP_REPR_CHARS: chars}
 
-    def client_context(self, client_addr):
-        """Return the :class:`ClientContext` of the HAP connection ``client_addr``."""
+    def derive_session_key(
+        self, client_addr: Optional[Tuple], salt: bytes, info: bytes
+    ) -> Optional[bytes]:
+        """Derive a key from the pair-verify session key of ``client_addr``.
+
+        For transports set up from the HAP session, e.g. HomeKit Data Stream.
+        Never returns the session key itself, see
+        :meth:`HAPServerProtocol.derive_key`. Returns ``None`` when the
+        connection is unknown or not encrypted.
+        """
+        if client_addr is None:
+            return None
         connection = self.http_server.connections.get(client_addr)
-        return ClientContext(client_addr, connection.shared_key if connection else None)
+        if connection is None:
+            return None
+        return connection.derive_key(salt, info)
 
     def set_characteristics(self, chars_query, client_addr):
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.
@@ -927,13 +938,8 @@ class AccessoryDriver:
             set_result_value = None
 
             if value is not None:
-                client_context = (
-                    self.client_context(client_addr)
-                    if char.setter_callback_with_context
-                    else None
-                )
                 set_result, set_result_value = _wrap_char_setter(
-                    char, value, client_addr, client_context
+                    char, value, client_addr
                 )
 
             if set_result_value is not None and write_response_requested:
