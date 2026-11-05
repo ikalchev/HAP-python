@@ -85,7 +85,12 @@ lives in the orchestrator process, so the flamegraph contains only
 server work.
 
 - On Linux CI runners and most desktops this works out of the box.
-- On macOS `py-spy` needs root: run the whole command under `sudo`.
+- On macOS `py-spy` needs root: run the whole command under `sudo`
+  (sudo the entire invocation - py-spy must spawn the server as its
+  child). Result and SVG files created under sudo are owned by root;
+  point `--results-dir` at a scratch directory or `chown` them after.
+- `py-spy` and sudo print their own output first; the orchestrator
+  skips non-JSON lines when reading the server announcement.
 - `py-spy` adds some sampling overhead; timings from a `--flamegraph`
   run should not be used as reference numbers.
 

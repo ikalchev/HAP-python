@@ -81,6 +81,9 @@ _EVENT_SETTLE_SECONDS = 0.7
 _WARMUP_WRITES = 20
 _WARMUP_READS = 10
 
+# How long to wait for the server child to print its announcement line.
+_ANNOUNCE_TIMEOUT_S = 60
+
 
 @dataclass(frozen=True)
 class Scenario:
@@ -310,27 +313,45 @@ async def spawn_server(
         env=child_environment(),
     )
     assert process.stdout is not None  # noqa: S101
-    try:
-        line = await asyncio.wait_for(process.stdout.readline(), timeout=60)
-    except TimeoutError as err:
-        _safe_kill(process)
-        raise SystemExit(
-            f"Benchmark server did not announce itself in time "
-            f"(command: {' '.join(command)})"
-        ) from err
-    if not line:
-        await process.wait()
-        raise SystemExit(
-            f"Benchmark process exited before announcing itself "
-            f"(command: {' '.join(command)}). "
-            + (
-                "py-spy requires root on macOS - run the benchmark under sudo "
-                "or use --format speedscope from a Linux CI runner."
-                if flamegraph is not None
-                else ""
+
+    # Read the JSON announcement line. py-spy (and sudo) may print their own
+    # output to the same pipe first, so non-JSON lines are skipped.
+    deadline = asyncio.get_running_loop().time() + _ANNOUNCE_TIMEOUT_S
+    info: dict[str, Any] | None = None
+    while info is None:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            _safe_kill(process)
+            raise SystemExit(
+                f"Benchmark server did not announce itself in time "
+                f"(command: {' '.join(command)})"
             )
-        )
-    info = json.loads(line)
+        try:
+            line = await asyncio.wait_for(process.stdout.readline(), timeout=remaining)
+        except TimeoutError as err:
+            _safe_kill(process)
+            raise SystemExit(
+                f"Benchmark server did not announce itself in time "
+                f"(command: {' '.join(command)})"
+            ) from err
+        if not line:
+            await process.wait()
+            raise SystemExit(
+                f"Benchmark process exited before announcing itself "
+                f"(command: {' '.join(command)}). "
+                + (
+                    "py-spy requires root on macOS - run the benchmark under sudo."
+                    if flamegraph is not None
+                    else ""
+                )
+            )
+        try:
+            info = json.loads(line)
+        except json.JSONDecodeError:
+            print(
+                f"benchmark wrapper output: {line.decode(errors='replace').strip()}",
+                file=sys.stderr,
+            )
     if "error" in info:
         await process.wait()
         raise SystemExit(f"Benchmark server failed to start: {info['error']}")
