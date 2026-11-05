@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import logging
 import socket
 import struct
 from unittest.mock import Mock, patch
@@ -91,6 +92,30 @@ def test_setup_endpoints(mock_driver):
     setup_endpoints.client_update_value(set_endpoint_req)
 
     assert setup_endpoints.get_value()[:171] == set_endpoint_res[:171]
+
+
+def test_setup_endpoints_does_not_log_srtp_keys(mock_driver, caplog):
+    """Verify the negotiated SRTP key material is not written to the logs."""
+    set_endpoint_req = (
+        "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
+        "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
+        "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
+    )
+
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    setup_endpoints = management.get_characteristic("SetupEndpoints")
+
+    with caplog.at_level(logging.DEBUG, logger="pyhap.camera"):
+        setup_endpoints.client_update_value(set_endpoint_req)
+
+    # The endpoint configuration was logged at DEBUG level, but without any
+    # of the SRTP master key/salt material in it.
+    assert "Received endpoint configuration:" in caplog.text
+    key_and_salt = _audio_srtp_key_and_salt(set_endpoint_req)
+    assert base64.b64encode(key_and_salt).decode() not in caplog.text
+    assert key_and_salt.hex() not in caplog.text
 
 
 def test_set_selected_stream_start_stop(mock_driver):

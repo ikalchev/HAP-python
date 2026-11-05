@@ -616,14 +616,14 @@ class HAPServerHandler:
         if perm_client_public is None:
             accessory = self.accessory_handler.accessory
             assert accessory is not None  # noqa: S101
+            # Do not log the (session or paired-client) public keys: error
+            # logs are commonly collected by less trusted systems.
             logger.error(
                 "%s: Client %s with uuid %s attempted pair verify "
-                "without being paired first (public_key=%s, paired clients=%s).",
+                "without being paired first.",
                 accessory.display_name,
                 self.client_address,
                 client_uuid,
-                raw_public_key.hex(),
-                {uuid: key.hex() for uuid, key in self.state.paired_clients.items()},
             )
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return

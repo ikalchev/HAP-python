@@ -1040,21 +1040,23 @@ class Camera(Accessory):
         audio_master_key = audio_info_objs[SETUP_SRTP_PARAM["MASTER_KEY"]]
         audio_master_salt = audio_info_objs[SETUP_SRTP_PARAM["MASTER_SALT"]]
 
+        # Do not log the SRTP key material: debug logs may end up in less
+        # trusted log collections, and the keys live for the whole session.
         logger.debug(
             "Received endpoint configuration:"
             "\nsession_id: %s\naddress: %s\nis_ipv6: %s"
             "\ntarget_video_port: %s\ntarget_audio_port: %s"
-            "\nvideo_crypto_suite: %s\nvideo_srtp: %s"
-            "\naudio_crypto_suite: %s\naudio_srtp: %s",
+            "\nvideo_crypto_suite: %s\nvideo_master_key_len: %s"
+            "\naudio_crypto_suite: %s\naudio_master_key_len: %s",
             session_id,
             address,
             is_ipv6,
             target_video_port,
             target_audio_port,
             video_crypto_suite,
-            to_base64_str(video_master_key + video_master_salt),
+            len(video_master_key) + len(video_master_salt),
             audio_crypto_suite,
-            to_base64_str(audio_master_key + audio_master_salt),
+            len(audio_master_key) + len(audio_master_salt),
         )
 
         # Configure the SetupEndpoints response
