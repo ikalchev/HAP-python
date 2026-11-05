@@ -191,6 +191,28 @@ def test_advertised_address():
     assert driver.state.addresses == ["1.2.3.4", "::1"]
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"address": "1.2.3.4"}, "1.2.3.4"),
+        (
+            {"address": "1.2.3.4", "listen_address": ["0.0.0.0", "::"]},
+            ["0.0.0.0", "::"],
+        ),
+    ],
+)
+def test_listen_address(kwargs, expected):
+    with (
+        patch("pyhap.accessory_driver.HAPServer") as server,
+        patch("pyhap.accessory_driver.AccessoryDriver.persist"),
+    ):
+        driver = AccessoryDriver(
+            port=51234, async_zeroconf_instance=MagicMock(), **kwargs
+        )
+    assert driver.listen_address() == expected
+    assert server.call_args.args[0] == (expected, 51234)
+
+
 def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
