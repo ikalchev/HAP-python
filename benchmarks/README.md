@@ -87,10 +87,15 @@ server work.
 - On Linux CI runners and most desktops this works out of the box.
 - On macOS `py-spy` needs root: run the whole command under `sudo`
   (sudo the entire invocation - py-spy must spawn the server as its
-  child). Result and SVG files created under sudo are owned by root;
-  point `--results-dir` at a scratch directory or `chown` them after.
+  child). The shared scratch directory is made world-writable so a
+  mix of uids between orchestrator and server cannot break the run;
+  result and SVG files created under sudo are owned by root, so point
+  `--results-dir` at a scratch directory or `chown` them after.
 - `py-spy` and sudo print their own output first; the orchestrator
   skips non-JSON lines when reading the server announcement.
+- `py-spy` records from process start, so a few frames of interpreter
+  startup sit at the base of the graph (~2% of a heavy run); ignore them
+  and look at the wide towers.
 - `py-spy` adds some sampling overhead; timings from a `--flamegraph`
   run should not be used as reference numbers.
 

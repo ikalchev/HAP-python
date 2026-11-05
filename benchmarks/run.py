@@ -337,13 +337,8 @@ async def spawn_server(
         if not line:
             await process.wait()
             raise SystemExit(
-                f"Benchmark process exited before announcing itself "
-                f"(command: {' '.join(command)}). "
-                + (
-                    "py-spy requires root on macOS - run the benchmark under sudo."
-                    if flamegraph is not None
-                    else ""
-                )
+                f"Benchmark server process exited before announcing itself; "
+                f"see its stderr above (command: {' '.join(command)})"
             )
         try:
             info = json.loads(line)
@@ -434,6 +429,12 @@ async def run_scenario(scenario: Scenario, args: argparse.Namespace) -> dict[str
     identities = [ClientIdentity.generate(i) for i in range(scenario.clients)]
 
     with tempfile.TemporaryDirectory(prefix="hap-bench-") as state_dir:
+        # The server child may run under a different uid than the
+        # orchestrator (e.g. py-spy under sudo spawning it as another
+        # user), and pyhap persists state into this directory from the
+        # child. It contains only throwaway bench state, so make it
+        # writable for any uid instead of the mkdtemp default of 0700.
+        os.chmod(state_dir, 0o1777)  # noqa: S103 - intentional, see above
         clients_file = str(Path(state_dir) / "clients.json")
         with open(clients_file, "w", encoding="utf-8") as file_handle:
             json.dump(
