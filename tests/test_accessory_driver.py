@@ -12,7 +12,12 @@ from zeroconf import InterfaceChoice
 
 from pyhap import util
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
-from pyhap.accessory_driver import AccessoryDriver, AccessoryMDNSServiceInfo
+from pyhap.accessory_driver import (
+    MAX_FAILED_PAIRING_ATTEMPTS,
+    PAIRING_LOCKOUT_SECONDS,
+    AccessoryDriver,
+    AccessoryMDNSServiceInfo,
+)
 from pyhap.characteristic import (
     HAP_FORMAT_INT,
     HAP_PERMISSION_READ,
@@ -21,6 +26,7 @@ from pyhap.characteristic import (
     Characteristic,
 )
 from pyhap.const import (
+    HAP_PERMISSIONS,
     HAP_REPR_AID,
     HAP_REPR_CHARS,
     HAP_REPR_IID,
@@ -1263,3 +1269,31 @@ def test_hash_ignores_values(driver: AccessoryDriver):
     char_brightness2.set_value(43)
 
     assert driver.accessories_hash == new_hash
+
+
+def test_pairing_rate_limit_lockout_and_reset(driver: AccessoryDriver):
+    """Verify the pair-setup lockout engages, expires and resets on success."""
+    with patch("pyhap.accessory_driver.time.monotonic", return_value=100.0) as mock_now:
+        assert not driver.pairing_locked_out
+
+        # One below the threshold: no lockout yet.
+        for _ in range(MAX_FAILED_PAIRING_ATTEMPTS - 1):
+            driver.register_failed_pairing_attempt()
+        assert not driver.pairing_locked_out
+
+        # The threshold failure engages the lockout.
+        driver.register_failed_pairing_attempt()
+        assert driver.pairing_locked_out
+
+        # The lockout expires after the cooldown.
+        mock_now.return_value = 100.0 + PAIRING_LOCKOUT_SECONDS
+        assert not driver.pairing_locked_out
+
+        # A successful pairing resets the counter mid-streak.
+        for _ in range(MAX_FAILED_PAIRING_ATTEMPTS - 1):
+            driver.register_failed_pairing_attempt()
+        driver.pair(str(uuid1()).encode(), b"public-key", HAP_PERMISSIONS.ADMIN)
+        assert driver._failed_pairing_attempts == 0
+        assert driver._pairing_lockout_until == 0.0
+        driver.register_failed_pairing_attempt()
+        assert not driver.pairing_locked_out

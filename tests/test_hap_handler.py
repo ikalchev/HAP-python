@@ -12,7 +12,10 @@ import pytest
 
 from pyhap import hap_handler, tlv
 from pyhap.accessory import Accessory, Bridge
-from pyhap.accessory_driver import AccessoryDriver
+from pyhap.accessory_driver import (
+    MAX_FAILED_PAIRING_ATTEMPTS,
+    AccessoryDriver,
+)
 from pyhap.characteristic import CharacteristicError
 from pyhap.const import HAP_PERMISSIONS
 
@@ -1031,6 +1034,57 @@ def test_pairing_two_rejects_zero_a(driver: AccessoryDriver):
     assert tlv_objects == {
         hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M4,
         hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.AUTHENTICATION,
+    }
+
+
+def test_pairing_lockout_after_failed_attempts(driver: AccessoryDriver):
+    """Verify pair-setup locks out after too many failed SRP proofs.
+
+    Each failed proof is a setup-code guess, so excess failures must be
+    answered with BUSY instead of letting the peer keep guessing.
+    """
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    driver.setup_srp_verifier()
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+
+    for _ in range(MAX_FAILED_PAIRING_ATTEMPTS):
+        response = hap_handler.HAPResponse()
+        handler.response = response
+        handler.request_body = tlv.encode(
+            hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+            hap_handler.HAP_TLV_STATES.M3,
+            hap_handler.HAP_TLV_TAGS.PUBLIC_KEY,
+            b"\x01",
+            hap_handler.HAP_TLV_TAGS.PASSWORD_PROOF,
+            b"\x00" * 64,
+        )
+        handler.handle_pairing()
+
+        tlv_objects = tlv.decode(response.body)
+        assert tlv_objects == {
+            hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M4,
+            hap_handler.HAP_TLV_TAGS.ERROR_CODE: (
+                hap_handler.HAP_TLV_ERRORS.AUTHENTICATION
+            ),
+        }
+
+    assert driver.pairing_locked_out
+
+    # Further pair-setup attempts - even a fresh M1 - are answered with BUSY.
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M1,
+    )
+    handler.handle_pairing()
+
+    tlv_objects = tlv.decode(response.body)
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M2,
+        hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.BUSY,
     }
 
 

@@ -282,6 +282,19 @@ class HAPServerHandler:
 
     def handle_pairing(self) -> None:
         """Handles arbitrary step of the pairing process."""
+        if self.accessory_handler.pairing_locked_out:
+            # Too many failed attempts recently; answer with BUSY so the
+            # controller retries later instead of grinding the setup code
+            # (and burning SRP verifier generation CPU).
+            self._send_tlv_pairing_response(
+                tlv.encode(
+                    HAP_TLV_TAGS.SEQUENCE_NUM,
+                    HAP_TLV_STATES.M2,
+                    HAP_TLV_TAGS.ERROR_CODE,
+                    HAP_TLV_ERRORS.BUSY,
+                )
+            )
+            return
         if self.state.paired:
             self._send_tlv_pairing_response(
                 tlv.encode(
@@ -350,6 +363,9 @@ class HAPServerHandler:
         hamk = verifier.verify(M)
 
         if hamk is None:  # Probably the provided pincode was wrong.
+            # Each failed proof is a setup-code guess; count it towards
+            # the pair-setup lockout.
+            self.accessory_handler.register_failed_pairing_attempt()
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
 
