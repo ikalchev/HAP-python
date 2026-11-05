@@ -51,13 +51,9 @@ jobs:
     - name: Test with tox
       run: TOXENV=codecov tox
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v1
+      uses: codecov/codecov-action@v5
       with:
         files: ./coverage.xml
-        directory: ./coverage/reports/
         flags: unittests
-        env_vars: OS,PYTHON
         name: codecov-umbrella
-        fail_ci_if_error: false
-        path_to_write_report: ./coverage/codecov_report.txt
-        verbose: true
+        fail_ci_if_error: true
