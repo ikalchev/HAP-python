@@ -159,6 +159,43 @@ async def test_one_stream_per_camera_and_slot_freed_on_stop(camera):
     await asyncio.wait([camera._recording_stream._task])
 
 
+@pytest.mark.asyncio
+async def test_camera_off_closes_running_recording(camera):
+    """Turning the camera off in the Home app ends the recording, like HAP-NodeJS."""
+    hub = _hub(camera)
+    assert hub.open(1).status == HDSStatus.SUCCESS
+    await camera.recording.wait()
+
+    camera.get_service("CameraOperatingMode").get_characteristic(
+        "HomeKitCameraActive"
+    ).client_update_value(0)
+    await asyncio.wait_for(camera.cleaning.wait(), 1)
+    camera.release.set()
+    await asyncio.wait([camera._recording_stream._task])
+
+    closes = [m for m in hub.messages() if m.kind == EVENT and m.topic == "close"]
+    assert [c.message for c in closes] == [
+        {"streamId": 1, "reason": Reason.NOT_ALLOWED}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_camera_turned_on_keeps_running_recording(camera):
+    hub = _hub(camera)
+    assert hub.open(1).status == HDSStatus.SUCCESS
+    await camera.recording.wait()
+
+    camera.get_service("CameraOperatingMode").get_characteristic(
+        "HomeKitCameraActive"
+    ).client_update_value(1)
+    assert camera._recording_stream.streaming
+    assert not [m for m in hub.messages() if m.kind == EVENT and m.topic == "close"]
+
+    camera.release.set()
+    hub.connection.connection_lost(None)
+    await asyncio.wait([camera._recording_stream._task])
+
+
 @pytest.mark.parametrize("mode", ["complete", "fail"])
 @pytest.mark.asyncio
 async def test_slot_freed_after_stream_ended(camera, mode):
@@ -268,3 +305,27 @@ async def test_failure_after_stop_sends_no_close():
     await stopped.wait()
     await asyncio.wait([manager._task])
     assert not [m for m in controller.messages() if m.topic == "close"]
+
+
+@pytest.mark.asyncio
+async def test_close_only_closes_a_running_stream():
+    started = asyncio.Event()
+
+    async def delegate(_stream_id):
+        yield hds_recording.RecordingPacket(b"init")
+        started.set()
+        await asyncio.Event().wait()
+
+    controller, manager = _open_stream(delegate)
+    await started.wait()
+    manager.close(Reason.NOT_ALLOWED)
+    manager.close(Reason.NOT_ALLOWED)
+    await asyncio.wait([manager._task])
+    manager.close(Reason.NOT_ALLOWED)
+
+    closes = [
+        m for m in controller.messages() if m.kind == EVENT and m.topic == "close"
+    ]
+    assert [c.message for c in closes] == [
+        {"streamId": 7, "reason": Reason.NOT_ALLOWED}
+    ]

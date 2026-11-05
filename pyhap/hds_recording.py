@@ -123,6 +123,15 @@ class RecordingStreamManager:
                 await aclose()
         self._send_failure(stream_id)
 
+    def close(self, reason: RecordingReason) -> None:
+        """Close the running stream and tell the controller why."""
+        if not self.streaming:
+            return
+        self._connection.send_event(
+            _DATA_SEND, "close", {"streamId": self._stream_id, "reason": reason}
+        )
+        self._stop()
+
     def _send_failure(self, stream_id: int) -> None:
         if not self._closed:
             self._connection.send_event(
