@@ -93,11 +93,41 @@ server work.
   `--results-dir` at a scratch directory or `chown` them after.
 - `py-spy` and sudo print their own output first; the orchestrator
   skips non-JSON lines when reading the server announcement.
-- `py-spy` records from process start, so a few frames of interpreter
-  startup sit at the base of the graph (~2% of a heavy run); ignore them
-  and look at the wide towers.
-- `py-spy` adds some sampling overhead; timings from a `--flamegraph`
-  run should not be used as reference numbers.
+### Interpreting the flamegraph
+
+py-spy samples **wall-clock** on **every thread**, so an idle server
+shows up loudly. Expect three kinds of frames and read past them:
+
+- `concurrent.futures.thread._worker` towers: pyhap keeps a
+  `ThreadPoolExecutor` for state persistence; its idle worker threads
+  are parked there for the whole run (in a heavy run they were ~83% of
+  all samples). Not work, just thread parking.
+- `KqueueSelector.select` / `EpollSelector.select` under
+  `BaseEventLoop.run_forever`: the event loop waiting for I/O - in a
+  heavy run this was ~92% of the main thread. The benchmark's clients
+  are sequential, so the server is far from CPU-saturated.
+- interpreter startup frames at the base (`<module>`, imports): the
+  first ~300ms of the process. Thin in a heavy run; ignore.
+
+What remains is the actual request-serving work. In a 5 clients / 250
+accessories run it was roughly 1.2s of CPU across ~16s (~8% of one
+core), dominated by asyncio socket plumbing, h11 parsing and pyhap's
+`hap_protocol` dispatch - pyhap's handler, driver and crypto code was
+below the one-pixel width of the graph.
+
+For a work-only graph (drops threads that are not holding the GIL,
+including the idle wait), use the passthrough flag:
+
+```sh
+python benchmarks/run.py --scenario heavy --flamegraph \
+    --py-spy-args '--gil --rate 250'
+```
+
+Caveat: native code that releases the GIL (some crypto/orjson calls on
+large buffers) also disappears from a `--gil` graph, so keep the
+default graph around when reasoning about absolute costs.
+
+### tracemalloc
 
 ### tracemalloc
 

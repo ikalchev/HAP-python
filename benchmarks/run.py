@@ -36,6 +36,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shlex
 import shutil
 import signal
 import statistics
@@ -273,6 +274,7 @@ async def spawn_server(
     clients_file: str,
     flamegraph: Path | None = None,
     tracemalloc_out: Path | None = None,
+    pyspy_args: str = "",
 ) -> ServerHandle:
     """Spawn ``benchmarks/server.py``, optionally under py-spy record."""
     command = [
@@ -298,6 +300,7 @@ async def spawn_server(
             "record",
             "--format",
             "flamegraph",
+            *shlex.split(pyspy_args),
             "-o",
             str(flamegraph),
             "--",
@@ -472,6 +475,7 @@ async def run_scenario(scenario: Scenario, args: argparse.Namespace) -> dict[str
             clients_file,
             flamegraph=flamegraph,
             tracemalloc_out=tracemalloc_out,
+            pyspy_args=args.py_spy_args,
         )
         port = int(server.info["port"])
         ltpk = bytes.fromhex(server.info["accessory_ltpk"])
@@ -687,6 +691,12 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--flamegraph",
         action="store_true",
         help="record a py-spy flamegraph of the server (one per scenario)",
+    )
+    parser.add_argument(
+        "--py-spy-args",
+        default="",
+        help="extra arguments passed to py-spy record, e.g. "
+        "--py-spy-args '--gil --rate 250' for a work-only graph",
     )
     parser.add_argument(
         "--tracemalloc",
