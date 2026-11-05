@@ -92,6 +92,11 @@ class Server:
         return self._digest(hGroup + hU + self.s + self.Ab + self.Bb + self.Kb)
 
     def set_A(self, bytes_A: bytes) -> None:
+        if len(bytes_A) > self.N_len // 8:
+            # A must be a single group element padded to the group length;
+            # TLV fragments let a peer send arbitrarily large values whose
+            # big-int arithmetic only burns CPU.
+            raise ValueError(f"Client public key A longer than {self.N_len // 8} bytes")
         A = bytes_to_long(bytes_A)
         if A % self.N == 0:
             # RFC 5054 section 2.5.1.3: the server MUST abort if A % N == 0.

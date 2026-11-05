@@ -83,3 +83,21 @@ def test_srp_rejects_invalid_a():
     # A valid A is still accepted.
     verifier.set_A(DUMMY_A)
     assert verifier.A == bytes_to_long(DUMMY_A)
+
+
+def test_srp_rejects_oversized_a():
+    """Verify an A longer than the group is rejected.
+
+    TLV fragments let a peer send arbitrarily large values, whose big-int
+    arithmetic in the modexp only burns CPU.
+    """
+    ctx = get_srp_context(3072, hashlib.sha512, 16)
+    verifier = Server(ctx, b"Pair-Setup", b"123-45-543")
+
+    with pytest.raises(ValueError):
+        verifier.set_A(b"\x01" * (verifier.N_len // 8 + 1))
+
+    # A value padded to exactly the group length is still accepted.
+    full_a = b"\x01" * (verifier.N_len // 8)
+    verifier.set_A(full_a)
+    assert verifier.A == bytes_to_long(full_a)
