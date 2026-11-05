@@ -1108,6 +1108,40 @@ async def test_start_service_and_update_config(async_zeroconf):
         assert driver.aio_stop_event.is_set()
 
 
+async def test_start_without_advertising():
+    """Test starting and stopping with mDNS advertising disabled.
+
+    No zeroconf instance should be created and none of the
+    advertisement methods should be called.
+    """
+    with (
+        patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock),
+        patch("pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock),
+        patch("pyhap.accessory_driver.AccessoryDriver.persist"),
+        patch("pyhap.accessory_driver.AccessoryDriver.load"),
+        patch("pyhap.accessory_driver.AsyncZeroconf") as mock_async_zeroconf,
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop(), advertise=False)
+        acc = Accessory(driver, "TestAcc")
+        driver.add_accessory(acc)
+        await driver.async_start()
+
+        assert driver.advertiser is None
+        assert driver.mdns_service_info is None
+        assert not mock_async_zeroconf.called
+
+        # Pairing changes must not crash when advertising is disabled.
+        driver.async_update_advertisement()
+
+        for _ in range(3):
+            await asyncio.sleep(0)
+        await driver.async_stop()
+        await asyncio.sleep(0)
+        assert not driver.loop.is_closed()
+        assert driver.aio_stop_event is not None
+        assert driver.aio_stop_event.is_set()
+
+
 def test_call_add_job_with_none(driver):
     """Test calling add job with none."""
     with pytest.raises(ValueError):
