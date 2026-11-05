@@ -1,0 +1,110 @@
+name: Benchmarks
+
+# On-demand benchmark runs. Compares a baseline ref against a head ref
+# (default: the ref that triggered the run) and publishes the delta,
+# result files and optional flamegraphs. Never runs on push - the
+# runners are too noisy for automatic gating.
+on:
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "Baseline ref to benchmark against"
+        required: true
+        default: "master"
+      head_ref:
+        description: "Head ref; defaults to the ref that triggered the run"
+        required: false
+        default: ""
+      scenarios:
+        description: "Scenarios: baseline, moderate, heavy or all"
+        required: false
+        default: "all"
+      flamegraph:
+        description: "Record py-spy flamegraphs of the head run"
+        type: boolean
+        default: false
+      fail_over_percent:
+        description: "Fail the job when a latency p50 or throughput regresses more than this (0 = report only)"
+        required: false
+        default: "0"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out baseline ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_ref }}
+          path: base
+
+      - name: Check out head ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_ref != '' && inputs.head_ref || github.ref }}
+          path: head
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # One venv per ref so the two checkouts cannot shadow each other.
+      - name: Install baseline ref
+        run: |
+          python -m venv .venv-base
+          .venv-base/bin/pip install -e "./base[bench]"
+
+      - name: Install head ref
+        run: |
+          python -m venv .venv-head
+          .venv-head/bin/pip install -e "./head[bench]"
+
+      - name: Run baseline benchmark
+        run: |
+          cd base
+          ../.venv-base/bin/python -m benchmarks.run \
+            --scenario "${{ inputs.scenarios }}" \
+            --results-dir ../results \
+            --label base --output ../results/base.json
+
+      - name: Run head benchmark
+        run: |
+          cd head
+          ../.venv-head/bin/python -m benchmarks.run \
+            --scenario "${{ inputs.scenarios }}" \
+            --results-dir ../results \
+            --label head --output ../results/head.json \
+            ${{ inputs.flamegraph && '--flamegraph' || '' }}
+
+      - name: Compare baseline and head
+        run: |
+          fail_over="${{ inputs.fail_over_percent }}"
+          args=""
+          if [ "${fail_over%%.*}" -gt 0 ] 2>/dev/null; then
+            args="--fail-over ${fail_over}"
+          fi
+          set +e
+          .venv-head/bin/python head/benchmarks/compare.py \
+            results/base.json results/head.json $args > /tmp/comparison.txt
+          compare_status=$?
+          set -e
+          {
+            echo '# Benchmark comparison: ${{ inputs.base_ref }} -> ${{ inputs.head_ref || github.ref }}'
+            echo '```'
+            cat /tmp/comparison.txt
+            echo '```'
+          } | tee "$GITHUB_STEP_SUMMARY"
+          exit $compare_status
+
+      - name: Upload results and flamegraphs
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: results/
+          if-no-files-found: error
