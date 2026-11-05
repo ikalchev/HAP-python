@@ -1,7 +1,5 @@
 """Tests for splitting a fragmented-MP4 stream into recording packets."""
 
-# pylint: disable=protected-access
-
 import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock

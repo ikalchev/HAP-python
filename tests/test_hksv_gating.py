@@ -1,7 +1,5 @@
 """Tests for HKSV dataSend/open gating and the delegate failure close."""
 
-# pylint: disable=protected-access
-
 import asyncio
 import os
 from unittest.mock import MagicMock, patch
@@ -16,7 +14,7 @@ from pyhap.hds_protocol import EVENT, REQUEST, RESPONSE, HDSStatus, Message
 Reason = hds_recording.RecordingReason
 
 
-class _CaptureTransport(asyncio.Transport):  # pylint: disable=abstract-method
+class _CaptureTransport(asyncio.Transport):
     def __init__(self):
         super().__init__()
         self.buffer = bytearray()
@@ -66,7 +64,9 @@ class _Controller:
 
 class _GatedCamera(Camera):
     mode = "record"
-    recording = cleaning = release = None
+    recording: asyncio.Event | None = None
+    cleaning: asyncio.Event | None = None
+    release: asyncio.Event | None = None
 
     async def handle_recording_stream(self, stream_id):
         try:
@@ -75,11 +75,14 @@ class _GatedCamera(Camera):
                 raise RuntimeError("ffmpeg died")
             if self.mode == "complete":
                 yield hds_recording.RecordingPacket(b"last", is_last=True)
+            assert self.recording is not None
             self.recording.set()
             await asyncio.Event().wait()  # record until the hub stops us
         finally:
+            assert self.cleaning is not None
             self.cleaning.set()
             # e.g. waiting for ffmpeg to exit; bounded so a failing test ends
+            assert self.release is not None
             await asyncio.wait_for(self.release.wait(), 1)
 
 
@@ -93,8 +96,12 @@ def camera_fixture():
         camera = _GatedCamera(
             {"address": "127.0.0.1", "recording": True}, driver, "Cam"
         )
-    camera._recording_service.get_characteristic("Active").set_value(1)
-    camera._selected_recording_config = object()
+    recording_service = camera._recording_service
+    assert recording_service is not None
+    recording_service.get_characteristic("Active").set_value(1)
+    # Gating only needs a non-None "configured" marker; the tests
+    # never read the actual recording configuration.
+    camera._selected_recording_config = object()  # ty: ignore[invalid-assignment]
     camera.recording = asyncio.Event()
     camera.cleaning = asyncio.Event()
     camera.release = asyncio.Event()
@@ -169,7 +176,13 @@ async def test_slot_freed_after_stream_ended(camera, mode):
 
 def test_new_manager_is_not_streaming():
     connection = hds_server.HDSConnection(hds_server.HDSListener())
-    assert not hds_recording.RecordingStreamManager(connection, None).streaming
+
+    async def _no_stream(stream_id: int):
+        """Yield nothing; the manager is never started in this test."""
+        return
+        yield  # pragma: no cover
+
+    assert not hds_recording.RecordingStreamManager(connection, _no_stream).streaming
 
 
 def _open_stream(delegate):
@@ -201,7 +214,7 @@ async def _ends_early(_stream_id):
 
 async def _empty(_stream_id):
     return
-    yield  # pylint: disable=unreachable
+    yield
 
 
 @pytest.mark.parametrize("delegate", [_raises, _ends_early, _empty])

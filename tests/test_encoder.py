@@ -74,7 +74,7 @@ def test_persist_and_load():
 
 
 def test_migration_to_include_client_properties():
-    """Verify we build client properties if its missing since it was not present in older versions."""
+    """Verify client properties are built when missing from older versions."""
     mac = generate_mac()
     _pk = ed25519.Ed25519PrivateKey.generate()
     sample_client_pk = _pk.public_key()

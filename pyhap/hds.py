@@ -16,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import struct
-from typing import Optional, Tuple
 
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
@@ -76,7 +75,7 @@ class SetupRequest:
     session_command: bytes = SESSION_COMMAND_START
 
     @classmethod
-    def decode(cls, data: bytes) -> "SetupRequest":
+    def decode(cls, data: bytes) -> SetupRequest:
         objs = tlv.decode(data)
         return cls(
             controller_key_salt=objs[SETUP_TYPES["CONTROLLER_KEY_SALT"]],
@@ -111,7 +110,7 @@ def encode_setup_response(
 
 def derive_keys(
     shared_secret: bytes, controller_key_salt: bytes, accessory_key_salt: bytes
-) -> Tuple[bytes, bytes]:
+) -> tuple[bytes, bytes]:
     """Derive the (encrypt, decrypt) HDS keys from the HAP session shared secret.
 
     ``encrypt`` seals accessory->controller frames; ``decrypt`` opens
@@ -159,7 +158,7 @@ class HDSCrypto:
         ciphertext = self._encrypt_cipher.encrypt(nonce, payload, header)
         return header + ciphertext
 
-    def decrypt_frame(self, buffer: bytearray) -> Optional[bytes]:
+    def decrypt_frame(self, buffer: bytearray) -> bytes | None:
         """Decrypt one complete frame from the front of ``buffer``.
 
         Returns the plaintext payload and removes the frame from ``buffer``, or

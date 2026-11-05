@@ -1,10 +1,10 @@
 """This module partially implements crypto for HAP."""
 
+from collections.abc import Iterable
 from functools import partial
 import logging
 import struct
 from struct import Struct
-from typing import Iterable, List
 
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.hazmat.backends import default_backend
@@ -115,7 +115,7 @@ class HAPCrypto:
 
     def encrypt(self, data: bytes) -> Iterable[bytes]:
         """Encrypt and send the return bytes."""
-        result: List[bytes] = []
+        result: list[bytes] = []
         offset = 0
         total = len(data)
         while offset < total:

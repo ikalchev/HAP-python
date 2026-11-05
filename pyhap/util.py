@@ -1,11 +1,11 @@
 import asyncio
 import base64
+from collections.abc import Awaitable
 import functools
 import inspect
 import random
 import socket
 import sys
-from typing import Awaitable, Set
 from uuid import UUID
 
 import orjson
@@ -19,7 +19,7 @@ else:
 
 ALPHANUM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 HEX_DIGITS = "0123456789ABCDEF"
-_BACKGROUND_TASKS: Set[asyncio.Task] = set()
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 
 rand = random.SystemRandom()
@@ -27,7 +27,7 @@ rand = random.SystemRandom()
 
 def callback(func):
     """Decorator for non blocking functions."""
-    setattr(func, "_pyhap_callback", True)
+    func._pyhap_callback = True
     return func
 
 
@@ -37,8 +37,8 @@ def is_callback(func):
 
 
 def iscoro(func):
-    """Check if the function is a coroutine or if the function is a ``functools.partial``,
-    check the wrapped function for the same.
+    """Check if the function is a coroutine or if the function is a
+    ``functools.partial``, check the wrapped function for the same.
     """
     if isinstance(func, functools.partial):
         func = func.func
@@ -46,8 +46,7 @@ def iscoro(func):
 
 
 def get_local_address() -> str:
-    """
-    Grabs the local IP address using a socket.
+    """Grabs the local IP address using a socket.
 
     :return: Local IP Address in IPv4 format.
     :rtype: str
@@ -63,8 +62,7 @@ def get_local_address() -> str:
 
 
 def long_to_bytes(n):
-    """
-    Convert a ``long int`` to ``bytes``
+    """Convert a ``long int`` to ``bytes``
 
     :param n: Long Integer
     :type n: int
@@ -85,20 +83,18 @@ def long_to_bytes(n):
 
 
 def generate_mac():
-    """
-    Generates a fake mac address used in broadcast.
+    """Generates a fake mac address used in broadcast.
 
     :return: MAC address in format XX:XX:XX:XX:XX:XX
     :rtype: str
     """
-    return "{}{}:{}{}:{}{}:{}{}:{}{}:{}{}".format(  # pylint: disable=consider-using-f-string
+    return "{}{}:{}{}:{}{}:{}{}:{}{}:{}{}".format(
         *(rand.choice(HEX_DIGITS) for _ in range(12))
     )
 
 
 def generate_setup_id():
-    """
-    Generates a random Setup ID for an ``Accessory`` or ``Bridge``.
+    """Generates a random Setup ID for an ``Accessory`` or ``Bridge``.
 
     Used in QR codes and the setup hash.
 
@@ -109,15 +105,14 @@ def generate_setup_id():
 
 
 def generate_pincode():
-    """
-    Generates a random pincode.
+    """Generates a random pincode.
 
     :return: pincode in format ``xxx-xx-xxx``
     :rtype: bytearray
     """
-    return "{}{}{}-{}{}-{}{}{}".format(  # pylint: disable=consider-using-f-string
-        *(rand.randint(0, 9) for i in range(8))
-    ).encode("ascii")
+    return "{}{}{}-{}{}-{}{}{}".format(*(rand.randint(0, 9) for i in range(8))).encode(
+        "ascii"
+    )
 
 
 def to_base64_str(bytes_input) -> str:
@@ -153,7 +148,7 @@ async def event_wait(event, timeout):
 
 
 @functools.lru_cache(maxsize=2048)
-def uuid_to_hap_type(uuid: UUID) -> str:
+def uuid_to_hap_type(uuid: UUID | str) -> str:
     """Convert a UUID to a HAP type."""
     long_type = str(uuid).upper()
     if not long_type.endswith(BASE_UUID):
@@ -171,19 +166,20 @@ def hap_type_to_uuid(hap_type):
 
 def to_hap_json(dump_obj):
     """Convert an object to HAP json."""
-    return orjson.dumps(dump_obj)  # pylint: disable=no-member
+    return orjson.dumps(dump_obj)
 
 
 def to_sorted_hap_json(dump_obj):
     """Convert an object to sorted HAP json."""
-    return orjson.dumps(  # pylint: disable=no-member
-        dump_obj, option=orjson.OPT_SORT_KEYS  # pylint: disable=no-member
+    return orjson.dumps(
+        dump_obj,
+        option=orjson.OPT_SORT_KEYS,
     )
 
 
 def from_hap_json(json_str):
     """Convert json to an object."""
-    return orjson.loads(json_str)  # pylint: disable=no-member
+    return orjson.loads(json_str)
 
 
 def async_create_background_task(func: Awaitable) -> asyncio.Task:
