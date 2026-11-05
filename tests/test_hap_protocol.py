@@ -1,7 +1,9 @@
 """Tests for the HAPServerProtocol."""
 
 import asyncio
+import contextlib
 import time
+from typing import cast
 from unittest.mock import MagicMock, Mock, patch
 
 from cryptography.exceptions import InvalidTag
@@ -9,10 +11,11 @@ from cryptography.exceptions import InvalidTag
 from pyhap import hap_handler, hap_protocol
 from pyhap.accessory import Accessory, Bridge
 from pyhap.accessory_driver import AccessoryDriver
+from pyhap.hap_crypto import HAPCrypto
 from pyhap.hap_handler import HAPResponse
 
 
-class MockTransport(asyncio.Transport):  # pylint: disable=abstract-method
+class MockTransport(asyncio.Transport):
     """A mock transport."""
 
     _is_closing: bool = False
@@ -52,6 +55,22 @@ class MockHAPCrypto:
     def encrypt(self, data):
         """Mock as plaintext."""
         return data
+
+
+def _enable_encryption(hap_proto: hap_protocol.HAPServerProtocol) -> None:
+    """Install the plaintext crypto mock and mark the session encrypted."""
+    assert hap_proto.handler is not None
+    hap_proto.hap_crypto = cast("HAPCrypto", MockHAPCrypto())
+    hap_proto.handler.is_encrypted = True
+
+
+async def _await_response(hap_proto: hap_protocol.HAPServerProtocol) -> None:
+    """Wait for a pending delayed response, ignoring failures."""
+    response = hap_proto.response
+    assert response is not None
+    assert response.task is not None
+    with contextlib.suppress(Exception):
+        await response.task
 
 
 def test_connection_management(driver):
@@ -110,7 +129,12 @@ def test_pair_setup(driver):
 
     with patch.object(hap_proto.transport, "write") as writer:
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.1\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 6\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
 
     assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
@@ -130,7 +154,13 @@ def test_http10_close(driver):
 
     with patch.object(hap_proto.transport, "write") as writer:
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.0\r\n"
+            b"Connection:close\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 6\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
 
     assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
@@ -151,10 +181,22 @@ def test_invalid_content_length(driver):
 
     with patch.object(hap_proto.transport, "write") as writer:
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 2\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.0\r\n"
+            b"Connection:close\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 2\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 2\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.0\r\n"
+            b"Connection:close\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 2\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
 
     assert (
@@ -180,7 +222,13 @@ def test_invalid_client_closes_connection(driver):
 
     with patch.object(hap_proto.transport, "write") as writer:
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.0\r\nConnection:close\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.0\r\n"
+            b"Connection:close\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 6\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
         hap_proto.data_received(b"")
 
@@ -226,7 +274,10 @@ def test_get_accessories_without_crypto(driver):
 
     with patch.object(hap_proto.transport, "write") as writer:
         hap_proto.data_received(
-            b"GET /accessories HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
+            b"GET /accessories HTTP/1.1\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"\r\n"
+            b""
         )
 
     hap_proto.close()
@@ -243,12 +294,14 @@ def test_get_accessories_with_crypto(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
-            b"GET /accessories HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
+            b"GET /accessories HTTP/1.1\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"\r\n"
+            b""
         )
 
     hap_proto.close()
@@ -270,15 +323,20 @@ def test_get_characteristics_with_crypto(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
-            b"GET /characteristics?id=3762173001.7 HTTP/1.1\r\nHost: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
+            b"GET /characteristics?id=3762173001.7 HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n"
+            b"\r\n"
+            b""
         )
         hap_proto.data_received(
-            b"GET /characteristics?id=1.5 HTTP/1.1\r\nHost: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
+            b"GET /characteristics?id=1.5 HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n"
+            b"\r\n"
+            b""
         )
 
     hap_proto.close()
@@ -308,12 +366,16 @@ def test_set_characteristics_with_crypto(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
-            b'PUT /characteristics HTTP/1.1\r\nHost: HASS12\\032AD1C22._hap._tcp.local\r\nContent-Length: 49\r\nContent-Type: application/hap+json\r\n\r\n{"characteristics":[{"aid":1,"iid":9,"ev":true}]}'  # pylint: disable=line-too-long
+            b"PUT /characteristics HTTP/1.1\r\n"
+            b"Host: HASS12\\032AD1C22._hap._tcp.local\r\n"
+            b"Content-Length: 49\r\n"
+            b"Content-Type: application/hap+json\r\n"
+            b"\r\n"
+            b'{"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
         )
 
     hap_proto.close()
@@ -334,11 +396,10 @@ def test_crypto_failure_closes_connection(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
     assert connections[addr_info] == hap_proto
     with patch.object(hap_proto.hap_crypto, "decrypt", side_effect=InvalidTag):
-        hap_proto.data_received(b"any")  # pylint: disable=line-too-long
+        hap_proto.data_received(b"any")
 
     assert len(connections) == 0
 
@@ -354,12 +415,14 @@ def test_empty_encrypted_data(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(b"")
         hap_proto.data_received(
-            b"GET /accessories HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
+            b"GET /accessories HTTP/1.1\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"\r\n"
+            b""
         )
 
     hap_proto.close()
@@ -378,10 +441,20 @@ def test_http_11_keep_alive(driver):
 
     with patch.object(hap_proto.transport, "write") as writer:
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.1\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 6\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.1\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 6\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
 
     assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
@@ -399,21 +472,29 @@ async def test_camera_snapshot_connection_closed(driver):
         return b"fakesnap"
 
     acc = Accessory(driver, "TestAcc")
-    acc.async_get_snapshot = _async_get_snapshot
+    # get_snapshot/async_get_snapshot are camera-only methods, not part
+    # of Accessory's interface; attach them dynamically so the handler
+    # dispatches to them.
+    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[unresolved-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with patch.object(hap_proto.transport, "write") as writer:
         hap_proto.data_received(
-            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+            b"POST /resource HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\n"
+            b"Content-Length: 79\r\n"
+            b"Content-Type: application/hap+json\r\n"
+            b"\r\n"
+            b'{"image-height":360,"resource-type":"image","image-width":640,"aid":14116'
+            b"20844}"
         )
         hap_proto.close()
-        await hap_proto.response.task
+        await _await_response(hap_proto)
         await asyncio.sleep(0)
 
     assert writer.call_args_list == []
@@ -434,12 +515,17 @@ def test_camera_snapshot_without_snapshot_support(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
-            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+            b"POST /resource HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\n"
+            b"Content-Length: 79\r\n"
+            b"Content-Type: application/hap+json\r\n"
+            b"\r\n"
+            b'{"image-height":360,"resource-type":"image","image-width":640,"aid":14116'
+            b"20844}"
         )
 
     hap_proto.close()
@@ -457,20 +543,27 @@ async def test_camera_snapshot_works_sync(driver):
         return b"fakesnap"
 
     acc = Accessory(driver, "TestAcc")
-    acc.get_snapshot = _get_snapshot
+    # Camera-only snapshot method, attached dynamically so the
+    # handler dispatches to it.
+    acc.get_snapshot = _get_snapshot  # ty: ignore[unresolved-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
-            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+            b"POST /resource HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\n"
+            b"Content-Length: 79\r\n"
+            b"Content-Type: application/hap+json\r\n"
+            b"\r\n"
+            b'{"image-height":360,"resource-type":"image","image-width":640,"aid":14116'
+            b"20844}"
         )
-        await hap_proto.response.task
+        await _await_response(hap_proto)
         await asyncio.sleep(0)
 
     assert b"fakesnap" in b"".join(writelines.call_args_list[0][0])
@@ -489,20 +582,28 @@ async def test_camera_snapshot_works_async(driver):
         return b"fakesnap"
 
     acc = Accessory(driver, "TestAcc")
-    acc.async_get_snapshot = _async_get_snapshot
+    # get_snapshot/async_get_snapshot are camera-only methods, not part
+    # of Accessory's interface; attach them dynamically so the handler
+    # dispatches to them.
+    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[unresolved-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
-            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+            b"POST /resource HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\n"
+            b"Content-Length: 79\r\n"
+            b"Content-Type: application/hap+json\r\n"
+            b"\r\n"
+            b'{"image-height":360,"resource-type":"image","image-width":640,"aid":14116'
+            b"20844}"
         )
-        await hap_proto.response.task
+        await _await_response(hap_proto)
         await asyncio.sleep(0)
 
     assert b"fakesnap" in b"".join(writelines.call_args_list[0][0])
@@ -522,21 +623,29 @@ async def test_camera_snapshot_timeout_async(driver):
         return b"fakesnap"
 
     acc = Accessory(driver, "TestAcc")
-    acc.async_get_snapshot = _async_get_snapshot
+    # get_snapshot/async_get_snapshot are camera-only methods, not part
+    # of Accessory's interface; attach them dynamically so the handler
+    # dispatches to them.
+    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[unresolved-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with (
         patch.object(hap_handler, "RESPONSE_TIMEOUT", 0.1),
         patch.object(hap_proto.transport, "writelines") as writelines,
     ):
         hap_proto.data_received(
-            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+            b"POST /resource HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\n"
+            b"Content-Length: 79\r\n"
+            b"Content-Type: application/hap+json\r\n"
+            b"\r\n"
+            b'{"image-height":360,"resource-type":"image","image-width":640,"aid":14116'
+            b"20844}"
         )
         await asyncio.sleep(0.3)
 
@@ -570,7 +679,12 @@ def test_upgrade_to_encrypted(driver):
         patch.object(hap_proto.handler, "dispatch", _make_response),
     ):
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.1\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 6\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
 
     assert hap_proto.hap_crypto is not None
@@ -608,7 +722,12 @@ async def test_pairing_changed(driver):
         patch.object(hap_proto.handler, "dispatch", _make_response),
     ):
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.1\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 6\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
         await asyncio.sleep(0)
 
@@ -627,23 +746,28 @@ async def test_camera_snapshot_throws_an_exception(driver):
         raise ValueError("any error")
 
     acc = Accessory(driver, "TestAcc")
-    acc.async_get_snapshot = _async_get_snapshot
+    # get_snapshot/async_get_snapshot are camera-only methods, not part
+    # of Accessory's interface; attach them dynamically so the handler
+    # dispatches to them.
+    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[unresolved-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
-            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+            b"POST /resource HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\n"
+            b"Content-Length: 79\r\n"
+            b"Content-Type: application/hap+json\r\n"
+            b"\r\n"
+            b'{"image-height":360,"resource-type":"image","image-width":640,"aid":14116'
+            b"20844}"
         )
-        try:
-            await hap_proto.response.task
-        except Exception:  # pylint: disable=broad-except
-            pass
+        await _await_response(hap_proto)
         await asyncio.sleep(0)
 
     assert b"-70402" in b"".join(writelines.call_args_list[0][0])
@@ -662,23 +786,27 @@ async def test_camera_snapshot_times_out(driver):
         raise asyncio.TimeoutError("timeout")
 
     acc = Accessory(driver, "TestAcc")
-    acc.get_snapshot = _get_snapshot
+    # Camera-only snapshot method, attached dynamically so the
+    # handler dispatches to it.
+    acc.get_snapshot = _get_snapshot  # ty: ignore[unresolved-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
-            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+            b"POST /resource HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\n"
+            b"Content-Length: 79\r\n"
+            b"Content-Type: application/hap+json\r\n"
+            b"\r\n"
+            b'{"image-height":360,"resource-type":"image","image-width":640,"aid":14116'
+            b"20844}"
         )
-        try:
-            await hap_proto.response.task
-        except Exception:  # pylint: disable=broad-except
-            pass
+        await _await_response(hap_proto)
         await asyncio.sleep(0)
 
     assert b"-70402" in b"".join(writelines.call_args_list[0][0])
@@ -698,12 +826,17 @@ async def test_camera_snapshot_missing_accessory(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
+    _enable_encryption(hap_proto)
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
-            b'POST /resource HTTP/1.1\r\nHost: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\nContent-Length: 79\r\nContent-Type: application/hap+json\r\n\r\n{"image-height":360,"resource-type":"image","image-width":640,"aid":1411620844}'  # pylint: disable=line-too-long
+            b"POST /resource HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032BROZ\\0323BF435._hap._tcp.local\r\n"
+            b"Content-Length: 79\r\n"
+            b"Content-Type: application/hap+json\r\n"
+            b"\r\n"
+            b'{"image-height":360,"resource-type":"image","image-width":640,"aid":14116'
+            b"20844}"
         )
         await asyncio.sleep(0)
 
@@ -728,7 +861,12 @@ async def test_idle_timeout(driver):
         patch.object(hap_proto.transport, "write") as writer,
     ):
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.1\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 6\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
         assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
         hap_proto.check_idle(time.time())
@@ -750,7 +888,12 @@ async def test_does_not_timeout(driver):
         patch.object(hap_proto.transport, "write") as writer,
     ):
         hap_proto.data_received(
-            b"POST /pair-setup HTTP/1.1\r\nHost: Bridge\\032C77C47._hap._tcp.local\r\nContent-Length: 6\r\nContent-Type: application/pairing+tlv8\r\n\r\n\x00\x01\x00\x06\x01\x01"  # pylint: disable=line-too-long
+            b"POST /pair-setup HTTP/1.1\r\n"
+            b"Host: Bridge\\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: 6\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n"
+            b"\x00\x01\x00\x06\x01\x01"
         )
         assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 200 OK\r\n") is True
         hap_proto.check_idle(time.time())
@@ -773,16 +916,24 @@ def test_explicit_close(driver: AccessoryDriver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    hap_proto.hap_crypto = MockHAPCrypto()
-    hap_proto.handler.is_encrypted = True
-    assert hap_proto.transport.is_closing() is False
+    _enable_encryption(hap_proto)
+    transport_ = hap_proto.transport
+    assert transport_ is not None
+    assert transport_.is_closing() is False
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(
-            b"GET /characteristics?id=3762173001.7 HTTP/1.1\r\nHost: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
+            b"GET /characteristics?id=3762173001.7 HTTP/1.1\r\n"
+            b"Host: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n"
+            b"\r\n"
+            b""
         )
         hap_proto.data_received(
-            b"GET /characteristics?id=1.5 HTTP/1.1\r\nConnection: close\r\nHost: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n\r\n"  # pylint: disable=line-too-long
+            b"GET /characteristics?id=1.5 HTTP/1.1\r\n"
+            b"Connection: close\r\n"
+            b"Host: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n"
+            b"\r\n"
+            b""
         )
 
     join0 = b"".join(writelines.call_args_list[0][0])
@@ -795,4 +946,6 @@ def test_explicit_close(driver: AccessoryDriver):
     assert b"Transfer-Encoding: chunked\r\n\r\n" not in join1
     assert b"TestAcc" in join1
 
-    assert hap_proto.transport.is_closing() is True
+    transport_ = hap_proto.transport
+    assert transport_ is not None
+    assert transport_.is_closing() is True

@@ -436,7 +436,9 @@ async def test_last_unpair_saves_when_reset_fails(driver, caplog):
 
 
 async def test_camera_without_aid_stores_nothing(driver):
-    Camera(_options(), driver, "Cam")
+    camera = Camera(_options(), driver, "Cam")
+    await _write_recording_state(camera)
+    camera.reset_accessory_state()
     assert not driver.state.accessory_states
 
 

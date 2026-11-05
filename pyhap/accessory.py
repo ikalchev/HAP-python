@@ -1,11 +1,13 @@
 """Module for the Accessory classes."""
 
+from collections.abc import Callable, Iterable
 import itertools
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from . import SUPPORT_QR_CODE, util
+from .characteristic import Characteristic
 from .const import (
     CATEGORY_BRIDGE,
     CATEGORY_OTHER,
@@ -26,7 +28,6 @@ if SUPPORT_QR_CODE:
 
 if TYPE_CHECKING:
     from .accessory_driver import AccessoryDriver
-    from .characteristic import Characteristic
 
 
 HAP_PROTOCOL_INFORMATION_SERVICE_UUID = UUID("000000A2-0000-1000-8000-0026BB765291")
@@ -45,9 +46,9 @@ class Accessory:
     def __init__(
         self,
         driver: "AccessoryDriver",
-        display_name: Optional[str],
-        aid: Optional[int] = None,
-        iid_manager: Optional[IIDManager] = None,
+        display_name: str | None,
+        aid: int | None = None,
+        iid_manager: IIDManager | None = None,
     ) -> None:
         """Initialise with the given properties.
 
@@ -60,12 +61,12 @@ class Accessory:
             will assign the standalone AID to this `Accessory`.
         :type aid: int
         """
-        self.aid: Optional[int] = aid
-        self.display_name: Optional[str] = display_name
+        self.aid: int | None = aid
+        self.display_name: str | None = display_name
         self.driver = driver
-        self.services: List[Service] = []
+        self.services: list[Service] = []
         self.iid_manager = iid_manager or IIDManager()
-        self.setter_callback: Optional[Callable[[Any], None]] = None
+        self.setter_callback: Callable[[Any], None] | None = None
 
         self.add_info_service()
         if aid == STANDALONE_AID:
@@ -109,10 +110,15 @@ class Accessory:
         self.add_service(serv_hap_proto_info)
 
     def set_info_service(
-        self, firmware_revision=None, manufacturer=None, model=None, serial_number=None
+        self,
+        firmware_revision: str | None = None,
+        manufacturer: str | None = None,
+        model: str | None = None,
+        serial_number: str | None = None,
     ):
         """Quick assign basic accessory information."""
         serv_info = self.get_service("AccessoryInformation")
+        assert serv_info is not None  # noqa: S101
         if firmware_revision:
             serv_info.configure_char("FirmwareRevision", value=firmware_revision)
         if manufacturer:
@@ -131,21 +137,21 @@ class Accessory:
 
     def add_preload_service(
         self,
-        service: Service,
-        chars: Optional[Iterable["Characteristic"]] = None,
-        unique_id: Optional[str] = None,
+        service: str,
+        chars: str | Iterable[str] | None = None,
+        unique_id: str | None = None,
     ) -> Service:
         """Create a service with the given name and add it to this acc."""
-        service = self.driver.loader.get_service(service)
+        serv = self.driver.loader.get_service(service)
         if unique_id is not None:
-            service.unique_id = unique_id
+            serv.unique_id = unique_id
         if chars:
-            chars = chars if isinstance(chars, list) else [chars]
-            for char_name in chars:
+            char_names = [chars] if isinstance(chars, str) else chars
+            for char_name in char_names:
                 char = self.driver.loader.get_char(char_name)
-                service.add_characteristic(char)
-        self.add_service(service)
-        return service
+                serv.add_characteristic(char)
+        self.add_service(serv)
+        return serv
 
     def set_primary_service(self, primary_service: Service) -> None:
         """Set the primary service of the acc."""
@@ -157,8 +163,8 @@ class Accessory:
 
         This also assigns unique IIDS to the services and their Characteristics.
 
-        .. note:: Do not add or remove characteristics from services that have been added
-            to an Accessory, as this will lead to inconsistent IIDs.
+        .. note:: Do not add or remove characteristics from services that have
+            been added to an Accessory, as this will lead to inconsistent IIDs.
 
         :param servs: Variable number of services to add to this Accessory.
         :type: Service
@@ -171,7 +177,7 @@ class Accessory:
                 c.broker = self
                 self.iid_manager.assign(c)
 
-    def get_service(self, name: str) -> Optional[Service]:
+    def get_service(self, name: str) -> Service | None:
         """Return a Service with the given name.
 
         A single Service is returned even if more than one Service with the same name
@@ -208,13 +214,12 @@ class Accessory:
             int(self.driver.state.pincode.replace(b"-", b""), 10) & 0x7FFFFFFF
         )  # pincode
 
-        # pylint: disable-next=possibly-used-before-assignment
         encoded_payload = base36.dumps(payload).upper()
         encoded_payload = encoded_payload.rjust(9, "0")
 
         return "X-HM://" + encoded_payload + self.driver.state.setup_id
 
-    def get_characteristic(self, aid: int, iid: int) -> Optional["Characteristic"]:
+    def get_characteristic(self, aid: int, iid: int) -> "Characteristic | None":
         """Get the characteristic for the given IID.
 
         The AID is used to verify if the search is in the correct accessory.
@@ -222,9 +227,10 @@ class Accessory:
         if aid != self.aid:
             return None
 
-        return self.iid_manager.get_obj(iid)
+        obj = self.iid_manager.get_obj(iid)
+        return obj if isinstance(obj, Characteristic) else None
 
-    def to_HAP(self, include_value: bool = True) -> Dict[str, Any]:
+    def to_HAP(self, include_value: bool = True) -> dict[str, Any]:
         """A HAP representation of this Accessory.
 
         :return: A HAP representation of this accessory. For example:
@@ -312,7 +318,8 @@ class Accessory:
         """
 
     async def stop(self):
-        """Called when the Accessory should stop what is doing and clean up any resources.
+        """Called when the Accessory should stop what it is doing and clean up
+        any resources.
 
         Can be overridden with a normal or async method.
         """
@@ -363,8 +370,8 @@ class Bridge(Accessory):
     def __init__(
         self,
         driver: "AccessoryDriver",
-        display_name: Optional[str],
-        iid_manager: Optional[IIDManager] = None,
+        display_name: str | None,
+        iid_manager: IIDManager | None = None,
     ) -> None:
         super().__init__(
             driver, display_name, aid=STANDALONE_AID, iid_manager=iid_manager
@@ -378,16 +385,17 @@ class Bridge(Accessory):
         unique among all the ``Accessories`` in the same `Bridge`. If the given
         ``Accessory``'s AID is None, a unique AID will be assigned to it. Otherwise,
         it will be verified that the AID is not the standalone aid (``STANDALONE_AID``)
-        and that there is no other ``Accessory`` already in this ``Bridge`` with that AID.
+        and that there is no other ``Accessory`` already in this ``Bridge``
+        with that AID.
 
         .. note:: A ``Bridge`` cannot be added to another ``Bridge``.
 
         :param acc: The ``Accessory`` to be bridged.
         :type acc: Accessory
 
-        :raise ValueError: When the given ``Accessory`` is of category ``CATEGORY_BRIDGE``
-            or if the AID of the ``Accessory`` clashes with another ``Accessory`` already in this
-            ``Bridge``.
+        :raise ValueError: When the given ``Accessory`` is of category
+            ``CATEGORY_BRIDGE`` or if the AID of the ``Accessory`` clashes with
+            another ``Accessory`` already in this ``Bridge``.
         """
         if acc.category == CATEGORY_BRIDGE:
             raise ValueError("Bridges cannot be bridged")
@@ -404,7 +412,11 @@ class Bridge(Accessory):
 
         self.accessories[acc.aid] = acc
 
-    def to_HAP(self, include_value: bool = True) -> List[Dict[str, Any]]:
+    # A Bridge serializes one HAP dict per bridged accessory, which
+    # legitimately widens the parent's single-dict return type.
+    def to_HAP(  # ty: ignore[invalid-method-override]
+        self, include_value: bool = True
+    ) -> list[dict[str, Any]]:
         """Returns a HAP representation of itself and all contained accessories.
 
         .. seealso:: Accessory.to_HAP
@@ -414,10 +426,11 @@ class Bridge(Accessory):
             for acc in (super(), *self.accessories.values())
         ]
 
-    def get_characteristic(self, aid: int, iid: int) -> Optional["Characteristic"]:
+    def get_characteristic(self, aid: int, iid: int) -> "Characteristic | None":
         """.. seealso:: Accessory.to_HAP"""
         if self.aid == aid:
-            return self.iid_manager.get_obj(iid)
+            obj = self.iid_manager.get_obj(iid)
+            return obj if isinstance(obj, Characteristic) else None
 
         acc = self.accessories.get(aid)
         if acc is None:
@@ -430,7 +443,7 @@ class Bridge(Accessory):
         for acc in self.accessories.values():
             try:
                 acc.restore_accessory_state()
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 logger.warning(
                     "Failed to restore the state of %s", acc.display_name, exc_info=True
                 )
@@ -440,7 +453,7 @@ class Bridge(Accessory):
         for acc in self.accessories.values():
             try:
                 acc.reset_accessory_state()
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 logger.warning(
                     "Failed to reset the state of %s", acc.display_name, exc_info=True
                 )

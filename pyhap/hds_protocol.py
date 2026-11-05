@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum
 import struct
-from typing import Any, Optional
+from typing import Any
 
 
 class HDSStatus(IntEnum):
@@ -250,8 +250,8 @@ class Message:
     kind: str  # REQUEST / RESPONSE / EVENT
     topic: str
     message: dict = field(default_factory=dict)
-    id: Optional[int] = None
-    status: Optional[int] = None
+    id: int | None = None
+    status: int | None = None
 
     def encode(self) -> bytes:
         """Return the plaintext HDS frame payload for this message.
@@ -270,7 +270,7 @@ class Message:
         return bytes([len(header_bytes)]) + header_bytes + encode(self.message)
 
     @classmethod
-    def decode(cls, payload: bytes) -> "Message":
+    def decode(cls, payload: bytes) -> Message:
         header_length = payload[0]
         header = decode(payload[1 : 1 + header_length])
         message = decode(payload[1 + header_length :])

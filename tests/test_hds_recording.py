@@ -1,7 +1,5 @@
 """Tests for the HDS dataSend recording transfer."""
 
-# pylint: disable=protected-access
-
 import asyncio
 import os
 
@@ -18,7 +16,7 @@ def _paired(listener):
     return hds.HDSCrypto(acc_write, acc_read)
 
 
-class _CaptureTransport(asyncio.Transport):  # pylint: disable=abstract-method
+class _CaptureTransport(asyncio.Transport):
     def __init__(self):
         super().__init__()
         self.buffer = bytearray()
@@ -175,12 +173,22 @@ async def test_recording_open_rejects_wrong_type():
     )
 
 
+@pytest.mark.parametrize(
+    ("topic", "stream_id", "stops"),
+    [
+        ("close", 7, True),
+        ("close", 8, False),
+        ("ack", 7, True),
+        ("ack", 8, False),
+    ],
+)
 @pytest.mark.asyncio
-async def test_recording_close_stops_stream():
+async def test_recording_close_event_stops_stream(topic, stream_id, stops):
+    """A dataSend close or ack EVENT for the current stream stops it."""
     started = asyncio.Event()
     release = asyncio.Event()
 
-    async def delegate(stream_id):
+    async def delegate(_stream_id):
         yield hds_recording.RecordingPacket(b"init")
         started.set()
         await release.wait()  # block until the controller closes
@@ -191,7 +199,7 @@ async def test_recording_close_stops_stream():
     connection = hds_server.HDSConnection(listener)
     transport = _CaptureTransport()
     connection.connection_made(transport)
-    hds_recording.RecordingStreamManager(connection, delegate)
+    manager = hds_recording.RecordingStreamManager(connection, delegate)
 
     connection.data_received(
         controller.encrypt_frame(
@@ -215,15 +223,174 @@ async def test_recording_close_stops_stream():
 
     connection.data_received(
         controller.encrypt_frame(
-            Message("dataSend", REQUEST, "close", {"streamId": 7}, id=3).encode()
+            Message("dataSend", EVENT, topic, {"streamId": stream_id}).encode()
         )
     )
     await asyncio.sleep(0.02)
-    messages = _drain_events(controller, transport)
-    assert messages[0].topic == "close"
-    assert messages[0].status == HDSStatus.SUCCESS
-    # The blocked "never" fragment was never sent.
-    assert not [m for m in messages if m.kind == EVENT]
+    # Events get no response, and the blocked "never" fragment was not sent.
+    assert not _drain_events(controller, transport)
+    task = manager._task
+    assert task is not None
+    assert task.done() is stops
+    release.set()
+    await asyncio.sleep(0.02)
+
+
+@pytest.mark.parametrize("topic", ["ack", "close"])
+@pytest.mark.asyncio
+async def test_ack_after_end_of_stream_keeps_delegate_cleanup(topic):
+    """The controller acks endOfStream while the delegate is still cleaning up."""
+    in_cleanup = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    cleanup_done = asyncio.Event()
+
+    async def delegate(_stream_id):
+        try:
+            yield hds_recording.RecordingPacket(b"init")
+            yield hds_recording.RecordingPacket(b"last", is_last=True)
+        finally:
+            in_cleanup.set()
+            await release_cleanup.wait()  # e.g. waiting for ffmpeg to exit
+            cleanup_done.set()
+
+    listener = hds_server.HDSListener()
+    controller = _paired(listener)
+    connection = hds_server.HDSConnection(listener)
+    transport = _CaptureTransport()
+    connection.connection_made(transport)
+    manager = hds_recording.RecordingStreamManager(connection, delegate)
+
+    connection.data_received(
+        controller.encrypt_frame(
+            Message("control", REQUEST, "hello", {}, id=1).encode()
+        )
+    )
+    connection.data_received(
+        controller.encrypt_frame(
+            Message(
+                "dataSend",
+                REQUEST,
+                "open",
+                {"streamId": 5, "type": "ipcamera.recording", "target": "controller"},
+                id=2,
+            ).encode()
+        )
+    )
+    await in_cleanup.wait()
+    assert _drain_events(controller, transport)[-1].message["endOfStream"] is True
+
+    connection.data_received(
+        controller.encrypt_frame(
+            Message(
+                "dataSend", EVENT, topic, {"streamId": 5, "endOfStream": True}
+            ).encode()
+        )
+    )
+    await asyncio.sleep(0.01)
+    release_cleanup.set()
+    await asyncio.sleep(0.01)
+    assert cleanup_done.is_set()
+    task = manager._task
+    assert task is not None
+    assert not task.cancelled()
+    assert manager._closed
+
+
+def _open(connection, controller, stream_id, request_id):
+    connection.data_received(
+        controller.encrypt_frame(
+            Message(
+                "dataSend",
+                REQUEST,
+                "open",
+                {
+                    "streamId": stream_id,
+                    "type": "ipcamera.recording",
+                    "target": "controller",
+                },
+                id=request_id,
+            ).encode()
+        )
+    )
+
+
+def _event(connection, controller, topic, body):
+    connection.data_received(
+        controller.encrypt_frame(Message("dataSend", EVENT, topic, body).encode())
+    )
+
+
+@pytest.mark.asyncio
+async def test_close_stops_a_second_stream_on_the_same_connection():
+    """A stream that ended on its own must not block stopping the next one."""
+    second_started = asyncio.Event()
+
+    async def delegate(stream_id):
+        yield hds_recording.RecordingPacket(b"init")
+        if stream_id == 1:
+            yield hds_recording.RecordingPacket(b"last", is_last=True)
+            return
+        second_started.set()
+        await asyncio.Event().wait()  # block until the controller closes
+
+    listener = hds_server.HDSListener()
+    controller = _paired(listener)
+    connection = hds_server.HDSConnection(listener)
+    connection.connection_made(_CaptureTransport())
+    manager = hds_recording.RecordingStreamManager(connection, delegate)
+    connection.data_received(
+        controller.encrypt_frame(
+            Message("control", REQUEST, "hello", {}, id=1).encode()
+        )
+    )
+
+    _open(connection, controller, 1, 2)
+    await asyncio.sleep(0.01)
+    task = manager._task
+    assert task is not None
+    assert task.done()
+    _open(connection, controller, 2, 3)
+    await second_started.wait()
+
+    _event(connection, controller, "close", {"streamId": 2})
+    await asyncio.sleep(0.01)
+    task = manager._task
+    assert task is not None
+    assert task.cancelled()
+
+
+@pytest.mark.parametrize("body", [[7], None, 7, {"streamId": "7"}])
+@pytest.mark.asyncio
+async def test_malformed_close_event_is_ignored(body):
+    started = asyncio.Event()
+
+    async def delegate(_stream_id):
+        yield hds_recording.RecordingPacket(b"init")
+        started.set()
+        await asyncio.Event().wait()
+
+    listener = hds_server.HDSListener()
+    controller = _paired(listener)
+    connection = hds_server.HDSConnection(listener)
+    transport = _CaptureTransport()
+    connection.connection_made(transport)
+    manager = hds_recording.RecordingStreamManager(connection, delegate)
+    connection.data_received(
+        controller.encrypt_frame(
+            Message("control", REQUEST, "hello", {}, id=1).encode()
+        )
+    )
+    _open(connection, controller, 7, 2)
+    await started.wait()
+
+    _event(connection, controller, "close", body)
+    await asyncio.sleep(0.01)
+    task = manager._task
+    assert task is not None
+    assert not task.done()
+    assert not transport.closed
+    manager._stop()
+    await asyncio.sleep(0.01)
 
 
 @pytest.mark.asyncio
@@ -291,7 +458,9 @@ async def test_connection_loss_cancels_stream_and_runs_delegate_cleanup():
     connection.connection_lost(None)
     await asyncio.sleep(0.02)
     assert cleaned.is_set()
-    assert manager._task.done()
+    task = manager._task
+    assert task is not None
+    assert task.done()
 
 
 @pytest.mark.asyncio
@@ -399,7 +568,7 @@ async def test_double_stop_does_not_abort_delegate_cleanup():
 
 @pytest.mark.asyncio
 async def test_fmp4_recording_packets_splits_init_and_fragments():
-    """Yield ftyp+moov as init and each moof+mdat as a fragment, last flagged.
+    """Yield ftyp+moov as init and each moof+mdat as a fragment, then end.
 
     Exercises the source-agnostic framer end to end over a synthetic stream.
     """
@@ -420,14 +589,15 @@ async def test_fmp4_recording_packets_splits_init_and_fragments():
     reader.feed_eof()
 
     packets = [p async for p in hds_recording.fmp4_recording_packets(reader)]
-    assert len(packets) == 3
+    assert len(packets) == 4
     # init packet carries both ftyp and moov, not flagged last
     assert packets[0].data[4:8] == b"ftyp"
     assert b"moov" in packets[0].data
     assert not packets[0].is_last
     assert packets[1].data[4:8] == b"moof" and not packets[1].is_last
-    # the fragment right before EOF is the last one
-    assert packets[2].data[4:8] == b"moof" and packets[2].is_last
+    assert packets[2].data[4:8] == b"moof" and not packets[2].is_last
+    # EOF is signalled with an empty last packet
+    assert packets[3].data == b"" and packets[3].is_last
 
 
 @pytest.mark.asyncio
@@ -441,9 +611,10 @@ async def test_fmp4_recording_packets_handles_64bit_box_size():
         (1).to_bytes(4, "big") + b"moof" + (16 + len(body)).to_bytes(8, "big") + body
     )
     reader = asyncio.StreamReader()
-    reader.feed_data(ftyp + moov + big_moof)
+    mdat = (8).to_bytes(4, "big") + b"mdat"
+    reader.feed_data(ftyp + moov + big_moof + mdat)
     reader.feed_eof()
     packets = [p async for p in hds_recording.fmp4_recording_packets(reader)]
-    assert len(packets) == 2
-    assert packets[1].data[4:8] == b"moof" and packets[1].data.endswith(body)
-    assert packets[1].is_last
+    assert len(packets) == 3
+    assert packets[1].data == big_moof + mdat
+    assert packets[2].is_last
