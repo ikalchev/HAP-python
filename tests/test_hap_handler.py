@@ -1042,6 +1042,37 @@ async def test_handle_resource_encrypted_allows_snapshot(driver: AccessoryDriver
     assert await response.task == b"jpeg-data"
 
 
+def test_pairing_two_rejects_zero_a(driver: AccessoryDriver):
+    """Verify a pair-setup M3 with A % N == 0 gets an authentication error.
+
+    A zero (or N-multiple) A makes the SRP session key public, so the client
+    could otherwise forge the proof and pair without the setup code.
+    """
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M3,
+        hap_handler.HAP_TLV_TAGS.PUBLIC_KEY,
+        b"\x00",
+        hap_handler.HAP_TLV_TAGS.PASSWORD_PROOF,
+        b"\x00" * 64,
+    )
+    driver.setup_srp_verifier()
+    handler.handle_pairing()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M4,
+        hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.AUTHENTICATION,
+    }
+
+
 def test_invalid_pairing_two(driver: AccessoryDriver):
     """Verify we respond with error with invalid request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
@@ -1086,7 +1117,8 @@ def test_invalid_pairing_three(driver: AccessoryDriver):
         b"",
     )
     handler.accessory_handler.setup_srp_verifier()
-    handler.accessory_handler.srp_verifier.set_A(b"")
+    # A valid (non-zero mod N) A is needed to reach the M5 decrypt step.
+    handler.accessory_handler.srp_verifier.set_A(b"\x01")
     handler.handle_pairing()
 
     tlv_objects = tlv.decode(response.body)
