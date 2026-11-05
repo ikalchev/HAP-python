@@ -595,7 +595,7 @@ class Camera(Accessory):
             "MotionDetected", value=False
         )
         # HAP-NodeJS marks the HKSV event-trigger sensor as active; iOS expects it.
-        # Follows HomeKitCameraActive, also when it is set without a write.
+        # A restored HomeKitCameraActive bypasses the setter, so reads derive it.
         self._motion_status_active_char = motion.configure_char(
             "StatusActive", value=True, getter_callback=self._homekit_camera_on
         )
@@ -905,12 +905,12 @@ class Camera(Accessory):
         return bool(self._homekit_camera_active_char.value)
 
     def _handle_homekit_camera_active(self, value):
-        # Like HAP-NodeJS: a camera turned off in the Home app reports its
-        # motion sensor inactive and ends a running recording.
+        # A camera turned off must not record, and the hub must not treat its
+        # motion sensor as an active trigger.
         active = bool(value)
         assert self._motion_status_active_char is not None  # noqa: S101
         # Always notify: a restored value may have bypassed the stored one,
-        # so set_value alone could see no change. Reads follow the getter.
+        # so set_value alone could see no change.
         self._motion_status_active_char.set_value(active, should_notify=False)
         self._motion_status_active_char.notify()
         if not active and self._recording_stream is not None:
