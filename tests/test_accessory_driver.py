@@ -3,6 +3,7 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import tempfile
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid1
 
@@ -14,6 +15,8 @@ from pyhap import util
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
 from pyhap.accessory_driver import (
     MAX_FAILED_PAIRING_ATTEMPTS,
+    MAX_PREPARED_WRITE_TTL_SECONDS,
+    MAX_PREPARED_WRITES_PER_CLIENT,
     PAIRING_LOCKOUT_SECONDS,
     AccessoryDriver,
     AccessoryMDNSServiceInfo,
@@ -30,7 +33,9 @@ from pyhap.const import (
     HAP_REPR_AID,
     HAP_REPR_CHARS,
     HAP_REPR_IID,
+    HAP_REPR_PID,
     HAP_REPR_STATUS,
+    HAP_REPR_TTL,
     HAP_REPR_VALUE,
     HAP_REPR_WRITE_RESPONSE,
     HAP_SERVER_STATUS,
@@ -1297,3 +1302,26 @@ def test_pairing_rate_limit_lockout_and_reset(driver: AccessoryDriver):
         assert driver._pairing_lockout_until == 0.0
         driver.register_failed_pairing_attempt()
         assert not driver.pairing_locked_out
+
+
+def test_prepare_bounds_prepared_writes(driver: AccessoryDriver):
+    """Verify the TTL is capped and pending writes per client are bounded."""
+    client_addr = ("1.2.3.4", 5)
+
+    # An absurd TTL is clamped to the maximum.
+    driver.prepare({HAP_REPR_TTL: 10_000_000_000, HAP_REPR_PID: 1}, client_addr)
+    assert (
+        driver.prepared_writes[client_addr][1] - time.time()
+        <= MAX_PREPARED_WRITE_TTL_SECONDS
+    )
+
+    # Registering more unique pids than the cap evicts the soonest-to-expire
+    # entry instead of growing the dict without bound.
+    for pid in range(MAX_PREPARED_WRITES_PER_CLIENT + 5):
+        driver.prepare({HAP_REPR_TTL: 10_000, HAP_REPR_PID: pid}, client_addr)
+
+    pending = driver.prepared_writes[client_addr]
+    assert len(pending) == MAX_PREPARED_WRITES_PER_CLIENT
+    # The earliest-registered pids were evicted, the latest kept.
+    assert 0 not in pending
+    assert MAX_PREPARED_WRITES_PER_CLIENT + 4 in pending

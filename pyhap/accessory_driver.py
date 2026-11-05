@@ -78,6 +78,12 @@ KEYS_TO_EXCLUDE = {HAP_REPR_IID, HAP_REPR_AID}
 MAX_FAILED_PAIRING_ATTEMPTS = 5
 PAIRING_LOCKOUT_SECONDS = 60
 
+# Prepared writes are short-lived (HomeKit uses ~10 second TTLs); cap both
+# the TTL and the number of pending writes per client so a paired peer cannot
+# grow ``prepared_writes`` without bound.
+MAX_PREPARED_WRITES_PER_CLIENT = 16
+MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
+
 
 def _wrap_char_setter(char, value, client_addr):
     """Process an characteristic setter callback trapping and logging all exceptions."""
@@ -1070,10 +1076,21 @@ class AccessoryDriver:
         try:
             ttl = prepare_query[HAP_REPR_TTL]
             pid = prepare_query[HAP_REPR_PID]
-            self.prepared_writes.setdefault(client_addr, {})[pid] = time.time() + (
-                ttl / 1000
-            )
-        except (KeyError, ValueError):
+            now = time.time()
+            pending = self.prepared_writes.setdefault(client_addr, {})
+            # Prune expired entries and cap the number of pending writes so a
+            # paired client cannot grow prepared_writes without bound by
+            # registering endless unique pids with arbitrary TTLs.
+            for stale_pid in [
+                prepared_pid
+                for prepared_pid, expires_at in pending.items()
+                if expires_at <= now
+            ]:
+                del pending[stale_pid]
+            if len(pending) >= MAX_PREPARED_WRITES_PER_CLIENT:
+                del pending[min(pending, key=pending.get)]
+            pending[pid] = now + min(ttl / 1000, MAX_PREPARED_WRITE_TTL_SECONDS)
+        except (KeyError, TypeError, ValueError):
             return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
 
         return {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
