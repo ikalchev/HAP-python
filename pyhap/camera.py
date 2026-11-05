@@ -653,7 +653,7 @@ class Camera(Accessory):
             listener = hds_server.HDSListener()
             listener.on_connection = self._on_hds_connection
             # Bind where HAP listens: the controller opens HDS to that address.
-            await listener.start(self.driver.http_server.listen_address)
+            await listener.start(self.driver.listen_address())
             # Publish only a bound listener, SetupDataStreamTransport reads its
             # port. A concurrent start or a stop may have come in meanwhile.
             if self._hds_listener is None and generation == self._hds_generation:

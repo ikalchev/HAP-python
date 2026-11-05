@@ -163,6 +163,7 @@ async def test_listener_start_failure_releases_bound_hosts():
 async def test_start_recording_transport_binds_hap_listen_address(camera):
     await camera.start_recording_transport()
     try:
+        assert camera.driver.listen_address() == "127.0.0.1"
         sockets = camera._hds_listener._servers[0].sockets
         assert sockets[0].getsockname()[0] == "127.0.0.1"
         # Already started: a second call keeps the listener.

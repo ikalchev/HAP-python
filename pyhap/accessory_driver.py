@@ -28,7 +28,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
@@ -310,10 +310,14 @@ class AccessoryDriver:
             address=advertised_address, mac=mac, pincode=pincode, port=port
         )
 
-        listen_address = listen_address or address
-        network_tuple = (listen_address, self.state.port)
+        self._listen_address = listen_address or address
+        network_tuple = (self._listen_address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
         self.prepared_writes = {}
+
+    def listen_address(self) -> Union[str, List[str]]:
+        """Return the address, or list of addresses, the HAP server listens on."""
+        return self._listen_address
 
     def start(self):
         """Start the event loop and call `start_service`.
