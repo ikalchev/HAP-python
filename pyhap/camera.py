@@ -30,7 +30,7 @@ from pyhap import RESOURCE_DIR, hds, hds_recording, hds_server, hksv_recording, 
 from pyhap.accessory import Accessory
 from pyhap.camera_talkback import TalkbackReceiver, talkback_available
 from pyhap.const import CATEGORY_CAMERA
-from pyhap.util import base64_to_bytes, byte_bool, to_base64_str
+from pyhap.util import base64_to_bytes, byte_bool, callback, to_base64_str
 
 if sys.version_info >= (3, 11):
     from asyncio import timeout as async_timeout
@@ -758,8 +758,7 @@ class Camera(Accessory):
         stored = {char.display_name: char.value for char in self._recording_defaults}
         stored[SELECTED_RECORDING_CHAR] = self._selected_recording_raw
         stored["supported_hash"] = self._supported_recording_hash()
-        states = self.driver.state.accessory_states
-        states.setdefault(self.aid, {})["recording"] = stored
+        self.driver.accessory_state(self.aid)["recording"] = stored
         self._schedule_recording_save()
 
     def _schedule_recording_save(self):
@@ -768,7 +767,7 @@ class Camera(Accessory):
         # One disk write per hub burst.
         self._recording_save_pending = True
         try:
-            self.driver.loop.call_soon_threadsafe(self._save_recording_state)
+            self.driver.add_job(self._save_recording_state)
         except RuntimeError:
             self._recording_save_pending = False
             logger.warning("Could not schedule saving the recording state")
@@ -780,6 +779,7 @@ class Camera(Accessory):
             digest.update(char.value.encode())
         return digest.hexdigest()
 
+    @callback
     def _save_recording_state(self):
         self._recording_save_pending = False
         self.driver.async_persist()
@@ -791,7 +791,7 @@ class Camera(Accessory):
 
     def _restore_recording_state(self):
         # Private so construction does not run a subclass override early.
-        stored = self.driver.state.accessory_states.get(self.aid, {}).get("recording")
+        stored = self.driver.accessory_state(self.aid).get("recording")
         if not self._recording_defaults or not isinstance(stored, dict):
             return
         for char in self._recording_defaults:
@@ -829,7 +829,7 @@ class Camera(Accessory):
             char.set_value(value, should_notify=False)
         self._selected_recording_config = None
         self._selected_recording_raw = None
-        self.driver.state.accessory_states.get(self.aid, {}).pop("recording", None)
+        self.driver.accessory_state(self.aid).pop("recording", None)
         self._schedule_recording_save()
 
     def set_motion_detected(self, detected):

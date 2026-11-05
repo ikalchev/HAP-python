@@ -77,6 +77,12 @@ async def driver_fixture(tmp_path):
         )
 
 
+async def _drain():
+    # add_job hops through call_soon_threadsafe, then call_soon.
+    for _ in range(2):
+        await asyncio.sleep(0)
+
+
 def _char(camera, service, name):
     return camera.get_service(service).get_characteristic(name)
 
@@ -85,7 +91,7 @@ async def _write_recording_state(camera):
     """Simulate the hub enabling recording through HAP writes."""
     for (service, name), value in WRITES.items():
         _char(camera, service, name).client_update_value(value)
-    await asyncio.sleep(0)
+    await _drain()
 
 
 def _assert_state(camera, expected, selected):
@@ -108,7 +114,7 @@ async def test_hub_burst_is_saved_once(driver):
     for (service, name), value in WRITES.items():
         _char(camera, service, name).client_update_value(value)
     assert driver.async_persist.call_count == 0
-    await asyncio.sleep(0)
+    await _drain()
 
     app_setter.assert_called_once_with(1)
     assert driver.async_persist.call_count == 1
@@ -120,10 +126,10 @@ async def test_hub_burst_is_saved_once(driver):
 
     # An unchanged write saves nothing, a later change is saved again.
     _char(camera, "CameraRecordingManagement", "Active").client_update_value(1)
-    await asyncio.sleep(0)
+    await _drain()
     assert driver.async_persist.call_count == 1
     _char(camera, "CameraRecordingManagement", "Active").client_update_value(0)
-    await asyncio.sleep(0)
+    await _drain()
     assert driver.async_persist.call_count == 2
     assert driver.state.accessory_states[CAMERA_AID]["recording"]["Active"] == 0
 
@@ -133,9 +139,9 @@ async def test_other_characteristics_are_not_stored(driver):
     camera.set_motion_detected(True)
     # Same name as the recording Active, on the streaming service.
     _char(camera, "CameraRTPStreamManagement", "Active").client_update_value(0)
-    await asyncio.sleep(0)
+    await _drain()
     assert driver.async_persist.call_count == 0
-    assert not driver.state.accessory_states
+    assert not any(driver.state.accessory_states.values())
 
 
 async def test_camera_rebuilt_before_save_restores_change(driver):
@@ -155,7 +161,7 @@ async def test_restore_on_construction(driver):
     camera = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
     _assert_state(camera, WRITES, selected=True)
     # Restoring does not notify, so nothing is stored or saved again.
-    await asyncio.sleep(0)
+    await _drain()
     assert driver.async_persist.call_count == saves
     other = Camera(_options(), driver, "Other", aid=CAMERA_AID + 1)
     _assert_state(other, DEFAULTS, selected=False)
@@ -236,7 +242,7 @@ async def test_reset_drops_the_stored_state(driver):
     camera.reset_accessory_state()
     _assert_state(camera, DEFAULTS, selected=False)
     assert "recording" not in driver.state.accessory_states[CAMERA_AID]
-    await asyncio.sleep(0)
+    await _drain()
     assert driver.async_persist.call_count == saves + 1
     camera.recording_state_changed.assert_called_once_with()
     rebuilt = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
@@ -268,7 +274,7 @@ async def test_closed_loop_does_not_fail_the_write(driver, caplog):
     # The next change schedules the save again.
     driver.loop = loop
     _char(camera, "CameraRecordingManagement", "Active").client_update_value(0)
-    await asyncio.sleep(0)
+    await _drain()
     assert driver.async_persist.call_count == 1
 
 
@@ -306,6 +312,31 @@ async def test_encoder_round_trip(driver):
     state = State()
     AccessoryEncoder.load_into(buffer, state)
     assert state.accessory_states == driver.state.accessory_states
+
+
+def test_empty_accessory_state_is_not_written(driver):
+    assert driver.accessory_state(CAMERA_AID) == {}
+    driver.accessory_state(CAMERA_AID + 1)["recording"] = {"Active": 1}
+    buffer = io.StringIO()
+    AccessoryEncoder.persist(buffer, driver.state)
+    stored = json.loads(buffer.getvalue())["accessory_states"]
+    assert stored == {str(CAMERA_AID + 1): {"recording": {"Active": 1}}}
+
+
+@pytest.mark.parametrize("method", ["restore_accessory_state", "reset_accessory_state"])
+async def test_bridge_continues_after_failing_accessory(driver, method, caplog):
+    bridge = Bridge(driver, "Bridge")
+    broken = Camera(_options(), driver, "Broken", aid=CAMERA_AID)
+    camera = Camera(_options(), driver, "Cam", aid=CAMERA_AID + 1)
+    bridge.add_accessory(broken)
+    bridge.add_accessory(camera)
+    setattr(broken, method, MagicMock(side_effect=RuntimeError("boom")))
+    setattr(camera, method, MagicMock())
+
+    getattr(bridge, method)()
+    getattr(camera, method).assert_called_once_with()
+    assert "Broken" in caplog.text
+    assert "boom" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -380,10 +411,10 @@ async def test_last_unpair_resets_recording_state(driver, bridged):
     camera.recording_state_changed = MagicMock()
     driver.unpair(clients[1])
     _assert_state(camera, DEFAULTS, selected=False)
-    await asyncio.sleep(0)
+    await _drain()
     camera.recording_state_changed.assert_called_once_with()
     # The defaults are not stored again, the file holds no recording state.
-    assert not driver.state.accessory_states
+    assert not any(driver.state.accessory_states.values())
     # A new pairing starts from the defaults, also after a restart.
     restored = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
     _assert_state(restored, DEFAULTS, selected=False)
@@ -403,7 +434,7 @@ async def test_last_unpair_without_recording_saves_once(driver):
     driver.accessory = camera
 
     driver.unpair(client)
-    await asyncio.sleep(0)
+    await _drain()
     # Only unpair's own save.
     assert driver.async_persist.call_count == 1
     camera.recording_state_changed.assert_not_called()

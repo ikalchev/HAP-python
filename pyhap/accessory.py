@@ -428,12 +428,22 @@ class Bridge(Accessory):
     def restore_accessory_state(self) -> None:
         """Restore the state of each bridged accessory."""
         for acc in self.accessories.values():
-            acc.restore_accessory_state()
+            try:
+                acc.restore_accessory_state()
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "Failed to restore the state of %s", acc.display_name, exc_info=True
+                )
 
     def reset_accessory_state(self) -> None:
         """Reset the state of each bridged accessory."""
         for acc in self.accessories.values():
-            acc.reset_accessory_state()
+            try:
+                acc.reset_accessory_state()
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "Failed to reset the state of %s", acc.display_name, exc_info=True
+                )
 
     async def run(self) -> None:
         """Schedule tasks for each of the accessories' run method."""

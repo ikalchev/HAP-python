@@ -633,6 +633,14 @@ class AccessoryDriver:
             self.advertiser.async_update_service(self.mdns_service_info)
         )
 
+    def accessory_state(self, aid: int) -> Dict[str, Any]:
+        """Return the persisted state dict of accessory ``aid``.
+
+        Accessories keep settings here that must survive a restart. Save
+        changes with :meth:`async_persist`.
+        """
+        return self.state.accessory_states.setdefault(aid, {})
+
     @callback
     def async_persist(self):
         """Saves the state of the accessory.

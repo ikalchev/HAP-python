@@ -75,7 +75,7 @@ class AccessoryEncoder:
             "accessories_hash": state.accessories_hash,
             "client_uuid_to_bytes": client_uuid_to_bytes,
             "accessory_states": {
-                str(aid): data for aid, data in state.accessory_states.items()
+                str(aid): data for aid, data in state.accessory_states.items() if data
             },
             "private_key": bytes.hex(
                 state.private_key.private_bytes(
