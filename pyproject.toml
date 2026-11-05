@@ -46,6 +46,9 @@ Talkback = [
 "Bug Reports" = "https://github.com/ikalchev/HAP-python/issues"
 "Documentation" = "http://hap-python.readthedocs.io/en/latest/"
 
+[tool.setuptools.package-data]
+pyhap = ["resources/*"]
+
 [tool.setuptools.packages.find]
 include = ["pyhap*"]
 
