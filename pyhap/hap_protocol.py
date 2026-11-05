@@ -35,6 +35,15 @@ IDLE_CONNECTION_TIMEOUT_SECONDS = 90 * 60 * 60
 
 EVENT_COALESCE_TIME_WINDOW = 0.5
 
+# HAP request bodies are small - characteristics writes and pairings are a few
+# KiB at most, and even a very large bridge's accessories data is only a few
+# hundred KiB. h11 does not impose a total body-size limit on its own, so a
+# hostile peer could declare a huge Content-Length and stream data until the
+# process dies of memory exhaustion. Anything larger than this is abusive and
+# the connection is dropped. (The encrypted input buffer is inherently bounded
+# to about 64 KiB - one incomplete cipher block - by HAPCrypto.decrypt.)
+MAX_REQUEST_BODY_SIZE = 2**20
+
 H11_END_OF_MESSAGE = h11.EndOfMessage()
 H11_CONNECTION_CLOSED = h11.ConnectionClosed()
 
@@ -58,6 +67,7 @@ class HAPServerProtocol(asyncio.Protocol):
 
         self.request: h11.Request | None = None
         self.request_body: list[bytes] = []
+        self._request_body_size = 0
         self.response: HAPResponse | None = None
 
         self.last_activity: float | None = None
@@ -288,6 +298,7 @@ class HAPServerProtocol(asyncio.Protocol):
                 assert isinstance(event, h11.Request)  # noqa: S101
             self.request = event
             self.request_body = []
+            self._request_body_size = 0
             return True
 
         if event_type is h11.Data:
@@ -296,6 +307,18 @@ class HAPServerProtocol(asyncio.Protocol):
             if TYPE_CHECKING:
                 assert isinstance(event, h11.Data)  # noqa: S101
             self.request_body.append(event.data)
+            self._request_body_size += len(event.data)
+            if self._request_body_size > MAX_REQUEST_BODY_SIZE:
+                # A hostile peer streaming an oversized body must not be able
+                # to make us buffer it all before handling the request.
+                logger.warning(
+                    "%s (%s): Request body exceeds %d bytes, closing connection",
+                    self.peername,
+                    self._handler.client_uuid,
+                    MAX_REQUEST_BODY_SIZE,
+                )
+                self.close()
+                return False
             return True
 
         if event_type is h11.EndOfMessage:
@@ -304,6 +327,7 @@ class HAPServerProtocol(asyncio.Protocol):
             self._process_response(response)
             self.request = None
             self.request_body = []
+            self._request_body_size = 0
             return True
 
         return self._handle_invalid_conn_state(f"Unexpected event: {event}")
