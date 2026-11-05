@@ -72,6 +72,10 @@ def long_to_bytes(n):
     :return: ``long int`` in ``bytes`` format.
     :rtype: bytes
     """
+    if type(n) is int and n >= 0:
+        return n.to_bytes((n.bit_length() + 7) >> 3, "big")
+
+    # Preserve bitwise behavior for subclasses and other numeric objects.
     byteList = []
     x = 0
     off = 0

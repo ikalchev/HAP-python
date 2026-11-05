@@ -357,26 +357,28 @@ class HAPServerHandler:
         @type tlv_object: dict
         """
         logger.debug("%s: Pairing [3/5]", self.client_address)
-        encrypted_data = tlv_objects[HAP_TLV_TAGS.ENCRYPTED_DATA]
+        tags = HAP_TLV_TAGS
+        encrypted_data = tlv_objects[tags.ENCRYPTED_DATA]
 
         session_key = self.accessory_handler.srp_verifier.get_session_key()
         hkdf_enc_key = hap_hkdf(
             long_to_bytes(session_key), self.PAIRING_3_SALT, self.PAIRING_3_INFO
         )
 
-        cipher = ChaCha20Poly1305(hkdf_enc_key)
         try:
-            decrypted_data = cipher.decrypt(
-                self.PAIRING_3_NONCE, bytes(encrypted_data), b""
+            decrypted_data = ChaCha20Poly1305(hkdf_enc_key).decrypt(
+                self.PAIRING_3_NONCE,
+                encrypted_data if type(encrypted_data) is bytes else bytes(encrypted_data),
+                b"",
             )
         except InvalidTag:
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M6)
             return
 
-        dec_tlv_objects = tlv.decode(bytes(decrypted_data))
-        client_username_bytes = dec_tlv_objects[HAP_TLV_TAGS.USERNAME]
-        client_ltpk = dec_tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
-        client_proof = dec_tlv_objects[HAP_TLV_TAGS.PROOF]
+        dec_tlv_objects = tlv.decode(decrypted_data)
+        client_username_bytes = dec_tlv_objects[tags.USERNAME]
+        client_ltpk = dec_tlv_objects[tags.PUBLIC_KEY]
+        client_proof = dec_tlv_objects[tags.PROOF]
 
         self._pairing_four(
             client_username_bytes, client_ltpk, client_proof, hkdf_enc_key
