@@ -225,6 +225,7 @@ class AccessoryDriver:
         interface_choice=None,
         async_zeroconf_instance=None,
         zeroconf_server=None,
+        advertise=True,
     ):
         """Initialize a new AccessoryDriver object.
 
@@ -274,6 +275,11 @@ class AccessoryDriver:
         :param zeroconf_server: The server name that will be used for the zeroconf
             ServiceInfo.
         :type zeroconf_server: str
+
+        :param advertise: Whether to advertise the accessory via mDNS when
+            the driver starts. Pass False to run the HAP server without
+            mDNS advertising, e.g. for tests or benchmarks.
+        :type advertise: bool
         """
         if loop is None:
             if sys.platform == "win32":
@@ -293,6 +299,7 @@ class AccessoryDriver:
         self.loop = loop
 
         self.accessory: Accessory | None = None
+        self.advertise = advertise
         self.advertiser: AsyncZeroconf | None = async_zeroconf_instance
         self.zeroconf_server = zeroconf_server
         self.interface_choice = interface_choice
@@ -411,20 +418,21 @@ class AccessoryDriver:
         if self.state.set_accessories_hash(self.accessories_hash):
             self.async_persist()
 
-        # Advertise the accessory as a mDNS service.
-        logger.debug("Starting mDNS.")
-        self.mdns_service_info = AccessoryMDNSServiceInfo(
-            self.accessory, self.state, self.zeroconf_server
-        )
+        if self.advertise:
+            # Advertise the accessory as a mDNS service.
+            logger.debug("Starting mDNS.")
+            self.mdns_service_info = AccessoryMDNSServiceInfo(
+                self.accessory, self.state, self.zeroconf_server
+            )
 
-        if not self.advertiser:
-            zc_args = {}
-            if self.interface_choice is not None:
-                zc_args["interfaces"] = self.interface_choice
-            self.advertiser = AsyncZeroconf(**zc_args)
-        await self.advertiser.async_register_service(
-            self.mdns_service_info, cooperating_responders=True
-        )
+            if not self.advertiser:
+                zc_args = {}
+                if self.interface_choice is not None:
+                    zc_args["interfaces"] = self.interface_choice
+                self.advertiser = AsyncZeroconf(**zc_args)
+            await self.advertiser.async_register_service(
+                self.mdns_service_info, cooperating_responders=True
+            )
 
         # Print accessory setup message
         if not self.state.paired:
@@ -446,13 +454,14 @@ class AccessoryDriver:
         self.stop_event.set()
         accessory = self.accessory
         assert accessory is not None  # noqa: S101
-        assert self.advertiser is not None  # noqa: S101
-        assert self.mdns_service_info is not None  # noqa: S101
         assert self.aio_stop_event is not None  # noqa: S101
         logger.debug("Stopping HAP server and event sending")
-        logger.debug("Stopping mDNS advertising for %s", accessory.display_name)
-        await self.advertiser.async_unregister_service(self.mdns_service_info)
-        await self.advertiser.async_close()
+        if self.advertise:
+            assert self.advertiser is not None  # noqa: S101
+            assert self.mdns_service_info is not None  # noqa: S101
+            logger.debug("Stopping mDNS advertising for %s", accessory.display_name)
+            await self.advertiser.async_unregister_service(self.mdns_service_info)
+            await self.advertiser.async_close()
 
         self.aio_stop_event.set()
 
@@ -647,6 +656,9 @@ class AccessoryDriver:
     def async_update_advertisement(self):
         """Updates the mDNS service info for the accessory from the event loop."""
         logger.debug("Updating mDNS advertisement")
+        if not self.advertise:
+            logger.debug("Not updating mDNS advertisement: advertising is disabled")
+            return
         assert self.advertiser is not None  # noqa: S101
         self.mdns_service_info = AccessoryMDNSServiceInfo(
             self.accessory, self.state, self.zeroconf_server
