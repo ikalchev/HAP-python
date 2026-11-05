@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import ipaddress
 import logging
 import socket
 import struct
@@ -103,6 +104,23 @@ def parse_rtp_packet(packet: bytes) -> RtpPacket:
     )
 
 
+def is_allowed_sender(addr: tuple[str, int], controller_address: str | None) -> bool:
+    """Whether a packet's source address is the negotiated controller's.
+
+    :param addr: The ``(ip, port)`` a packet was received from.
+    :param controller_address: The controller address negotiated during
+        SetupEndpoints, or ``None`` to accept any source (legacy behavior).
+    """
+    if controller_address is None:
+        return True
+    source = addr[0]
+    try:
+        return ipaddress.ip_address(source) == ipaddress.ip_address(controller_address)
+    except ValueError:
+        # Not an IP literal (e.g. a hostname); fall back to string comparison.
+        return source == controller_address
+
+
 class TalkbackReceiver:
     """Listens for the HomeKit camera talkback (two-way) audio of one session.
 
@@ -115,6 +133,8 @@ class TalkbackReceiver:
         codec was negotiated for the session (see ``a_codec`` in the stream
         configuration passed to :meth:`pyhap.camera.Camera.start_stream`).
     :param is_ipv6: Whether to bind an IPv6 socket instead of IPv4.
+    :param controller_address: The controller address negotiated during
+        SetupEndpoints. Packets from any other source are dropped.
     """
 
     def __init__(
@@ -122,6 +142,7 @@ class TalkbackReceiver:
         srtp_key_and_salt: bytes,
         on_payload: Callable[[bytes], None],
         is_ipv6: bool = False,
+        controller_address: str | None = None,
     ) -> None:
         if pylibsrtp is None:
             raise RuntimeError(
@@ -135,6 +156,7 @@ class TalkbackReceiver:
         )
         self._session = pylibsrtp.Session(policy)
         self._on_payload = on_payload
+        self._controller_address = controller_address
 
         family = socket.AF_INET6 if is_ipv6 else socket.AF_INET
         self._sock = socket.socket(family, socket.SOCK_DGRAM)
@@ -171,7 +193,7 @@ class TalkbackReceiver:
     def _run(self) -> None:
         while not self._stop_event.is_set():
             try:
-                data, _addr = self._sock.recvfrom(2048)
+                data, addr = self._sock.recvfrom(2048)
             except TimeoutError:
                 # socket.timeout aliases TimeoutError from Python 3.10 on, but
                 # is an OSError subclass on 3.9, which this project supports,
@@ -180,6 +202,13 @@ class TalkbackReceiver:
                 continue
             except OSError:
                 break
+            if not is_allowed_sender(addr, self._controller_address):
+                # The socket listens on all interfaces; only the negotiated
+                # controller may feed the two-way audio channel.
+                logger.debug(
+                    "Dropping talkback audio from unexpected source %s", addr[0]
+                )
+                continue
             try:
                 rtp_plain = self._session.unprotect(data)
                 packet = parse_rtp_packet(rtp_plain)

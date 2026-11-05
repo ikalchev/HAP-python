@@ -309,6 +309,9 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver):
     session_id = list(acc.sessions)[0]
     receiver = acc.sessions[session_id]["audio_backchannel"]
     port = receiver.local_port
+    # The test vector advertises 192.168.1.114 as the controller; pretend the
+    # controller is local so the loopback send passes the source filter.
+    receiver._controller_address = "127.0.0.1"
 
     key_and_salt = _audio_srtp_key_and_salt(set_endpoint_req)
     rtp_payload = b"opus-frame-payload"
@@ -327,11 +330,21 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver):
             if received:
                 break
             await asyncio.sleep(0.02)
+
+        assert received == [(session_id, rtp_payload)]
+
+        # Packets from any source other than the negotiated controller are
+        # dropped, even if they carry valid SRTP authentication. (A fresh RTP
+        # sequence number is needed: SRTP rejects replayed sequence numbers.)
+        receiver._controller_address = "192.168.1.114"
+        received.clear()
+        replay_packet = struct.pack("!BBHII", 0x80, 110, 2, 0, 0x1234) + rtp_payload
+        sock.sendto(sender_session.protect(replay_packet), ("127.0.0.1", port))
+        await asyncio.sleep(0.1)
+        assert received == []
     finally:
         sock.close()
         receiver.stop()
-
-    assert received == [(session_id, rtp_payload)]
 
 
 @pytest.mark.asyncio

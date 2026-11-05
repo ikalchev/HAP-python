@@ -1108,6 +1108,7 @@ class Camera(Accessory):
                     self._talkback_payload_received, session_id
                 ),
                 is_ipv6=bool(is_ipv6),
+                controller_address=address,
             )
             audio_backchannel.start()
             audio_rtp_port = audio_backchannel.local_port
