@@ -1,5 +1,4 @@
-"""
-Various classes that construct representations of
+"""Various classes that construct representations of
 HAP services and characteristics from a json
 representation.
 
@@ -8,6 +7,7 @@ instance of it (as long as it is described in some
 json file).
 """
 
+import functools
 import logging
 
 import orjson
@@ -16,7 +16,6 @@ from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
 from pyhap.characteristic import Characteristic
 from pyhap.service import Service
 
-_loader = None
 logger = logging.getLogger(__name__)
 
 
@@ -35,8 +34,8 @@ class Loader:
     @staticmethod
     def _read_file(path):
         """Read file and return a dict."""
-        with open(path, "r", encoding="utf8") as file:
-            return orjson.loads(file.read())  # pylint: disable=no-member
+        with open(path, encoding="utf8") as file:
+            return orjson.loads(file.read())
 
     def get_char(self, name):
         """Return new Characteristic object."""
@@ -65,13 +64,10 @@ class Loader:
         return loader
 
 
-def get_loader():
+@functools.cache
+def get_loader() -> Loader:
     """Get a service and char loader.
 
     If already initialized it returns the existing one.
     """
-    # pylint: disable=global-statement
-    global _loader
-    if _loader is None:
-        _loader = Loader()
-    return _loader
+    return Loader()

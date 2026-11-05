@@ -20,12 +20,12 @@ def test_round_trip():
     assert crypto.decrypt() == b""
 
     # Receive not a whole block
-    crypto.receive_data(encrypted[:50])
+    crypto.receive_data(bytes(encrypted[:50]))
     assert crypto.decrypt() == b""
 
     del encrypted[:50]
     # Receive the rest of the block
-    crypto.receive_data(encrypted)
+    crypto.receive_data(bytes(encrypted))
 
     decrypted = crypto.decrypt()
 

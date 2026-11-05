@@ -6,8 +6,6 @@ write-response handshake. The HDS fragment transfer itself is covered in
 test_hds_recording.py.
 """
 
-# pylint: disable=protected-access
-
 import os
 from unittest.mock import MagicMock, patch
 

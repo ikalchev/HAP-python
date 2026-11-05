@@ -16,11 +16,11 @@ MP4 bytes is the accessory's job.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-import functools
 from enum import IntEnum
+import functools
 import logging
-from typing import AsyncIterator, Callable, Optional
 
 from pyhap.hds_protocol import HDSStatus, Message
 
@@ -62,7 +62,7 @@ class RecordingPacket:
 # yielded packet is the MP4 initialization segment.
 RecordingDelegate = Callable[[int], AsyncIterator[RecordingPacket]]
 # An open gate returns a reason to reject a dataSend/open, or None to accept it.
-OpenGate = Callable[["RecordingStreamManager"], Optional[RecordingReason]]
+OpenGate = Callable[["RecordingStreamManager"], RecordingReason | None]
 
 
 class RecordingStreamManager:
@@ -73,14 +73,14 @@ class RecordingStreamManager:
         connection,
         delegate: RecordingDelegate,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
-        open_gate: Optional[OpenGate] = None,
+        open_gate: OpenGate | None = None,
     ) -> None:
         self._connection = connection
         self._delegate = functools.partial(self._guard_delegate, delegate)
         self._chunk_size = chunk_size
         self._open_gate = open_gate
-        self._stream_id: Optional[int] = None
-        self._task: Optional[asyncio.Task] = None
+        self._stream_id: int | None = None
+        self._task: asyncio.Task | None = None
         self._closed = False
         self._stopping = False
         connection.add_request_handler(_DATA_SEND, "open", self._handle_open)
@@ -186,6 +186,7 @@ class RecordingStreamManager:
             task.cancel()
 
     async def _stream(self) -> None:
+        assert self._stream_id is not None  # noqa: S101
         generator = self._delegate(self._stream_id)
         try:
             sequence_number = 1
@@ -201,7 +202,7 @@ class RecordingStreamManager:
                 if packet.is_last:
                     break
                 sequence_number += 1
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception:
             logger.warning("Recording stream %s failed", self._stream_id, exc_info=True)
         finally:
             # A close, ack or connection loss from here on must not cancel the
@@ -213,9 +214,10 @@ class RecordingStreamManager:
             if aclose is not None:
                 try:
                     await aclose()
-                except Exception:  # pylint: disable=broad-exception-caught
-                    # Cleanup is best-effort; the connection is gone either way.
-                    pass  # nosec B110
+                # aclose() may raise anything; the connection is gone
+                # either way, so cleanup is best-effort.
+                except Exception:  # noqa: S110, BLE001
+                    pass
 
     async def _send_fragment(
         self, fragment: bytes, sequence_number: int, initialization: bool, is_last: bool
@@ -260,7 +262,7 @@ _MAX_INIT_SIZE = 4 * 1024 * 1024
 _MAX_FRAGMENT_SIZE = 64 * 1024 * 1024
 
 
-async def _read_mp4_box(reader: asyncio.StreamReader, max_size: int) -> Optional[bytes]:
+async def _read_mp4_box(reader: asyncio.StreamReader, max_size: int) -> bytes | None:
     """Read one top-level MP4 box (header + body) from ``reader``.
 
     Returns ``None`` at end of stream (also mid-box) and for a size smaller
@@ -284,7 +286,7 @@ async def _read_mp4_box(reader: asyncio.StreamReader, max_size: int) -> Optional
 
 async def fmp4_recording_packets(
     reader: asyncio.StreamReader,
-) -> AsyncIterator["RecordingPacket"]:
+) -> AsyncIterator[RecordingPacket]:
     """Turn a fragmented-MP4 byte stream into HKSV recording packets.
 
     Reads MP4 boxes from ``reader`` - any object with an ``readexactly``
@@ -308,7 +310,7 @@ async def fmp4_recording_packets(
     """
     init = bytearray()
     sent_init = False
-    fragment: Optional[bytearray] = None
+    fragment: bytearray | None = None
     warned_mdat = False
     while True:
         if sent_init:

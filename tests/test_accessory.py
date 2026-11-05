@@ -67,6 +67,8 @@ def test_acc_with_custom_iid_manager(mock_driver):
     acc.add_preload_service("GarageDoorOpener", unique_id="service_54")
     acc_info_service = acc.get_service("AccessoryInformation")
     acc_garage_door_opener_service = acc.get_service("GarageDoorOpener")
+    assert acc_info_service is not None
+    assert acc_garage_door_opener_service is not None
     assert iid_manager.get_iid(acc_info_service) == 1001
     assert iid_manager.get_iid(acc_garage_door_opener_service) == 5001
 
@@ -87,11 +89,15 @@ def test_acc_set_primary_service(mock_driver):
     assert "Television" in str(acc)
     linked_service = acc.driver.loader.get_service("TelevisionSpeaker")
     acc.add_service(linked_service)
-    assert acc.get_service("Television").is_primary_service is None
-    assert acc.get_service("TelevisionSpeaker").is_primary_service is None
+    television_service = acc.get_service("Television")
+    speaker_service = acc.get_service("TelevisionSpeaker")
+    assert television_service is not None
+    assert speaker_service is not None
+    assert television_service.is_primary_service is None
+    assert speaker_service.is_primary_service is None
     acc.set_primary_service(service)
-    assert acc.get_service("Television").is_primary_service is True
-    assert acc.get_service("TelevisionSpeaker").is_primary_service is False
+    assert television_service.is_primary_service is True
+    assert speaker_service.is_primary_service is False
 
 
 def test_acc_add_preload_service_without_chars(mock_driver):
@@ -200,6 +206,7 @@ def test_set_info_service(mock_driver):
     acc_1 = Accessory(mock_driver, "Test Accessory 1", aid=2)
     acc_1.set_info_service("firmware", "manufacturer", "model", "serial")
     serv_info = acc_1.get_service("AccessoryInformation")
+    assert serv_info is not None
     assert serv_info.get_characteristic("FirmwareRevision").value == "firmware"
     assert serv_info.get_characteristic("Manufacturer").value == "manufacturer"
     assert serv_info.get_characteristic("Model").value == "model"
@@ -210,6 +217,7 @@ def test_set_info_service_empty(mock_driver):
     acc_1 = Accessory(mock_driver, "Test Accessory 1", aid=2)
     acc_1.set_info_service()
     serv_info = acc_1.get_service("AccessoryInformation")
+    assert serv_info is not None
     assert serv_info.get_characteristic("FirmwareRevision").value == ""
     assert serv_info.get_characteristic("Manufacturer").value == ""
     assert serv_info.get_characteristic("Model").value == ""
@@ -220,6 +228,7 @@ def test_set_info_service_invalid_serial(mock_driver):
     acc_1 = Accessory(mock_driver, "Test Accessory 1", aid=2)
     acc_1.set_info_service(serial_number="")
     serv_info = acc_1.get_service("AccessoryInformation")
+    assert serv_info is not None
     assert serv_info.get_characteristic("FirmwareRevision").value == ""
     assert serv_info.get_characteristic("Manufacturer").value == ""
     assert serv_info.get_characteristic("Model").value == ""
@@ -231,7 +240,9 @@ def test_get_characteristic(mock_driver):
     acc = Accessory(mock_driver, "Test Accessory", aid=2)
     assert acc.available is True
     assert bridge.aid == 1
-    assert bridge.get_characteristic(1, 2).display_name == "Identify"
+    identify_char = bridge.get_characteristic(1, 2)
+    assert identify_char is not None
+    assert identify_char.display_name == "Identify"
     assert bridge.get_characteristic(2, 2) is None
     assert bridge.get_characteristic(3, 2) is None
 
@@ -413,7 +424,9 @@ def test_to_hap_bridge(mock_driver):
             }
         ],
     }
-    bridge.get_characteristic(2, 2).display_name = "Custom Name Identify"
+    identify_char = bridge.get_characteristic(2, 2)
+    assert identify_char is not None
+    identify_char.display_name = "Custom Name Identify"
     hap = acc.to_HAP()
     assert hap == {
         "aid": 2,

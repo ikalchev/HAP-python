@@ -7,7 +7,7 @@ import asyncio
 from http import HTTPStatus
 import logging
 import sys
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 from urllib.parse import ParseResult, parse_qs, urlparse
 import uuid
 
@@ -18,8 +18,8 @@ from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
 import h11
 
 from pyhap import tlv
+from pyhap.accessory import Bridge
 from pyhap.const import (
-    CATEGORY_BRIDGE,
     HAP_PERMISSIONS,
     HAP_REPR_CHARS,
     HAP_REPR_STATUS,
@@ -57,7 +57,7 @@ class HAPResponse:
         self.headers = []
         self.body = b""
         self.shared_key = None
-        self.task: Optional[asyncio.Future] = None
+        self.task: asyncio.Future | None = None
         self.pairing_changed = False
 
     def __repr__(self):
@@ -148,25 +148,28 @@ class HAPServerHandler:
 
     PVERIFY_2_NONCE = pad_tls_nonce(b"PV-Msg03")
 
-    def __init__(self, accessory_handler, client_address):
-        """
-        @param accessory_handler: An object that controls an accessory's state.
+    def __init__(
+        self,
+        accessory_handler: "AccessoryDriver",
+        client_address: tuple[str, int] | str,
+    ) -> None:
+        """@param accessory_handler: An object that controls an accessory's state.
         @type accessory_handler: AccessoryDriver
         """
         self.accessory_handler: AccessoryDriver = accessory_handler
         self.state: State = self.accessory_handler.state
-        self.enc_context: Optional[Dict[str, Any]] = None
+        self.enc_context: dict[str, Any] | None = None
         self.client_address = client_address
         self.is_encrypted = False
-        self.client_uuid: Optional[uuid.UUID] = None
+        self.client_uuid: uuid.UUID | None = None
 
-        self.path: Optional[str] = None
-        self.command: Optional[str] = None
-        self.headers: Optional[Dict[str, str]] = None
-        self.request_body: Optional[bytes] = None
-        self.parsed_url: Optional[ParseResult] = None
+        self.path: str | None = None
+        self.command: str | None = None
+        self.headers: dict[str, str] | None = None
+        self.request_body: bytes | None = None
+        self.parsed_url: ParseResult | None = None
 
-        self.response: Optional[HAPResponse] = None
+        self.response: HAPResponse | None = None
 
     def _set_encryption_ctx(
         self,
@@ -207,23 +210,21 @@ class HAPServerHandler:
         response code.
         Does not add Server or Date
         """
-        assert self.response is not None  # nosec
+        assert self.response is not None  # noqa: S101
         self.response.status_code = http_status.value
         self.response.reason = http_status.phrase
 
     def send_header(self, header: str, value: str) -> None:
         """Add the response header to the headers buffer."""
-        assert self.response is not None  # nosec
+        assert self.response is not None  # noqa: S101
         self.response.headers.append((header, value))
 
     def end_response(self, bytesdata: bytes) -> None:
         """Combines adding a length header and actually sending the data."""
-        assert self.response is not None  # nosec
+        assert self.response is not None  # noqa: S101
         self.response.body = bytesdata
 
-    def dispatch(
-        self, request: h11.Request, body: Optional[bytes] = None
-    ) -> HAPResponse:
+    def dispatch(self, request: h11.Request, body: bytes | None = None) -> HAPResponse:
         """Dispatch the request to the appropriate handler method."""
         self.path = request.target.decode()
         self.command = request.method.decode()
@@ -248,7 +249,7 @@ class HAPServerHandler:
             self.send_response_with_status(
                 HTTPStatus.UNAUTHORIZED, HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
             )
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             logger.exception(
                 "%s: Failed to process request for: %s", self.client_address, path
             )
@@ -292,6 +293,7 @@ class HAPServerHandler:
             )
             return
 
+        assert self.request_body is not None  # noqa: S101
         tlv_objects = tlv.decode(self.request_body)
         sequence = tlv_objects[HAP_TLV_TAGS.SEQUENCE_NUM]
 
@@ -321,7 +323,7 @@ class HAPServerHandler:
         )
         self._send_tlv_pairing_response(data)
 
-    def _pairing_two(self, tlv_objects: Dict[bytes, bytes]) -> None:
+    def _pairing_two(self, tlv_objects: dict[bytes, bytes]) -> None:
         """Obtain the challenge from the client (A) and client's proof that it
         knows the password (M). Verify M and generate the server's proof based on
         A (H_AMK). Send the H_AMK to the client.
@@ -349,7 +351,7 @@ class HAPServerHandler:
         )
         self._send_tlv_pairing_response(data)
 
-    def _pairing_three(self, tlv_objects: Dict[bytes, bytes]) -> None:
+    def _pairing_three(self, tlv_objects: dict[bytes, bytes]) -> None:
         """Expand the SRP session key to obtain a new key. Use it to verify and decrypt
             the recieved data. Continue to step four.
 
@@ -425,8 +427,8 @@ class HAPServerHandler:
     def _pairing_five(
         self, client_username_bytes: bytes, client_ltpk: bytes, encryption_key: bytes
     ) -> None:
-        """At that point we know the client has the accessory password and has a valid key
-        pair. Add it as a pair and send a sever proof.
+        """At that point we know the client has the accessory password and has
+        a valid key pair. Add it as a pair and send a sever proof.
 
         Parameters are as for _pairing_four.
         """
@@ -480,7 +482,7 @@ class HAPServerHandler:
             HAP_TLV_TAGS.ENCRYPTED_DATA,
             aead_message,
         )
-        assert self.response is not None  # nosec
+        assert self.response is not None  # noqa: S101
         self.response.pairing_changed = True
         self._send_tlv_pairing_response(tlv_data)
 
@@ -493,6 +495,7 @@ class HAPServerHandler:
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M2)
             return
 
+        assert self.request_body is not None  # noqa: S101
         tlv_objects = tlv.decode(self.request_body)
         sequence = tlv_objects[HAP_TLV_TAGS.SEQUENCE_NUM]
         if sequence == HAP_TLV_STATES.M1:
@@ -504,7 +507,7 @@ class HAPServerHandler:
                 f"Unknown pairing sequence of {sequence} during pair verify"
             )
 
-    def _pair_verify_one(self, tlv_objects: Dict[bytes, bytes]) -> None:
+    def _pair_verify_one(self, tlv_objects: dict[bytes, bytes]) -> None:
         """Generate new session key pair and send a proof to the client.
 
         @param tlv_objects: The TLV data received from the client.
@@ -555,13 +558,14 @@ class HAPServerHandler:
         )
         self._send_tlv_pairing_response(data)
 
-    def _pair_verify_two(self, tlv_objects: Dict[bytes, bytes]) -> None:
+    def _pair_verify_two(self, tlv_objects: dict[bytes, bytes]) -> None:
         """Verify the client proof and upgrade to encrypted transport.
 
         @param tlv_objects: The TLV data received from the client.
         @type tlv_object: dict
         """
         logger.debug("%s: Pair verify [2/2]", self.client_address)
+        assert self.enc_context is not None  # noqa: S101
         encrypted_data = tlv_objects[HAP_TLV_TAGS.ENCRYPTED_DATA]
         cipher = ChaCha20Poly1305(self.enc_context["pre_session_key"])
         try:
@@ -584,10 +588,12 @@ class HAPServerHandler:
         client_uuid = uuid.UUID(str(client_username, "utf-8"))
         perm_client_public = self.state.paired_clients.get(client_uuid)
         if perm_client_public is None:
+            accessory = self.accessory_handler.accessory
+            assert accessory is not None  # noqa: S101
             logger.error(
                 "%s: Client %s with uuid %s attempted pair verify "
                 "without being paired first (public_key=%s, paired clients=%s).",
-                self.accessory_handler.accessory.display_name,
+                accessory.display_name,
                 self.client_address,
                 client_uuid,
                 raw_public_key.hex(),
@@ -605,8 +611,7 @@ class HAPServerHandler:
             return
 
         logger.debug(
-            "%s: Pair verify with client completed. Switching to "
-            "encrypted transport.",
+            "%s: Pair verify with client completed. Switching to encrypted transport.",
             self.client_address,
         )
 
@@ -619,7 +624,8 @@ class HAPServerHandler:
             self.state.uuid_to_bytes[client_uuid] = client_username
             self.accessory_handler.async_persist()
 
-        assert self.response is not None  # nosec
+        assert self.response is not None  # noqa: S101
+        assert self.enc_context is not None  # noqa: S101
         self.response.shared_key = self.enc_context["shared_key"]
         self.is_encrypted = True
         self.client_uuid = client_uuid
@@ -641,7 +647,7 @@ class HAPServerHandler:
             raise UnprivilegedRequestException
 
         # Check that char exists and ...
-        assert self.parsed_url is not None  # nosec
+        assert self.parsed_url is not None  # noqa: S101
         params = parse_qs(self.parsed_url.query)
         response = self.accessory_handler.get_characteristics(
             params["id"][0].split(",")
@@ -670,7 +676,7 @@ class HAPServerHandler:
             self.send_response(HTTPStatus.UNAUTHORIZED)
             return
 
-        assert self.request_body is not None  # nosec
+        assert self.request_body is not None  # noqa: S101
         requested_chars = from_hap_json(self.request_body.decode("utf-8"))
         logger.debug(
             "%s: Set characteristics content: %s", self.client_address, requested_chars
@@ -696,22 +702,25 @@ class HAPServerHandler:
             self.send_response(HTTPStatus.UNAUTHORIZED)
             return
 
+        assert self.request_body is not None  # noqa: S101
         request = from_hap_json(self.request_body.decode("utf-8"))
         logger.debug("%s: prepare content: %s", self.client_address, request)
 
         response = self.accessory_handler.prepare(request, self.client_address)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
+        assert self.response is not None  # noqa: S101
         self.end_response(to_hap_json(response))
 
     def handle_pairings(self) -> None:
         """Handles a client request to update or remove a pairing."""
         # Must be an admin to handle pairings
-        assert self.client_uuid is not None  # nosec
+        assert self.client_uuid is not None  # noqa: S101
         if not self.is_encrypted or not self.state.is_admin(self.client_uuid):
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M2)
             return
 
+        assert self.request_body is not None  # noqa: S101
         tlv_objects = tlv.decode(self.request_body)
         request_type = tlv_objects[HAP_TLV_TAGS.REQUEST_TYPE][0]
         if request_type == 3:
@@ -746,7 +755,7 @@ class HAPServerHandler:
         data = tlv.encode(HAP_TLV_TAGS.SEQUENCE_NUM, HAP_TLV_STATES.M2)
         self._send_tlv_pairing_response(data)
 
-    def _handle_remove_pairing(self, tlv_objects: Dict[bytes, bytes]) -> None:
+    def _handle_remove_pairing(self, tlv_objects: dict[bytes, bytes]) -> None:
         """Remove pairing with the client."""
         client_username_bytes: bytes = tlv_objects[HAP_TLV_TAGS.USERNAME]
         client_username_str = client_username_bytes.decode("utf-8")
@@ -772,7 +781,7 @@ class HAPServerHandler:
             # client is removed, otherwise the controller
             # may not remove them all
             logger.debug("%s: updating mdns to unpaired", self.client_address)
-            assert self.response is not None  # nosec
+            assert self.response is not None  # noqa: S101
             self.response.pairing_changed = True
 
     def _handle_list_pairings(self) -> None:
@@ -827,21 +836,26 @@ class HAPServerHandler:
 
     def handle_resource(self) -> None:
         """Get a snapshot from the camera."""
-        assert self.request_body is not None  # nosec
+        assert self.request_body is not None  # noqa: S101
         data = from_hap_json(self.request_body.decode("utf-8"))
 
-        if self.accessory_handler.accessory.category == CATEGORY_BRIDGE:
-            accessory = self.accessory_handler.accessory.accessories.get(data["aid"])
-            if not accessory:
+        accessory = self.accessory_handler.accessory
+        assert accessory is not None  # noqa: S101
+        if isinstance(accessory, Bridge):
+            bridged = accessory.accessories.get(data["aid"])
+            if not bridged:
                 raise ValueError(f"Accessory with aid == {data['aid']} not found")
-        else:
-            accessory = self.accessory_handler.accessory
+            accessory = bridged
 
         loop = asyncio.get_event_loop()
-        if hasattr(accessory, "async_get_snapshot"):
-            coro = accessory.async_get_snapshot(data)
-        elif hasattr(accessory, "get_snapshot"):
-            coro = loop.run_in_executor(None, accessory.get_snapshot, data)
+        # ``get_snapshot``/``async_get_snapshot`` are camera-only methods,
+        # so resolve them dynamically to keep this handler accessory-agnostic.
+        async_get_snapshot = getattr(accessory, "async_get_snapshot", None)
+        get_snapshot = getattr(accessory, "get_snapshot", None)
+        if async_get_snapshot is not None:
+            coro = async_get_snapshot(data)
+        elif get_snapshot is not None:
+            coro = loop.run_in_executor(None, get_snapshot, data)
         else:
             raise ValueError(
                 "Got a request for snapshot, but the Accessory "
@@ -851,5 +865,5 @@ class HAPServerHandler:
         task = asyncio.ensure_future(_run_with_timeout(coro, RESPONSE_TIMEOUT))
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
-        assert self.response is not None  # nosec
+        assert self.response is not None  # noqa: S101
         self.response.task = task

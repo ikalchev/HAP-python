@@ -1,6 +1,7 @@
 """Tests for pyhap.camera."""
 
 import asyncio
+import base64
 import socket
 import struct
 from unittest.mock import Mock, patch
@@ -51,6 +52,7 @@ def test_init(mock_driver):
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
 
     management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
     assert management.unique_id is not None
 
     assert (
@@ -83,9 +85,9 @@ def test_setup_endpoints(mock_driver):
     )
 
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
-    setup_endpoints = acc.get_service("CameraRTPStreamManagement").get_characteristic(
-        "SetupEndpoints"
-    )
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    setup_endpoints = management.get_characteristic("SetupEndpoints")
     setup_endpoints.client_update_value(set_endpoint_req)
 
     assert setup_endpoints.get_value()[:171] == set_endpoint_res[:171]
@@ -104,7 +106,7 @@ def test_set_selected_stream_start_stop(mock_driver):
     process_mock = Mock()
 
     # Mock for asyncio.create_subprocess_exec
-    async def subprocess_exec(*args, **kwargs):  # pylint: disable=unused-argument
+    async def subprocess_exec(*args, **kwargs):
         process_mock.id = 42
         process_mock.communicate = communicate
         process_mock.wait = wait
@@ -164,9 +166,9 @@ def test_no_talkback_by_default(mock_driver):
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
     assert acc.get_service("Speaker") is None
 
-    setup_endpoints = acc.get_service("CameraRTPStreamManagement").get_characteristic(
-        "SetupEndpoints"
-    )
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    setup_endpoints = management.get_characteristic("SetupEndpoints")
     setup_endpoints.client_update_value(set_endpoint_req)
 
     session_id = list(acc.sessions)[0]
@@ -177,7 +179,7 @@ def _controller_audio_port(request_b64: str) -> int:
     """Extract the controller's requested audio port from a SetupEndpoints
     write value, for comparison against the accessory's response.
     """
-    objs = tlv.decode(request_b64, from_base64=True)
+    objs = tlv.decode(base64.b64decode(request_b64))
     address_objs = tlv.decode(objs[camera.SETUP_TYPES["ADDRESS"]])
     return struct.unpack("<H", address_objs[camera.SETUP_ADDR_INFO["AUDIO_RTP_PORT"]])[
         0
@@ -188,7 +190,7 @@ def _accessory_audio_port(response_b64: str) -> int:
     """Extract the accessory's reported audio port from a SetupEndpoints
     response value.
     """
-    objs = tlv.decode(response_b64, from_base64=True)
+    objs = tlv.decode(base64.b64decode(response_b64))
     address_objs = tlv.decode(objs[camera.SETUP_TYPES["ADDRESS"]])
     return struct.unpack("<H", address_objs[camera.SETUP_ADDR_INFO["AUDIO_RTP_PORT"]])[
         0
@@ -200,7 +202,7 @@ def _audio_srtp_key_and_salt(request_b64: str) -> bytes:
     value, exactly as the accessory itself would when negotiating the
     session.
     """
-    objs = tlv.decode(request_b64, from_base64=True)
+    objs = tlv.decode(base64.b64decode(request_b64))
     audio_srtp_objs = tlv.decode(objs[camera.SETUP_TYPES["AUDIO_SRTP_PARAM"]])
     return (
         audio_srtp_objs[camera.SETUP_SRTP_PARAM["MASTER_KEY"]]
@@ -234,9 +236,9 @@ def test_setup_endpoints_reports_real_port_when_talkback_enabled(mock_driver):
 
     options = dict(_OPTIONS, talkback=True)
     acc = camera.Camera(options, mock_driver, "Camera")
-    setup_endpoints = acc.get_service("CameraRTPStreamManagement").get_characteristic(
-        "SetupEndpoints"
-    )
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    setup_endpoints = management.get_characteristic("SetupEndpoints")
     setup_endpoints.client_update_value(set_endpoint_req)
 
     session_id = list(acc.sessions)[0]
@@ -274,9 +276,9 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver):
 
     options = dict(_OPTIONS, talkback=True)
     acc = TalkbackCamera(options, mock_driver, "Camera")
-    setup_endpoints = acc.get_service("CameraRTPStreamManagement").get_characteristic(
-        "SetupEndpoints"
-    )
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    setup_endpoints = management.get_characteristic("SetupEndpoints")
     setup_endpoints.client_update_value(set_endpoint_req)
 
     session_id = list(acc.sessions)[0]

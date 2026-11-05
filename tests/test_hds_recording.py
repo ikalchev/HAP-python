@@ -1,7 +1,5 @@
 """Tests for the HDS dataSend recording transfer."""
 
-# pylint: disable=protected-access
-
 import asyncio
 import os
 
@@ -18,7 +16,7 @@ def _paired(listener):
     return hds.HDSCrypto(acc_write, acc_read)
 
 
-class _CaptureTransport(asyncio.Transport):  # pylint: disable=abstract-method
+class _CaptureTransport(asyncio.Transport):
     def __init__(self):
         super().__init__()
         self.buffer = bytearray()
@@ -231,7 +229,9 @@ async def test_recording_close_event_stops_stream(topic, stream_id, stops):
     await asyncio.sleep(0.02)
     # Events get no response, and the blocked "never" fragment was not sent.
     assert not _drain_events(controller, transport)
-    assert manager._task.done() is stops
+    task = manager._task
+    assert task is not None
+    assert task.done() is stops
     release.set()
     await asyncio.sleep(0.02)
 
@@ -290,7 +290,9 @@ async def test_ack_after_end_of_stream_keeps_delegate_cleanup(topic):
     release_cleanup.set()
     await asyncio.sleep(0.01)
     assert cleanup_done.is_set()
-    assert not manager._task.cancelled()
+    task = manager._task
+    assert task is not None
+    assert not task.cancelled()
     assert manager._closed
 
 
@@ -344,13 +346,17 @@ async def test_close_stops_a_second_stream_on_the_same_connection():
 
     _open(connection, controller, 1, 2)
     await asyncio.sleep(0.01)
-    assert manager._task.done()
+    task = manager._task
+    assert task is not None
+    assert task.done()
     _open(connection, controller, 2, 3)
     await second_started.wait()
 
     _event(connection, controller, "close", {"streamId": 2})
     await asyncio.sleep(0.01)
-    assert manager._task.cancelled()
+    task = manager._task
+    assert task is not None
+    assert task.cancelled()
 
 
 @pytest.mark.parametrize("body", [[7], None, 7, {"streamId": "7"}])
@@ -379,7 +385,9 @@ async def test_malformed_close_event_is_ignored(body):
 
     _event(connection, controller, "close", body)
     await asyncio.sleep(0.01)
-    assert not manager._task.done()
+    task = manager._task
+    assert task is not None
+    assert not task.done()
     assert not transport.closed
     manager._stop()
     await asyncio.sleep(0.01)
@@ -450,7 +458,9 @@ async def test_connection_loss_cancels_stream_and_runs_delegate_cleanup():
     connection.connection_lost(None)
     await asyncio.sleep(0.02)
     assert cleaned.is_set()
-    assert manager._task.done()
+    task = manager._task
+    assert task is not None
+    assert task.done()
 
 
 @pytest.mark.asyncio

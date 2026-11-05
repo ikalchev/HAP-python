@@ -1,5 +1,6 @@
 """Tests for pyhap.characteristic."""
 
+from typing import Any
 from unittest.mock import ANY, MagicMock, Mock, patch
 from uuid import uuid1
 
@@ -18,8 +19,14 @@ from pyhap.characteristic import (
     Characteristic,
 )
 
-PROPERTIES = {"Format": HAP_FORMAT_INT, "Permissions": [HAP_PERMISSION_READ]}
-PROPERTIES_FLOAT = {"Format": HAP_FORMAT_FLOAT, "Permissions": [HAP_PERMISSION_READ]}
+PROPERTIES: dict[str, Any] = {
+    "Format": HAP_FORMAT_INT,
+    "Permissions": [HAP_PERMISSION_READ],
+}
+PROPERTIES_FLOAT: dict[str, Any] = {
+    "Format": HAP_FORMAT_FLOAT,
+    "Permissions": [HAP_PERMISSION_READ],
+}
 
 HAP_FORMAT_INTS = [
     HAP_FORMAT_INT,
@@ -371,7 +378,7 @@ def test_client_update_value():
 
 
 def test_client_update_value_with_invalid_value():
-    """Test updating the characteristic value with call from the driver with invalid values."""
+    """Test updating the characteristic value from the driver with invalid values."""
     char = get_char(PROPERTIES.copy(), valid={"foo": 0, "bar": 2, "baz": 1})
 
     with patch.object(char, "broker"):
@@ -474,7 +481,6 @@ def test_to_HAP_string_max_length_override():
 
 def test_to_HAP_bool():
     """Test created HAP representation for booleans."""
-    # pylint: disable=protected-access
     char = get_char(PROPERTIES.copy())
     char.properties["Format"] = "bool"
     char._clear_cache()

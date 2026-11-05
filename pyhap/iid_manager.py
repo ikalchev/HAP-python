@@ -1,13 +1,13 @@
 """Module for the IIDManager class."""
 
 import logging
-from typing import TYPE_CHECKING, Dict, Optional, Union
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .characteristic import Characteristic
     from .service import Service
 
-    ServiceOrCharType = Union[Service, Characteristic]
+    ServiceOrCharType = Service | Characteristic
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +18,8 @@ class IIDManager:
     def __init__(self) -> None:
         """Initialize an empty instance."""
         self.counter = 0
-        self.iids: Dict["ServiceOrCharType", int] = {}
-        self.objs: Dict[int, "ServiceOrCharType"] = {}
+        self.iids: dict[ServiceOrCharType, int] = {}
+        self.objs: dict[int, ServiceOrCharType] = {}
 
     def assign(self, obj: "ServiceOrCharType") -> None:
         """Assign an IID to given object. Print warning if already assigned.
@@ -48,15 +48,15 @@ class IIDManager:
         self.counter += 1
         return self.counter
 
-    def get_obj(self, iid: int) -> "ServiceOrCharType":
+    def get_obj(self, iid: int) -> "ServiceOrCharType | None":
         """Get the object that is assigned the given IID."""
         return self.objs.get(iid)
 
-    def get_iid(self, obj: "ServiceOrCharType") -> int:
+    def get_iid(self, obj: "ServiceOrCharType") -> int | None:
         """Get the IID assigned to the given object."""
         return self.iids.get(obj)
 
-    def remove_obj(self, obj: "ServiceOrCharType") -> Optional[int]:
+    def remove_obj(self, obj: "ServiceOrCharType") -> int | None:
         """Remove an object from the IID list."""
         iid = self.iids.pop(obj, None)
         if iid is None:
@@ -65,7 +65,7 @@ class IIDManager:
         del self.objs[iid]
         return iid
 
-    def remove_iid(self, iid: int) -> Optional["ServiceOrCharType"]:
+    def remove_iid(self, iid: int) -> "ServiceOrCharType | None":
         """Remove an object with an IID from the IID list."""
         obj = self.objs.pop(iid, None)
         if obj is None:
