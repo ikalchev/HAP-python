@@ -335,7 +335,17 @@ class HAPServerHandler:
         A = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
         M = tlv_objects[HAP_TLV_TAGS.PASSWORD_PROOF]
         verifier = self.accessory_handler.srp_verifier
-        verifier.set_A(A)
+        try:
+            verifier.set_A(A)
+        except ValueError:
+            # A % N == 0 must be rejected (RFC 5054 section 2.5.1.3);
+            # respond with an authentication error instead of a generic 500.
+            logger.warning(
+                "%s: Rejected SRP A value divisible by N during pairing [2/5]",
+                self.client_address,
+            )
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
+            return
 
         hamk = verifier.verify(M)
 
