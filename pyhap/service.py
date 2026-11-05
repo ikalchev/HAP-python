@@ -1,6 +1,7 @@
 """This module implements the HAP Service."""
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from pyhap.const import (
@@ -41,27 +42,31 @@ class Service:
     def __init__(
         self,
         type_id: UUID,
-        display_name: Optional[str] = None,
-        unique_id: Optional[str] = None,
+        display_name: str | None = None,
+        unique_id: str | None = None,
     ) -> None:
         """Initialize a new Service object."""
-        self.broker: Optional["Accessory"] = None
-        self.characteristics: List[Characteristic] = []
-        self.linked_services: List[Service] = []
+        self.broker: Accessory | None = None
+        self.characteristics: list[Characteristic] = []
+        self.linked_services: list[Service] = []
         self.display_name = display_name
         self.type_id = type_id
         self.is_primary_service = None
-        self.setter_callback: Optional[Callable[[Any], None]] = None
+        self.setter_callback: Callable[[Any], None] | None = None
         self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Return the representation of the service."""
         chars_dict = {c.display_name: c.value for c in self.characteristics}
-        return f"<service display_name={self.display_name} unique_id={self.unique_id} chars={chars_dict}>"
+        return (
+            f"<service display_name={self.display_name} "
+            f"unique_id={self.unique_id} chars={chars_dict}>"
+        )
 
     def add_linked_service(self, service: "Service") -> None:
         """Add the given service as "linked" to this Service."""
+        assert self.broker is not None  # noqa: S101
         iid_manager = self.broker.iid_manager
         if not any(
             iid_manager.get_iid(service) == iid_manager.get_iid(original_service)
@@ -116,13 +121,13 @@ class Service:
             char.getter_callback = getter_callback
         return char
 
-    # pylint: disable=invalid-name
-    def to_HAP(self, include_value: bool = True) -> Dict[str, Any]:
+    def to_HAP(self, include_value: bool = True) -> dict[str, Any]:
         """Create a HAP representation of this Service.
 
         :return: A HAP representation.
         :rtype: dict.
         """
+        assert self.broker is not None  # noqa: S101
         hap = {
             HAP_REPR_IID: self.broker.iid_manager.get_iid(self),
             HAP_REPR_TYPE: self._uuid_str,
@@ -133,16 +138,19 @@ class Service:
             hap[HAP_REPR_PRIMARY] = self.is_primary_service
 
         if self.linked_services:
-            linked: List[int] = []
+            linked: list[int] = []
             for linked_service in self.linked_services:
-                linked.append(linked_service.broker.iid_manager.get_iid(linked_service))
+                assert linked_service.broker is not None  # noqa: S101
+                iid = linked_service.broker.iid_manager.get_iid(linked_service)
+                assert iid is not None  # noqa: S101
+                linked.append(iid)
             hap[HAP_REPR_LINKED] = linked
 
         return hap
 
     @classmethod
     def from_dict(
-        cls, name: str, json_dict: Dict[str, Any], loader: "Loader"
+        cls, name: str, json_dict: dict[str, Any], loader: "Loader"
     ) -> "Service":
         """Initialize a service object from a dict.
 

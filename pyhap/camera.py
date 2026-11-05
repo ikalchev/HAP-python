@@ -474,6 +474,7 @@ class Camera(Accessory):
         self._motion_detected_char = None
         self._hds_listener = None
         self._hds_connections = set()
+        self._recording_stream = None
         if options.get("video"):
             self._setup_stream_management(options)
         # Classic HomeKit Secure Video recording (HDS + fragmented MP4).
@@ -637,6 +638,7 @@ class Camera(Accessory):
         # HKSV requires the recording management service to link the data stream
         # transport it records over; without the link the controller rejects
         # recording during validation, before writing any configuration.
+        assert self._recording_service is not None  # noqa: S101
         self._recording_service.add_linked_service(transport)
 
     @staticmethod
@@ -654,7 +656,9 @@ class Camera(Accessory):
     def _on_hds_connection(self, connection):
         self._hds_connections.add(connection)
         connection.add_close_callback(self._hds_connections.discard)
-        hds_recording.RecordingStreamManager(connection, self._recording_delegate)
+        hds_recording.RecordingStreamManager(
+            connection, self._recording_delegate, open_gate=self._recording_open_gate
+        )
 
     def set_data_stream_transport(self, value, sender_client_addr=None):
         """Handle a write to SetupDataStreamTransport (HDS session setup).
@@ -668,20 +672,19 @@ class Camera(Accessory):
         the port, so it can never open the HDS connection.
         """
         request = hds.SetupRequest.decode(base64_to_bytes(value))
+        listener = self._hds_listener
         accessory_salt = None
-        if self._hds_listener is not None:
-            accessory_salt = self._hds_listener.register_session_transport(
+        if listener is not None:
+            accessory_salt = listener.register_session_transport(
                 functools.partial(self.driver.derive_session_key, sender_client_addr),
                 request.controller_key_salt,
             )
-        if accessory_salt is None:
+        if listener is None or accessory_salt is None:
             response = hds.encode_setup_response(
                 0, b"", status=hds.SETUP_STATUS_GENERIC_ERROR
             )
         else:
-            response = hds.encode_setup_response(
-                self._hds_listener.port, accessory_salt
-            )
+            response = hds.encode_setup_response(listener.port, accessory_salt)
         return to_base64_str(response)
 
     async def _recording_delegate(self, stream_id):
@@ -729,7 +732,26 @@ class Camera(Accessory):
         if self._motion_detected_char is not None:
             self._motion_detected_char.set_value(bool(detected))
 
-    async def _start_stream(self, objs, reconfigure):  # pylint: disable=unused-argument
+    def _recording_open_gate(self, manager):
+        # One stream per camera across all HDS connections (hubs), like HAP-NodeJS.
+        # A stopping stream frees the slot while its delegate still cleans up.
+        reasons = hds_recording.RecordingReason
+        operating_mode = self.get_service("CameraOperatingMode")
+        assert self._recording_service is not None  # noqa: S101
+        assert operating_mode is not None  # noqa: S101
+        if not (
+            self._recording_service.get_characteristic("Active").value
+            and operating_mode.get_characteristic("HomeKitCameraActive").value
+        ):
+            return reasons.NOT_ALLOWED
+        if self._recording_stream is not None and self._recording_stream.streaming:
+            return reasons.BUSY
+        if self._selected_recording_config is None:
+            return reasons.INVALID_CONFIGURATION
+        self._recording_stream = manager
+        return None
+
+    async def _start_stream(self, objs, reconfigure):
         """Start or reconfigure video streaming for the given session.
 
         Schedules ``self.start_stream`` or ``self.reconfigure``.
@@ -778,25 +800,27 @@ class Camera(Accessory):
             if video_rtp_param:
                 video_rtp_param_objs = tlv.decode(video_rtp_param)
                 if RTP_PARAM_TYPES["SYNCHRONIZATION_SOURCE"] in video_rtp_param_objs:
-                    opts["v_ssrc"] = struct.unpack(
-                        "<I",
-                        video_rtp_param_objs.get(
-                            RTP_PARAM_TYPES["SYNCHRONIZATION_SOURCE"]
-                        ),
-                    )[0]
+                    ssrc = video_rtp_param_objs.get(
+                        RTP_PARAM_TYPES["SYNCHRONIZATION_SOURCE"]
+                    )
+                    assert ssrc is not None  # noqa: S101
+                    opts["v_ssrc"] = struct.unpack("<I", ssrc)[0]
                 if RTP_PARAM_TYPES["PAYLOAD_TYPE"] in video_rtp_param_objs:
                     opts["v_payload_type"] = video_rtp_param_objs.get(
                         RTP_PARAM_TYPES["PAYLOAD_TYPE"]
                     )
                 if RTP_PARAM_TYPES["MAX_BIT_RATE"] in video_rtp_param_objs:
-                    opts["v_max_bitrate"] = struct.unpack(
-                        "<H", video_rtp_param_objs.get(RTP_PARAM_TYPES["MAX_BIT_RATE"])
-                    )[0]
+                    max_bit_rate = video_rtp_param_objs.get(
+                        RTP_PARAM_TYPES["MAX_BIT_RATE"]
+                    )
+                    assert max_bit_rate is not None  # noqa: S101
+                    opts["v_max_bitrate"] = struct.unpack("<H", max_bit_rate)[0]
                 if RTP_PARAM_TYPES["RTCP_SEND_INTERVAL"] in video_rtp_param_objs:
-                    opts["v_rtcp_interval"] = struct.unpack(
-                        "<f",
-                        video_rtp_param_objs.get(RTP_PARAM_TYPES["RTCP_SEND_INTERVAL"]),
-                    )[0]
+                    rtcp_interval = video_rtp_param_objs.get(
+                        RTP_PARAM_TYPES["RTCP_SEND_INTERVAL"]
+                    )
+                    assert rtcp_interval is not None  # noqa: S101
+                    opts["v_rtcp_interval"] = struct.unpack("<f", rtcp_interval)[0]
                 if RTP_PARAM_TYPES["MAX_MTU"] in video_rtp_param_objs:
                     opts["v_max_mtu"] = video_rtp_param_objs.get(
                         RTP_PARAM_TYPES["MAX_MTU"]
@@ -919,9 +943,7 @@ class Camera(Accessory):
             return
         loop.call_soon_threadsafe(self.talkback_audio_received, session_id, payload)
 
-    def talkback_audio_received(
-        self, session_id, payload: bytes
-    ) -> None:  # pylint: disable=unused-argument
+    def talkback_audio_received(self, session_id, payload: bytes) -> None:
         """Handle received two-way ("talkback") audio for a streaming session.
 
         Only called for sessions of accessories constructed with the
@@ -1224,7 +1246,10 @@ class Camera(Accessory):
                 stderr=asyncio.subprocess.PIPE,
                 limit=1024,
             )
-        except Exception as e:  # pylint: disable=broad-except
+        # The external streaming process can fail in many ways (missing
+        # binary, permissions, resource limits); report and fail the
+        # start attempt instead of crashing the session.
+        except Exception as e:  # noqa: BLE001
             logger.error("Failed to start streaming process because of error: %s", e)
             return False
 
@@ -1280,7 +1305,7 @@ class Camera(Accessory):
         """
         await self.start_stream(session_info, stream_config)
 
-    def get_snapshot(self, image_size):  # pylint: disable=unused-argument
+    def get_snapshot(self, image_size):
         """Return a jpeg of a snapshot from the camera.
 
         Overwrite to implement getting snapshots from your camera.

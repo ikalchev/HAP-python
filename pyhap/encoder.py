@@ -19,8 +19,8 @@ class AccessoryEncoder:
 
     The AccessoryEncoder is used by the AccessoryDriver to persist and restore the
     state of an Accessory between restarts. This is needed in order to allow iOS
-    clients to see the same MAC, public key, etc. of the Accessory they paired with, thus
-    allowing an Accessory to "be remembered".
+    clients to see the same MAC, public key, etc. of the Accessory they paired
+    with, thus allowing an Accessory to "be remembered".
 
     The idea is:
         - The Accessory(ies) is created and added to an AccessoryDriver.

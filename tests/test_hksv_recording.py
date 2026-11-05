@@ -6,14 +6,13 @@ write-response handshake. The HDS fragment transfer itself is covered in
 test_hds_recording.py.
 """
 
-# pylint: disable=protected-access
-
 import os
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from pyhap import camera as camera_module, hds, hksv_recording as hr, tlv
+from pyhap.accessory import STANDALONE_AID
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 from pyhap.const import HAP_REPR_AID, HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_VALUE
@@ -224,6 +223,8 @@ def test_setup_data_stream_transport_without_session_errors(recording_camera):
 def _hap_connection(camera, client, shared_key=None):
     """Register a HAP connection from ``client`` with the camera's driver."""
     driver = camera.driver
+    # As driver.add_accessory does for a standalone accessory.
+    camera.aid = STANDALONE_AID
     driver.accessory = camera
     transport = MagicMock()
     transport.get_extra_info.return_value = client

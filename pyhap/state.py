@@ -1,6 +1,5 @@
 """Module for `State` class."""
 
-from typing import Dict, List, Optional, Union
 from uuid import UUID
 
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -22,12 +21,12 @@ class State:
     That includes all needed for setup of driver and pairing.
     """
 
-    addreses: List[str]
+    addreses: list[str]
 
     def __init__(
         self,
         *,
-        address: Optional[Union[str, List[str]]] = None,
+        address: str | list[str] | None = None,
         mac=None,
         pincode=None,
         port=None,
@@ -49,12 +48,12 @@ class State:
         self.setup_id = util.generate_setup_id()
 
         self.config_version = DEFAULT_CONFIG_VERSION
-        self.paired_clients: Dict[UUID, bytes] = {}
+        self.paired_clients: dict[UUID, bytes] = {}
         self.client_properties = {}
 
         self.private_key = ed25519.Ed25519PrivateKey.generate()
         self.public_key = self.private_key.public_key()
-        self.uuid_to_bytes: Dict[UUID, bytes] = {}
+        self.uuid_to_bytes: dict[UUID, bytes] = {}
         self.accessories_hash = None
 
     @property

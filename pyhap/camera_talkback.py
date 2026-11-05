@@ -22,12 +22,12 @@ itself.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import logging
 import socket
 import struct
 import threading
-from typing import Callable
 
 try:
     import pylibsrtp
@@ -140,7 +140,7 @@ class TalkbackReceiver:
         self._sock = socket.socket(family, socket.SOCK_DGRAM)
         # Bind to all interfaces only to obtain an ephemeral port; the
         # receiver is handed to the controller, not exposed publicly.
-        self._sock.bind(("::" if is_ipv6 else "0.0.0.0", 0))  # nosec
+        self._sock.bind(("::" if is_ipv6 else "0.0.0.0", 0))  # noqa: S104
         self._sock.settimeout(0.5)
 
         self._stop_event = threading.Event()
@@ -172,7 +172,7 @@ class TalkbackReceiver:
         while not self._stop_event.is_set():
             try:
                 data, _addr = self._sock.recvfrom(2048)
-            except socket.timeout:
+            except TimeoutError:
                 # socket.timeout aliases TimeoutError from Python 3.10 on, but
                 # is an OSError subclass on 3.9, which this project supports,
                 # so catching TimeoutError here would kill the receiver thread
@@ -183,7 +183,7 @@ class TalkbackReceiver:
             try:
                 rtp_plain = self._session.unprotect(data)
                 packet = parse_rtp_packet(rtp_plain)
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 logger.exception("Failed to process incoming talkback audio packet")
                 continue
             self._on_payload(packet.payload)

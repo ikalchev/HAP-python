@@ -37,6 +37,7 @@ async def test_we_can_connect():
     addr_info = ("0.0.0.0", None)
     server = hap_server.HAPServer(addr_info, driver)
     await server.async_start(loop)
+    assert server.server is not None
     sock = server.server.sockets[0]
     assert not server.connections
     _, port = sock.getsockname()
@@ -89,7 +90,9 @@ async def test_push_event(driver):
     hap_server_protocol = HAPServerProtocol(
         server.loop, server.connections, server.accessory_handler
     )
-    hap_server_protocol.write = _save_event
+    # Patch the protocol to capture outgoing events instead of
+    # writing them to a socket.
+    hap_server_protocol.write = _save_event  # ty: ignore[invalid-assignment]
     hap_server_protocol.peername = addr_info
     server.accessory_handler.topics["1.33"] = {addr_info}
     server.accessory_handler.topics["2.33"] = {addr_info}
@@ -114,7 +117,8 @@ async def test_push_event(driver):
 
     await asyncio.sleep(0)
     assert hap_events == [
-        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 120\r\n\r\n"
+        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\n"
+        b"Content-Length: 120\r\n\r\n"
         b'{"characteristics":[{"aid":1,"iid":33,"value":false},'
         b'{"aid":2,"iid":33,"value":false},{"aid":3,"iid":33,"value":false}]}'
     ]
@@ -142,7 +146,8 @@ async def test_push_event(driver):
 
     await asyncio.sleep(0.55)
     assert hap_events == [
-        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 87\r\n\r\n"
+        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\n"
+        b"Content-Length: 87\r\n\r\n"
         b'{"characteristics":[{"aid":2,"iid":33,"value":false},{"aid":3,"iid":33,"value":false}]}'
     ]
 
@@ -167,7 +172,9 @@ async def test_push_event_overwrites_old_pending_events(driver):
     hap_server_protocol = HAPServerProtocol(
         server.loop, server.connections, server.accessory_handler
     )
-    hap_server_protocol.write = _save_event
+    # Patch the protocol to capture outgoing events instead of
+    # writing them to a socket.
+    hap_server_protocol.write = _save_event  # ty: ignore[invalid-assignment]
     hap_server_protocol.peername = addr_info
     server.accessory_handler.topics["1.33"] = {addr_info}
     server.accessory_handler.topics["2.33"] = {addr_info}
@@ -187,7 +194,8 @@ async def test_push_event_overwrites_old_pending_events(driver):
 
     await asyncio.sleep(0)
     assert hap_events == [
-        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\nContent-Length: 86\r\n\r\n"
+        b"EVENT/1.0 200 OK\r\nContent-Type: application/hap+json\r\n"
+        b"Content-Length: 86\r\n\r\n"
         b'{"characteristics":[{"aid":1,"iid":33,"value":true},'
         b'{"aid":2,"iid":33,"value":false}]}'
     ]
