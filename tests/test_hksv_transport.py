@@ -164,6 +164,7 @@ async def test_start_recording_transport_binds_hap_listen_address(camera):
         assert camera.driver.listen_address() == "127.0.0.1"
         sockets = camera._hds_listener._servers[0].sockets
         assert sockets[0].getsockname()[0] == "127.0.0.1"
+        assert camera.recording_transport_port == sockets[0].getsockname()[1]
         # Already started: a second call keeps the listener.
         listener = camera._hds_listener
         await camera.start_recording_transport()
@@ -171,6 +172,7 @@ async def test_start_recording_transport_binds_hap_listen_address(camera):
     finally:
         await camera.stop_recording_transport()
     assert camera._hds_listener is None
+    assert camera.recording_transport_port is None
 
 
 @pytest.mark.asyncio
@@ -400,3 +402,24 @@ async def test_finished_stream_runs_camera_cleanup_in_its_task():
     assert camera.cleaned.is_set()
     writer.close()
     await camera.stop_recording_transport()
+
+
+async def _connection_count(camera, count):
+    while camera.recording_connection_count != count:
+        await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_recording_connection_count(camera):
+    await camera.start_recording_transport()
+    try:
+        assert camera.recording_connection_count == 0
+        _, writer = await asyncio.open_connection(
+            "127.0.0.1", camera.recording_transport_port
+        )
+        await asyncio.wait_for(_connection_count(camera, 1), 1)
+        writer.close()
+        await writer.wait_closed()
+        await asyncio.wait_for(_connection_count(camera, 0), 1)
+    finally:
+        await camera.stop_recording_transport()

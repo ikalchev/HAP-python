@@ -1179,6 +1179,16 @@ class Camera(Accessory):
         if self._recording_service is not None:
             await self._ensure_hds_listener()
 
+    @property
+    def recording_transport_port(self) -> int | None:
+        """The HDS listener port, ``None`` while it is not running."""
+        return self._hds_listener.port if self._hds_listener is not None else None
+
+    @property
+    def recording_connection_count(self) -> int:
+        """The number of open HDS connections, including ones still in setup."""
+        return len(self._hds_connections)
+
     async def stop_recording_transport(self):
         """Close the HDS listener and its connections, then await recordings."""
         self._hds_generation += 1
