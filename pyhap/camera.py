@@ -1245,7 +1245,10 @@ class Camera(Accessory):
                 stderr=asyncio.subprocess.PIPE,
                 limit=1024,
             )
-        except Exception as e:
+        # The external streaming process can fail in many ways (missing
+        # binary, permissions, resource limits); report and fail the
+        # start attempt instead of crashing the session.
+        except Exception as e:  # noqa: BLE001
             logger.error("Failed to start streaming process because of error: %s", e)
             return False
 

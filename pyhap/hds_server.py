@@ -179,8 +179,9 @@ class HDSConnection(asyncio.Protocol):
             probe = bytearray(self._buffer)
             try:
                 payload = trial.decrypt_frame(probe)
-            # Wrong keys fail the auth tag; try the next pending transport.
-            except Exception:  # noqa: S112
+            # Wrong keys fail the auth tag with varying exception types;
+            # any failure means "try the next pending transport".
+            except Exception:  # noqa: S112, BLE001
                 continue
             if payload is None:
                 # Right keys but the frame is not complete yet; wait for more.
@@ -201,7 +202,9 @@ class HDSConnection(asyncio.Protocol):
         while True:
             try:
                 payload = self._crypto.decrypt_frame(self._buffer)
-            except Exception:
+            # A corrupt or hostile frame can make decryption fail with
+            # any exception type; drop the connection regardless.
+            except Exception:  # noqa: BLE001
                 logger.warning("Dropping HDS connection on frame decrypt failure")
                 self.close()
                 return

@@ -214,8 +214,9 @@ class RecordingStreamManager:
             if aclose is not None:
                 try:
                     await aclose()
-                except Exception:  # noqa: S110
-                    # Cleanup is best-effort; the connection is gone either way.
+                # aclose() may raise anything; the connection is gone
+                # either way, so cleanup is best-effort.
+                except Exception:  # noqa: S110, BLE001
                     pass
 
     async def _send_fragment(

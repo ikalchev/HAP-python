@@ -70,6 +70,7 @@ select = [
     "PL", # pylint
     "S",  # flake8-bandit
     "B",  # flake8-bugbear
+    "BLE", # flake8-blind-except: broad excepts must opt out per use
     "UP", # pyupgrade
 ]
 ignore = [
