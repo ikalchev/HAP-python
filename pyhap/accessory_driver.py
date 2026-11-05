@@ -73,6 +73,11 @@ LEADING_TRAILING_SPACE_DASH = re.compile(r"^[ -]+|[ -]+$")
 DASH_REGEX = re.compile(r"[-]+")
 KEYS_TO_EXCLUDE = {HAP_REPR_IID, HAP_REPR_AID}
 
+# Consecutive failed pair-setup proofs (each is a setup-code guess) before
+# pair-setup is locked out, and for how long.
+MAX_FAILED_PAIRING_ATTEMPTS = 5
+PAIRING_LOCKOUT_SECONDS = 60
+
 
 def _wrap_char_setter(char, value, client_addr):
     """Process an characteristic setter callback trapping and logging all exceptions."""
@@ -300,6 +305,13 @@ class AccessoryDriver:
 
         self.mdns_service_info: ServiceInfo | None = None
         self._srp_verifier: SrpServer | None = None
+
+        # Pair-setup rate limiting: each M1 regenerates a 3072-bit SRP
+        # verifier and each failed proof is a pincode guess, so excess
+        # failures lock pair-setup out for a while (see
+        # ``register_failed_pairing_attempt``).
+        self._failed_pairing_attempts = 0
+        self._pairing_lockout_until = 0.0
 
         address = address or util.get_local_address()
         advertised_address = advertised_address or address
@@ -717,11 +729,39 @@ class AccessoryDriver:
             client_username_bytes,
             client_permissions,
         )
+        # A successful pairing clears the rate limiter.
+        self._failed_pairing_attempts = 0
+        self._pairing_lockout_until = 0.0
         self.state.add_paired_client(
             client_username_bytes, client_public, client_permissions
         )
         self.async_persist()
         return True
+
+    @callback
+    def register_failed_pairing_attempt(self) -> None:
+        """Register a failed pair-setup attempt.
+
+        Each failed SRP proof is effectively a setup-code guess and each pair
+        setup also regenerates a 3072-bit SRP verifier, so after too many
+        consecutive failures pair-setup is locked out for a cooldown period.
+
+        This method must be run in the event loop.
+        """
+        self._failed_pairing_attempts += 1
+        if self._failed_pairing_attempts >= MAX_FAILED_PAIRING_ATTEMPTS:
+            self._pairing_lockout_until = time.monotonic() + PAIRING_LOCKOUT_SECONDS
+            self._failed_pairing_attempts = 0
+            logger.warning(
+                "Pair-setup locked out for %s seconds after %s failed attempts",
+                PAIRING_LOCKOUT_SECONDS,
+                MAX_FAILED_PAIRING_ATTEMPTS,
+            )
+
+    @property
+    def pairing_locked_out(self) -> bool:
+        """Whether pair-setup is currently locked out due to failed attempts."""
+        return time.monotonic() < self._pairing_lockout_until
 
     @callback
     def unpair(self, client_uuid):
