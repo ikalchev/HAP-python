@@ -791,6 +791,9 @@ class Camera(Accessory):
 
     def _restore_recording_state(self):
         # Private so construction does not run a subclass override early.
+        # No aid yet, e.g. before Bridge.add_accessory. The driver restores later.
+        if self.aid is None:
+            return
         stored = self.driver.accessory_state(self.aid).get("recording")
         if not self._recording_defaults or not isinstance(stored, dict):
             return

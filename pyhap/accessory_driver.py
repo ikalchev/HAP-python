@@ -739,7 +739,11 @@ class AccessoryDriver:
         logger.info("Unpairing client %s.", client_uuid)
         self.state.remove_paired_client(client_uuid)
         if not self.state.paired:
-            self.accessory.reset_accessory_state()
+            try:
+                self.accessory.reset_accessory_state()
+            except Exception:  # pylint: disable=broad-except
+                # The removed pairing must be saved regardless.
+                logger.warning("Failed to reset the accessory state", exc_info=True)
         self.async_persist()
 
     def finish_pair(self):

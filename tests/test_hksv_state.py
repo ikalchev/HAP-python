@@ -3,8 +3,8 @@
 import asyncio
 import io
 import json
-import uuid
 from unittest.mock import MagicMock, patch
+import uuid
 
 import pytest
 
@@ -422,6 +422,22 @@ async def test_last_unpair_resets_recording_state(driver, bridged):
     _char(camera, "CameraRecordingManagement", "Active").client_update_value(1)
     stored = driver.state.accessory_states[CAMERA_AID]["recording"]
     assert stored["SelectedCameraRecordingConfiguration"] is None
+
+
+async def test_last_unpair_saves_when_reset_fails(driver, caplog):
+    client = uuid.uuid4()
+    driver.state.add_paired_client(str(client).encode(), b"\x00" * 32, b"\x01")
+    driver.accessory = Camera(_options(), driver, "Cam", aid=1)
+    driver.accessory.reset_accessory_state = MagicMock(side_effect=RuntimeError("boom"))
+
+    driver.unpair(client)
+    assert driver.async_persist.call_count == 1
+    assert "boom" in caplog.text
+
+
+async def test_camera_without_aid_stores_nothing(driver):
+    Camera(_options(), driver, "Cam")
+    assert not driver.state.accessory_states
 
 
 async def test_last_unpair_without_recording_saves_once(driver):
