@@ -40,6 +40,10 @@ QRCode = [
 Talkback = [
     "pylibsrtp",
 ]
+bench = [
+    "psutil",
+    "py-spy",
+]
 
 [project.urls]
 "Source" = "https://github.com/ikalchev/HAP-python"
@@ -103,6 +107,12 @@ ignore = [
 "tests/*" = [
     "S", # flake8-bandit
 ]
+# The benchmark orchestrator spawns subprocesses by design (the accessory
+# server, git, sysctl, py-spy) with locally-computed arguments.
+"benchmarks/*" = [
+    "S603", # subprocess call - args are not user input
+    "S607", # partial executable path is resolved via shutil.which
+]
 
 [tool.ruff.lint.isort]
 # Settings carried over from [tool.isort].
@@ -110,12 +120,14 @@ force-sort-within-sections = true
 combine-as-imports = true
 known-first-party = [
     "pyhap",
+    "benchmarks",
 ]
 
 [tool.ty.src]
 include = [
     "pyhap",
     "tests",
+    "benchmarks",
 ]
 
 [tool.ty.environment]
