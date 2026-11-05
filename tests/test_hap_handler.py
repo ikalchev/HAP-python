@@ -8,13 +8,14 @@ from uuid import UUID
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
+import h11
 import pytest
 
 from pyhap import hap_handler, tlv
 from pyhap.accessory import Accessory, Bridge
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.characteristic import CharacteristicError
-from pyhap.const import HAP_PERMISSIONS
+from pyhap.const import HAP_PERMISSIONS, HAP_SERVER_STATUS
 
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
 CLIENT_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
@@ -1001,6 +1002,44 @@ def test_handle_get_characteristics_encrypted(driver: AccessoryDriver):
     assert "characteristics" in decoded_response
     assert "status" in decoded_response["characteristics"][0]
     assert decoded_response["characteristics"][0]["status"] == -70402
+
+
+def test_handle_resource_unencrypted_rejected(driver: AccessoryDriver):
+    """Verify an unencrypted POST /resource is rejected with 401.
+
+    /resource returns camera snapshots, so it must require a secured
+    (pair-verified) session like every other data handler.
+    """
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    request = h11.Request(method="POST", target="/resource", headers=[(b"host", b"t")])
+    response = handler.dispatch(request, b'{"aid": 1}')
+
+    assert response.status_code == 401
+    assert json.loads(response.body)["status"] == (
+        HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
+    )
+
+
+async def test_handle_resource_encrypted_allows_snapshot(driver: AccessoryDriver):
+    """Verify an encrypted POST /resource still reaches the snapshot."""
+
+    class SnapshotAccessory(Accessory):
+        async def async_get_snapshot(self, _data):
+            return b"jpeg-data"
+
+    driver.add_accessory(SnapshotAccessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+    request = h11.Request(method="POST", target="/resource", headers=[(b"host", b"t")])
+    response = handler.dispatch(request, b'{"aid": 1}')
+
+    assert response.status_code == 200
+    assert response.task is not None
+    assert await response.task == b"jpeg-data"
 
 
 def test_pairing_two_rejects_zero_a(driver: AccessoryDriver):
