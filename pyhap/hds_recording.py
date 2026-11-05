@@ -152,7 +152,7 @@ class RecordingStreamManager:
         self._closed = False
         self._stopping = False
         self._task = asyncio.get_running_loop().create_task(self._stream())
-        # HAP-NodeJS sends the status in the body too.
+        # Controllers read the status from the body, HAP-NodeJS sends it there too.
         return HDSStatus.SUCCESS, {"status": HDSStatus.SUCCESS}
 
     def _handle_close(self, message: Message) -> None:
