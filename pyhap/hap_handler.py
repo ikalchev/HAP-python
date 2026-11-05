@@ -836,6 +836,11 @@ class HAPServerHandler:
 
     def handle_resource(self) -> None:
         """Get a snapshot from the camera."""
+        if not self.is_encrypted:
+            # POST /resource requires a secured (pair-verified) session, per
+            # the HAP spec - otherwise any LAN peer can read camera snapshots.
+            raise UnprivilegedRequestException
+
         assert self.request_body is not None  # noqa: S101
         data = from_hap_json(self.request_body.decode("utf-8"))
 
