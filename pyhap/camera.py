@@ -474,6 +474,7 @@ class Camera(Accessory):
         self._motion_detected_char = None
         self._hds_listener = None
         self._hds_connections = set()
+        self._recording_stream = None
         if options.get("video"):
             self._setup_stream_management(options)
         # Classic HomeKit Secure Video recording (HDS + fragmented MP4).
@@ -654,7 +655,9 @@ class Camera(Accessory):
     def _on_hds_connection(self, connection):
         self._hds_connections.add(connection)
         connection.add_close_callback(self._hds_connections.discard)
-        hds_recording.RecordingStreamManager(connection, self._recording_delegate)
+        hds_recording.RecordingStreamManager(
+            connection, self._recording_delegate, open_gate=self._recording_open_gate
+        )
 
     def set_data_stream_transport(self, value, sender_client_addr=None):
         """Handle a write to SetupDataStreamTransport (HDS session setup).
@@ -726,6 +729,23 @@ class Camera(Accessory):
         """
         if self._motion_detected_char is not None:
             self._motion_detected_char.set_value(bool(detected))
+
+    def _recording_open_gate(self, manager):
+        # One stream per camera across all HDS connections (hubs), like HAP-NodeJS.
+        # A stopping stream frees the slot while its delegate still cleans up.
+        reasons = hds_recording.RecordingReason
+        operating_mode = self.get_service("CameraOperatingMode")
+        if not (
+            self._recording_service.get_characteristic("Active").value
+            and operating_mode.get_characteristic("HomeKitCameraActive").value
+        ):
+            return reasons.NOT_ALLOWED
+        if self._recording_stream is not None and self._recording_stream.streaming:
+            return reasons.BUSY
+        if self._selected_recording_config is None:
+            return reasons.INVALID_CONFIGURATION
+        self._recording_stream = manager
+        return None
 
     async def _start_stream(self, objs, reconfigure):  # pylint: disable=unused-argument
         """Start or reconfigure video streaming for the given session.
