@@ -18,9 +18,11 @@ import json
 import logging
 import os
 from pathlib import Path
+import shutil
 import signal
 import socket
 import sys
+import tempfile
 import time
 import tracemalloc
 from typing import Any
@@ -113,7 +115,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--accessories", type=int, required=True)
     parser.add_argument("--clients-file", required=True)
-    parser.add_argument("--state-dir", required=True)
     parser.add_argument("--tracemalloc-out", default=None)
     args = parser.parse_args()
 
@@ -126,11 +127,19 @@ def main() -> None:
     if args.tracemalloc_out is not None:
         tracemalloc.start(10)
 
+    # pyhap persists state via a 0600 tempfile that is os.replace()d into
+    # place, and add_accessory() load()s it back when it exists. A state
+    # file must therefore never be shared between servers running under
+    # different uids (the py-spy-wrapped server may run as a different
+    # user than a directly spawned one) - give every server its own
+    # private directory instead.
+    persist_dir = tempfile.mkdtemp(prefix="hap-bench-state-")
+
     driver = AccessoryDriver(
         address="127.0.0.1",
         listen_address="127.0.0.1",
         port=reserve_port(),
-        persist_file=os.path.join(args.state_dir, "accessory.state"),
+        persist_file=os.path.join(persist_dir, "accessory.state"),
         advertise=False,
     )
 
@@ -194,6 +203,7 @@ def main() -> None:
         pass
     finally:
         driver.loop.close()
+        shutil.rmtree(persist_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

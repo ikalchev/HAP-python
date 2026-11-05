@@ -271,7 +271,6 @@ class ServerHandle:
 async def spawn_server(
     accessories: int,
     clients_file: str,
-    state_dir: str,
     flamegraph: Path | None = None,
     tracemalloc_out: Path | None = None,
 ) -> ServerHandle:
@@ -283,8 +282,6 @@ async def spawn_server(
         str(accessories),
         "--clients-file",
         clients_file,
-        "--state-dir",
-        state_dir,
     ]
     if tracemalloc_out is not None:
         command += ["--tracemalloc-out", str(tracemalloc_out)]
@@ -428,14 +425,17 @@ async def run_scenario(scenario: Scenario, args: argparse.Namespace) -> dict[str
 
     identities = [ClientIdentity.generate(i) for i in range(scenario.clients)]
 
-    with tempfile.TemporaryDirectory(prefix="hap-bench-") as state_dir:
-        # The server child may run under a different uid than the
-        # orchestrator (e.g. py-spy under sudo spawning it as another
-        # user), and pyhap persists state into this directory from the
-        # child. It contains only throwaway bench state, so make it
-        # writable for any uid instead of the mkdtemp default of 0700.
-        os.chmod(state_dir, 0o1777)  # noqa: S103 - intentional, see above
-        clients_file = str(Path(state_dir) / "clients.json")
+    with tempfile.TemporaryDirectory(prefix="hap-bench-") as scratch_dir:
+        # The py-spy-wrapped server may run under a different uid than
+        # the orchestrator and the directly spawned probe server. The
+        # servers keep their pyhap state in private per-process dirs
+        # (pyhap persists via a 0600 tempfile); this shared scratch dir
+        # only carries clients.json (written once, read by every server)
+        # and the tracemalloc dump (written by the server, read back by
+        # the orchestrator), so it is made traversable and writable for
+        # any uid instead of the mkdtemp default of 0700.
+        os.chmod(scratch_dir, 0o1777)  # noqa: S103 - intentional, see above
+        clients_file = str(Path(scratch_dir) / "clients.json")
         with open(clients_file, "w", encoding="utf-8") as file_handle:
             json.dump(
                 [
@@ -447,17 +447,20 @@ async def run_scenario(scenario: Scenario, args: argparse.Namespace) -> dict[str
                 ],
                 file_handle,
             )
+        # Explicitly readable for servers running under a different uid,
+        # in case the invoking umask is more restrictive than 022.
+        os.chmod(clients_file, 0o644)
 
         # A probe with zero accessories isolates the per-accessory memory
         # cost from the interpreter/driver baseline.
-        probe = await spawn_server(0, clients_file, state_dir)
+        probe = await spawn_server(0, clients_file)
         await asyncio.sleep(0.3)
         probe_rss = psutil.Process(probe.pid).memory_info().rss
         await probe.stop()
 
         tracemalloc_out: Path | None = None
         if args.tracemalloc:
-            tracemalloc_out = Path(state_dir) / "tracemalloc.json"
+            tracemalloc_out = Path(scratch_dir) / "tracemalloc.json"
         flamegraph = (
             args.results_dir / f"{scenario.name}-flamegraph.svg"
             if args.flamegraph
@@ -467,7 +470,6 @@ async def run_scenario(scenario: Scenario, args: argparse.Namespace) -> dict[str
         server = await spawn_server(
             scenario.accessories,
             clients_file,
-            state_dir,
             flamegraph=flamegraph,
             tracemalloc_out=tracemalloc_out,
         )
