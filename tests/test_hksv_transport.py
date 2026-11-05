@@ -423,3 +423,8 @@ async def test_recording_connection_count(camera):
         await asyncio.wait_for(_connection_count(camera, 0), 1)
     finally:
         await camera.stop_recording_transport()
+
+
+def test_abort_before_connection_made():
+    """A connection aborted before its transport exists does nothing."""
+    hds_server.HDSConnection(hds_server.HDSListener()).abort()
