@@ -237,8 +237,6 @@ class HAPServerHandler:
             self.client_address,
             self.command,
             self.path,
-            # h11's raw header pairs; logging args are lazy, so nothing
-            # is decoded unless debug logging is enabled.
             request.headers,
         )
 
