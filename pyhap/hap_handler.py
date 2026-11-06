@@ -606,7 +606,7 @@ class HAPServerHandler:
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
 
-        dec_tlv_objects = tlv.decode(bytes(decrypted_data))
+        dec_tlv_objects = tlv.decode(decrypted_data)
         client_username = dec_tlv_objects[HAP_TLV_TAGS.USERNAME]
         public_key: x25519.X25519PublicKey = self.enc_context["public_key"]
         raw_public_key = public_key.public_bytes(
@@ -707,7 +707,7 @@ class HAPServerHandler:
             return
 
         assert self.request_body is not None  # noqa: S101
-        requested_chars = from_hap_json(self.request_body.decode("utf-8"))
+        requested_chars = from_hap_json(self.request_body)
         logger.debug(
             "%s: Set characteristics content: %s", self.client_address, requested_chars
         )
@@ -733,7 +733,7 @@ class HAPServerHandler:
             return
 
         assert self.request_body is not None  # noqa: S101
-        request = from_hap_json(self.request_body.decode("utf-8"))
+        request = from_hap_json(self.request_body)
         logger.debug("%s: prepare content: %s", self.client_address, request)
 
         response = self.accessory_handler.prepare(request, self.client_address)
@@ -872,7 +872,7 @@ class HAPServerHandler:
             raise UnprivilegedRequestException
 
         assert self.request_body is not None  # noqa: S101
-        data = from_hap_json(self.request_body.decode("utf-8"))
+        data = from_hap_json(self.request_body)
 
         accessory = self.accessory_handler.accessory
         assert accessory is not None  # noqa: S101
