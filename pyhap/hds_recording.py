@@ -186,6 +186,7 @@ class RecordingStreamManager:
             task.cancel()
 
     async def _stream(self) -> None:
+        self._connection.track_task(asyncio.current_task())
         assert self._stream_id is not None  # noqa: S101
         generator = self._delegate(self._stream_id)
         try:
