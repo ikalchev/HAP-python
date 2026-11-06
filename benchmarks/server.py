@@ -25,7 +25,7 @@ import sys
 import tempfile
 import time
 import tracemalloc
-from typing import Any
+from typing import Any, cast
 
 # Make the source checkout importable when run as a plain script from
 # anywhere (e.g. inside a benchmark venv or a workflow checkout).
@@ -77,7 +77,7 @@ def build_bridge(
 def load_identities(path: str) -> list[dict[str, str]]:
     """Load the pre-pairing identities written by the orchestrator."""
     with open(path, encoding="utf-8") as file_handle:
-        return json.load(file_handle)
+        return cast("list[dict[str, str]]", json.load(file_handle))
 
 
 def reserve_port() -> int:

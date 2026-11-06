@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import errno
 import functools
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pyhap import hds
 from pyhap.hap_crypto import hap_hkdf
@@ -29,7 +29,9 @@ from pyhap.hds_protocol import EVENT, REQUEST, RESPONSE, HDSStatus, Message
 
 logger = logging.getLogger(__name__)
 
-RequestHandler = Callable[[Message], tuple[int, dict]]  # returns (HDSStatus, body)
+RequestHandler = Callable[
+    [Message], tuple[int, dict[str, Any]]
+]  # returns (HDSStatus, body)
 EventHandler = Callable[[Message], None]
 
 # A connection that has not completed the control handshake buffers only the
@@ -62,7 +64,7 @@ class HDSConnection(asyncio.Protocol):
         self._transport: asyncio.Transport | None = None
         self._request_handlers: dict[tuple[str, str], RequestHandler] = {}
         self._event_handlers: dict[tuple[str, str], EventHandler] = {}
-        self._pending_requests: dict[int, asyncio.Future] = {}
+        self._pending_requests: dict[int, asyncio.Future[Message]] = {}
         self._next_request_id = 1
         self._bind_timeout_handle: asyncio.TimerHandle | None = None
         self._close_callbacks: list[Callable[[HDSConnection], None]] = []
@@ -99,17 +101,17 @@ class HDSConnection(asyncio.Protocol):
 
     # --- send API ---
 
-    def send_event(self, protocol: str, topic: str, message: dict) -> None:
+    def send_event(self, protocol: str, topic: str, message: dict[str, Any]) -> None:
         """Send an event message (no response expected)."""
         self._send(Message(protocol, EVENT, topic, message))
 
     def send_request(
-        self, protocol: str, topic: str, message: dict
+        self, protocol: str, topic: str, message: dict[str, Any]
     ) -> asyncio.Future[Message]:
         """Send a request; the future resolves with the controller's response."""
         request_id = self._next_request_id
         self._next_request_id += 1
-        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[Message] = asyncio.get_running_loop().create_future()
         self._pending_requests[request_id] = future
         self._send(Message(protocol, REQUEST, topic, message, id=request_id))
         return future
@@ -123,7 +125,7 @@ class HDSConnection(asyncio.Protocol):
         if self._transport is not None:
             self._transport.abort()
 
-    def track_task(self, task: asyncio.Task) -> None:
+    def track_task(self, task: asyncio.Task[None]) -> None:
         """Let the listener await ``task`` (e.g. a recording stream) on stop."""
         self._listener.track_task(task)
 
@@ -295,7 +297,7 @@ class HDSListener:
         self._servers: list[asyncio.Server] = []
         self._pending = []
         self._connections = set()
-        self._tasks: set[asyncio.Task] = set()
+        self._tasks: set[asyncio.Task[None]] = set()
         self.on_connection: Callable[[HDSConnection], None] | None = None
 
     async def start(
@@ -343,9 +345,10 @@ class HDSListener:
 
     @property
     def port(self) -> int:
-        return self._servers[0].sockets[0].getsockname()[1]
+        """The listening port of the first bound server."""
+        return int(self._servers[0].sockets[0].getsockname()[1])
 
-    def track_task(self, task: asyncio.Task) -> None:
+    def track_task(self, task: asyncio.Task[None]) -> None:
         """Await ``task`` (e.g. a recording stream) with timeout on stop."""
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)

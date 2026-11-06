@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 import functools
 import logging
+from typing import Any, cast
 
 from pyhap.hds_protocol import HDSStatus, Message
 
@@ -70,7 +71,7 @@ class RecordingStreamManager:
 
     def __init__(
         self,
-        connection,
+        connection: Any,
         delegate: RecordingDelegate,
         chunk_size: int = DEFAULT_CHUNK_SIZE,
         open_gate: OpenGate | None = None,
@@ -80,7 +81,7 @@ class RecordingStreamManager:
         self._chunk_size = chunk_size
         self._open_gate = open_gate
         self._stream_id: int | None = None
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
         self._closed = False
         self._stopping = False
         connection.add_request_handler(_DATA_SEND, "open", self._handle_open)
@@ -92,7 +93,7 @@ class RecordingStreamManager:
         connection.add_close_callback(lambda _connection: self._stop())
 
     @staticmethod
-    def _reject(reason: RecordingReason):
+    def _reject(reason: RecordingReason) -> tuple[HDSStatus, dict[str, Any]]:
         # A rejected request carries HDSStatus.PROTOCOL_SPECIFIC_ERROR in the
         # header and the specific reason in the message body.
         return HDSStatus.PROTOCOL_SPECIFIC_ERROR, {"status": reason}
@@ -140,7 +141,7 @@ class RecordingStreamManager:
                 {"streamId": stream_id, "reason": RecordingReason.UNEXPECTED_FAILURE},
             )
 
-    def _handle_open(self, message: Message):
+    def _handle_open(self, message: Message) -> tuple[HDSStatus, dict[str, Any]]:
         body = message.message
         if not isinstance(body, dict) or "streamId" not in body:
             return self._reject(RecordingReason.UNEXPECTED_FAILURE)
@@ -182,7 +183,9 @@ class RecordingStreamManager:
 
     def _is_current_stream(self, message: Message) -> bool:
         body = message.message
-        return isinstance(body, dict) and body.get("streamId") == self._stream_id
+        return cast(
+            bool, isinstance(body, dict) and body.get("streamId") == self._stream_id
+        )
 
     def _stop(self) -> None:
         # Cancel at most once: _stop() is reached from both dataSend/close and

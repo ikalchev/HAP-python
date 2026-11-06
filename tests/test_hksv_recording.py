@@ -7,6 +7,7 @@ test_hds_recording.py.
 """
 
 import os
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,7 +22,7 @@ from pyhap.util import base64_to_bytes, to_base64_str
 
 
 @pytest.fixture(name="recording_camera")
-def recording_camera_fixture():
+def recording_camera_fixture() -> Camera:
     with (
         patch("pyhap.accessory_driver.AccessoryDriver.persist"),
         patch("pyhap.accessory_driver.AccessoryDriver.load"),
@@ -48,7 +49,7 @@ def recording_camera_fixture():
 # --- Recording configuration TLV codecs ------------------------------------
 
 
-def test_recording_supported_config_roundtrip():
+def test_recording_supported_config_roundtrip() -> None:
     config = hr.SupportedRecordingConfiguration(
         prebuffer_length_ms=4000,
         event_triggers=hr.EventTrigger.MOTION | hr.EventTrigger.DOORBELL,
@@ -59,7 +60,7 @@ def test_recording_supported_config_roundtrip():
     assert decoded.event_triggers == 3
 
 
-def test_recording_supported_video_roundtrip():
+def test_recording_supported_video_roundtrip() -> None:
     configs = [
         hr.VideoCodecConfiguration(
             codec_type=hr.VideoCodecType.H265,
@@ -98,7 +99,7 @@ def test_recording_supported_video_roundtrip():
     assert decoded[0].bitrate_kbps == 0 and decoded[0].iframe_interval_ms == 0
 
 
-def test_recording_supported_audio_roundtrip():
+def test_recording_supported_audio_roundtrip() -> None:
     configs = [
         hr.AudioCodecConfiguration(
             codec_type=hr.AudioCodecType.AAC_LC,
@@ -121,7 +122,7 @@ def test_recording_supported_audio_roundtrip():
     assert decoded[0].max_audio_bitrate_kbps == 0
 
 
-def test_recording_supported_video_multi_value_roundtrip():
+def test_recording_supported_video_multi_value_roundtrip() -> None:
     # A supported config advertising several profiles/levels must round-trip
     # faithfully: encode -> decode preserves the full lists (not just the first).
     config = hr.VideoCodecConfiguration(
@@ -144,7 +145,7 @@ def test_recording_supported_video_multi_value_roundtrip():
     ]
 
 
-def test_recording_selected_config_roundtrip():
+def test_recording_selected_config_roundtrip() -> None:
     selected = hr.SelectedRecordingConfiguration(
         recording=hr.SupportedRecordingConfiguration(
             prebuffer_length_ms=4000, event_triggers=hr.EventTrigger.MOTION
@@ -166,7 +167,7 @@ def test_recording_selected_config_roundtrip():
 # --- Recording management service setup / eligibility ----------------------
 
 
-def test_recording_management_service_present(recording_camera):
+def test_recording_management_service_present(recording_camera: Any) -> None:
     recording = recording_camera.get_service("CameraRecordingManagement")
     assert recording is not None
     # Recording starts inactive.
@@ -179,7 +180,7 @@ def test_recording_management_service_present(recording_camera):
         assert recording.get_characteristic(char).get_value()
 
 
-def test_recording_eligibility_characteristics(recording_camera):
+def test_recording_eligibility_characteristics(recording_camera: Any) -> None:
     # HAP-NodeJS-parity characteristics iOS validates before managing recording.
     stream = recording_camera.get_service("CameraRTPStreamManagement")
     assert stream.get_characteristic("Active").get_value() == 1
@@ -218,7 +219,13 @@ def test_recording_eligibility_characteristics(recording_camera):
         ),
     ],
 )
-def test_recording_state_properties(recording_camera, service, char, value, expected):
+def test_recording_state_properties(
+    recording_camera: Any,
+    service: str,
+    char: str,
+    value: int,
+    expected: dict[str, bool],
+) -> None:
     defaults = {
         "recording_active": False,
         "recording_audio_active": False,
@@ -231,7 +238,7 @@ def test_recording_state_properties(recording_camera, service, char, value, expe
         assert getattr(recording_camera, name) is default
 
 
-def test_recording_state_properties_without_recording():
+def test_recording_state_properties_without_recording() -> None:
     with (
         patch("pyhap.accessory_driver.AccessoryDriver.persist"),
         patch("pyhap.accessory_driver.AccessoryDriver.load"),
@@ -246,7 +253,7 @@ def test_recording_state_properties_without_recording():
 # --- HDS SetupDataStreamTransport write-response handshake ------------------
 
 
-def test_data_stream_transport_service_present(recording_camera):
+def test_data_stream_transport_service_present(recording_camera: Any) -> None:
     service = recording_camera.get_service("DataStreamTransportManagement")
     assert service.get_characteristic("Version").get_value() == "1.0"
     assert (
@@ -257,7 +264,9 @@ def test_data_stream_transport_service_present(recording_camera):
     )
 
 
-def test_setup_data_stream_transport_without_session_errors(recording_camera):
+def test_setup_data_stream_transport_without_session_errors(
+    recording_camera: Any,
+) -> None:
     camera = recording_camera
     # No session key for this client, and no listener started.
     request = tlv.encode(hds.SETUP_TYPES["CONTROLLER_KEY_SALT"], b"\x11" * 32)
@@ -271,7 +280,9 @@ def test_setup_data_stream_transport_without_session_errors(recording_camera):
     assert objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_GENERIC_ERROR
 
 
-def _hap_connection(camera, client, shared_key=None):
+def _hap_connection(
+    camera: Any, client: tuple[str, int], shared_key: bytes | None = None
+) -> HAPServerProtocol:
     """Register a HAP connection from ``client`` with the camera's driver."""
     driver = camera.driver
     # As driver.add_accessory does for a standalone accessory.
@@ -285,7 +296,9 @@ def _hap_connection(camera, client, shared_key=None):
     return connection
 
 
-def _write_setup(camera, client, controller_key_salt):
+def _write_setup(
+    camera: Any, client: tuple[str, int], controller_key_salt: bytes
+) -> dict[bytes, Any]:
     """Write SetupDataStreamTransport through the HAP write-response path."""
     char = camera.get_service("DataStreamTransportManagement").get_characteristic(
         "SetupDataStreamTransport"
@@ -308,7 +321,9 @@ def _write_setup(camera, client, controller_key_salt):
 
 
 @pytest.mark.asyncio
-async def test_setup_data_stream_transport_write_response_plumbing(recording_camera):
+async def test_setup_data_stream_transport_write_response_plumbing(
+    recording_camera: Any,
+) -> None:
     # The HAP write path hands the setter the sender's address and forwards its
     # RETURN value. The HDS keys come from that connection's session key.
     camera = recording_camera
@@ -332,8 +347,8 @@ async def test_setup_data_stream_transport_write_response_plumbing(recording_cam
 
 @pytest.mark.asyncio
 async def test_setup_data_stream_transport_unencrypted_connection_errors(
-    recording_camera,
-):
+    recording_camera: Any,
+) -> None:
     camera = recording_camera
     await camera._ensure_hds_listener()
     try:
@@ -348,7 +363,9 @@ async def test_setup_data_stream_transport_unencrypted_connection_errors(
         await camera.stop()
 
 
-def test_single_argument_setter_still_called_with_one_argument(recording_camera):
+def test_single_argument_setter_still_called_with_one_argument(
+    recording_camera: Any,
+) -> None:
     # Regression guard for the characteristic change: a plain single-argument
     # setter must still be invoked with the value alone even when a client
     # address is available.
@@ -361,7 +378,9 @@ def test_single_argument_setter_still_called_with_one_argument(recording_camera)
 
 
 @pytest.mark.asyncio
-async def test_setup_data_stream_transport_with_session(recording_camera):
+async def test_setup_data_stream_transport_with_session(
+    recording_camera: Any,
+) -> None:
     camera = recording_camera
     await camera._ensure_hds_listener()
     try:
@@ -387,7 +406,9 @@ async def test_setup_data_stream_transport_with_session(recording_camera):
         await camera.stop()
 
 
-def test_camera_off_in_home_app_marks_sensor_inactive(recording_camera):
+def test_camera_off_in_home_app_marks_sensor_inactive(
+    recording_camera: Any,
+) -> None:
     camera_active = recording_camera.get_service(
         "CameraOperatingMode"
     ).get_characteristic("HomeKitCameraActive")
@@ -411,7 +432,9 @@ def test_camera_off_in_home_app_marks_sensor_inactive(recording_camera):
     recording_camera.homekit_camera_active_changed.assert_called_with(True)
 
 
-def test_sensor_follows_camera_active_set_without_write(recording_camera):
+def test_sensor_follows_camera_active_set_without_write(
+    recording_camera: Any,
+) -> None:
     """E.g. a restored or locally set value, which runs no setter."""
     recording_camera.get_service("CameraOperatingMode").get_characteristic(
         "HomeKitCameraActive"
@@ -422,7 +445,7 @@ def test_sensor_follows_camera_active_set_without_write(recording_camera):
     assert status_active.get_value() is False
 
 
-def test_sensor_event_after_restored_camera_off(recording_camera):
+def test_sensor_event_after_restored_camera_off(recording_camera: Any) -> None:
     """A restore sets the value without a write, the next write still notifies."""
     camera_active = recording_camera.get_service(
         "CameraOperatingMode"

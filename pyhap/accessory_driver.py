@@ -85,7 +85,7 @@ MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
 
 
-def _wrap_char_setter(char, value, client_addr):
+def _wrap_char_setter(char: Any, value: Any, client_addr: Any) -> tuple[int, Any]:
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
         response = char.client_update_value(value, client_addr)
@@ -100,7 +100,7 @@ def _wrap_char_setter(char, value, client_addr):
     return HAP_SERVER_STATUS.SUCCESS, response
 
 
-def _wrap_acc_setter(acc, updates_by_service, client_addr):
+def _wrap_acc_setter(acc: Any, updates_by_service: Any, client_addr: Any) -> Any:
     """Process an accessory setter callback trapping and logging all exceptions."""
     try:
         acc.setter_callback(updates_by_service)
@@ -115,7 +115,7 @@ def _wrap_acc_setter(acc, updates_by_service, client_addr):
     return HAP_SERVER_STATUS.SUCCESS
 
 
-def _wrap_service_setter(service, chars, client_addr):
+def _wrap_service_setter(service: Any, chars: Any, client_addr: Any) -> Any:
     """Process a service setter callback trapping and logging all exceptions."""
     # Ideally this would pass the chars as is without converting
     # them to the display_name, but that would break existing
@@ -137,7 +137,9 @@ def _wrap_service_setter(service, chars, client_addr):
 class AccessoryMDNSServiceInfo(ServiceInfo):
     """A mDNS service info representation of an accessory."""
 
-    def __init__(self, accessory, state, zeroconf_server=None):
+    def __init__(
+        self, accessory: Any, state: State, zeroconf_server: Any = None
+    ) -> None:
         self.accessory = accessory
         self.state: State = state
 
@@ -159,14 +161,14 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
             parsed_addresses=self.state.addresses,
         )
 
-    def _valid_name(self):
+    def _valid_name(self) -> str:
         return re.sub(
             LEADING_TRAILING_SPACE_DASH,
             "",
             re.sub(VALID_MDNS_REGEX, " ", self.accessory.display_name),
         )
 
-    def _valid_host_name(self):
+    def _valid_host_name(self) -> str:
         return re.sub(
             DASH_REGEX,
             "-",
@@ -176,13 +178,13 @@ class AccessoryMDNSServiceInfo(ServiceInfo):
             .strip("-"),
         )
 
-    def _setup_hash(self):
+    def _setup_hash(self) -> str:
         setup_hash_material = self.state.setup_id + self.state.mac
         temp_hash = hashlib.sha512()
         temp_hash.update(setup_hash_material.encode())
         return base64.b64encode(temp_hash.digest()[:4]).decode()
 
-    def _get_advert_data(self):
+    def _get_advert_data(self) -> dict[str, str]:
         """Generate advertisement data from the accessory."""
         return {
             "md": self._valid_name(),
@@ -212,28 +214,28 @@ class AccessoryDriver:
     def __init__(
         self,
         *,
-        address=None,
-        port=51234,
-        persist_file="accessory.state",
-        pincode=None,
-        encoder=None,
-        loader=None,
-        loop=None,
-        mac=None,
-        listen_address=None,
-        advertised_address=None,
-        interface_choice=None,
-        async_zeroconf_instance=None,
-        zeroconf_server=None,
-        advertise=True,
-    ):
+        address: Any = None,
+        port: int = 51234,
+        persist_file: str = "accessory.state",
+        pincode: Any = None,
+        encoder: Any = None,
+        loader: Any = None,
+        loop: Any = None,
+        mac: Any = None,
+        listen_address: Any = None,
+        advertised_address: Any = None,
+        interface_choice: Any = None,
+        async_zeroconf_instance: Any = None,
+        zeroconf_server: Any = None,
+        advertise: bool = True,
+    ) -> None:
         """Initialize a new AccessoryDriver object.
 
         :param pincode: The pincode that HAP clients must prove they know in order
             to pair with this `Accessory`. Defaults to None, in which case a random
             pincode is generated. The pincode has the format "xxx-xx-xxx", where x is
             a digit.
-        :type pincode: bytearray
+        :type pincode: bytes
 
         :param port: The local port on which the accessory will be accessible.
             In other words, this is the port of the HAPServer.
@@ -329,7 +331,7 @@ class AccessoryDriver:
             address=advertised_address, mac=mac, pincode=pincode, port=port
         )
 
-        self._listen_address = listen_address or address
+        self._listen_address: str | list[str] = listen_address or address
         network_tuple = (self._listen_address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
         self.prepared_writes = {}
@@ -338,7 +340,7 @@ class AccessoryDriver:
         """Return the address, or list of addresses, the HAP server listens on."""
         return self._listen_address
 
-    def start(self):
+    def start(self) -> None:
         """Start the event loop and call `start_service`.
 
         Pyhap will be stopped gracefully on a KeyBoardInterrupt.
@@ -373,19 +375,19 @@ class AccessoryDriver:
             self.loop.close()
             logger.info("Closed the event loop")
 
-    def start_service(self):
+    def start_service(self) -> None:
         """Start the service."""
         self._validate_start()
         self.add_job(self.async_start)
 
-    def _validate_start(self):
+    def _validate_start(self) -> None:
         """Validate we can start."""
         if self.accessory is None:
             raise ValueError(
                 "You must assign an accessory to the driver, before you can start it."
             )
 
-    async def async_start(self):
+    async def async_start(self) -> None:
         """Starts the accessory.
 
         - Call the accessory's run method.
@@ -446,11 +448,11 @@ class AccessoryDriver:
             "AccessoryDriver for %s started successfully", self.accessory.display_name
         )
 
-    def stop(self):
+    def stop(self) -> None:
         """Method to stop pyhap."""
         self.add_job(self.async_stop)
 
-    async def async_stop(self):
+    async def async_stop(self) -> None:
         """Stops the AccessoryDriver and shutdown all remaining tasks."""
         self.stop_event.set()
         accessory = self.accessory
@@ -489,14 +491,14 @@ class AccessoryDriver:
 
         logger.debug("Stop completed")
 
-    def add_job(self, target, *args):
+    def add_job(self, target: Any, *args: Any) -> None:
         """Add job to executor pool."""
         if target is None:
             raise ValueError("Don't call add_job with None.")
         self.loop.call_soon_threadsafe(self.async_add_job, target, *args)
 
     @util.callback
-    def async_add_job(self, target, *args):
+    def async_add_job(self, target: Any, *args: Any) -> Any:
         """Add job from within the event loop."""
         task = None
 
@@ -511,7 +513,7 @@ class AccessoryDriver:
 
         return task
 
-    def add_accessory(self, accessory):
+    def add_accessory(self, accessory: Accessory) -> None:
         """Add top level accessory to driver."""
         self.accessory = accessory
         if accessory.aid is None:
@@ -528,7 +530,9 @@ class AccessoryDriver:
             self.persist()
 
     @util.callback
-    def async_subscribe_client_topic(self, client, topic, subscribe=True):
+    def async_subscribe_client_topic(
+        self, client: Any, topic: str, subscribe: bool = True
+    ) -> None:
         """(Un)Subscribe the given client from the given topic.
 
         This method must be run in the event loop.
@@ -559,7 +563,7 @@ class AccessoryDriver:
         if not subscribed_clients:
             del self.topics[topic]
 
-    def connection_lost(self, client):
+    def connection_lost(self, client: Any) -> None:
         """Called when a connection is lost to a client.
 
         This method must be run in the event loop.
@@ -578,7 +582,12 @@ class AccessoryDriver:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
         self.prepared_writes.pop(client, None)
 
-    def publish(self, data, sender_client_addr=None, immediate=False):
+    def publish(
+        self,
+        data: dict[str, Any],
+        sender_client_addr: Any = None,
+        immediate: bool = False,
+    ) -> None:
         """Publishes an event to the client.
 
         The publishing occurs only if the current client is subscribed to the topic for
@@ -600,7 +609,13 @@ class AccessoryDriver:
             self.async_send_event, topic, data, sender_client_addr, immediate
         )
 
-    def async_send_event(self, topic, data, sender_client_addr, immediate):
+    def async_send_event(
+        self,
+        topic: str,
+        data: dict[str, Any],
+        sender_client_addr: Any,
+        immediate: bool,
+    ) -> None:
         """Send an event to a client.
 
         Must be called in the event loop
@@ -639,7 +654,7 @@ class AccessoryDriver:
         for client_addr in unsubs:
             self.async_subscribe_client_topic(client_addr, topic, False)
 
-    def config_changed(self):
+    def config_changed(self) -> None:
         """Notify the driver that the accessory's configuration has changed.
 
         Persists the accessory, so that the new configuration is available on
@@ -650,12 +665,12 @@ class AccessoryDriver:
         self.persist()
         self.update_advertisement()
 
-    def update_advertisement(self):
+    def update_advertisement(self) -> None:
         """Updates the mDNS service info for the accessory."""
         self.loop.call_soon_threadsafe(self.async_update_advertisement)
 
     @callback
-    def async_update_advertisement(self):
+    def async_update_advertisement(self) -> None:
         """Updates the mDNS service info for the accessory from the event loop."""
         logger.debug("Updating mDNS advertisement")
         if not self.advertise:
@@ -678,7 +693,7 @@ class AccessoryDriver:
         return self.state.accessory_states.setdefault(aid, {})
 
     @callback
-    def async_persist(self):
+    def async_persist(self) -> None:
         """Saves the state of the accessory.
 
         Must be run in the event loop.
@@ -686,7 +701,7 @@ class AccessoryDriver:
         logger.debug("Scheduling write of accessory state to disk")
         util.async_create_background_task(self.loop.run_in_executor(None, self.persist))
 
-    def persist(self):
+    def persist(self) -> None:
         """Saves the state of the accessory.
 
         Must run in executor.
@@ -720,7 +735,7 @@ class AccessoryDriver:
             if tmp_filename and os.path.exists(tmp_filename):
                 os.remove(tmp_filename)
 
-    def load(self):
+    def load(self) -> None:
         """Load the persist file.
 
         Must run in executor.
@@ -791,7 +806,7 @@ class AccessoryDriver:
         return time.monotonic() < self._pairing_lockout_until
 
     @callback
-    def unpair(self, client_uuid):
+    def unpair(self, client_uuid: Any) -> None:
         """Removes the paired client from the accessory.
 
         Persist the new accessory state.
@@ -809,7 +824,7 @@ class AccessoryDriver:
                 logger.warning("Failed to reset the accessory state", exc_info=True)
         self.async_persist()
 
-    def finish_pair(self):
+    def finish_pair(self) -> None:
         """Finishing pairing or unpairing.
 
         Updates the accessory and updates the mDNS service.
@@ -843,7 +858,7 @@ class AccessoryDriver:
         self._srp_verifier = verifier
 
     @property
-    def accessories_hash(self):
+    def accessories_hash(self) -> str:
         """Hash the get_accessories response to track configuration changes."""
         # We pass include_value=False to avoid including the value
         # of the characteristics in the hash. This is because the
@@ -856,7 +871,7 @@ class AccessoryDriver:
             util.to_sorted_hap_json(self.get_accessories(include_value=False))
         ).hexdigest()
 
-    def get_accessories(self, include_value: bool = True):
+    def get_accessories(self, include_value: bool = True) -> dict[str, Any]:
         """Returns the accessory in HAP format.
 
         :return: An example HAP representation is:
@@ -890,7 +905,7 @@ class AccessoryDriver:
         logger.debug("Get accessories response: %s", hap_rep)
         return {HAP_REPR_ACCS: hap_rep}
 
-    def get_characteristics(self, char_ids):
+    def get_characteristics(self, char_ids: Any) -> dict[str, Any]:
         """Returns values for the required characteristics.
 
         :param char_ids: A list of characteristic "paths", e.g. "1.2" is aid 1, iid 2.
@@ -978,7 +993,9 @@ class AccessoryDriver:
             return None
         return connection.derive_key(salt, info)
 
-    def set_characteristics(self, chars_query, client_addr):
+    def set_characteristics(
+        self, chars_query: dict[str, Any], client_addr: tuple[str, int]
+    ) -> dict[str, Any] | None:
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.
 
         :param chars_query: A configuration query. For example:
@@ -1103,7 +1120,9 @@ class AccessoryDriver:
 
         return {HAP_REPR_CHARS: characteristics} if nonempty_results_exist else None
 
-    def prepare(self, prepare_query, client_addr):
+    def prepare(
+        self, prepare_query: dict[str, Any], client_addr: tuple[str, int]
+    ) -> dict[str, int]:
         """Called from ``HAPServerHandler`` when iOS wants to prepare a write.
 
         :param prepare_query: A prepare query. For example:
@@ -1139,7 +1158,7 @@ class AccessoryDriver:
 
         return {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
 
-    def signal_handler(self, _signal, _frame):
+    def signal_handler(self, _signal: Any, _frame: Any) -> None:
         """Stops the AccessoryDriver for a given signal.
 
         An AccessoryDriver can be registered as a signal handler with this method. For

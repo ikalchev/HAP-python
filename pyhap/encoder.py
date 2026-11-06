@@ -5,6 +5,7 @@ it can work properly after a restart.
 """
 
 import json
+from typing import Any
 import uuid
 
 from cryptography.hazmat.primitives import serialization
@@ -47,7 +48,7 @@ class AccessoryEncoder:
     """
 
     @staticmethod
-    def persist(fp, state: State):
+    def persist(fp: Any, state: State) -> None:
         """Persist the state of the given Accessory to the given file object.
 
         Persists:
@@ -94,7 +95,7 @@ class AccessoryEncoder:
         json.dump(config_state, fp)
 
     @staticmethod
-    def load_into(fp, state: State) -> None:
+    def load_into(fp: Any, state: State) -> None:
         """Load the accessory state from the given file object into the given Accessory.
 
         @see: AccessoryEncoder.persist

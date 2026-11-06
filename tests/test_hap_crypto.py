@@ -6,7 +6,7 @@ import pytest
 from pyhap import hap_crypto
 
 
-def test_accessory_client_round_trip():
+def test_accessory_client_round_trip() -> None:
     """Test an accessory and a client-side instance round trip both directions."""
     plaintext = b"bobdata1232" * 1000
     key = b"mykeydsfdsfdsfsdfdsfsdf"
@@ -25,7 +25,7 @@ def test_accessory_client_round_trip():
     assert client.decrypt() == plaintext
 
 
-def test_client_side_swaps_cipher_direction():
+def test_client_side_swaps_cipher_direction() -> None:
     """Test client_side instances use the opposite cipher keys of the default."""
     plaintext = b"data"
     key = b"mykeydsfdsfdsfsdfdsfsdf"
@@ -56,7 +56,7 @@ def test_client_side_swaps_cipher_direction():
     assert client_a.decrypt() == plaintext
 
 
-def test_round_trip():
+def test_round_trip() -> None:
     """Test we can roundtrip data by using the same cipher info."""
     plaintext = b"bobdata1232" * 1000
     key = b"mykeydsfdsfdsfsdfdsfsdf"
@@ -85,7 +85,7 @@ def test_round_trip():
     assert decrypted == plaintext
 
 
-def test_decrypt_interleaved_chunks():
+def test_decrypt_interleaved_chunks() -> None:
     """Test decrypt drains completed blocks as ciphertext arrives in chunks.
 
     The chunk size intentionally does not align with the 2 + 1024 + 16 byte

@@ -3,7 +3,7 @@
 import asyncio
 import contextlib
 import time
-from typing import cast
+from typing import Any, NoReturn, cast
 from unittest.mock import MagicMock, Mock, patch
 
 from cryptography.exceptions import InvalidTag
@@ -20,7 +20,9 @@ class MockTransport(asyncio.Transport):
 
     _is_closing: bool = False
 
-    def set_write_buffer_limits(self, high=None, low=None):
+    def set_write_buffer_limits(
+        self, high: int | None = None, low: int | None = None
+    ) -> None:
         """Set the write buffer limits."""
 
     def write_eof(self) -> None:
@@ -38,21 +40,21 @@ class MockTransport(asyncio.Transport):
 class MockHAPCrypto:
     """Mock HAPCrypto that only returns plaintext."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Create the mock object."""
         self._crypt_in_buffer = bytearray()  # Encrypted buffer
 
-    def receive_data(self, buffer):
+    def receive_data(self, buffer: bytes) -> None:
         """Receive data into the encrypted buffer."""
         self._crypt_in_buffer += buffer
 
-    def decrypt(self):
+    def decrypt(self) -> bytearray:
         """Mock as plaintext."""
         decrypted = self._crypt_in_buffer
         self._crypt_in_buffer = bytearray()  # Encrypted buffer
         return decrypted
 
-    def encrypt(self, data):
+    def encrypt(self, data: bytes) -> bytes:
         """Mock as plaintext."""
         return data
 
@@ -73,7 +75,7 @@ async def _await_response(hap_proto: hap_protocol.HAPServerProtocol) -> None:
         await response.task
 
 
-def test_connection_management(driver):
+def test_connection_management(driver: AccessoryDriver) -> None:
     """Verify closing the connection removes it from the pool."""
     loop = MagicMock()
     addr_info = ("1.2.3.4", 5)
@@ -117,7 +119,7 @@ def test_connection_management(driver):
     assert len(connections) == 0
 
 
-def test_pair_setup(driver):
+def test_pair_setup(driver: AccessoryDriver) -> None:
     """Verify an non-encrypt request."""
     loop = MagicMock()
     transport = MagicMock()
@@ -142,7 +144,7 @@ def test_pair_setup(driver):
     hap_proto.close()
 
 
-def test_request_body_over_limit_closes_connection(driver):
+def test_request_body_over_limit_closes_connection(driver: AccessoryDriver) -> None:
     """Verify a request body over the size limit aborts the connection.
 
     Without the limit a peer can stream an arbitrarily large body (h11 does
@@ -173,7 +175,7 @@ def test_request_body_over_limit_closes_connection(driver):
     writer.assert_not_called()
 
 
-def test_request_body_at_limit_is_processed(driver):
+def test_request_body_at_limit_is_processed(driver: AccessoryDriver) -> None:
     """Verify a body exactly at the limit is still handled normally."""
     loop = MagicMock()
     transport = MagicMock()
@@ -200,7 +202,7 @@ def test_request_body_at_limit_is_processed(driver):
     hap_proto.close()
 
 
-def test_http10_close(driver):
+def test_http10_close(driver: AccessoryDriver) -> None:
     """Test we handle http/1.0."""
     loop = MagicMock()
     transport = MagicMock()
@@ -227,7 +229,7 @@ def test_http10_close(driver):
     hap_proto.close()
 
 
-def test_invalid_content_length(driver):
+def test_invalid_content_length(driver: AccessoryDriver) -> None:
     """Test we handle invalid content length."""
     loop = MagicMock()
     transport = MagicMock()
@@ -268,7 +270,7 @@ def test_invalid_content_length(driver):
     hap_proto.close()
 
 
-def test_invalid_client_closes_connection(driver):
+def test_invalid_client_closes_connection(driver: AccessoryDriver) -> None:
     """Test we handle client closing the connection."""
     loop = MagicMock()
     transport = MagicMock()
@@ -296,7 +298,7 @@ def test_invalid_client_closes_connection(driver):
     hap_proto.close()
 
 
-def test_pair_setup_split_between_packets(driver):
+def test_pair_setup_split_between_packets(driver: AccessoryDriver) -> None:
     """Verify an non-encrypt request."""
     loop = MagicMock()
     transport = MagicMock()
@@ -320,7 +322,7 @@ def test_pair_setup_split_between_packets(driver):
     hap_proto.close()
 
 
-def test_get_accessories_without_crypto(driver):
+def test_get_accessories_without_crypto(driver: AccessoryDriver) -> None:
     """Verify an non-encrypt request that expected to be encrypted."""
     loop = MagicMock()
     transport = MagicMock()
@@ -342,7 +344,7 @@ def test_get_accessories_without_crypto(driver):
     assert b"-70401" in writer.call_args_list[0][0][0]
 
 
-def test_get_accessories_with_crypto(driver):
+def test_get_accessories_with_crypto(driver: AccessoryDriver) -> None:
     """Verify an encrypt accessories request."""
     loop = MagicMock()
     transport = MagicMock()
@@ -366,7 +368,7 @@ def test_get_accessories_with_crypto(driver):
     assert b"accessories" in b"".join(writelines.call_args_list[0][0])
 
 
-def test_get_characteristics_with_crypto(driver):
+def test_get_characteristics_with_crypto(driver: AccessoryDriver) -> None:
     """Verify an encrypt characteristics request."""
     loop = MagicMock()
     transport = MagicMock()
@@ -409,7 +411,7 @@ def test_get_characteristics_with_crypto(driver):
     assert b"TestAcc" in joined1
 
 
-def test_set_characteristics_with_crypto(driver):
+def test_set_characteristics_with_crypto(driver: AccessoryDriver) -> None:
     """Verify an encrypt characteristics request."""
     loop = MagicMock()
     transport = MagicMock()
@@ -442,7 +444,7 @@ def test_set_characteristics_with_crypto(driver):
     )
 
 
-def test_crypto_failure_closes_connection(driver):
+def test_crypto_failure_closes_connection(driver: AccessoryDriver) -> None:
     """Verify a decrypt failure closes the connection."""
     loop = MagicMock()
     addr_info = ("1.2.3.4", 5)
@@ -462,7 +464,7 @@ def test_crypto_failure_closes_connection(driver):
     assert len(connections) == 0
 
 
-def test_empty_encrypted_data(driver):
+def test_empty_encrypted_data(driver: AccessoryDriver) -> None:
     """Verify an encrypt request when we start with an empty block."""
     loop = MagicMock()
     transport = MagicMock()
@@ -487,7 +489,7 @@ def test_empty_encrypted_data(driver):
     assert b"accessories" in b"".join(writelines.call_args_list[0][0])
 
 
-def test_http_11_keep_alive(driver):
+def test_http_11_keep_alive(driver: AccessoryDriver) -> None:
     """Verify we can handle multiple requests."""
     loop = MagicMock()
     transport = MagicMock()
@@ -519,14 +521,14 @@ def test_http_11_keep_alive(driver):
     hap_proto.close()
 
 
-async def test_camera_snapshot_connection_closed(driver):
+async def test_camera_snapshot_connection_closed(driver: AccessoryDriver) -> None:
     """Test camera snapshot when the other side closes the connection."""
     loop = MagicMock()
     transport = MagicMock()
     transport.is_closing = Mock(return_value=True)
     connections = {}
 
-    async def _async_get_snapshot(*_):
+    async def _async_get_snapshot(*_: Any) -> bytes:
         return b"fakesnap"
 
     acc = Accessory(driver, "TestAcc")
@@ -560,7 +562,7 @@ async def test_camera_snapshot_connection_closed(driver):
     hap_proto.close()
 
 
-def test_camera_snapshot_without_snapshot_support(driver):
+def test_camera_snapshot_without_snapshot_support(driver: AccessoryDriver) -> None:
     """Test camera snapshot fails if there is not support for it."""
     loop = MagicMock()
     transport = MagicMock()
@@ -590,14 +592,14 @@ def test_camera_snapshot_without_snapshot_support(driver):
     assert b"-70402" in b"".join(writelines.call_args_list[0][0])
 
 
-async def test_camera_snapshot_works_sync(driver):
+async def test_camera_snapshot_works_sync(driver: AccessoryDriver) -> None:
     """Test camera snapshot works if there is support for it."""
     loop = MagicMock()
     transport = MagicMock()
     transport.is_closing = Mock(return_value=False)
     connections = {}
 
-    def _get_snapshot(*_):
+    def _get_snapshot(*_: Any) -> bytes:
         return b"fakesnap"
 
     acc = Accessory(driver, "TestAcc")
@@ -629,14 +631,14 @@ async def test_camera_snapshot_works_sync(driver):
     hap_proto.close()
 
 
-async def test_camera_snapshot_works_async(driver):
+async def test_camera_snapshot_works_async(driver: AccessoryDriver) -> None:
     """Test camera snapshot works if there is support for it."""
     loop = MagicMock()
     transport = MagicMock()
     transport.is_closing = Mock(return_value=False)
     connections = {}
 
-    async def _async_get_snapshot(*_):
+    async def _async_get_snapshot(*_: Any) -> bytes:
         return b"fakesnap"
 
     acc = Accessory(driver, "TestAcc")
@@ -669,14 +671,14 @@ async def test_camera_snapshot_works_async(driver):
     hap_proto.close()
 
 
-async def test_camera_snapshot_timeout_async(driver):
+async def test_camera_snapshot_timeout_async(driver: AccessoryDriver) -> None:
     """Test camera snapshot timeout is handled."""
     loop = MagicMock()
     transport = MagicMock()
     transport.is_closing = Mock(return_value=False)
     connections = {}
 
-    async def _async_get_snapshot(*_):
+    async def _async_get_snapshot(*_: Any) -> bytes:
         await asyncio.sleep(10)
         return b"fakesnap"
 
@@ -712,7 +714,7 @@ async def test_camera_snapshot_timeout_async(driver):
     hap_proto.close()
 
 
-def test_upgrade_to_encrypted(driver):
+def test_upgrade_to_encrypted(driver: AccessoryDriver) -> None:
     """Test we switch to encrypted wen we get a shared_key."""
     loop = MagicMock()
     transport = MagicMock()
@@ -727,7 +729,7 @@ def test_upgrade_to_encrypted(driver):
 
     assert hap_proto.hap_crypto is None
 
-    def _make_response(*_):
+    def _make_response(*_: Any) -> HAPResponse:
         response = HAPResponse()
         response.shared_key = b"newkey"
         return response
@@ -754,7 +756,7 @@ def test_upgrade_to_encrypted(driver):
     assert hap_proto.derive_key(b"salt", b"info") is None
 
 
-def _pair_verify(hap_proto, shared_key):
+def _pair_verify(hap_proto: Any, shared_key: bytes) -> None:
     """Process a handler response that upgrades to ``shared_key``."""
     response = HAPResponse()
     response.shared_key = shared_key
@@ -762,7 +764,7 @@ def _pair_verify(hap_proto, shared_key):
         hap_proto._process_response(response)
 
 
-def test_derive_key_uses_latest_pair_verify(driver):
+def test_derive_key_uses_latest_pair_verify(driver: AccessoryDriver) -> None:
     """Test a repeated pair-verify replaces the session key."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
     hap_proto = hap_protocol.HAPServerProtocol(MagicMock(), {}, driver)
@@ -777,7 +779,9 @@ def test_derive_key_uses_latest_pair_verify(driver):
     )
 
 
-def test_close_keeps_newer_connection_with_same_peername(driver):
+def test_close_keeps_newer_connection_with_same_peername(
+    driver: AccessoryDriver,
+) -> None:
     """Test closing a stale connection does not drop a newer one."""
     loop = MagicMock()
     connections = {}
@@ -798,13 +802,13 @@ def test_close_keeps_newer_connection_with_same_peername(driver):
     assert new_proto.derive_key(b"salt", b"info") is not None
 
 
-async def test_pairing_changed(driver):
+async def test_pairing_changed(driver: AccessoryDriver) -> None:
     """Test we update mdns when the pairing changes."""
     loop = MagicMock()
 
     run_in_executor_called = False
 
-    async def _run_in_executor(*_):
+    async def _run_in_executor(*_: Any) -> None:
         nonlocal run_in_executor_called
         run_in_executor_called = True
 
@@ -818,7 +822,7 @@ async def test_pairing_changed(driver):
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     hap_proto.connection_made(transport)
 
-    def _make_response(*_):
+    def _make_response(*_: Any) -> HAPResponse:
         response = HAPResponse()
         response.pairing_changed = True
         return response
@@ -841,14 +845,14 @@ async def test_pairing_changed(driver):
     hap_proto.close()
 
 
-async def test_camera_snapshot_throws_an_exception(driver):
+async def test_camera_snapshot_throws_an_exception(driver: AccessoryDriver) -> None:
     """Test camera snapshot that throws an exception."""
     loop = MagicMock()
     transport = MagicMock()
     transport.is_closing = Mock(return_value=False)
     connections = {}
 
-    async def _async_get_snapshot(*_):
+    async def _async_get_snapshot(*_: Any) -> NoReturn:
         raise ValueError("any error")
 
     acc = Accessory(driver, "TestAcc")
@@ -881,14 +885,14 @@ async def test_camera_snapshot_throws_an_exception(driver):
     hap_proto.close()
 
 
-async def test_camera_snapshot_times_out(driver):
+async def test_camera_snapshot_times_out(driver: AccessoryDriver) -> None:
     """Test camera snapshot times out."""
     loop = MagicMock()
     transport = MagicMock()
     transport.is_closing = Mock(return_value=False)
     connections = {}
 
-    def _get_snapshot(*_):
+    def _get_snapshot(*_: Any) -> NoReturn:
         raise asyncio.TimeoutError("timeout")
 
     acc = Accessory(driver, "TestAcc")
@@ -920,7 +924,7 @@ async def test_camera_snapshot_times_out(driver):
     hap_proto.close()
 
 
-async def test_camera_snapshot_missing_accessory(driver):
+async def test_camera_snapshot_missing_accessory(driver: AccessoryDriver) -> None:
     """Test camera snapshot that throws an exception."""
     loop = MagicMock()
     transport = MagicMock()
@@ -951,7 +955,7 @@ async def test_camera_snapshot_missing_accessory(driver):
     hap_proto.close()
 
 
-async def test_idle_timeout(driver):
+async def test_idle_timeout(driver: AccessoryDriver) -> None:
     """Test we close the connection once we reach the idle timeout."""
     loop = asyncio.get_event_loop()
     transport = MagicMock()
@@ -979,7 +983,7 @@ async def test_idle_timeout(driver):
         assert hap_proto_close.called is True
 
 
-async def test_does_not_timeout(driver):
+async def test_does_not_timeout(driver: AccessoryDriver) -> None:
     """Test we do not timeout the connection if we have not reached the idle."""
     loop = asyncio.get_event_loop()
     transport = MagicMock()
@@ -1006,7 +1010,7 @@ async def test_does_not_timeout(driver):
         assert hap_proto_close.called is False
 
 
-def test_explicit_close(driver: AccessoryDriver):
+def test_explicit_close(driver: AccessoryDriver) -> None:
     """Test an explicit connection close."""
     loop = MagicMock()
 

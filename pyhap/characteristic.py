@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _setter_wants_client_addr(setter: Callable) -> bool:
+def _setter_wants_client_addr(setter: Callable[..., Any]) -> bool:
     """Whether ``setter`` opts in to receiving the sender's client address.
 
     A setter opts in by declaring a parameter literally named
@@ -206,7 +206,7 @@ class Characteristic:
         # Cache of whether ``setter_callback`` opts into the client address,
         # recomputed only when the setter object itself changes.
         self._setter_addr_cache: bool = False
-        self._setter_addr_cache_for: Callable | None = None
+        self._setter_addr_cache_for: Callable[..., Any] | None = None
         self.service: Service | None = None
         self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
@@ -393,7 +393,7 @@ class Characteristic:
 
     def client_update_value(
         self, value: Any, sender_client_addr: tuple[str, int] | None = None
-    ) -> None:
+    ) -> Any:
         """Called from broker for value change in Home app.
 
         Change self.value to value and call callback.

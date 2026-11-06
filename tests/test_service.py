@@ -20,14 +20,14 @@ CHAR_PROPS = {
 }
 
 
-def get_chars():
+def get_chars() -> list[Characteristic]:
     """Return example char objects."""
     c1 = Characteristic("Char 1", uuid1(), CHAR_PROPS)
     c2 = Characteristic("Char 2", uuid1(), CHAR_PROPS)
     return [c1, c2]
 
 
-def test_repr():
+def test_repr() -> None:
     """Test service representation."""
     service = Service(uuid1(), "TestService", unique_id="my_service_unique_id")
     service.characteristics = [get_chars()[0]]
@@ -38,13 +38,13 @@ def test_repr():
     )
 
 
-def test_service_with_unique_id():
+def test_service_with_unique_id() -> None:
     """Test service with unique_id."""
     service = Service(uuid1(), "TestService", unique_id="service_unique_id")
     assert service.unique_id == "service_unique_id"
 
 
-def test_add_characteristic():
+def test_add_characteristic() -> None:
     """Test adding characteristics to a service."""
     service = Service(uuid1(), "Test Service")
     chars = get_chars()
@@ -56,7 +56,7 @@ def test_add_characteristic():
     assert len(service.characteristics) == 2
 
 
-def test_get_characteristic():
+def test_get_characteristic() -> None:
     """Test getting a characteristic from a service."""
     service = Service(uuid1(), "Test Service")
     chars = get_chars()
@@ -66,7 +66,7 @@ def test_get_characteristic():
         service.get_characteristic("Not found")
 
 
-def test_configure_char():
+def test_configure_char() -> None:
     """Test preconfiguring a characteristic from a service."""
     pyhap_char = "pyhap.characteristic.Characteristic"
 
@@ -109,7 +109,7 @@ def test_configure_char():
     assert service.get_characteristic("Char 1").setter_callback == new_setter_callback
 
 
-def test_is_primary_service():
+def test_is_primary_service() -> None:
     """Test setting is_primary_service on a service."""
     service = Service(uuid1(), "Test Service")
 
@@ -122,7 +122,7 @@ def test_is_primary_service():
     assert service.is_primary_service is False
 
 
-def test_add_linked_service():
+def test_add_linked_service() -> None:
     """Test adding linked service to a service."""
     service = Service(uuid1(), "Test Service")
     assert len(service.linked_services) == 0
@@ -135,7 +135,7 @@ def test_add_linked_service():
     assert service.linked_services[0] == linked_service
 
 
-def test_to_HAP():
+def test_to_HAP() -> None:
     """Test created HAP representation of a service."""
     uuid = uuid1()
     pyhap_char_to_HAP = "pyhap.characteristic.Characteristic.to_HAP"
@@ -159,7 +159,7 @@ def test_to_HAP():
     }
 
 
-def test_linked_service_to_HAP():
+def test_linked_service_to_HAP() -> None:
     """Test created HAP representation of a service."""
     uuid = uuid1()
     pyhap_char_to_HAP = "pyhap.characteristic.Characteristic.to_HAP"
@@ -197,7 +197,7 @@ def test_linked_service_to_HAP():
         }
 
 
-def test_is_primary_service_to_HAP():
+def test_is_primary_service_to_HAP() -> None:
     """Test created HAP representation of primary service."""
     uuid = uuid1()
     pyhap_char_to_HAP = "pyhap.characteristic.Characteristic.to_HAP"
@@ -223,7 +223,7 @@ def test_is_primary_service_to_HAP():
     }
 
 
-def test_from_dict():
+def test_from_dict() -> None:
     """Test creating a service from a dictionary."""
     uuid = uuid1()
     chars = get_chars()

@@ -100,7 +100,7 @@ class Accessory:
         serv_info.configure_char("SerialNumber", value="default")
         self.add_service(serv_info)
 
-    def add_protocol_version_service(self):
+    def add_protocol_version_service(self) -> None:
         """Helper method to add the required HAP Protocol Information service"""
         serv_hap_proto_info = Service(
             HAP_PROTOCOL_INFORMATION_SERVICE_UUID, "HAPProtocolInformation"
@@ -115,7 +115,7 @@ class Accessory:
         manufacturer: str | None = None,
         model: str | None = None,
         serial_number: str | None = None,
-    ):
+    ) -> None:
         """Quick assign basic accessory information."""
         serv_info = self.get_service("AccessoryInformation")
         assert serv_info is not None  # noqa: S101
@@ -139,10 +139,10 @@ class Accessory:
         self,
         service: str,
         chars: str | Iterable[str] | None = None,
-        unique_id: str | None = None,
+        unique_id: str | int | None = None,
     ) -> Service:
         """Create a service with the given name and add it to this acc."""
-        serv = self.driver.loader.get_service(service)
+        serv: Service = self.driver.loader.get_service(service)
         if unique_id is not None:
             serv.unique_id = unique_id
         if chars:
@@ -214,7 +214,7 @@ class Accessory:
             int(self.driver.state.pincode.replace(b"-", b""), 10) & 0x7FFFFFFF
         )  # pincode
 
-        encoded_payload = base36.dumps(payload).upper()
+        encoded_payload: str = base36.dumps(payload).upper()
         encoded_payload = encoded_payload.rjust(9, "0")
 
         return "X-HM://" + encoded_payload + self.driver.state.setup_id
@@ -254,7 +254,7 @@ class Accessory:
             ],
         }
 
-    def setup_message(self):
+    def setup_message(self) -> None:
         """Print setup message to console.
 
         For QRCode `base36`, `pyqrcode` are required.
@@ -283,7 +283,9 @@ class Accessory:
             )
 
     @staticmethod
-    def run_at_interval(seconds):
+    def run_at_interval(
+        seconds: float,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator that runs decorated method every x seconds, until stopped.
 
         Can be used with normal and async methods.
@@ -299,8 +301,8 @@ class Accessory:
         :type seconds: float
         """
 
-        def _repeat(func):
-            async def _wrapper(self, *args):
+        def _repeat(func: Callable[..., Any]) -> Callable[..., Any]:
+            async def _wrapper(self: Any, *args: Any) -> None:
                 while True:
                     await self.driver.async_add_job(func, self, *args)
                     if await util.event_wait(self.driver.aio_stop_event, seconds):
@@ -310,14 +312,14 @@ class Accessory:
 
         return _repeat
 
-    async def run(self):
+    async def run(self) -> None:
         """Called when the Accessory should start doing its thing.
 
         Called when HAP server is running, advertising is set, etc.
         Can be overridden with a normal or async method.
         """
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Called when the Accessory should stop what it is doing and clean up
         any resources.
 
@@ -340,7 +342,13 @@ class Accessory:
 
     # Driver
 
-    def publish(self, value, sender, sender_client_addr=None, immediate=False):
+    def publish(
+        self,
+        value: Any,
+        sender: Service | Characteristic,
+        sender_client_addr: Any = None,
+        immediate: bool = False,
+    ) -> None:
         """Append AID and IID of the sender and forward it to the driver.
 
         Characteristics call this method to send updates.
@@ -376,7 +384,7 @@ class Bridge(Accessory):
         super().__init__(
             driver, display_name, aid=STANDALONE_AID, iid_manager=iid_manager
         )
-        self.accessories = {}  # aid: acc
+        self.accessories: dict[int, Accessory] = {}  # aid: acc
 
     def add_accessory(self, acc: "Accessory") -> None:
         """Add the given ``Accessory`` to this ``Bridge``.

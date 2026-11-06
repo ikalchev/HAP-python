@@ -43,7 +43,7 @@ class Service:
         self,
         type_id: UUID,
         display_name: str | None = None,
-        unique_id: str | None = None,
+        unique_id: str | int | None = None,
     ) -> None:
         """Initialize a new Service object."""
         self.broker: Accessory | None = None
@@ -103,11 +103,11 @@ class Service:
     def configure_char(
         self,
         char_name: str,
-        properties=None,
-        valid_values=None,
-        value=None,
-        setter_callback=None,
-        getter_callback=None,
+        properties: Any = None,
+        valid_values: Any = None,
+        value: Any = None,
+        setter_callback: Any = None,
+        getter_callback: Any = None,
     ) -> Characteristic:
         """Helper method to return fully configured characteristic."""
         char = self.get_characteristic(char_name)

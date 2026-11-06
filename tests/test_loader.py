@@ -8,7 +8,7 @@ from pyhap.loader import Loader, get_loader
 from pyhap.service import Service
 
 
-def test_loader_char():
+def test_loader_char() -> None:
     """Test if method returns a Characteristic object."""
     loader = Loader()
 
@@ -20,7 +20,7 @@ def test_loader_char():
     assert isinstance(char_name, Characteristic)
 
 
-def test_loader_get_char_error():
+def test_loader_get_char_error() -> None:
     """Test if errors are thrown for invalid dictionary entries."""
     loader = Loader.from_dict(char_dict={"Char": None})
     assert loader.char_types == {"Char": None}
@@ -37,7 +37,7 @@ def test_loader_get_char_error():
             loader.get_char("Char")
 
 
-def test_loader_service():
+def test_loader_service() -> None:
     """Test if method returns a Service object."""
     loader = Loader()
 
@@ -49,7 +49,7 @@ def test_loader_service():
     assert isinstance(serv_acc_info, Service)
 
 
-def test_loader_service_error():
+def test_loader_service_error() -> None:
     """Test if errors are thrown for invalid dictionary entries."""
     loader = Loader.from_dict(serv_dict={"Service": None})
     assert loader.char_types == {}
@@ -62,7 +62,7 @@ def test_loader_service_error():
             loader.get_service("Service")
 
 
-def test_get_loader():
+def test_get_loader() -> None:
     """Test if method returns the preloaded loader object."""
     loader = get_loader()
     assert isinstance(loader, Loader)

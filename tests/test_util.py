@@ -7,25 +7,25 @@ from pyhap import util
 
 
 @util.callback
-def async_is_callback():
+def async_is_callback() -> None:
     """Test callback."""
 
 
-def async_not_callback():
+def async_not_callback() -> None:
     """Test callback."""
 
 
-async def async_function():
+async def async_function() -> None:
     """Test for iscoro."""
 
 
-def test_callback():
+def test_callback() -> None:
     """Test is_callback."""
     assert util.is_callback(async_is_callback) is True
     assert util.is_callback(async_not_callback) is False
 
 
-def test_iscoro():
+def test_iscoro() -> None:
     """Test iscoro."""
     assert util.iscoro(async_function) is True
     assert util.iscoro(functools.partial(async_function)) is True
@@ -33,12 +33,12 @@ def test_iscoro():
     assert util.iscoro(async_not_callback) is False
 
 
-def test_generate_setup_id():
+def test_generate_setup_id() -> None:
     """Test generate_setup_id."""
     assert len(util.generate_setup_id()) == 4
 
 
-def test_hap_type_to_uuid():
+def test_hap_type_to_uuid() -> None:
     """Test we can convert short types to UUIDs."""
     assert util.hap_type_to_uuid("32") == UUID("00000032-0000-1000-8000-0026bb765291")
     assert util.hap_type_to_uuid("00000032") == UUID(

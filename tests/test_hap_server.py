@@ -9,7 +9,7 @@ from pyhap.accessory_driver import AccessoryDriver
 from pyhap.hap_protocol import HAPServerProtocol
 
 
-async def test_we_can_start_stop(driver):
+async def test_we_can_start_stop(driver: AccessoryDriver) -> None:
     """Test we can start and stop."""
     loop = asyncio.get_event_loop()
     addr_info = ("0.0.0.0", None)
@@ -23,7 +23,7 @@ async def test_we_can_start_stop(driver):
     server.async_stop()
 
 
-async def test_we_can_connect():
+async def test_we_can_connect() -> None:
     """Test we can start, connect, and stop."""
     loop = asyncio.get_event_loop()
     with (
@@ -50,7 +50,7 @@ async def test_we_can_connect():
     writer.close()
 
 
-async def test_idle_connection_cleanup():
+async def test_idle_connection_cleanup() -> None:
     """Test we cleanup idle connections."""
     loop = asyncio.get_event_loop()
     addr_info = ("0.0.0.0", None)
@@ -77,14 +77,14 @@ async def test_idle_connection_cleanup():
     server.async_stop()
 
 
-async def test_push_event(driver):
+async def test_push_event(driver: AccessoryDriver) -> None:
     """Test we can create and send an event."""
     addr_info = ("1.2.3.4", 1234)
     server = hap_server.HAPServer(("127.0.01", 5555), driver)
     server.loop = asyncio.get_event_loop()
     hap_events = []
 
-    def _save_event(hap_event):
+    def _save_event(hap_event: bytes) -> None:
         hap_events.append(hap_event)
 
     hap_server_protocol = HAPServerProtocol(
@@ -152,7 +152,9 @@ async def test_push_event(driver):
     ]
 
 
-async def test_push_event_overwrites_old_pending_events(driver):
+async def test_push_event_overwrites_old_pending_events(
+    driver: AccessoryDriver,
+) -> None:
     """Test push event overwrites old events in the event queue.
 
     iOS 15 had a breaking change where events are no longer processed
@@ -166,7 +168,7 @@ async def test_push_event_overwrites_old_pending_events(driver):
     server.loop = asyncio.get_event_loop()
     hap_events = []
 
-    def _save_event(hap_event):
+    def _save_event(hap_event: bytes) -> None:
         hap_events.append(hap_event)
 
     hap_server_protocol = HAPServerProtocol(

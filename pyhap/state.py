@@ -28,10 +28,10 @@ class State:
         self,
         *,
         address: str | list[str] | None = None,
-        mac=None,
-        pincode=None,
-        port=None,
-    ):
+        mac: str | None = None,
+        pincode: bytes | None = None,
+        port: int | None = None,
+    ) -> None:
         """Initialize a new object. Create key pair.
 
         Must be called with keyword arguments.
@@ -110,7 +110,7 @@ class State:
             # A new home must not inherit the previous home's settings.
             self.accessory_states.clear()
 
-    def set_accessories_hash(self, accessories_hash):
+    def set_accessories_hash(self, accessories_hash: Any) -> bool:
         """Set the accessories hash and increment the config version if needed."""
         if self.accessories_hash == accessories_hash:
             return False
@@ -118,7 +118,7 @@ class State:
         self.increment_config_version()
         return True
 
-    def increment_config_version(self):
+    def increment_config_version(self) -> None:
         """Increment the config version."""
         self.config_version += 1
         if self.config_version > MAX_CONFIG_VERSION:

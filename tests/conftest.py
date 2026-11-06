@@ -1,6 +1,8 @@
 """Test fictures and mocks."""
 
 import asyncio
+from collections.abc import Callable, Iterator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -10,12 +12,12 @@ from pyhap.loader import Loader
 
 
 @pytest.fixture(scope="session")
-def mock_driver():
+def mock_driver() -> Iterator["MockDriver"]:
     yield MockDriver()
 
 
 @pytest.fixture(name="async_zeroconf")
-def async_zc():
+def async_zc() -> Iterator[MagicMock]:
     with patch("pyhap.accessory_driver.AsyncZeroconf") as mock_async_zeroconf:
         aiozc = mock_async_zeroconf.return_value
         aiozc.async_register_service = AsyncMock()
@@ -26,7 +28,7 @@ def async_zc():
 
 
 @pytest.fixture
-def driver(async_zeroconf):
+def driver(async_zeroconf: Any) -> Iterator[AccessoryDriver]:
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
@@ -41,18 +43,20 @@ def driver(async_zeroconf):
 
 
 @pytest.fixture(autouse=True)
-def mock_local_address():
+def mock_local_address() -> Iterator[None]:
     with patch("pyhap.util.get_local_address", return_value="127.0.0.1"):
         yield
 
 
 class MockDriver:
-    def __init__(self):
+    def __init__(self) -> None:
         self.loader = Loader()
         self.loop = None
 
-    def publish(self, data, client_addr=None, immediate=False):
+    def publish(
+        self, data: Any, client_addr: Any = None, immediate: bool = False
+    ) -> None:
         pass
 
-    def add_job(self, target, *args):
+    def add_job(self, target: Callable[..., Any], *args: Any) -> None:
         asyncio.new_event_loop().run_until_complete(target(*args))

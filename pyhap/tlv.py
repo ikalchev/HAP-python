@@ -1,12 +1,20 @@
 """Encodes and decodes Tag-Length-Value (tlv8) data."""
 
 import struct
-from typing import Any
+from typing import Any, Literal, cast, overload
 
 from pyhap import util
 
 
-def encode(*args, to_base64=False):
+@overload
+def encode(*args: Any, to_base64: Literal[False] = ...) -> bytes: ...
+
+
+@overload
+def encode(*args: Any, to_base64: Literal[True]) -> str: ...
+
+
+def encode(*args: Any, to_base64: bool = False) -> bytes | str:
     """Encode the given byte args in TLV format.
 
     :param args: Even-number, variable length positional arguments repeating a tag
@@ -44,7 +52,15 @@ def encode(*args, to_base64=False):
     return util.to_base64_str(result) if to_base64 else result
 
 
-def decode(data: bytes, from_base64: bool = False) -> dict[bytes, Any]:
+@overload
+def decode(data: bytes, from_base64: Literal[False] = ...) -> dict[bytes, Any]: ...
+
+
+@overload
+def decode(data: str, from_base64: Literal[True]) -> dict[bytes, Any]: ...
+
+
+def decode(data: bytes | str, from_base64: bool = False) -> dict[bytes, Any]:
     """Decode the given TLV-encoded ``data`` to a ``dict``.
 
     :param from_base64: Whether the given ``data`` should be base64 decoded first.
@@ -55,6 +71,8 @@ def decode(data: bytes, from_base64: bool = False) -> dict[bytes, Any]:
     """
     if from_base64:
         data = util.base64_to_bytes(data)
+    # Callers deliver bytes, or a base64 str that was just decoded above.
+    data = cast("bytes", data)
 
     objects = {}
     chunked = isinstance(data, bytes)

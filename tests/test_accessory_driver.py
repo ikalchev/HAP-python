@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 import tempfile
 import time
+from typing import Any, NoReturn
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid1
 
@@ -55,32 +56,32 @@ CHAR_PROPS = {
 class AsyncIntervalAccessory(Accessory):
     """An accessory increments a counter at interval."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._counter = 0
 
     @Accessory.run_at_interval(0.001)  # Run this method every 0.001 seconds
-    async def run(self):
+    async def run(self) -> None:
         self._counter += 1
 
     @property
-    def counter(self):
+    def counter(self) -> int:
         return self._counter
 
 
 class SyncIntervalAccessory(Accessory):
     """An accessory increments a counter at interval."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._counter = 0
 
     @Accessory.run_at_interval(0.001)  # Run this method every 0.001 seconds
-    def run(self):
+    def run(self) -> None:
         self._counter += 1
 
     @property
-    def counter(self):
+    def counter(self) -> int:
         return self._counter
 
 
@@ -88,13 +89,15 @@ class UnavailableAccessory(Accessory):
     """An accessory that is not available."""
 
     @property
-    def available(self):
+    def available(self) -> bool:
         return False
 
 
 @pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
 @pytest.mark.parametrize("available", [False, True], ids=["unavailable", "available"])
-def test_get_characteristics_honors_availability(driver, bridged, available):
+def test_get_characteristics_honors_availability(
+    driver: AccessoryDriver, bridged: bool, available: bool
+) -> None:
     """Respect accessory availability for standalone and bridged reads."""
     accessory_type = Accessory if available else UnavailableAccessory
     acc = accessory_type(driver, "Test Accessory", aid=2 if bridged else STANDALONE_AID)
@@ -137,20 +140,20 @@ def test_get_characteristics_honors_availability(driver, bridged, available):
         getter.assert_called_once_with()
 
 
-def test_auto_add_aid_mac(driver: AccessoryDriver):
+def test_auto_add_aid_mac(driver: AccessoryDriver) -> None:
     acc = Accessory(driver, "Test Accessory")
     driver.add_accessory(acc)
     assert acc.aid == STANDALONE_AID
     assert driver.state.mac is not None
 
 
-def test_not_standalone_aid(driver: AccessoryDriver):
+def test_not_standalone_aid(driver: AccessoryDriver) -> None:
     acc = Accessory(driver, "Test Accessory", aid=STANDALONE_AID + 1)
     with pytest.raises(ValueError):
         driver.add_accessory(acc)
 
 
-def test_persist_load(async_zeroconf):
+def test_persist_load(async_zeroconf: Any) -> None:
     with tempfile.NamedTemporaryFile(mode="r+") as file:
         with patch("pyhap.accessory_driver.HAPServer"):
             driver = AccessoryDriver(port=51234, persist_file=file.name)
@@ -169,7 +172,7 @@ def test_persist_load(async_zeroconf):
     )
 
 
-def test_persist_cannot_write(async_zeroconf):
+def test_persist_cannot_write(async_zeroconf: Any) -> None:
     with tempfile.NamedTemporaryFile(mode="r+") as file:
         with patch("pyhap.accessory_driver.HAPServer"):
             driver = AccessoryDriver(port=51234, persist_file=file.name)
@@ -178,7 +181,7 @@ def test_persist_cannot_write(async_zeroconf):
                 driver.persist()
 
 
-def test_external_zeroconf():
+def test_external_zeroconf() -> None:
     zeroconf = MagicMock()
     with (
         patch("pyhap.accessory_driver.HAPServer"),
@@ -188,7 +191,7 @@ def test_external_zeroconf():
     assert driver.advertiser == zeroconf
 
 
-def test_advertised_address():
+def test_advertised_address() -> None:
     zeroconf = MagicMock()
     with (
         patch("pyhap.accessory_driver.HAPServer"),
@@ -213,7 +216,7 @@ def test_advertised_address():
         ),
     ],
 )
-def test_listen_address(kwargs, expected):
+def test_listen_address(kwargs: dict[str, Any], expected: Any) -> None:
     with (
         patch("pyhap.accessory_driver.HAPServer") as server,
         patch("pyhap.accessory_driver.AccessoryDriver.persist"),
@@ -225,7 +228,7 @@ def test_listen_address(kwargs, expected):
     assert server.call_args.args[0] == (expected, 51234)
 
 
-def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
+def test_write_response_returned_when_not_requested(driver: AccessoryDriver) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     service = Service(uuid1(), "NFCAccess")
@@ -237,7 +240,7 @@ def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
     mock_callback = MagicMock()
     service.setter_callback = mock_callback
 
-    def setter_with_write_response(value=0):
+    def setter_with_write_response(value: int = 0) -> int:
         return 1
 
     char_nfc_access_control_point.setter_callback = setter_with_write_response
@@ -261,7 +264,7 @@ def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
                 }
             ]
         },
-        "mock_addr",
+        "mock_addr",  # ty: ignore[invalid-argument-type]
     )
     assert response is None
 
@@ -275,12 +278,12 @@ def test_write_response_returned_when_not_requested(driver: AccessoryDriver):
                 }
             ]
         },
-        "mock_addr",
+        "mock_addr",  # ty: ignore[invalid-argument-type]
     )
     assert response is None
 
 
-def test_write_response_returned_when_requested(driver: AccessoryDriver):
+def test_write_response_returned_when_requested(driver: AccessoryDriver) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     service = Service(uuid1(), "NFCAccess")
@@ -292,7 +295,7 @@ def test_write_response_returned_when_requested(driver: AccessoryDriver):
     mock_callback = MagicMock()
     service.setter_callback = mock_callback
 
-    def setter_with_write_response(value=0):
+    def setter_with_write_response(value: int = 0) -> int:
         return 1
 
     char_nfc_access_control_point.setter_callback = setter_with_write_response
@@ -316,7 +319,7 @@ def test_write_response_returned_when_requested(driver: AccessoryDriver):
                 }
             ]
         },
-        "mock_addr",
+        "mock_addr",  # ty: ignore[invalid-argument-type]
     )
     assert response == {
         HAP_REPR_CHARS: [
@@ -330,7 +333,7 @@ def test_write_response_returned_when_requested(driver: AccessoryDriver):
     }
 
 
-def test_service_callbacks(driver: AccessoryDriver):
+def test_service_callbacks(driver: AccessoryDriver) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -393,7 +396,7 @@ def test_service_callbacks(driver: AccessoryDriver):
                 },
             ]
         },
-        "mock_addr",
+        "mock_addr",  # ty: ignore[invalid-argument-type]
     )
     assert response is None
 
@@ -410,7 +413,7 @@ def test_service_callbacks(driver: AccessoryDriver):
         ]
     }
 
-    def _fail_func():
+    def _fail_func() -> NoReturn:
         raise ValueError
 
     char_brightness.getter_callback = _fail_func
@@ -432,7 +435,7 @@ def test_service_callbacks(driver: AccessoryDriver):
     }
 
 
-def test_service_callbacks_partial_failure(driver: AccessoryDriver):
+def test_service_callbacks_partial_failure(driver: AccessoryDriver) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -444,7 +447,7 @@ def test_service_callbacks_partial_failure(driver: AccessoryDriver):
     service.add_characteristic(char_on)
     service.add_characteristic(char_brightness)
 
-    def fail_callback(*_):
+    def fail_callback(*_: Any) -> NoReturn:
         raise ValueError
 
     service.setter_callback = fail_callback
@@ -497,7 +500,7 @@ def test_service_callbacks_partial_failure(driver: AccessoryDriver):
                 },
             ]
         },
-        "mock_addr",
+        "mock_addr",  # ty: ignore[invalid-argument-type]
     )
 
     mock_callback2.assert_called_with({"On": True, "Brightness": 12})
@@ -527,7 +530,7 @@ def test_service_callbacks_partial_failure(driver: AccessoryDriver):
     }
 
 
-def test_mixing_service_char_callbacks_partial_failure(driver):
+def test_mixing_service_char_callbacks_partial_failure(driver: AccessoryDriver) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -539,7 +542,7 @@ def test_mixing_service_char_callbacks_partial_failure(driver):
     service.add_characteristic(char_on)
     service.add_characteristic(char_brightness)
 
-    def fail_callback(*_):
+    def fail_callback(*_: Any) -> NoReturn:
         raise ValueError
 
     service.setter_callback = fail_callback
@@ -591,7 +594,7 @@ def test_mixing_service_char_callbacks_partial_failure(driver):
                 },
             ]
         },
-        "mock_addr",
+        "mock_addr",  # ty: ignore[invalid-argument-type]
     )
 
     assert response == {
@@ -620,17 +623,17 @@ def test_mixing_service_char_callbacks_partial_failure(driver):
     }
 
 
-def test_start_from_sync(driver: AccessoryDriver):
+def test_start_from_sync(driver: AccessoryDriver) -> None:
     """Start from sync."""
 
     class Acc(Accessory):
         @Accessory.run_at_interval(0)
-        async def run(self):
+        async def run(self) -> None:
             driver.executor = ThreadPoolExecutor()
             driver.loop.set_default_executor(driver.executor)
             await driver.async_stop()
 
-        def setup_message(self):
+        def setup_message(self) -> None:
             pass
 
     acc = Acc(driver, "TestAcc")
@@ -639,7 +642,7 @@ def test_start_from_sync(driver: AccessoryDriver):
         driver.start()
 
 
-def test_accessory_level_callbacks(driver: AccessoryDriver):
+def test_accessory_level_callbacks(driver: AccessoryDriver) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -713,7 +716,7 @@ def test_accessory_level_callbacks(driver: AccessoryDriver):
                 },
             ]
         },
-        "mock_addr",
+        "mock_addr",  # ty: ignore[invalid-argument-type]
     )
     assert response is None
 
@@ -728,7 +731,7 @@ def test_accessory_level_callbacks(driver: AccessoryDriver):
     )
 
 
-def test_accessory_level_callbacks_with_a_failure(driver: AccessoryDriver):
+def test_accessory_level_callbacks_with_a_failure(driver: AccessoryDriver) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -802,7 +805,7 @@ def test_accessory_level_callbacks_with_a_failure(driver: AccessoryDriver):
                 },
             ]
         },
-        "mock_addr",
+        "mock_addr",  # ty: ignore[invalid-argument-type]
     )
 
     mock_callback.assert_called_with(
@@ -846,7 +849,7 @@ def test_accessory_level_callbacks_with_a_failure(driver: AccessoryDriver):
     }
 
 
-async def test_start_stop_sync_acc(async_zeroconf):
+async def test_start_stop_sync_acc(async_zeroconf: Any) -> None:
     with (
         patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock),
         patch("pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock),
@@ -858,10 +861,10 @@ async def test_start_stop_sync_acc(async_zeroconf):
 
         class Acc(Accessory):
             @Accessory.run_at_interval(0)
-            def run(self):
+            def run(self) -> None:
                 run_event.set()
 
-            def setup_message(self):
+            def setup_message(self) -> None:
                 pass
 
         acc = Acc(driver, "TestAcc")
@@ -874,7 +877,7 @@ async def test_start_stop_sync_acc(async_zeroconf):
         assert not driver.loop.is_closed()
 
 
-async def test_start_stop_async_acc(async_zeroconf):
+async def test_start_stop_async_acc(async_zeroconf: Any) -> None:
     """Verify run_at_interval closes the driver."""
     with (
         patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock),
@@ -889,10 +892,10 @@ async def test_start_stop_async_acc(async_zeroconf):
 
         class Acc(Accessory):
             @Accessory.run_at_interval(0)
-            async def run(self):
+            async def run(self) -> None:
                 run_event.set()
 
-            def setup_message(self):
+            def setup_message(self) -> None:
                 pass
 
         acc = Acc(driver, "TestAcc")
@@ -933,7 +936,7 @@ async def test_start_stop_async_acc(async_zeroconf):
         assert not driver.loop.is_closed()
 
 
-async def test_start_from_async_stop_from_executor(async_zeroconf):
+async def test_start_from_async_stop_from_executor(async_zeroconf: Any) -> None:
     with (
         patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock),
         patch("pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock),
@@ -945,10 +948,10 @@ async def test_start_from_async_stop_from_executor(async_zeroconf):
 
         class Acc(Accessory):
             @Accessory.run_at_interval(0)
-            def run(self):
+            def run(self) -> None:
                 run_event.set()
 
-            def setup_message(self):
+            def setup_message(self) -> None:
                 pass
 
         acc = Acc(driver, "TestAcc")
@@ -961,20 +964,20 @@ async def test_start_from_async_stop_from_executor(async_zeroconf):
         await driver.aio_stop_event.wait()
 
 
-def test_start_without_accessory(driver: AccessoryDriver):
+def test_start_without_accessory(driver: AccessoryDriver) -> None:
     """Verify we throw ValueError if there is no accessory."""
     with pytest.raises(ValueError):
         driver.start_service()
 
 
-def test_send_events(driver: AccessoryDriver):
+def test_send_events(driver: AccessoryDriver) -> None:
     """Test we can send events."""
     driver.aio_stop_event = MagicMock(is_set=MagicMock(return_value=False))
 
     class LoopMock:
         runcount = 0
 
-        def is_closed(self):
+        def is_closed(self) -> bool:
             self.runcount += 1
             if self.runcount > 1:
                 return True
@@ -983,13 +986,15 @@ def test_send_events(driver: AccessoryDriver):
     class HapServerMock:
         pushed_events = set()
 
-        def push_event(self, bytedata, client_addr, immediate):
+        def push_event(
+            self, bytedata: bytes, client_addr: Any, immediate: bool
+        ) -> bool:
             self.pushed_events.add((bytedata, client_addr))
             if client_addr == "client2":
                 return False
             return True
 
-        def get_pushed_events(self):
+        def get_pushed_events(self) -> set[Any]:
             return self.pushed_events
 
     # Inject a fake server to capture pushed events; it is
@@ -997,7 +1002,7 @@ def test_send_events(driver: AccessoryDriver):
     driver.http_server = HapServerMock()  # ty: ignore[invalid-assignment]
     driver.loop = LoopMock()
     driver.topics = {"mocktopic": {"client1", "client2", "client3"}}
-    driver.async_send_event("mocktopic", "bytedata", "client1", True)
+    driver.async_send_event("mocktopic", "bytedata", "client1", True)  # ty: ignore[invalid-argument-type]
 
     # Only client2 and client3 get the event when client1 sent it
     # Read back through the injected fake above, not the typed attribute.
@@ -1008,7 +1013,7 @@ def test_send_events(driver: AccessoryDriver):
     }
 
 
-def test_async_subscribe_client_topic(driver: AccessoryDriver):
+def test_async_subscribe_client_topic(driver: AccessoryDriver) -> None:
     """Test subscribe and unsubscribe."""
     addr_info = ("1.2.3.4", 5)
     topic = "any"
@@ -1021,7 +1026,7 @@ def test_async_subscribe_client_topic(driver: AccessoryDriver):
     assert driver.topics == {}
 
 
-def test_mdns_service_info(driver: AccessoryDriver):
+def test_mdns_service_info(driver: AccessoryDriver) -> None:
     """Test accessory mdns advert."""
     acc = Accessory(driver, "[@@@Test@@@] Accessory")
     driver.add_accessory(acc)
@@ -1050,7 +1055,7 @@ def test_mdns_service_info(driver: AccessoryDriver):
     }
 
 
-def test_mdns_service_info_with_specified_server(driver: AccessoryDriver):
+def test_mdns_service_info_with_specified_server(driver: AccessoryDriver) -> None:
     """Test accessory mdns advert when the server is specified."""
     acc = Accessory(driver, "Test Accessory")
     driver.add_accessory(acc)
@@ -1100,8 +1105,11 @@ def test_mdns_service_info_with_specified_server(driver: AccessoryDriver):
     ],
 )
 def test_mdns_name_sanity(
-    driver: AccessoryDriver, accessory_name, mdns_name, mdns_server
-):
+    driver: AccessoryDriver,
+    accessory_name: str,
+    mdns_name: str,
+    mdns_server: str,
+) -> None:
     """Test mdns name sanity."""
     acc = Accessory(driver, accessory_name)
     driver.add_accessory(acc)
@@ -1117,7 +1125,7 @@ def test_mdns_name_sanity(
     assert mdns_info.server == mdns_server
 
 
-async def test_start_service_and_update_config(async_zeroconf):
+async def test_start_service_and_update_config(async_zeroconf: Any) -> None:
     """Test starting service and updating the config."""
     with (
         patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock),
@@ -1144,7 +1152,7 @@ async def test_start_service_and_update_config(async_zeroconf):
         assert driver.aio_stop_event.is_set()
 
 
-async def test_start_without_advertising():
+async def test_start_without_advertising() -> None:
     """Test starting and stopping with mDNS advertising disabled.
 
     No zeroconf instance should be created and none of the
@@ -1178,13 +1186,13 @@ async def test_start_without_advertising():
         assert driver.aio_stop_event.is_set()
 
 
-def test_call_add_job_with_none(driver):
+def test_call_add_job_with_none(driver: AccessoryDriver) -> None:
     """Test calling add job with none."""
     with pytest.raises(ValueError):
         driver.add_job(None)
 
 
-async def test_call_async_add_job_with_coroutine(driver):
+async def test_call_async_add_job_with_coroutine(driver: AccessoryDriver) -> None:
     """Test calling async_add_job with a coroutine."""
     with (
         patch("pyhap.accessory_driver.HAPServer"),
@@ -1194,7 +1202,7 @@ async def test_call_async_add_job_with_coroutine(driver):
         driver = AccessoryDriver(loop=asyncio.get_event_loop())
         called = False
 
-        async def coro_test():
+        async def coro_test() -> None:
             nonlocal called
             called = True
 
@@ -1206,7 +1214,9 @@ async def test_call_async_add_job_with_coroutine(driver):
         assert called is True
 
 
-async def test_call_async_add_job_with_callback(driver, async_zeroconf):
+async def test_call_async_add_job_with_callback(
+    driver: AccessoryDriver, async_zeroconf: Any
+) -> None:
     """Test calling async_add_job with a coroutine."""
     with (
         patch("pyhap.accessory_driver.HAPServer"),
@@ -1217,7 +1227,7 @@ async def test_call_async_add_job_with_callback(driver, async_zeroconf):
         called = False
 
         @util.callback
-        def callback_test():
+        def callback_test() -> None:
             nonlocal called
             called = True
 
@@ -1227,7 +1237,9 @@ async def test_call_async_add_job_with_callback(driver, async_zeroconf):
         assert called is True
 
 
-async def test_bridge_with_multiple_async_run_at_interval_accessories(async_zeroconf):
+async def test_bridge_with_multiple_async_run_at_interval_accessories(
+    async_zeroconf: Any,
+) -> None:
     with (
         patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock),
         patch("pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock),
@@ -1253,7 +1265,9 @@ async def test_bridge_with_multiple_async_run_at_interval_accessories(async_zero
     assert acc3.counter > 2
 
 
-async def test_bridge_with_multiple_sync_run_at_interval_accessories(async_zeroconf):
+async def test_bridge_with_multiple_sync_run_at_interval_accessories(
+    async_zeroconf: Any,
+) -> None:
     with (
         patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock),
         patch("pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock),
@@ -1279,7 +1293,7 @@ async def test_bridge_with_multiple_sync_run_at_interval_accessories(async_zeroc
     assert acc3.counter > 2
 
 
-def test_hash_ignores_values(driver: AccessoryDriver):
+def test_hash_ignores_values(driver: AccessoryDriver) -> None:
     """The hash should change when the config changes but not for a value change."""
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
@@ -1335,7 +1349,9 @@ def test_hash_ignores_values(driver: AccessoryDriver):
     assert driver.accessories_hash == new_hash
 
 
-def _hap_connection(driver, client, shared_key=None):
+def _hap_connection(
+    driver: AccessoryDriver, client: Any, shared_key: bytes | None = None
+) -> HAPServerProtocol:
     """Register a HAP connection from ``client``, encrypted with ``shared_key``."""
     transport = MagicMock()
     transport.get_extra_info.return_value = client
@@ -1349,7 +1365,7 @@ def _hap_connection(driver, client, shared_key=None):
 @pytest.mark.parametrize(
     "client", [("10.0.0.9", 5000), ("fe80::1", 5000, 0, 2)], ids=["ipv4", "ipv6"]
 )
-def test_derive_session_key(driver, client):
+def test_derive_session_key(driver: AccessoryDriver, client: Any) -> None:
     """Test keys are derived only from the session key of an encrypted connection."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
     salt, info = b"salt", b"info"
@@ -1369,14 +1385,14 @@ def test_derive_session_key(driver, client):
     assert driver.derive_session_key(client, salt, info) is None
 
 
-def test_derive_session_key_without_client_addr(driver):
+def test_derive_session_key_without_client_addr(driver: AccessoryDriver) -> None:
     """Test a write without a sender address never matches a connection."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
     _hap_connection(driver, None, os.urandom(32))
     assert driver.derive_session_key(None, b"salt", b"info") is None
 
 
-def test_pairing_rate_limit_lockout_and_reset(driver: AccessoryDriver):
+def test_pairing_rate_limit_lockout_and_reset(driver: AccessoryDriver) -> None:
     """Verify the pair-setup lockout engages, expires and resets on success."""
     with patch("pyhap.accessory_driver.time.monotonic", return_value=100.0) as mock_now:
         assert not driver.pairing_locked_out
@@ -1404,7 +1420,7 @@ def test_pairing_rate_limit_lockout_and_reset(driver: AccessoryDriver):
         assert not driver.pairing_locked_out
 
 
-def test_prepare_bounds_prepared_writes(driver: AccessoryDriver):
+def test_prepare_bounds_prepared_writes(driver: AccessoryDriver) -> None:
     """Verify the TTL is capped and pending writes per client are bounded."""
     client_addr = ("1.2.3.4", 5)
 
