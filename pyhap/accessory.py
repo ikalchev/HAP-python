@@ -324,6 +324,20 @@ class Accessory:
         Can be overridden with a normal or async method.
         """
 
+    def restore_accessory_state(self) -> None:
+        """Apply this accessory's entry of ``driver.state.accessory_states``.
+
+        The driver calls this after it loads its state file, for accessories
+        built before that. Does nothing by default.
+        """
+
+    def reset_accessory_state(self) -> None:
+        """Forget settings made by the previous home.
+
+        The driver calls this when the last pairing is removed. Does nothing by
+        default.
+        """
+
     # Driver
 
     def publish(self, value, sender, sender_client_addr=None, immediate=False):
@@ -423,6 +437,26 @@ class Bridge(Accessory):
             return None
 
         return acc.get_characteristic(aid, iid)
+
+    def restore_accessory_state(self) -> None:
+        """Restore the state of each bridged accessory."""
+        for acc in self.accessories.values():
+            try:
+                acc.restore_accessory_state()
+            except Exception:
+                logger.warning(
+                    "Failed to restore the state of %s", acc.display_name, exc_info=True
+                )
+
+    def reset_accessory_state(self) -> None:
+        """Reset the state of each bridged accessory."""
+        for acc in self.accessories.values():
+            try:
+                acc.reset_accessory_state()
+            except Exception:
+                logger.warning(
+                    "Failed to reset the state of %s", acc.display_name, exc_info=True
+                )
 
     async def run(self) -> None:
         """Schedule tasks for each of the accessories' run method."""

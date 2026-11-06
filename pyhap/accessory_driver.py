@@ -517,6 +517,8 @@ class AccessoryDriver:
         if os.path.exists(self.persist_file):
             logger.info("Loading Accessory state from `%s`", self.persist_file)
             self.load()
+            # Accessories built before load() have not seen their stored state.
+            accessory.restore_accessory_state()
         else:
             logger.info("Storing Accessory state in `%s`", self.persist_file)
             self.persist()
@@ -663,6 +665,14 @@ class AccessoryDriver:
             self.advertiser.async_update_service(self.mdns_service_info)
         )
 
+    def accessory_state(self, aid: int) -> dict[str, Any]:
+        """Return the persisted state dict of accessory ``aid``.
+
+        Accessories keep settings here that must survive a restart. Save
+        changes with :meth:`async_persist`.
+        """
+        return self.state.accessory_states.setdefault(aid, {})
+
     @callback
     def async_persist(self):
         """Saves the state of the accessory.
@@ -788,6 +798,12 @@ class AccessoryDriver:
         """
         logger.info("Unpairing client %s.", client_uuid)
         self.state.remove_paired_client(client_uuid)
+        if not self.state.paired and self.accessory is not None:
+            try:
+                self.accessory.reset_accessory_state()
+            except Exception:
+                # The removed pairing must be saved regardless.
+                logger.warning("Failed to reset the accessory state", exc_info=True)
         self.async_persist()
 
     def finish_pair(self):
