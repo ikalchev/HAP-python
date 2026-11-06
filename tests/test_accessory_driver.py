@@ -1353,6 +1353,7 @@ def test_derive_session_key_without_client_addr(driver):
     _hap_connection(driver, None, os.urandom(32))
     assert driver.derive_session_key(None, b"salt", b"info") is None
 
+
 def test_pairing_rate_limit_lockout_and_reset(driver: AccessoryDriver):
     """Verify the pair-setup lockout engages, expires and resets on success."""
     with patch("pyhap.accessory_driver.time.monotonic", return_value=100.0) as mock_now:
