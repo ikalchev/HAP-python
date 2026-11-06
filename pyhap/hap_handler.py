@@ -880,7 +880,7 @@ class HAPServerHandler:
                 raise ValueError(f"Accessory with aid == {data['aid']} not found")
             accessory = bridged
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         # ``get_snapshot``/``async_get_snapshot`` are camera-only methods,
         # so resolve them dynamically to keep this handler accessory-agnostic.
         async_get_snapshot = getattr(accessory, "async_get_snapshot", None)
