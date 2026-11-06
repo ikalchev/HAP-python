@@ -7,8 +7,8 @@ and completes a ``control``/``hello`` handshake; from there both sides exchange
 request/response/event messages on named protocols (e.g. ``dataSend`` for
 recording fragment transfer).
 
-The listener does not know the HAP session shared secret on its own; the camera
-accessory registers a transport with the secret when it answers
+The listener does not know the HAP session shared secret; the camera accessory
+registers a transport with keys derived from the session when it answers
 SetupDataStreamTransport, and the first frame from the controller is matched
 against the registered transports by trial decryption.
 """
@@ -18,10 +18,12 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+import functools
 import logging
 from typing import TYPE_CHECKING
 
 from pyhap import hds
+from pyhap.hap_crypto import hap_hkdf
 from pyhap.hds_protocol import EVENT, REQUEST, RESPONSE, HDSStatus, Message
 
 logger = logging.getLogger(__name__)
@@ -291,18 +293,35 @@ class HDSListener:
 
     def register_transport(
         self, shared_secret: bytes, controller_key_salt: bytes
-    ) -> bytes:
+    ) -> bytes | None:
+        """Register an expected transport from a raw HAP session shared secret.
+
+        Entry point for tests and controller-side tooling. The camera uses
+        :meth:`register_session_transport` and never sees the secret.
+        """
+        return self.register_session_transport(
+            functools.partial(hap_hkdf, shared_secret), controller_key_salt
+        )
+
+    def register_session_transport(
+        self,
+        derive_key: Callable[[bytes, bytes], bytes | None],
+        controller_key_salt: bytes,
+    ) -> bytes | None:
         """Register an expected transport, returning the accessory key salt.
 
         The camera calls this when it answers SetupDataStreamTransport, passing
-        the HAP session shared secret and the controller's key salt. The
-        returned accessory key salt goes into the setup response.
+        ``derive_key(salt, info)`` bound to the writing HAP session and the
+        controller's key salt. The returned accessory key salt goes into the
+        setup response. Returns ``None`` and registers nothing without a session.
         """
         accessory_key_salt = hds.new_key_salt()
-        encrypt_key, decrypt_key = hds.derive_keys(
-            shared_secret, controller_key_salt, accessory_key_salt
+        keys = hds.derive_session_keys(
+            derive_key, controller_key_salt, accessory_key_salt
         )
-        self._pending.append(_PendingTransport(encrypt_key, decrypt_key))
+        if keys is None:
+            return None
+        self._pending.append(_PendingTransport(*keys))
         # Evict the oldest stale registration if the controller keeps setting up
         # transports it never connects to.
         while len(self._pending) > _MAX_PENDING_TRANSPORTS:

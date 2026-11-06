@@ -307,9 +307,6 @@ class AccessoryDriver:
         self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
-        # Per-session HAP shared keys, keyed by client (address, port). Needed
-        # by transports derived from the session, e.g. HomeKit Data Stream.
-        self.session_shared_keys: dict[tuple[str, int], bytes] = {}
         self.loader = loader or Loader()
         self.aio_stop_event: asyncio.Event | None = None
         self.stop_event = threading.Event()
@@ -574,7 +571,6 @@ class AccessoryDriver:
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
         self.prepared_writes.pop(client, None)
-        self.session_shared_keys.pop(client, None)
 
     def publish(self, data, sender_client_addr=None, immediate=False):
         """Publishes an event to the client.
@@ -945,6 +941,23 @@ class AccessoryDriver:
             chars.append(rep)
         logger.debug("Get chars response: %s", chars)
         return {HAP_REPR_CHARS: chars}
+
+    def derive_session_key(
+        self, client_addr: tuple[str, int] | None, salt: bytes, info: bytes
+    ) -> bytes | None:
+        """Derive a key from the pair-verify session key of ``client_addr``.
+
+        For transports set up from the HAP session, e.g. HomeKit Data Stream.
+        Never returns the session key itself, see
+        :meth:`HAPServerProtocol.derive_key`. Returns ``None`` when the
+        connection is unknown or not encrypted.
+        """
+        if client_addr is None:
+            return None
+        connection = self.http_server.connections.get(client_addr)
+        if connection is None:
+            return None
+        return connection.derive_key(salt, info)
 
     def set_characteristics(self, chars_query, client_addr):
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.

@@ -2,6 +2,7 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import os
 import tempfile
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -40,6 +41,8 @@ from pyhap.const import (
     HAP_REPR_WRITE_RESPONSE,
     HAP_SERVER_STATUS,
 )
+from pyhap.hap_crypto import hap_hkdf
+from pyhap.hap_protocol import HAPServerProtocol
 from pyhap.service import Service
 from pyhap.state import State
 
@@ -1308,6 +1311,47 @@ def test_hash_ignores_values(driver: AccessoryDriver):
     char_brightness2.set_value(43)
 
     assert driver.accessories_hash == new_hash
+
+
+def _hap_connection(driver, client, shared_key=None):
+    """Register a HAP connection from ``client``, encrypted with ``shared_key``."""
+    transport = MagicMock()
+    transport.get_extra_info.return_value = client
+    connection = HAPServerProtocol(MagicMock(), driver.http_server.connections, driver)
+    connection.connection_made(transport)
+    # As set by pair-verify.
+    connection._shared_key = shared_key
+    return connection
+
+
+@pytest.mark.parametrize(
+    "client", [("10.0.0.9", 5000), ("fe80::1", 5000, 0, 2)], ids=["ipv4", "ipv6"]
+)
+def test_derive_session_key(driver, client):
+    """Test keys are derived only from the session key of an encrypted connection."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    salt, info = b"salt", b"info"
+    assert driver.derive_session_key(client, salt, info) is None
+
+    connection = _hap_connection(driver, client)
+    assert driver.derive_session_key(client, salt, info) is None
+
+    shared_key = os.urandom(32)
+    connection._shared_key = shared_key
+    key = driver.derive_session_key(client, salt, info)
+    assert key == hap_hkdf(shared_key, salt, info)
+    assert key != shared_key
+    assert driver.derive_session_key(("10.0.0.9", 5001), salt, info) is None
+
+    connection.close()
+    assert driver.derive_session_key(client, salt, info) is None
+
+
+def test_derive_session_key_without_client_addr(driver):
+    """Test a write without a sender address never matches a connection."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    _hap_connection(driver, None, os.urandom(32))
+    assert driver.derive_session_key(None, b"salt", b"info") is None
 
 
 def test_pairing_rate_limit_lockout_and_reset(driver: AccessoryDriver):

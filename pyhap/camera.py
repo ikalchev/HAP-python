@@ -623,7 +623,7 @@ class Camera(Accessory):
         """Create the Data Stream Transport Management service used by HDS.
 
         SetupDataStreamTransport needs the HAP session shared secret, so its
-        setter receives the sender's client address to look the secret up.
+        setter receives the sender's client address to derive keys from it.
         """
         transport = self.add_preload_service("DataStreamTransportManagement")
         transport.configure_char("Version", value="1.0")
@@ -672,18 +672,19 @@ class Camera(Accessory):
         the port, so it can never open the HDS connection.
         """
         request = hds.SetupRequest.decode(base64_to_bytes(value))
-        shared_secret = self.driver.session_shared_keys.get(sender_client_addr)
-        if shared_secret is None or self._hds_listener is None:
+        listener = self._hds_listener
+        accessory_salt = None
+        if listener is not None:
+            accessory_salt = listener.register_session_transport(
+                functools.partial(self.driver.derive_session_key, sender_client_addr),
+                request.controller_key_salt,
+            )
+        if listener is None or accessory_salt is None:
             response = hds.encode_setup_response(
                 0, b"", status=hds.SETUP_STATUS_GENERIC_ERROR
             )
         else:
-            accessory_salt = self._hds_listener.register_transport(
-                shared_secret, request.controller_key_salt
-            )
-            response = hds.encode_setup_response(
-                self._hds_listener.port, accessory_salt
-            )
+            response = hds.encode_setup_response(listener.port, accessory_salt)
         return to_base64_str(response)
 
     async def _recording_delegate(self, stream_id):
