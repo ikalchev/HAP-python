@@ -69,9 +69,9 @@ class HAPServerProtocol(asyncio.Protocol):
         self.request_body: list[bytes] = []
         self._request_body_size = 0
         self.response: HAPResponse | None = None
-        # Bytes received while a delayed response is pending. h11 buffers them
-        # until that response is sent, so _hold_data caps them at
-        # MAX_REQUEST_BODY_SIZE.
+        # Bytes held in h11's buffer while a delayed response is pending. h11
+        # does not limit that buffer while we are not reading events from it,
+        # so _hold_data closes the connection beyond MAX_REQUEST_BODY_SIZE.
         self._held_bytes = 0
 
         self.last_activity: float | None = None
@@ -273,8 +273,8 @@ class HAPServerProtocol(asyncio.Protocol):
     def _hold_data(self, size: int) -> bool:
         """Account for data held while a delayed response is pending.
 
-        Returns ``False`` and closes the connection when a peer sends more than
-        a request may contain before the response has been sent.
+        Returns ``False`` and closes the connection when more than
+        ``MAX_REQUEST_BODY_SIZE`` bytes are held before the response is sent.
         """
         if self.response is None:
             return True
@@ -391,6 +391,8 @@ class HAPServerProtocol(asyncio.Protocol):
             # If there is a task pending we will schedule
             # the response later
             self.response = response
+            # Pipelined data already received is held from now on as well.
+            self._held_bytes = len(self.conn.trailing_data[0])
             response.task.add_done_callback(self._handle_response_ready)
         else:
             self.send_response(response)
@@ -411,7 +413,6 @@ class HAPServerProtocol(asyncio.Protocol):
         response = self.response
         assert response is not None  # noqa: S101
         self.response = None
-        self._held_bytes = 0
         try:
             response.body = task.result()
         except (Exception, asyncio.CancelledError) as ex:

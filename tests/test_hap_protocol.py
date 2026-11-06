@@ -700,8 +700,8 @@ def _delayed_snapshot_protocol(
     calls: list[int] = []
 
     async def _async_get_snapshot(*_: Any) -> bytes:
-        calls.append(len(calls) + 1)
-        number = len(calls)
+        number = len(calls) + 1
+        calls.append(number)
         await release.wait()
         return b"snap%d" % number
 
@@ -814,6 +814,30 @@ async def test_held_data_is_limited(driver: AccessoryDriver) -> None:
 
     hap_proto.data_received(chunk)
     transport.close.assert_called_once()
+
+
+async def test_held_data_is_limited_across_delayed_responses(
+    driver: AccessoryDriver,
+) -> None:
+    """Data still held when the next response is delayed counts toward the limit."""
+    release = asyncio.Event()
+    hap_proto, _, transport = _delayed_snapshot_protocol(driver, release)
+    padding = b"x" * (hap_protocol.MAX_REQUEST_BODY_SIZE - len(SNAPSHOT_REQUEST))
+
+    with patch.object(hap_proto.transport, "writelines"):
+        hap_proto.data_received(SNAPSHOT_REQUEST)
+        hap_proto.data_received(SNAPSHOT_REQUEST + padding)
+        release.set()
+        await _await_response(hap_proto)
+        release.clear()
+        # The second snapshot is pending now and the padding is still held.
+        assert hap_proto.response is not None
+        transport.close.assert_not_called()
+
+        hap_proto.data_received(SNAPSHOT_REQUEST + b"x")
+
+    transport.close.assert_called_once()
+    await asyncio.sleep(0)
 
 
 async def test_events_coalesce_after_delayed_response(
