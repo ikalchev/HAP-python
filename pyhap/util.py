@@ -184,7 +184,11 @@ def to_sorted_hap_json(dump_obj):
 
 
 def from_hap_json(json_str):
-    """Convert json to an object."""
+    """Convert json to an object.
+
+    Accepts a ``str`` or UTF-8 ``bytes`` (``orjson.loads`` handles both
+    without an intermediate decode).
+    """
     return orjson.loads(json_str)
 
 
