@@ -165,7 +165,6 @@ class HAPServerHandler:
 
         self.path: str | None = None
         self.command: str | None = None
-        self.headers: dict[str, str] | None = None
         self.request_body: bytes | None = None
         self.parsed_url: ParseResult | None = None
 
@@ -228,12 +227,6 @@ class HAPServerHandler:
         """Dispatch the request to the appropriate handler method."""
         self.path = request.target.decode()
         self.command = request.method.decode()
-        if logger.isEnabledFor(logging.DEBUG):
-            # The decoded headers are only used for debug logging; skip the
-            # per-request str allocations when debug logging is disabled.
-            self.headers = {k.decode(): v.decode() for k, v in request.headers}
-        else:
-            self.headers = None
         self.request_body = body
         self.parsed_url = urlparse(self.path)
         response = HAPResponse()
@@ -244,7 +237,9 @@ class HAPServerHandler:
             self.client_address,
             self.command,
             self.path,
-            self.headers,
+            # h11's raw header pairs; logging args are lazy, so nothing
+            # is decoded unless debug logging is enabled.
+            request.headers,
         )
 
         path = self.parsed_url.path
