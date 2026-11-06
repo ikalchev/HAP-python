@@ -57,24 +57,31 @@ def decode(data: bytes, from_base64: bool = False) -> dict[bytes, Any]:
         data = util.base64_to_bytes(data)
 
     objects = {}
+    chunked = type(data) is bytes
     current = 0
     while current < len(data):
         if current + 2 > len(data):
             # A hostile or truncated buffer must fail loudly instead of
             # raising IndexError or silently mis-parsing.
             raise ValueError(f"Truncated TLV record at offset {current}")
-        # The following hack is because bytes[x] is an int
-        # and we want to keep the tag as a byte.
         tag = data[current : current + 1]
         length = data[current + 1]
-        if current + 2 + length > len(data):
+        end = current + 2 + length
+        if end > len(data):
             raise ValueError(f"TLV value truncated at offset {current}")
-        value = data[current + 2 : current + 2 + length]
-        if tag in objects:
+        value = data[current + 2 : end]
+        if chunked:
+            chunks = objects.get(tag)
+            if chunks is None:
+                objects[tag] = [value]
+            else:
+                chunks.append(value)
+        elif tag in objects:
             objects[tag] = objects[tag] + value
         else:
             objects[tag] = value
+        current = end
 
-        current = current + 2 + length
-
+    if chunked:
+        return {tag: b"".join(chunks) for tag, chunks in objects.items()}
     return objects
