@@ -152,7 +152,8 @@ class RecordingStreamManager:
         self._closed = False
         self._stopping = False
         self._task = asyncio.get_running_loop().create_task(self._stream())
-        return HDSStatus.SUCCESS, {}
+        # Controllers read the status from the body, HAP-NodeJS sends it there too.
+        return HDSStatus.SUCCESS, {"status": HDSStatus.SUCCESS}
 
     def _handle_close(self, message: Message) -> None:
         # A stale or duplicate close for an earlier stream must not stop the

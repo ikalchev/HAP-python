@@ -116,6 +116,7 @@ async def test_recording_stream_open_and_fragments():
     assert messages[0].kind == RESPONSE
     assert messages[0].topic == "open"
     assert messages[0].status == HDSStatus.SUCCESS
+    assert messages[0].message == {"status": HDSStatus.SUCCESS}
 
     data_events = [m for m in messages if m.kind == EVENT and m.topic == "data"]
     assert len(data_events) == 3
