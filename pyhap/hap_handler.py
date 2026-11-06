@@ -165,7 +165,6 @@ class HAPServerHandler:
 
         self.path: str | None = None
         self.command: str | None = None
-        self.headers: dict[str, str] | None = None
         self.request_body: bytes | None = None
         self.parsed_url: ParseResult | None = None
 
@@ -228,7 +227,6 @@ class HAPServerHandler:
         """Dispatch the request to the appropriate handler method."""
         self.path = request.target.decode()
         self.command = request.method.decode()
-        self.headers = {k.decode(): v.decode() for k, v in request.headers}
         self.request_body = body
         self.parsed_url = urlparse(self.path)
         response = HAPResponse()
@@ -239,7 +237,7 @@ class HAPServerHandler:
             self.client_address,
             self.command,
             self.path,
-            self.headers,
+            request.headers,
         )
 
         path = self.parsed_url.path
