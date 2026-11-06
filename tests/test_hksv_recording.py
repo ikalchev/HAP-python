@@ -192,6 +192,57 @@ def test_recording_eligibility_characteristics(recording_camera):
     assert motion.get_characteristic("StatusActive").get_value() is True
 
 
+@pytest.mark.parametrize(
+    ("service", "char", "value", "expected"),
+    [
+        pytest.param(
+            "CameraRecordingManagement",
+            "Active",
+            1,
+            {"recording_active": True},
+            id="recording",
+        ),
+        pytest.param(
+            "CameraRecordingManagement",
+            "RecordingAudioActive",
+            1,
+            {"recording_audio_active": True},
+            id="audio",
+        ),
+        pytest.param(
+            "CameraOperatingMode",
+            "HomeKitCameraActive",
+            0,
+            {"homekit_camera_active": False},
+            id="camera_off",
+        ),
+    ],
+)
+def test_recording_state_properties(recording_camera, service, char, value, expected):
+    defaults = {
+        "recording_active": False,
+        "recording_audio_active": False,
+        "homekit_camera_active": True,
+    }
+    for name, default in defaults.items():
+        assert getattr(recording_camera, name) is default
+    recording_camera.get_service(service).get_characteristic(char).set_value(value)
+    for name, default in {**defaults, **expected}.items():
+        assert getattr(recording_camera, name) is default
+
+
+def test_recording_state_properties_without_recording():
+    with (
+        patch("pyhap.accessory_driver.AccessoryDriver.persist"),
+        patch("pyhap.accessory_driver.AccessoryDriver.load"),
+    ):
+        driver = AccessoryDriver(loop=MagicMock(), listen_address="127.0.0.1")
+        camera = Camera({"address": "127.0.0.1"}, driver, "Cam")
+    assert camera.recording_active is False
+    assert camera.recording_audio_active is False
+    assert camera.homekit_camera_active is True
+
+
 # --- HDS SetupDataStreamTransport write-response handshake ------------------
 
 

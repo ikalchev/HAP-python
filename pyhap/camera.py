@@ -747,6 +747,33 @@ class Camera(Accessory):
         """The controller's selected recording configuration, if any."""
         return self._selected_recording_config
 
+    @property
+    def recording_active(self) -> bool:
+        """Whether the controller turned recording on."""
+        if self._recording_service is None:
+            return False
+        return bool(self._recording_service.get_characteristic("Active").value)
+
+    @property
+    def recording_audio_active(self) -> bool:
+        """Whether recordings include audio."""
+        if self._recording_service is None:
+            return False
+        return bool(
+            self._recording_service.get_characteristic("RecordingAudioActive").value
+        )
+
+    @property
+    def homekit_camera_active(self) -> bool:
+        """Whether the camera is on in the Home app.
+
+        Only cameras with recording have the setting, all others are on.
+        """
+        operating_mode = self.get_service("CameraOperatingMode")
+        if operating_mode is None:
+            return True
+        return bool(operating_mode.get_characteristic("HomeKitCameraActive").value)
+
     def set_selected_recording_configuration(self, value):
         """Handle a write to Selected Camera Recording Configuration (spec HKSV)."""
         self._selected_recording_config = (
@@ -871,13 +898,7 @@ class Camera(Accessory):
         # One stream per camera across all HDS connections (hubs), like HAP-NodeJS.
         # A stopping stream frees the slot while its delegate still cleans up.
         reasons = hds_recording.RecordingReason
-        operating_mode = self.get_service("CameraOperatingMode")
-        assert self._recording_service is not None  # noqa: S101
-        assert operating_mode is not None  # noqa: S101
-        if not (
-            self._recording_service.get_characteristic("Active").value
-            and operating_mode.get_characteristic("HomeKitCameraActive").value
-        ):
+        if not (self.recording_active and self.homekit_camera_active):
             return reasons.NOT_ALLOWED
         if self._recording_stream is not None and self._recording_stream.streaming:
             return reasons.BUSY
