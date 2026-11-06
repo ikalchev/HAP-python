@@ -70,6 +70,12 @@ def long_to_bytes(n):
     :return: ``long int`` in ``bytes`` format.
     :rtype: bytes
     """
+    if isinstance(n, int) and n >= 0:
+        # Round the bit count up to whole bytes; shifting by 3 divides by 8.
+        # A zero bit count keeps zero encoded as empty bytes.
+        return n.to_bytes((n.bit_length() + 7) >> 3, "big")
+
+    # Preserve bitwise behavior for subclasses and other numeric objects.
     byteList = []
     x = 0
     off = 0
