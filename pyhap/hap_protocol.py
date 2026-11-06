@@ -158,9 +158,12 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def close(self) -> None:
         """Remove the connection and close the transport."""
-        # A newer connection may already be registered under the same peername.
+        # A newer connection may already be registered under the same peername,
+        # and a connection without a peername must still be removed.
         if self.connections.get(self.peername) is self:
-            del self.connections[self.peername]
+            # The identity check above ensures the key belongs to this protocol;
+            # peername is None only for transports without a peername.
+            del self.connections[self.peername]  # ty: ignore[invalid-argument-type]
         self._shared_key = None
         self._transport.write_eof()
         self._transport.close()
