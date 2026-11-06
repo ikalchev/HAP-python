@@ -256,19 +256,17 @@ class HAPServerProtocol(asyncio.Protocol):
                 self._handler.client_uuid,
                 unencrypted_data,
             )
-            if not self._hold_data(len(unencrypted_data)):
-                return
-            self.conn.receive_data(unencrypted_data)
         else:
-            if not self._hold_data(len(data)):
-                return
-            self.conn.receive_data(data)
+            unencrypted_data = data
             logger.debug(
                 "%s (%s): Recv unencrypted: %s",
                 self.peername,
                 self._handler.client_uuid,
                 data,
             )
+        if not self._hold_data(len(unencrypted_data)):
+            return
+        self.conn.receive_data(unencrypted_data)
         self._process_events()
 
     def _hold_data(self, size: int) -> bool:
