@@ -83,3 +83,29 @@ def test_round_trip():
     decrypted = crypto.decrypt()
 
     assert decrypted == plaintext
+
+
+def test_decrypt_interleaved_chunks():
+    """Test decrypt drains completed blocks as ciphertext arrives in chunks.
+
+    The chunk size intentionally does not align with the 2 + 1024 + 16 byte
+    frame of a full block, so each decrypt call may end with both completed
+    blocks returned and a partial frame buffered for the next receive.
+    """
+    plaintext = b"interleaved-chunk-data" * 2000  # spans many 1024-byte blocks
+    key = b"mykeydsfdsfdsfsdfdsfsdf"
+
+    client = hap_crypto.HAPCrypto(key, client_side=True)
+    accessory = hap_crypto.HAPCrypto(key)
+
+    encrypted = bytes(b"".join(client.encrypt(plaintext)))
+
+    parts = []
+    chunk_size = 1500
+    for offset in range(0, len(encrypted), chunk_size):
+        accessory.receive_data(encrypted[offset : offset + chunk_size])
+        parts.append(accessory.decrypt())
+
+    assert b"".join(parts) == plaintext
+    # Everything was drained; only a partial frame would remain buffered.
+    assert accessory.decrypt() == b""
