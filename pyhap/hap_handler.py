@@ -4,10 +4,11 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 """
 
 import asyncio
+from collections.abc import Awaitable
 from http import HTTPStatus
 import logging
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import ParseResult, parse_qs, urlparse
 import uuid
 
@@ -50,17 +51,17 @@ logger = logging.getLogger(__name__)
 class HAPResponse:
     """A response to a HAP HTTP request."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Create an empty response."""
         self.status_code = 500
         self.reason = "Internal Server Error"
         self.headers = []
         self.body = b""
         self.shared_key = None
-        self.task: asyncio.Future | None = None
+        self.task: asyncio.Future[bytes] | None = None
         self.pairing_changed = False
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Return a human readable view of the response."""
         return (
             f"<HAPResponse {self.status_code} {self.reason} {self.headers} {self.body}>"
@@ -101,7 +102,7 @@ class UnprivilegedRequestException(Exception):
     pass
 
 
-async def _run_with_timeout(coro, timeout: float) -> bytes:
+async def _run_with_timeout(coro: Awaitable[bytes], timeout: float) -> bytes:
     """Run a coroutine with a timeout."""
     async with async_timeout(timeout):
         return await coro
@@ -711,7 +712,7 @@ class HAPServerHandler:
         )
 
         response = self.accessory_handler.set_characteristics(
-            requested_chars, self.client_address
+            requested_chars, cast("tuple[str, int]", self.client_address)
         )
         if response is None:
             self.send_response(HTTPStatus.NO_CONTENT)
@@ -721,7 +722,7 @@ class HAPServerHandler:
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         self.end_response(to_hap_json(response))
 
-    def handle_prepare(self):
+    def handle_prepare(self) -> None:
         """Handles a client request to prepare to write."""
         if not self.is_encrypted:
             logger.warning(
@@ -734,7 +735,9 @@ class HAPServerHandler:
         request = from_hap_json(self.request_body)
         logger.debug("%s: prepare content: %s", self.client_address, request)
 
-        response = self.accessory_handler.prepare(request, self.client_address)
+        response = self.accessory_handler.prepare(
+            request, cast("tuple[str, int]", self.client_address)
+        )
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
         assert self.response is not None  # noqa: S101
@@ -762,7 +765,7 @@ class HAPServerHandler:
                 f"Unknown pairing request type of {request_type} during pair verify"
             )
 
-    def _handle_add_pairing(self, tlv_objects):
+    def _handle_add_pairing(self, tlv_objects: dict[bytes, Any]) -> None:
         """Update client information."""
         client_username_bytes = tlv_objects[HAP_TLV_TAGS.USERNAME]
         client_public = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]

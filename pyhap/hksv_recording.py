@@ -8,6 +8,7 @@ zero-length type-0 TLV).
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import IntEnum
 import struct
@@ -70,7 +71,7 @@ def _join(items: list[bytes]) -> bytes:
     return _SEPARATOR.join(items)
 
 
-def _iter(data: bytes):
+def _iter(data: bytes) -> Iterator[tuple[int, bytes]]:
     offset = 0
     while offset < len(data):
         tag = data[offset]
@@ -84,14 +85,14 @@ def _iter(data: bytes):
         yield tag, value
 
 
-def _decode(data: bytes) -> dict:
-    out: dict = {}
+def _decode(data: bytes) -> dict[int, bytes]:
+    out: dict[int, bytes] = {}
     for tag, value in _iter(data):
         out.setdefault(tag, value)
     return out
 
 
-def _split(data: bytes) -> list:
+def _split(data: bytes) -> list[bytes]:
     items = []
     current = b""
     for tag, value in _iter(data):

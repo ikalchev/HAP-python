@@ -17,6 +17,7 @@ streaming.
 """
 
 import asyncio
+from collections.abc import AsyncGenerator
 import functools
 import hashlib
 import ipaddress
@@ -24,12 +25,15 @@ import logging
 import os
 import struct
 import sys
+from typing import Any
 from uuid import UUID
 
 from pyhap import RESOURCE_DIR, hds, hds_recording, hds_server, hksv_recording, tlv
 from pyhap.accessory import Accessory
 from pyhap.camera_talkback import TalkbackReceiver, talkback_available
+from pyhap.characteristic import Characteristic
 from pyhap.const import CATEGORY_CAMERA
+from pyhap.service import Service
 from pyhap.util import base64_to_bytes, byte_bool, callback, to_base64_str
 
 if sys.version_info >= (3, 11):
@@ -254,7 +258,7 @@ class Camera(Accessory):
     category = CATEGORY_CAMERA
 
     @staticmethod
-    def get_supported_rtp_config(support_srtp):
+    def get_supported_rtp_config(support_srtp: bool) -> Any:
         """Return a tlv representation of the RTP configuration we support.
 
         SRTP support allows only the AES_CM_128_HMAC_SHA1_80 cipher for now.
@@ -269,7 +273,7 @@ class Camera(Accessory):
         return tlv.encode(RTP_CONFIG_TYPES["CRYPTO"], crypto, to_base64=True)
 
     @staticmethod
-    def get_supported_video_stream_config(video_params):
+    def get_supported_video_stream_config(video_params: dict[str, Any]) -> Any:
         """Return a tlv representation of the supported video stream configuration.
 
         Expected video parameters:
@@ -317,7 +321,7 @@ class Camera(Accessory):
         )
 
     @staticmethod
-    def get_supported_audio_stream_config(audio_params):
+    def get_supported_audio_stream_config(audio_params: dict[str, Any]) -> str:
         """Return a tlv representation of the supported audio stream configuration.
 
         iOS supports only AACELD and OPUS
@@ -397,7 +401,7 @@ class Camera(Accessory):
         )
         return audio_config
 
-    def __init__(self, options, *args, **kwargs):
+    def __init__(self, options: dict[str, Any], *args: Any, **kwargs: Any) -> None:
         """Initialize a camera accessory with the given options.
 
         :param options: Describes the supported video and audio configuration
@@ -480,7 +484,7 @@ class Camera(Accessory):
         self.add_preload_service("Microphone")
         if self.support_talkback:
             self.add_preload_service("Speaker").configure_char("Mute", value=False)
-        self._streaming_status = []
+        self._streaming_status: list[bytes] = []
         self._management = []
         # All HKSV state defaults are initialized before any setup runs so the
         # setup methods below never follow (and reset) them.
@@ -506,19 +510,21 @@ class Camera(Accessory):
             self._setup_recording_management(options)
 
     @property
-    def streaming_status(self):
+    def streaming_status(self) -> bytes | None:
         """For backwards compatibility."""
         # A recording-only camera has no RTP stream management service.
         return self._streaming_status[0] if self._streaming_status else None
 
-    def _setup_stream_management(self, options):
+    def _setup_stream_management(self, options: dict[str, Any]) -> None:
         """Create stream management."""
         stream_count = options.get("stream_count", 1)
         for stream_idx in range(stream_count):
             self._management.append(self._create_stream_management(stream_idx, options))
             self._streaming_status.append(STREAMING_STATUS["AVAILABLE"])
 
-    def _create_stream_management(self, stream_idx, options):
+    def _create_stream_management(
+        self, stream_idx: int, options: dict[str, Any]
+    ) -> Service:
         """Create a stream management service."""
         management = self.add_preload_service(
             "CameraRTPStreamManagement", unique_id=stream_idx, chars=["Active"]
@@ -555,7 +561,13 @@ class Camera(Accessory):
         )
         return management
 
-    def _default_recording_configs(self, options):
+    def _default_recording_configs(
+        self, options: dict[str, Any]
+    ) -> tuple[
+        hksv_recording.SupportedRecordingConfiguration,
+        list[hksv_recording.VideoCodecConfiguration],
+        list[hksv_recording.AudioCodecConfiguration],
+    ]:
         """Derive supported recording configurations from the streaming options.
 
         A widely-compatible default: H.264 (Baseline/Main/High, levels 3.1/3.2/
@@ -589,7 +601,7 @@ class Camera(Accessory):
         general = hksv_recording.SupportedRecordingConfiguration()
         return general, video, audio
 
-    def _setup_recording_management(self, options):
+    def _setup_recording_management(self, options: dict[str, Any]) -> None:
         """Create the Camera Recording Management service (classic HKSV).
 
         Advertises the supported general/video/audio recording configurations
@@ -656,7 +668,7 @@ class Camera(Accessory):
         self._restore_recording_state()
         self._setup_data_stream_transport()
 
-    def _setup_data_stream_transport(self):
+    def _setup_data_stream_transport(self) -> None:
         """Create the Data Stream Transport Management service used by HDS.
 
         SetupDataStreamTransport needs the HAP session shared secret, so its
@@ -679,12 +691,12 @@ class Camera(Accessory):
         self._recording_service.add_linked_service(transport)
 
     @staticmethod
-    def _supported_data_stream_transport():
+    def _supported_data_stream_transport() -> Any:
         # A single supported transport configuration: TCP.
         transport_configuration = tlv.encode(b"\x01", hds.TRANSPORT_TYPE_TCP)
         return tlv.encode(b"\x01", transport_configuration)
 
-    async def _ensure_hds_listener(self):
+    async def _ensure_hds_listener(self) -> None:
         if self._hds_listener is None:
             generation = self._hds_generation
             listener = hds_server.HDSListener()
@@ -698,14 +710,16 @@ class Camera(Accessory):
             else:
                 await listener.stop()
 
-    def _on_hds_connection(self, connection):
+    def _on_hds_connection(self, connection: hds_server.HDSConnection) -> None:
         self._hds_connections.add(connection)
         connection.add_close_callback(self._hds_connections.discard)
         hds_recording.RecordingStreamManager(
             connection, self._recording_delegate, open_gate=self._recording_open_gate
         )
 
-    def set_data_stream_transport(self, value, sender_client_addr=None):
+    def set_data_stream_transport(
+        self, value: str, sender_client_addr: Any = None
+    ) -> str:
         """Handle a write to SetupDataStreamTransport (HDS session setup).
 
         SetupDataStreamTransport is a write-response ('wr') characteristic: the
@@ -732,7 +746,9 @@ class Camera(Accessory):
             response = hds.encode_setup_response(listener.port, accessory_salt)
         return to_base64_str(response)
 
-    def _recording_delegate(self, stream_id):
+    def _recording_delegate(
+        self, stream_id: int
+    ) -> AsyncGenerator[hds_recording.RecordingPacket, None]:
         """Return the recording generator for ``stream_id``.
 
         Override ``handle_recording_stream`` to produce the fragmented MP4
@@ -741,7 +757,9 @@ class Camera(Accessory):
         """
         return self.handle_recording_stream(stream_id)
 
-    async def handle_recording_stream(self, stream_id):
+    async def handle_recording_stream(
+        self, stream_id: int
+    ) -> AsyncGenerator[hds_recording.RecordingPacket, None]:
         """Produce the fragmented-MP4 recording for ``stream_id``.
 
         Override to yield :class:`pyhap.hds_recording.RecordingPacket` objects,
@@ -752,7 +770,9 @@ class Camera(Accessory):
         yield  # pragma: no cover - makes this an async generator
 
     @property
-    def selected_recording_configuration(self):
+    def selected_recording_configuration(
+        self,
+    ) -> hksv_recording.SelectedRecordingConfiguration | None:
         """The controller's selected recording configuration, if any."""
         return self._selected_recording_config
 
@@ -783,7 +803,7 @@ class Camera(Accessory):
             return True
         return bool(operating_mode.get_characteristic("HomeKitCameraActive").value)
 
-    def set_selected_recording_configuration(self, value):
+    def set_selected_recording_configuration(self, value: str) -> None:
         """Handle a write to Selected Camera Recording Configuration (spec HKSV)."""
         self._selected_recording_config = (
             hksv_recording.SelectedRecordingConfiguration.decode(base64_to_bytes(value))
@@ -791,17 +811,23 @@ class Camera(Accessory):
         self._selected_recording_raw = value
         self.recording_configuration_selected(self._selected_recording_config)
 
-    def recording_configuration_selected(self, configuration):
+    def recording_configuration_selected(self, configuration: Any) -> None:
         """React to the controller selecting a recording configuration. Override."""
 
-    def recording_state_changed(self):
+    def recording_state_changed(self) -> None:
         """React to a change of the recording state, once per burst. Override.
 
         Persistence does not use the characteristic setters, so subclasses may
         set their own and should override this hook rather than the setters.
         """
 
-    def publish(self, value, sender, sender_client_addr=None, immediate=False):
+    def publish(
+        self,
+        value: Any,
+        sender: Service | Characteristic,
+        sender_client_addr: Any = None,
+        immediate: bool = False,
+    ) -> None:
         """Forward the update and store recording state changes."""
         super().publish(value, sender, sender_client_addr, immediate)
         # Without an aid there is no entry to store under.
@@ -814,7 +840,7 @@ class Camera(Accessory):
         self.driver.accessory_state(self.aid)["recording"] = stored
         self._schedule_recording_save()
 
-    def _schedule_recording_save(self):
+    def _schedule_recording_save(self) -> None:
         if self._recording_save_pending:
             return
         # One disk write per hub burst.
@@ -825,7 +851,7 @@ class Camera(Accessory):
             self._recording_save_pending = False
             logger.warning("Could not schedule saving the recording state")
 
-    def _supported_recording_hash(self):
+    def _supported_recording_hash(self) -> str:
         digest = hashlib.sha256()
         assert self._recording_service is not None  # noqa: S101
         for name in SUPPORTED_RECORDING_CHARS:
@@ -834,7 +860,7 @@ class Camera(Accessory):
         return digest.hexdigest()
 
     @callback
-    def _save_recording_state(self):
+    def _save_recording_state(self) -> None:
         self._recording_save_pending = False
         self.driver.async_persist()
         self.recording_state_changed()
@@ -843,7 +869,7 @@ class Camera(Accessory):
         """Restore the stored recording state."""
         self._restore_recording_state()
 
-    def _restore_recording_state(self):
+    def _restore_recording_state(self) -> None:
         # Private so construction does not run a subclass override early.
         # No aid yet, e.g. before Bridge.add_accessory. The driver restores later.
         if self.aid is None:
@@ -893,7 +919,7 @@ class Camera(Accessory):
             self.driver.accessory_state(self.aid).pop("recording", None)
         self._schedule_recording_save()
 
-    def set_motion_detected(self, detected):
+    def set_motion_detected(self, detected: bool) -> None:
         """Fire (``True``) or clear (``False``) the recording motion trigger.
 
         This is the entry point an integration calls when its own motion
@@ -903,7 +929,9 @@ class Camera(Accessory):
         if self._motion_detected_char is not None:
             self._motion_detected_char.set_value(bool(detected))
 
-    def _recording_open_gate(self, manager):
+    def _recording_open_gate(
+        self, manager: hds_recording.RecordingStreamManager
+    ) -> hds_recording.RecordingReason | None:
         # One stream per camera across all HDS connections (hubs), like HAP-NodeJS.
         # A stopping stream frees the slot while its delegate still cleans up.
         reasons = hds_recording.RecordingReason
@@ -916,7 +944,7 @@ class Camera(Accessory):
         self._recording_stream = manager
         return None
 
-    async def _start_stream(self, objs, reconfigure):
+    async def _start_stream(self, objs: dict[bytes, Any], reconfigure: bool) -> None:
         """Start or reconfigure video streaming for the given session.
 
         Schedules ``self.start_stream`` or ``self.reconfigure``.
@@ -1050,18 +1078,18 @@ class Camera(Accessory):
             del self.sessions[session_id]
             self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
 
-    def _get_streaming_status(self, stream_idx):
+    def _get_streaming_status(self, stream_idx: int) -> Any:
         """Get the streaming status in TLV format.
 
         Called when iOS reads the StreaminStatus ``Characteristic``.
         """
         return tlv.encode(b"\x01", self._streaming_status[stream_idx], to_base64=True)
 
-    def _homekit_camera_on(self):
+    def _homekit_camera_on(self) -> bool:
         assert self._homekit_camera_active_char is not None  # noqa: S101
         return bool(self._homekit_camera_active_char.value)
 
-    def _handle_homekit_camera_active(self, value):
+    def _handle_homekit_camera_active(self, value: Any) -> None:
         # A camera turned off must not record, and the hub must not treat its
         # motion sensor as an active trigger.
         active = bool(value)
@@ -1074,7 +1102,7 @@ class Camera(Accessory):
             self._recording_stream.close(hds_recording.RecordingReason.NOT_ALLOWED)
         self.homekit_camera_active_changed(active)
 
-    def homekit_camera_active_changed(self, active):
+    def homekit_camera_active_changed(self, active: bool) -> None:
         """React to the user turning the camera on or off in the Home app.
 
         Override instead of replacing the characteristic's setter. A running
@@ -1083,7 +1111,7 @@ class Camera(Accessory):
         does not.
         """
 
-    async def _stop_stream(self, objs):
+    async def _stop_stream(self, objs: dict[bytes, Any]) -> None:
         """Stop the stream for the specified session.
 
         Schedules ``self.stop_stream``.
@@ -1111,13 +1139,13 @@ class Camera(Accessory):
         self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
 
     @staticmethod
-    def _close_talkback(session_info):
+    def _close_talkback(session_info: dict[str, Any]) -> None:
         """Stop the talkback audio receiver for a session, if any."""
         audio_backchannel = session_info.pop("audio_backchannel", None)
         if audio_backchannel is not None:
             audio_backchannel.stop()
 
-    def _talkback_payload_received(self, session_id, payload: bytes) -> None:
+    def _talkback_payload_received(self, session_id: UUID, payload: bytes) -> None:
         """Dispatch a received talkback RTP payload to the accessory implementation.
 
         Called from the :class:`~pyhap.camera_talkback.TalkbackReceiver`
@@ -1134,7 +1162,7 @@ class Camera(Accessory):
             return
         loop.call_soon_threadsafe(self.talkback_audio_received, session_id, payload)
 
-    def talkback_audio_received(self, session_id, payload: bytes) -> None:
+    def talkback_audio_received(self, session_id: UUID, payload: bytes) -> None:
         """Handle received two-way ("talkback") audio for a streaming session.
 
         Only called for sessions of accessories constructed with the
@@ -1150,7 +1178,7 @@ class Camera(Accessory):
         :type payload: ``bytes``
         """
 
-    def set_selected_stream_configuration(self, value):
+    def set_selected_stream_configuration(self, value: str) -> None:
         """Set the selected stream configuration.
 
         Called from iOS to set the SelectedRTPStreamConfiguration ``Characteristic``.
@@ -1184,12 +1212,12 @@ class Camera(Accessory):
 
         self.driver.add_job(job, objs)
 
-    def set_streaming_available(self, stream_idx):
+    def set_streaming_available(self, stream_idx: int) -> None:
         """Send an update to the controller that streaming is available."""
         self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
         self._management[stream_idx].get_characteristic("StreamingStatus").notify()
 
-    def set_endpoints(self, value, stream_idx=None):
+    def set_endpoints(self, value: str, stream_idx: int | None = None) -> None:
         """Configure streaming endpoints.
 
         Called when iOS sets the SetupEndpoints ``Characteristic``. The endpoint
@@ -1351,12 +1379,12 @@ class Camera(Accessory):
             response_tlv
         )
 
-    async def run(self):
+    async def run(self) -> None:
         """Start the HDS listener when recording transport is available."""
         await super().run()
         await self.start_recording_transport()
 
-    async def start_recording_transport(self):
+    async def start_recording_transport(self) -> None:
         """Start the HDS listener on the HAP server's listen address(es).
 
         ``run()`` calls this. Call it directly when ``run()`` is not awaited.
@@ -1375,14 +1403,14 @@ class Camera(Accessory):
         """The number of open HDS connections, including ones still in setup."""
         return len(self._hds_connections)
 
-    async def stop_recording_transport(self):
+    async def stop_recording_transport(self) -> None:
         """Close the HDS listener and its connections, then await recordings."""
         self._hds_generation += 1
         listener, self._hds_listener = self._hds_listener, None
         if listener is not None:
             await listener.stop()
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop all streaming sessions and the HDS listener."""
         await asyncio.gather(
             *(self.stop_stream(session_info) for session_info in self.sessions.values())
@@ -1391,7 +1419,9 @@ class Camera(Accessory):
 
     # ### For client extensions ###
 
-    async def start_stream(self, session_info, stream_config):
+    async def start_stream(
+        self, session_info: dict[str, Any], stream_config: dict[str, Any]
+    ) -> bool:
         """Start a new stream with the given configuration.
 
         This method can be implemented to start a new stream. Any specific information
@@ -1489,7 +1519,7 @@ class Camera(Accessory):
         return True
 
     @staticmethod
-    def _validate_stream_config(stream_config):
+    def _validate_stream_config(stream_config: dict[str, Any]) -> None:
         """Reject controller-supplied values unsafe to format into a command.
 
         The default start stream command is built by formatting the negotiated
@@ -1514,7 +1544,7 @@ class Camera(Accessory):
             if not value or value.split() != [value]:
                 raise ValueError(f"value for {key!r} contains whitespace")
 
-    async def stop_stream(self, session_info):
+    async def stop_stream(self, session_info: dict[str, Any]) -> None:
         """Stop the stream for the given ``session_id``.
 
         This method can be implemented if custom stop stream commands are needed. The
@@ -1545,7 +1575,9 @@ class Camera(Accessory):
         else:
             logger.warning("No process for session ID %s", session_id)
 
-    async def reconfigure_stream(self, session_info, stream_config):
+    async def reconfigure_stream(
+        self, session_info: dict[str, Any], stream_config: dict[str, Any]
+    ) -> None:
         """Reconfigure the stream so that it uses the given ``stream_config``.
 
         :param session_info: The session object for the session that needs to
@@ -1558,7 +1590,7 @@ class Camera(Accessory):
         """
         await self.start_stream(session_info, stream_config)
 
-    def get_snapshot(self, image_size):
+    def get_snapshot(self, image_size: dict[str, Any]) -> bytes:
         """Return a jpeg of a snapshot from the camera.
 
         Overwrite to implement getting snapshots from your camera.

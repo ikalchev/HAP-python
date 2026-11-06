@@ -79,8 +79,10 @@ select = [
     "B",  # flake8-bugbear
     "BLE", # flake8-blind-except: broad excepts must opt out per use
     "UP", # pyupgrade
+    "ANN", # flake8-annotations
 ]
 ignore = [
+    "ANN401", # Any is sometimes the honest type; prefer precise types
     # Old flake8 invocation:
     #   flake8 pyhap tests --ignore=D10,D205,D4,E501,E126,E128,W504,W503,E203
     # E501 is now enforced at 88 instead of ignored. E126/E128/W503/W504 are
@@ -125,6 +127,14 @@ known-first-party = [
     "pyhap",
     "benchmarks",
 ]
+
+[tool.ty.rules]
+# Recommended stricter configuration from ty's migration guide:
+# https://docs.astral.sh/ty/coming-from-mypy-or-pyright/#recommended-configuration
+dynamic-function-decorator-return = "error"
+missing-type-argument = "error"
+possibly-unresolved-reference = "warn"
+unsound-return-statement = "error"
 
 [tool.ty.src]
 include = [

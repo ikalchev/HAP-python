@@ -15,7 +15,7 @@ CLIENT2_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c2")
 CLIENT2_UUID_BYTES = str(CLIENT2_UUID).upper().encode("utf-8")
 
 
-def test_setup():
+def test_setup() -> None:
     """Test if State class is setup correctly."""
     with pytest.raises(TypeError):
         # State.__init__ is keyword-only by design; the invalid
@@ -60,7 +60,7 @@ def test_setup():
         assert state.config_version == 1
 
 
-def test_pairing_remove_last_admin():
+def test_pairing_remove_last_admin() -> None:
     """Test if pairing methods work."""
     with (
         patch("pyhap.util.get_local_address"),
@@ -96,7 +96,7 @@ def test_pairing_remove_last_admin():
     assert not state.paired_clients
 
 
-def test_pairing_two_admins():
+def test_pairing_two_admins() -> None:
     """Test if pairing methods work."""
     with (
         patch("pyhap.util.get_local_address"),

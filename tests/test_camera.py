@@ -5,6 +5,7 @@ import base64
 import logging
 import socket
 import struct
+from typing import Any, cast
 from unittest.mock import Mock, patch
 from uuid import UUID
 
@@ -48,7 +49,7 @@ _OPTIONS = {
 }
 
 
-def test_init(mock_driver):
+def test_init(mock_driver: Any) -> None:
     """Test that the camera init properly computes TLV values"""
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
 
@@ -71,7 +72,7 @@ def test_init(mock_driver):
     )
 
 
-def test_setup_endpoints(mock_driver):
+def test_setup_endpoints(mock_driver: Any) -> None:
     """Test that the SetupEndpoint response is computed correctly"""
     set_endpoint_req = (
         "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
@@ -94,7 +95,9 @@ def test_setup_endpoints(mock_driver):
     assert setup_endpoints.get_value()[:171] == set_endpoint_res[:171]
 
 
-def test_setup_endpoints_does_not_log_srtp_keys(mock_driver, caplog):
+def test_setup_endpoints_does_not_log_srtp_keys(
+    mock_driver: Any, caplog: pytest.LogCaptureFixture
+) -> None:
     """Verify the negotiated SRTP key material is not written to the logs."""
     set_endpoint_req = (
         "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
@@ -118,20 +121,20 @@ def test_setup_endpoints_does_not_log_srtp_keys(mock_driver, caplog):
     assert key_and_salt.hex() not in caplog.text
 
 
-def test_set_selected_stream_start_stop(mock_driver):
+def test_set_selected_stream_start_stop(mock_driver: Any) -> None:
     """Test starting a stream request."""  # noqa: D202
 
     # mocks for asyncio.Process
-    async def communicate():
+    async def communicate() -> tuple[None, str]:
         return (None, "stderr")
 
-    async def wait():
+    async def wait() -> None:
         pass
 
     process_mock = Mock()
 
     # Mock for asyncio.create_subprocess_exec
-    async def subprocess_exec(*args, **kwargs):
+    async def subprocess_exec(*args: Any, **kwargs: Any) -> Mock:
         process_mock.id = 42
         process_mock.communicate = communicate
         process_mock.wait = wait
@@ -177,7 +180,7 @@ def test_set_selected_stream_start_stop(mock_driver):
     assert acc.streaming_status == camera.STREAMING_STATUS["AVAILABLE"]
 
 
-def test_no_talkback_by_default(mock_driver):
+def test_no_talkback_by_default(mock_driver: Any) -> None:
     """Without the ``talkback`` option, no Speaker service is added and
     SetupEndpoints keeps echoing the controller's port back (unchanged,
     pre-existing behavior for accessories that don't opt in).
@@ -229,13 +232,14 @@ def _audio_srtp_key_and_salt(request_b64: str) -> bytes:
     """
     objs = tlv.decode(base64.b64decode(request_b64))
     audio_srtp_objs = tlv.decode(objs[camera.SETUP_TYPES["AUDIO_SRTP_PARAM"]])
-    return (
+    return cast(
+        bytes,
         audio_srtp_objs[camera.SETUP_SRTP_PARAM["MASTER_KEY"]]
-        + audio_srtp_objs[camera.SETUP_SRTP_PARAM["MASTER_SALT"]]
+        + audio_srtp_objs[camera.SETUP_SRTP_PARAM["MASTER_SALT"]],
     )
 
 
-def test_talkback_enabled_adds_speaker_service(mock_driver):
+def test_talkback_enabled_adds_speaker_service(mock_driver: Any) -> None:
     """With ``talkback=True``, a muted-by-default Speaker service is added so
     that HAP clients know the accessory supports receiving two-way audio.
     """
@@ -247,7 +251,9 @@ def test_talkback_enabled_adds_speaker_service(mock_driver):
     assert speaker.get_characteristic("Mute").get_value() is False
 
 
-def test_setup_endpoints_reports_real_port_when_talkback_enabled(mock_driver):
+def test_setup_endpoints_reports_real_port_when_talkback_enabled(
+    mock_driver: Any,
+) -> None:
     """The accessory must report a real local listening port for the audio
     talkback channel, not echo the controller's own port back at it (the bug
     this module fixes: HAP clients had nowhere valid to send the talkback
@@ -278,7 +284,7 @@ def test_setup_endpoints_reports_real_port_when_talkback_enabled(mock_driver):
 
 
 @pytest.mark.asyncio
-async def test_talkback_audio_is_received_and_dispatched(mock_driver):
+async def test_talkback_audio_is_received_and_dispatched(mock_driver: Any) -> None:
     """End-to-end: an SRTP audio packet sent to the reported port (as a HAP
     client would during a live view session) is decrypted, RTP-parsed, and
     dispatched to ``talkback_audio_received`` with the raw codec payload.
@@ -290,7 +296,7 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver):
     received = []
 
     class TalkbackCamera(camera.Camera):
-        def talkback_audio_received(self, session_id, payload):
+        def talkback_audio_received(self, session_id: Any, payload: Any) -> None:
             received.append((session_id, payload))
 
     set_endpoint_req = (
@@ -348,7 +354,7 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver):
 
 
 @pytest.mark.asyncio
-async def test_start_stream_rejects_argument_injection(mock_driver):
+async def test_start_stream_rejects_argument_injection(mock_driver: Any) -> None:
     """Verify controller-supplied values cannot inject stream command args.
 
     The default stream command is formatted with the negotiated configuration
@@ -404,7 +410,7 @@ async def test_start_stream_rejects_argument_injection(mock_driver):
         exec_mock.assert_not_called()
 
     # A valid configuration still starts the stream.
-    async def subprocess_exec(*_args, **_kwargs):
+    async def subprocess_exec(*_args: Any, **_kwargs: Any) -> Mock:
         return Mock(pid=42)
 
     with (

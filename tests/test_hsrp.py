@@ -11,7 +11,7 @@ from pyhap.util import long_to_bytes
 DUMMY_A = b"Ve\xce\xd4\x90LExKD\x9d7\x16\\@\xb6\xb8\x9f\x01\x1a]\x86\xa4\x1c"
 
 
-def test_srp_basic():
+def test_srp_basic() -> None:
     ctx = get_srp_context(3072, hashlib.sha512, 16)
     b = 191304991611724068381190663629083136274
     s = long_to_bytes(227710976386754876301088769828140156049)
@@ -62,7 +62,7 @@ def test_srp_basic():
     assert verifier.verify(b"wrong") is None
 
 
-def test_srp_rejects_invalid_a():
+def test_srp_rejects_invalid_a() -> None:
     """Verify A values divisible by N are rejected (RFC 5054 section 2.5.1.3).
 
     A == 0 (or any multiple of N) makes the premaster secret publicly known,
@@ -85,7 +85,7 @@ def test_srp_rejects_invalid_a():
     assert verifier.A == bytes_to_long(DUMMY_A)
 
 
-def test_srp_rejects_oversized_a():
+def test_srp_rejects_oversized_a() -> None:
     """Verify an A longer than the group is rejected.
 
     TLV fragments let a peer send arbitrarily large values, whose big-int

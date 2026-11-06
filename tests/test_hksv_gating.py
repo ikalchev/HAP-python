@@ -1,7 +1,9 @@
 """Tests for HKSV dataSend/open gating and the delegate failure close."""
 
 import asyncio
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 import os
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,21 +17,25 @@ Reason = hds_recording.RecordingReason
 
 
 class _CaptureTransport(asyncio.Transport):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.buffer = bytearray()
 
-    def write(self, data):
+    def write(self, data: Any) -> None:
         self.buffer += data
 
-    def close(self):
+    def close(self) -> None:
         pass
 
 
 class _Controller:
     """One hub with its own bound HDS connection."""
 
-    def __init__(self, listener, on_connection):
+    def __init__(
+        self,
+        listener: Any,
+        on_connection: Callable[[hds_server.HDSConnection], None],
+    ) -> None:
         secret, salt = os.urandom(32), os.urandom(32)
         accessory_salt = listener.register_transport(secret, salt)
         acc_read, acc_write = hds.derive_keys(secret, salt, accessory_salt)
@@ -41,10 +47,10 @@ class _Controller:
         self.send(Message("control", REQUEST, "hello", {}, id=1))
         self.messages()
 
-    def send(self, message):
+    def send(self, message: Message) -> None:
         self.connection.data_received(self.crypto.encrypt_frame(message.encode()))
 
-    def open(self, stream_id):
+    def open(self, stream_id: int) -> Message:
         body = {
             "streamId": stream_id,
             "type": "ipcamera.recording",
@@ -53,7 +59,7 @@ class _Controller:
         self.send(Message("dataSend", REQUEST, "open", body, id=stream_id + 1))
         return next(m for m in self.messages() if m.kind == RESPONSE)
 
-    def messages(self):
+    def messages(self) -> list[Message]:
         buffer = bytearray(self.transport.buffer)
         self.transport.buffer = bytearray()
         messages = []
@@ -68,7 +74,9 @@ class _GatedCamera(Camera):
     cleaning: asyncio.Event | None = None
     release: asyncio.Event | None = None
 
-    async def handle_recording_stream(self, stream_id):
+    async def handle_recording_stream(
+        self, stream_id: int
+    ) -> AsyncGenerator[hds_recording.RecordingPacket, None]:
         try:
             yield hds_recording.RecordingPacket(b"init")
             if self.mode == "fail":
@@ -87,7 +95,7 @@ class _GatedCamera(Camera):
 
 
 @pytest.fixture(name="camera")
-def camera_fixture():
+def camera_fixture() -> _GatedCamera:
     with (
         patch("pyhap.accessory_driver.AccessoryDriver.persist"),
         patch("pyhap.accessory_driver.AccessoryDriver.load"),
@@ -108,11 +116,11 @@ def camera_fixture():
     return camera
 
 
-def _hub(camera):
+def _hub(camera: _GatedCamera) -> _Controller:
     return _Controller(hds_server.HDSListener(), camera._on_hds_connection)
 
 
-def _assert_rejected(response, reason):
+def _assert_rejected(response: Message, reason: hds_recording.RecordingReason) -> None:
     assert response.status == HDSStatus.PROTOCOL_SPECIFIC_ERROR
     assert response.message["status"] == reason
 
@@ -125,21 +133,31 @@ def _assert_rejected(response, reason):
     ],
 )
 @pytest.mark.asyncio
-async def test_open_rejected_when_recording_off(camera, service, char, value, reason):
+async def test_open_rejected_when_recording_off(
+    camera: Any,
+    service: str,
+    char: str,
+    value: int,
+    reason: hds_recording.RecordingReason,
+) -> None:
     camera.get_service(service).get_characteristic(char).set_value(value)
     _assert_rejected(_hub(camera).open(1), reason)
     assert camera._recording_stream is None
 
 
 @pytest.mark.asyncio
-async def test_open_rejected_without_selected_configuration(camera):
+async def test_open_rejected_without_selected_configuration(
+    camera: Any,
+) -> None:
     camera._selected_recording_config = None
     _assert_rejected(_hub(camera).open(1), Reason.INVALID_CONFIGURATION)
     assert camera._recording_stream is None
 
 
 @pytest.mark.asyncio
-async def test_one_stream_per_camera_and_slot_freed_on_stop(camera):
+async def test_one_stream_per_camera_and_slot_freed_on_stop(
+    camera: Any,
+) -> None:
     """A second hub gets BUSY until the first stream stops, not until cleanup ends."""
     first, second = _hub(camera), _hub(camera)
     assert first.open(1).status == HDSStatus.SUCCESS
@@ -160,7 +178,7 @@ async def test_one_stream_per_camera_and_slot_freed_on_stop(camera):
 
 
 @pytest.mark.asyncio
-async def test_camera_off_closes_running_recording(camera):
+async def test_camera_off_closes_running_recording(camera: Any) -> None:
     """Turning the camera off in the Home app ends the recording, like HAP-NodeJS."""
     hub = _hub(camera)
     assert hub.open(1).status == HDSStatus.SUCCESS
@@ -180,7 +198,9 @@ async def test_camera_off_closes_running_recording(camera):
 
 
 @pytest.mark.asyncio
-async def test_camera_turned_on_keeps_running_recording(camera):
+async def test_camera_turned_on_keeps_running_recording(
+    camera: Any,
+) -> None:
     hub = _hub(camera)
     assert hub.open(1).status == HDSStatus.SUCCESS
     await camera.recording.wait()
@@ -198,7 +218,7 @@ async def test_camera_turned_on_keeps_running_recording(camera):
 
 @pytest.mark.parametrize("mode", ["complete", "fail"])
 @pytest.mark.asyncio
-async def test_slot_freed_after_stream_ended(camera, mode):
+async def test_slot_freed_after_stream_ended(camera: Any, mode: str) -> None:
     """A stream that ended on its own or failed frees the camera's slot."""
     camera.mode = mode
     camera.release.set()
@@ -211,10 +231,10 @@ async def test_slot_freed_after_stream_ended(camera, mode):
     await camera._recording_stream._task
 
 
-def test_new_manager_is_not_streaming():
+def test_new_manager_is_not_streaming() -> None:
     connection = hds_server.HDSConnection(hds_server.HDSListener())
 
-    async def _no_stream(stream_id: int):
+    async def _no_stream(stream_id: int) -> AsyncIterator[Any]:
         """Yield nothing; the manager is never started in this test."""
         return
         yield  # pragma: no cover
@@ -222,8 +242,8 @@ def test_new_manager_is_not_streaming():
     assert not hds_recording.RecordingStreamManager(connection, _no_stream).streaming
 
 
-def _open_stream(delegate):
-    managers = []
+def _open_stream(delegate: Any) -> tuple[_Controller, Any]:
+    managers: list[Any] = []
     controller = _Controller(
         hds_server.HDSListener(),
         lambda connection: managers.append(
@@ -234,29 +254,29 @@ def _open_stream(delegate):
     return controller, managers[0]
 
 
-async def _stream_events(delegate):
+async def _stream_events(delegate: Any) -> list[Message]:
     controller, manager = _open_stream(delegate)
     await manager._task
     return [m for m in controller.messages() if m.kind == EVENT]
 
 
-async def _raises(_stream_id):
+async def _raises(_stream_id: int) -> AsyncIterator[hds_recording.RecordingPacket]:
     yield hds_recording.RecordingPacket(b"init")
     raise RuntimeError("ffmpeg died")
 
 
-async def _ends_early(_stream_id):
+async def _ends_early(_stream_id: int) -> AsyncIterator[hds_recording.RecordingPacket]:
     yield hds_recording.RecordingPacket(b"init")
 
 
-async def _empty(_stream_id):
+async def _empty(_stream_id: int) -> AsyncIterator[Any]:
     return
     yield
 
 
 @pytest.mark.parametrize("delegate", [_raises, _ends_early, _empty])
 @pytest.mark.asyncio
-async def test_delegate_failure_sends_close(delegate):
+async def test_delegate_failure_sends_close(delegate: Any) -> None:
     events = await _stream_events(delegate)
     assert events[-1].topic == "close"
     assert events[-1].message == {"streamId": 7, "reason": Reason.UNEXPECTED_FAILURE}
@@ -264,10 +284,12 @@ async def test_delegate_failure_sends_close(delegate):
 
 
 @pytest.mark.asyncio
-async def test_complete_stream_sends_no_close_and_cleans_up():
+async def test_complete_stream_sends_no_close_and_cleans_up() -> None:
     cleaned = []
 
-    async def delegate(_stream_id):
+    async def delegate(
+        _stream_id: int,
+    ) -> AsyncIterator[hds_recording.RecordingPacket]:
         try:
             yield hds_recording.RecordingPacket(b"init")
             yield hds_recording.RecordingPacket(b"last", is_last=True)
@@ -286,11 +308,13 @@ async def test_complete_stream_sends_no_close_and_cleans_up():
 
 
 @pytest.mark.asyncio
-async def test_failure_after_stop_sends_no_close():
+async def test_failure_after_stop_sends_no_close() -> None:
     """A delegate failing after the hub closed the stream sends no close."""
     recording, stopped = asyncio.Event(), asyncio.Event()
 
-    async def delegate(_stream_id):
+    async def delegate(
+        _stream_id: int,
+    ) -> AsyncIterator[hds_recording.RecordingPacket]:
         yield hds_recording.RecordingPacket(b"init")
         try:
             recording.set()
@@ -308,10 +332,12 @@ async def test_failure_after_stop_sends_no_close():
 
 
 @pytest.mark.asyncio
-async def test_close_only_closes_a_running_stream():
+async def test_close_only_closes_a_running_stream() -> None:
     started = asyncio.Event()
 
-    async def delegate(_stream_id):
+    async def delegate(
+        _stream_id: int,
+    ) -> AsyncIterator[hds_recording.RecordingPacket]:
         yield hds_recording.RecordingPacket(b"init")
         started.set()
         await asyncio.Event().wait()

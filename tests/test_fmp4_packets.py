@@ -1,6 +1,7 @@
 """Tests for splitting a fragmented-MP4 stream into recording packets."""
 
 import asyncio
+from collections.abc import AsyncIterator
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
@@ -10,7 +11,7 @@ from pyhap import hds_recording
 from pyhap.hds_recording import fmp4_recording_packets
 
 
-def _box(box_type, body=b"\x00" * 8):
+def _box(box_type: bytes, body: bytes = b"\x00" * 8) -> bytes:
     return (8 + len(body)).to_bytes(4, "big") + box_type + body
 
 
@@ -20,19 +21,19 @@ FRAGMENT_1 = _box(b"moof", b"\x02" * 12) + _box(b"mdat", b"\x03" * 40)
 FRAGMENT_2 = _box(b"moof", b"\x04" * 12) + _box(b"mdat", b"\x05" * 40)
 
 
-def _reader(data):
+def _reader(data: bytes) -> asyncio.StreamReader:
     reader = asyncio.StreamReader()
     reader.feed_data(data)
     reader.feed_eof()
     return reader
 
 
-async def _collect(reader):
+async def _collect(reader: asyncio.StreamReader) -> list[tuple[bytes, bool]]:
     return [(p.data, p.is_last) async for p in fmp4_recording_packets(reader)]
 
 
 @pytest.mark.asyncio
-async def test_packets_yielded_without_waiting_for_next_box():
+async def test_packets_yielded_without_waiting_for_next_box() -> None:
     """Init is yielded at moov and a fragment at its mdat, not at the next moof."""
     reader = asyncio.StreamReader()
     packets = fmp4_recording_packets(reader)
@@ -53,12 +54,12 @@ async def test_packets_yielded_without_waiting_for_next_box():
 
 
 @pytest.mark.asyncio
-async def test_split_reads_across_chunk_boundaries():
+async def test_split_reads_across_chunk_boundaries() -> None:
     """Boxes arriving in small chunks that cut headers and bodies are reassembled."""
     stream = FTYP + MOOV + FRAGMENT_1 + FRAGMENT_2
     reader = asyncio.StreamReader()
 
-    async def feed():
+    async def feed() -> None:
         for offset in range(0, len(stream), 3):
             reader.feed_data(stream[offset : offset + 3])
             await asyncio.sleep(0)
@@ -76,7 +77,7 @@ async def test_split_reads_across_chunk_boundaries():
 
 
 @pytest.mark.asyncio
-async def test_boxes_between_fragments_and_trailing_mfra_dropped():
+async def test_boxes_between_fragments_and_trailing_mfra_dropped() -> None:
     """styp/sidx between fragments and ffmpeg's trailing mfra are not sent."""
     stream = (
         FTYP
@@ -96,7 +97,9 @@ async def test_boxes_between_fragments_and_trailing_mfra_dropped():
 
 
 @pytest.mark.asyncio
-async def test_extra_mdat_dropped_with_one_warning(caplog):
+async def test_extra_mdat_dropped_with_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """A second mdat per moof is dropped, with a single warning per stream."""
     extra = _box(b"mdat", b"\x08" * 16)
     stream = FTYP + MOOV + FRAGMENT_1 + extra + FRAGMENT_2 + extra
@@ -113,7 +116,7 @@ async def test_extra_mdat_dropped_with_one_warning(caplog):
 
 
 @pytest.mark.asyncio
-async def test_new_moof_replaces_fragment_without_mdat():
+async def test_new_moof_replaces_fragment_without_mdat() -> None:
     """A moof without mdat is discarded when the next moof starts a fragment."""
     stream = FTYP + MOOV + _box(b"moof", b"\x09" * 12) + FRAGMENT_1
     assert await _collect(_reader(stream)) == [
@@ -124,7 +127,7 @@ async def test_new_moof_replaces_fragment_without_mdat():
 
 
 @pytest.mark.asyncio
-async def test_box_size_below_header_ends_stream():
+async def test_box_size_below_header_ends_stream() -> None:
     """A box size smaller than its header (0 means up to EOF) ends the stream."""
     bad_headers = [size.to_bytes(4, "big") + b"moof" for size in (0, 4, 7)]
     # 64-bit form: size32 == 1, then a 64-bit size below its 16-byte header.
@@ -138,13 +141,13 @@ async def test_box_size_below_header_ends_stream():
         ]
 
 
-def _header(box_type, size):
+def _header(box_type: bytes, size: int) -> bytes:
     """Box header announcing ``size`` bytes, without the body."""
     return size.to_bytes(4, "big") + box_type
 
 
 @pytest.mark.asyncio
-async def test_init_cap_boundary():
+async def test_init_cap_boundary() -> None:
     """Up to 4 MiB before moov are read, one more byte raises."""
     budget = 4 * 1024 * 1024 - len(FTYP)
     # The size check runs before the body is read, so a header is enough.
@@ -154,7 +157,7 @@ async def test_init_cap_boundary():
 
 
 @pytest.mark.asyncio
-async def test_fragment_cap_boundary():
+async def test_fragment_cap_boundary() -> None:
     """A moof+mdat fragment may be 64 MiB, one more byte raises."""
     moof = _box(b"moof")
     budget = 64 * 1024 * 1024 - len(moof)
@@ -169,7 +172,7 @@ async def test_fragment_cap_boundary():
 
 
 @pytest.mark.asyncio
-async def test_non_mp4_source_raises_without_waiting_for_eof():
+async def test_non_mp4_source_raises_without_waiting_for_eof() -> None:
     """Text read as a box header has a huge size and fails at once."""
     reader = asyncio.StreamReader()
     reader.feed_data(b"HTTP/1.1 404 Not Found\r\n")
@@ -178,7 +181,7 @@ async def test_non_mp4_source_raises_without_waiting_for_eof():
 
 
 @pytest.mark.asyncio
-async def test_eof_drops_incomplete_fragment():
+async def test_eof_drops_incomplete_fragment() -> None:
     """A fragment cut off by EOF (moof only, or truncated mdat) is not sent."""
     truncated = _box(b"moof") + _box(b"mdat", b"\x07" * 40)[:20]
     assert await _collect(_reader(FTYP + MOOV + FRAGMENT_1 + truncated)) == [
@@ -193,19 +196,21 @@ async def test_eof_drops_incomplete_fragment():
 
 
 @pytest.mark.asyncio
-async def test_eof_before_init_yields_nothing():
+async def test_eof_before_init_yields_nothing() -> None:
     """Without a complete moov there is no recording to end."""
     assert not await _collect(_reader(b""))
     assert not await _collect(_reader(FTYP + MOOV[:10]))
 
 
 @pytest.mark.asyncio
-async def test_empty_last_packet_ends_stream_on_the_wire():
+async def test_empty_last_packet_ends_stream_on_the_wire() -> None:
     """The empty final packet is sent as one zero-length chunk with endOfStream."""
     connection = MagicMock()
     connection.drain = AsyncMock()
 
-    async def delegate(_stream_id):
+    async def delegate(
+        _stream_id: int,
+    ) -> AsyncIterator[hds_recording.RecordingPacket]:
         async for packet in fmp4_recording_packets(_reader(FTYP + MOOV + FRAGMENT_1)):
             yield packet
 

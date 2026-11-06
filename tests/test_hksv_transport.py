@@ -1,10 +1,12 @@
 """Tests for the HDS transport lifecycle: binding, start/stop and timeouts."""
 
 import asyncio
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 import errno
 import logging
 import os
 import socket
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,17 +17,17 @@ from pyhap.camera import Camera
 from pyhap.hds_protocol import REQUEST, Message
 
 
-async def _until(condition):
+async def _until(condition: Callable[[], Any]) -> None:
     """Wait until ``condition()`` holds, failing after two seconds."""
 
-    async def poll():
+    async def poll() -> None:
         while not condition():
             await asyncio.sleep(0)
 
     await asyncio.wait_for(poll(), 2)
 
 
-def _ipv6_available():
+def _ipv6_available() -> bool:
     try:
         with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as sock:
             sock.bind(("::1", 0))
@@ -37,13 +39,15 @@ def _ipv6_available():
 class _SlowCleanupCamera(Camera):
     """A camera whose recording cleanup takes a while, like reaping ffmpeg."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.init_is_last = False
         self.started = asyncio.Event()
         self.cleaned = asyncio.Event()
 
-    async def handle_recording_stream(self, stream_id):
+    async def handle_recording_stream(
+        self, stream_id: int
+    ) -> AsyncGenerator[hds_recording.RecordingPacket, None]:
         try:
             yield hds_recording.RecordingPacket(b"init", is_last=self.init_is_last)
             self.started.set()
@@ -53,7 +57,7 @@ class _SlowCleanupCamera(Camera):
             self.cleaned.set()
 
 
-def _make_camera(camera_class=Camera):
+def _make_camera(camera_class: Any = Camera) -> Any:
     with (
         patch("pyhap.accessory_driver.AccessoryDriver.persist"),
         patch("pyhap.accessory_driver.AccessoryDriver.load"),
@@ -78,19 +82,19 @@ def _make_camera(camera_class=Camera):
 
 
 @pytest.fixture(name="camera")
-def camera_fixture():
+def camera_fixture() -> Any:
     return _make_camera()
 
 
-async def _start_without_gate(camera):
+async def _start_without_gate(camera: Any) -> list[Any]:
     """Start the camera transport with a plain recording manager per connection.
 
     This exercises the camera's delegate without depending on open gating.
     """
     await camera.start_recording_transport()
-    managers = []
+    managers: list[Any] = []
 
-    def on_connection(connection):
+    def on_connection(connection: hds_server.HDSConnection) -> None:
         managers.append(
             hds_recording.RecordingStreamManager(connection, camera._recording_delegate)
         )
@@ -99,7 +103,9 @@ async def _start_without_gate(camera):
     return managers
 
 
-async def _open_recording(listener):
+async def _open_recording(
+    listener: Any,
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
     """Connect as a controller, bind with hello and open a recording stream."""
     secret, salt = os.urandom(32), os.urandom(32)
     accessory_salt = listener.register_transport(secret, salt)
@@ -117,7 +123,7 @@ async def _open_recording(listener):
 
 
 @pytest.mark.asyncio
-async def test_listener_binds_all_hosts_to_one_port():
+async def test_listener_binds_all_hosts_to_one_port() -> None:
     hosts = ["127.0.0.1", "::1"] if _ipv6_available() else ["127.0.0.1"]
     listener = hds_server.HDSListener()
     port = await listener.start(hosts)
@@ -137,7 +143,7 @@ async def test_listener_binds_all_hosts_to_one_port():
 
 
 @pytest.mark.asyncio
-async def test_listener_wildcard_uses_one_port_for_all_families():
+async def test_listener_wildcard_uses_one_port_for_all_families() -> None:
     listener = hds_server.HDSListener()
     port = await listener.start("")
     try:
@@ -150,7 +156,7 @@ async def test_listener_wildcard_uses_one_port_for_all_families():
 
 
 @pytest.mark.asyncio
-async def test_listener_start_failure_releases_bound_hosts():
+async def test_listener_start_failure_releases_bound_hosts() -> None:
     listener = hds_server.HDSListener()
     with pytest.raises(OSError):
         await listener.start(["127.0.0.1", "256.0.0.1"])
@@ -158,7 +164,9 @@ async def test_listener_start_failure_releases_bound_hosts():
 
 
 @pytest.mark.asyncio
-async def test_start_recording_transport_binds_hap_listen_address(camera):
+async def test_start_recording_transport_binds_hap_listen_address(
+    camera: Any,
+) -> None:
     await camera.start_recording_transport()
     try:
         assert camera.driver.listen_address() == "127.0.0.1"
@@ -176,12 +184,12 @@ async def test_start_recording_transport_binds_hap_listen_address(camera):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_starts_publish_one_bound_listener(camera):
+async def test_concurrent_starts_publish_one_bound_listener(camera: Any) -> None:
     release = asyncio.Event()
     original_start = hds_server.HDSListener.start
     seen_while_binding = []
 
-    async def slow_start(self, host):
+    async def slow_start(self: Any, host: str) -> Any:
         seen_while_binding.append(camera._hds_listener)
         await release.wait()
         return await original_start(self, host)
@@ -207,7 +215,9 @@ async def test_concurrent_starts_publish_one_bound_listener(camera):
 
 
 @pytest.mark.asyncio
-async def test_stop_gives_up_on_stuck_task(caplog):
+async def test_stop_gives_up_on_stuck_task(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     listener = hds_server.HDSListener()
     await listener.start("127.0.0.1")
     connection = hds_server.HDSConnection(listener)
@@ -221,7 +231,7 @@ async def test_stop_gives_up_on_stuck_task(caplog):
 
 
 @pytest.mark.asyncio
-async def test_drain_timeout_aborts_stalled_peer():
+async def test_drain_timeout_aborts_stalled_peer() -> None:
     listener = hds_server.HDSListener()
     connection = hds_server.HDSConnection(listener)
     transport = MagicMock()
@@ -240,12 +250,14 @@ async def test_drain_timeout_aborts_stalled_peer():
 
 
 @pytest.mark.asyncio
-async def test_stalled_hub_stops_stream_without_failure_warning(caplog):
+async def test_stalled_hub_stops_stream_without_failure_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     started = asyncio.Event()
     cleaned = asyncio.Event()
     connections = []
 
-    async def delegate(stream_id):
+    async def delegate(stream_id: int) -> AsyncIterator[hds_recording.RecordingPacket]:
         try:
             started.set()
             while True:
@@ -254,7 +266,7 @@ async def test_stalled_hub_stops_stream_without_failure_warning(caplog):
         finally:
             cleaned.set()
 
-    def on_connection(connection):
+    def on_connection(connection: hds_server.HDSConnection) -> None:
         connections.append(connection)
         hds_recording.RecordingStreamManager(connection, delegate)
 
@@ -274,7 +286,7 @@ async def test_stalled_hub_stops_stream_without_failure_warning(caplog):
 
 
 @pytest.mark.asyncio
-async def test_stop_drops_connection_before_handshake():
+async def test_stop_drops_connection_before_handshake() -> None:
     listener = hds_server.HDSListener()
     port = await listener.start("127.0.0.1")
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
@@ -286,7 +298,7 @@ async def test_stop_drops_connection_before_handshake():
 
 
 @pytest.mark.asyncio
-async def test_stop_aborts_connection_with_unsent_data():
+async def test_stop_aborts_connection_with_unsent_data() -> None:
     connections = []
     listener = hds_server.HDSListener()
     listener.on_connection = connections.append
@@ -301,16 +313,20 @@ async def test_stop_aborts_connection_with_unsent_data():
 
 
 @pytest.mark.asyncio
-async def test_listener_needs_an_address():
+async def test_listener_needs_an_address() -> None:
     with pytest.raises(ValueError):
         await hds_server.HDSListener().start([])
 
 
-def _fail_first_bind_of_other(loop, error, calls):
+def _fail_first_bind_of_other(
+    loop: asyncio.AbstractEventLoop, error: int, calls: list[tuple[str, int]]
+) -> Any:
     """Fake create_server: binding "other" (another family) fails once."""
     real_create_server = loop.create_server
 
-    async def create_server(factory, host, port):
+    async def create_server(
+        factory: Any, host: str, port: int
+    ) -> asyncio.AbstractServer:
         calls.append((host, port))
         if host == "other":
             if len(calls) == 2:
@@ -322,7 +338,7 @@ def _fail_first_bind_of_other(loop, error, calls):
 
 
 @pytest.mark.asyncio
-async def test_listener_retries_port_taken_in_other_family():
+async def test_listener_retries_port_taken_in_other_family() -> None:
     calls = []
     listener = hds_server.HDSListener()
     with _fail_first_bind_of_other(asyncio.get_running_loop(), errno.EADDRINUSE, calls):
@@ -335,7 +351,7 @@ async def test_listener_retries_port_taken_in_other_family():
 
 
 @pytest.mark.asyncio
-async def test_listener_does_not_retry_other_bind_errors():
+async def test_listener_does_not_retry_other_bind_errors() -> None:
     calls = []
     listener = hds_server.HDSListener()
     with (
@@ -348,7 +364,7 @@ async def test_listener_does_not_retry_other_bind_errors():
 
 
 @pytest.mark.asyncio
-async def test_run_and_stop_drive_recording_transport(camera):
+async def test_run_and_stop_drive_recording_transport(camera: Any) -> None:
     await camera.run()
     assert camera._hds_listener.port > 0
     await camera.stop()
@@ -356,12 +372,12 @@ async def test_run_and_stop_drive_recording_transport(camera):
 
 
 @pytest.mark.asyncio
-async def test_stop_during_start_does_not_publish_listener(camera):
+async def test_stop_during_start_does_not_publish_listener(camera: Any) -> None:
     release = asyncio.Event()
     original_start = hds_server.HDSListener.start
     binding = []
 
-    async def slow_start(self, host):
+    async def slow_start(self: Any, host: str) -> Any:
         binding.append(self)
         await release.wait()
         return await original_start(self, host)
@@ -377,7 +393,7 @@ async def test_stop_during_start_does_not_publish_listener(camera):
 
 
 @pytest.mark.asyncio
-async def test_stop_recording_transport_awaits_camera_cleanup():
+async def test_stop_recording_transport_awaits_camera_cleanup() -> None:
     camera = _make_camera(_SlowCleanupCamera)
     await _start_without_gate(camera)
     _, writer = await _open_recording(camera._hds_listener)
@@ -391,7 +407,7 @@ async def test_stop_recording_transport_awaits_camera_cleanup():
 
 
 @pytest.mark.asyncio
-async def test_finished_stream_runs_camera_cleanup_in_its_task():
+async def test_finished_stream_runs_camera_cleanup_in_its_task() -> None:
     camera = _make_camera(_SlowCleanupCamera)
     camera.init_is_last = True
     managers = await _start_without_gate(camera)
@@ -404,13 +420,13 @@ async def test_finished_stream_runs_camera_cleanup_in_its_task():
     await camera.stop_recording_transport()
 
 
-async def _connection_count(camera, count):
+async def _connection_count(camera: Camera, count: int) -> None:
     while camera.recording_connection_count != count:
         await asyncio.sleep(0)
 
 
 @pytest.mark.asyncio
-async def test_recording_connection_count(camera):
+async def test_recording_connection_count(camera: Any) -> None:
     await camera.start_recording_transport()
     try:
         assert camera.recording_connection_count == 0
@@ -425,6 +441,6 @@ async def test_recording_connection_count(camera):
         await camera.stop_recording_transport()
 
 
-def test_abort_before_connection_made():
+def test_abort_before_connection_made() -> None:
     """A connection aborted before its transport exists does nothing."""
     hds_server.HDSConnection(hds_server.HDSListener()).abort()

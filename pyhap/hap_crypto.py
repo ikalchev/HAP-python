@@ -26,12 +26,12 @@ class HAP_CRYPTO:
     TLS_NONCE_LEN = 12  # bytes, length of TLS encryption nonce
 
 
-def pad_tls_nonce(nonce, total_len=HAP_CRYPTO.TLS_NONCE_LEN):
+def pad_tls_nonce(nonce: bytes, total_len: int = HAP_CRYPTO.TLS_NONCE_LEN) -> bytes:
     """Pads a nonce with zeroes so that total_len is reached."""
     return nonce.rjust(total_len, b"\x00")
 
 
-def hap_hkdf(key, salt, info):
+def hap_hkdf(key: bytes, salt: bytes, info: bytes) -> bytes:
     """Just a shorthand."""
     hkdf = HKDF(
         algorithm=HAP_CRYPTO.HKDF_HASH,
@@ -55,13 +55,13 @@ class HAPCrypto:
     OUT_CIPHER_INFO = b"Control-Read-Encryption-Key"
     IN_CIPHER_INFO = b"Control-Write-Encryption-Key"
 
-    def __init__(self, shared_key, *, client_side: bool = False) -> None:
+    def __init__(self, shared_key: bytes, *, client_side: bool = False) -> None:
         self._out_count = 0
         self._in_count = 0
         self._crypt_in_buffer = bytearray()  # Encrypted buffer
         self.reset(shared_key, client_side)
 
-    def reset(self, shared_key, client_side: bool = False) -> None:
+    def reset(self, shared_key: bytes, client_side: bool = False) -> None:
         """Setup the ciphers.
 
         HAP derives separate encryption keys for each direction of the

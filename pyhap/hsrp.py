@@ -1,11 +1,12 @@
 # Server Side SRP implementation
 
 import os
+from typing import Any, cast
 
 from .util import long_to_bytes
 
 
-def bytes_to_long(s):
+def bytes_to_long(s: bytes) -> int:
     # Bytes should be interpreted from left to right, hence the byteorder
     return int.from_bytes(s, byteorder="big")
 
@@ -28,14 +29,22 @@ def bytes_to_long(s):
 
 
 class Server:
-    def __init__(self, ctx, u, p, s=None, v=None, b=None):
+    def __init__(
+        self,
+        ctx: dict[str, Any],
+        u: bytes,
+        p: bytes,
+        s: bytes | None = None,
+        v: int | None = None,
+        b: int | None = None,
+    ) -> None:
         self.hashfunc = ctx["hashfunc"]
         self.N = ctx["N"]
         self.Nb = long_to_bytes(self.N)
         self.g = ctx["g"]
         self.gb = long_to_bytes(self.g)
         self.N_len = ctx["N_len"]
-        self.s = s or os.urandom(ctx["salt_len"])
+        self.s: bytes = s or os.urandom(ctx["salt_len"])
         self.I = u  # noqa: E741
         self.p = p
         self.v = v or self._get_verifier()
@@ -48,47 +57,48 @@ class Server:
         self.A = None
         self.S = None
         self.Sb = None
-        self.K = None
+        self.K: Any | None = None
         self.Kb = None
         self.M = None
         self.u = None
-        self.HAMK = None
+        self.HAMK: Any | None = None
 
-    def _digest(self, data):
-        return self.hashfunc(data).digest()
+    def _digest(self, data: bytes) -> bytes:
+        return cast(bytes, self.hashfunc(data).digest())
 
-    def _hexdigest_int16(self, data):
-        return int(self.hashfunc(data).hexdigest(), 16)
+    def _hexdigest_int16(self, data: Any) -> int:
+        return int(cast(str, self.hashfunc(data).hexdigest()), 16)
 
-    def _derive_B(self):
+    def _derive_B(self) -> Any:
         return (self.k * self.v + pow(self.g, self.b, self.N)) % self.N
 
-    def _get_private_key(self):
+    def _get_private_key(self) -> Any:
         return self._hexdigest_int16(self.s + self._digest(self.I + b":" + self.p))
 
-    def _get_verifier(self):
+    def _get_verifier(self) -> Any:
         return pow(self.g, self._get_private_key(), self.N)
 
-    def _get_k(self):
+    def _get_k(self) -> int:
         return self._hexdigest_int16(self.Nb + self._padN(self.gb))
 
-    def _get_K(self):
+    def _get_K(self) -> int:
         return self._hexdigest_int16(self.Sb)
 
-    def _padN(self, bytestr):
+    def _padN(self, bytestr: Any) -> Any:
         return bytestr.rjust(self.N_len // 8, b"\x00")
 
-    def _derive_premaster_secret(self):
+    def _derive_premaster_secret(self) -> Any:
         self.u = self._hexdigest_int16(self._padN(self.Ab) + self._padN(self.Bb))
         Avu = self.A * pow(self.v, self.u, self.N)
         return pow(Avu, self.b, self.N)
 
-    def _get_M(self):
+    def _get_M(self) -> bytes:
         hN = self._digest(self.Nb)
         hG = self._digest(self.gb)
         hGroup = bytes(hN[i] ^ hG[i] for i in range(0, len(hN)))
         hU = self._digest(self.I)
         assert self.Ab is not None  # noqa: S101
+        assert self.Kb is not None  # noqa: S101
         return self._digest(hGroup + hU + self.s + self.Ab + self.Bb + self.Kb)
 
     def set_A(self, bytes_A: bytes) -> None:
@@ -120,11 +130,11 @@ class Server:
         assert self.Kb is not None  # noqa: S101
         return self._digest(self.Ab + self.M + self.Kb)
 
-    def get_challenge(self):
+    def get_challenge(self) -> tuple[bytes, Any]:
         return (self.s, self.B)
 
-    def verify(self, M):
+    def verify(self, M: bytes) -> Any | None:
         return self.HAMK if self.M == M else None
 
-    def get_session_key(self):
+    def get_session_key(self) -> Any | None:
         return self.K

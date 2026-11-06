@@ -29,6 +29,7 @@ import logging
 import socket
 import struct
 import threading
+from typing import cast
 
 try:
     import pylibsrtp
@@ -178,7 +179,7 @@ class TalkbackReceiver:
         of the ``Accessory Address`` TLV in the ``SetupEndpoints`` response, so
         that the controller knows where to send the talkback audio.
         """
-        return self._sock.getsockname()[1]
+        return cast(int, self._sock.getsockname()[1])
 
     def start(self) -> None:
         """Start listening for incoming audio in a background thread."""

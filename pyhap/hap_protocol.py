@@ -369,7 +369,7 @@ class HAPServerProtocol(asyncio.Protocol):
                 self.loop.run_in_executor(None, self.accessory_driver.finish_pair)
             )
 
-    def _handle_response_ready(self, task: asyncio.Future) -> None:
+    def _handle_response_ready(self, task: asyncio.Future[bytes]) -> None:
         """Handle delayed response."""
         response = self.response
         self.response = None
