@@ -9,8 +9,9 @@ from unittest.mock import MagicMock, Mock, patch
 from cryptography.exceptions import InvalidTag
 
 from pyhap import hap_handler, hap_protocol
-from pyhap.accessory import Accessory, Bridge
+from pyhap.accessory import Accessory, Bridge, get_topic
 from pyhap.accessory_driver import AccessoryDriver
+from pyhap.const import HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_VALUE
 from pyhap.hap_crypto import HAPCrypto, hap_hkdf
 from pyhap.hap_handler import HAPResponse
 
@@ -71,7 +72,7 @@ async def _await_response(hap_proto: hap_protocol.HAPServerProtocol) -> None:
     response = hap_proto.response
     assert response is not None
     assert response.task is not None
-    with contextlib.suppress(Exception):
+    with contextlib.suppress(Exception, asyncio.CancelledError):
         await response.task
 
 
@@ -669,6 +670,192 @@ async def test_camera_snapshot_works_async(driver: AccessoryDriver) -> None:
     assert b"fakesnap" in b"".join(writelines.call_args_list[0][0])
 
     hap_proto.close()
+
+
+def _snapshot_request(*extra_headers: bytes) -> bytes:
+    body = b'{"image-height":360,"resource-type":"image","image-width":640,"aid":1}'
+    return (
+        b"POST /resource HTTP/1.1\r\n"
+        b"Host: HASS\\032Bridge._hap._tcp.local\r\n"
+        + b"".join(header + b"\r\n" for header in extra_headers)
+        + b"Content-Length: "
+        + str(len(body)).encode()
+        + b"\r\nContent-Type: application/hap+json\r\n\r\n"
+        + body
+    )
+
+
+SNAPSHOT_REQUEST = _snapshot_request()
+
+
+def _delayed_snapshot_protocol(
+    driver: AccessoryDriver, release: asyncio.Event
+) -> tuple[hap_protocol.HAPServerProtocol, Accessory, MagicMock]:
+    """Create an encrypted connection whose snapshots wait for ``release``.
+
+    Each snapshot is numbered, so responses can be told apart.
+    """
+    transport = MagicMock(get_extra_info=Mock(return_value=("1.2.3.4", 5)))
+    transport.is_closing = Mock(return_value=False)
+    calls: list[int] = []
+
+    async def _async_get_snapshot(*_: Any) -> bytes:
+        calls.append(len(calls) + 1)
+        number = len(calls)
+        await release.wait()
+        return b"snap%d" % number
+
+    acc = Accessory(driver, "TestAcc")
+    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[unresolved-attribute]
+    acc.snapshot_calls = calls  # ty: ignore[unresolved-attribute]
+    driver.add_accessory(acc)
+    hap_proto = hap_protocol.HAPServerProtocol(MagicMock(), {}, driver)
+    hap_proto.connection_made(transport)
+    _enable_encryption(hap_proto)
+    return hap_proto, acc, transport
+
+
+async def test_request_waits_for_delayed_response(driver: AccessoryDriver) -> None:
+    """A request behind a delayed response is answered after it, in order."""
+    release = asyncio.Event()
+    hap_proto, acc, transport = _delayed_snapshot_protocol(driver, release)
+
+    with patch.object(hap_proto.transport, "writelines") as writelines:
+        hap_proto.data_received(SNAPSHOT_REQUEST + SNAPSHOT_REQUEST)
+        await asyncio.sleep(0)
+        assert writelines.call_args_list == []
+        transport.close.assert_not_called()
+        # The second request is not dispatched before the first is answered.
+        assert acc.snapshot_calls == [1]  # ty: ignore[unresolved-attribute]
+
+        release.set()
+        await _await_response(hap_proto)
+        await asyncio.sleep(0)
+        await _await_response(hap_proto)
+        await asyncio.sleep(0)
+
+    responses = [b"".join(call[0]) for call in writelines.call_args_list]
+    assert len(responses) == 2
+    assert responses[0].endswith(b"snap1")
+    assert responses[1].endswith(b"snap2")
+    transport.close.assert_not_called()
+    hap_proto.close()
+
+
+async def test_events_wait_for_delayed_response(driver: AccessoryDriver) -> None:
+    """Events are not sent while a delayed response is outstanding."""
+    release = asyncio.Event()
+    hap_proto, acc, _ = _delayed_snapshot_protocol(driver, release)
+    assert acc.aid is not None
+    driver.topics[get_topic(acc.aid, 9)] = {hap_proto.peername}
+
+    with patch.object(hap_proto.transport, "writelines") as writelines:
+        hap_proto.data_received(SNAPSHOT_REQUEST)
+        hap_proto.queue_event(
+            {HAP_REPR_AID: acc.aid, HAP_REPR_IID: 9, HAP_REPR_VALUE: 1}, False
+        )
+        hap_proto._send_events()
+        assert writelines.call_args_list == []
+
+        release.set()
+        await _await_response(hap_proto)
+        await asyncio.sleep(0)
+
+    writes = [b"".join(call[0]) for call in writelines.call_args_list]
+    assert len(writes) == 2
+    assert writes[0].startswith(b"HTTP/1.1 200 OK")
+    assert writes[1].startswith(b"EVENT/1.0 200 OK")
+    hap_proto.close()
+
+
+async def test_cancelled_delayed_response_answers(driver: AccessoryDriver) -> None:
+    """A cancelled delayed response is answered with a failure."""
+    hap_proto, _, _ = _delayed_snapshot_protocol(driver, asyncio.Event())
+
+    with patch.object(hap_proto.transport, "writelines") as writelines:
+        hap_proto.data_received(SNAPSHOT_REQUEST)
+        response = hap_proto.response
+        assert response is not None
+        assert response.task is not None
+        await asyncio.sleep(0)
+        response.task.cancel()
+        await _await_response(hap_proto)
+        await asyncio.sleep(0)
+
+    assert b"".join(writelines.call_args_list[0][0]).startswith(
+        b"HTTP/1.1 500 Internal Server Error"
+    )
+    hap_proto.close()
+
+
+async def test_close_cancels_delayed_response(driver: AccessoryDriver) -> None:
+    """Closing the connection stops the work for a delayed response."""
+    hap_proto, _, _ = _delayed_snapshot_protocol(driver, asyncio.Event())
+    hap_proto.data_received(SNAPSHOT_REQUEST)
+    response = hap_proto.response
+    assert response is not None
+    assert response.task is not None
+
+    hap_proto.close()
+    await _await_response(hap_proto)
+
+    assert response.task.cancelled()
+
+
+async def test_held_data_is_limited(driver: AccessoryDriver) -> None:
+    """A peer cannot make us buffer without limit while a response is pending."""
+    hap_proto, _, transport = _delayed_snapshot_protocol(driver, asyncio.Event())
+    hap_proto.data_received(SNAPSHOT_REQUEST)
+    chunk = b"x" * 65536
+
+    for _ in range(hap_protocol.MAX_REQUEST_BODY_SIZE // len(chunk)):
+        hap_proto.data_received(chunk)
+    transport.close.assert_not_called()
+
+    hap_proto.data_received(chunk)
+    transport.close.assert_called_once()
+
+
+async def test_events_coalesce_after_delayed_response(
+    driver: AccessoryDriver,
+) -> None:
+    """Events whose coalescing window is still open wait for it."""
+    release = asyncio.Event()
+    hap_proto, acc, _ = _delayed_snapshot_protocol(driver, release)
+    assert acc.aid is not None
+    driver.topics[get_topic(acc.aid, 9)] = {hap_proto.peername}
+
+    with patch.object(hap_proto.transport, "writelines") as writelines:
+        hap_proto.data_received(SNAPSHOT_REQUEST)
+        # Schedules the coalescing timer, which has not fired yet.
+        hap_proto.queue_event(
+            {HAP_REPR_AID: acc.aid, HAP_REPR_IID: 9, HAP_REPR_VALUE: 1}, False
+        )
+        release.set()
+        await _await_response(hap_proto)
+        await asyncio.sleep(0)
+        assert len(writelines.call_args_list) == 1
+
+        hap_proto._send_events()  # the timer fires
+
+    assert b"".join(writelines.call_args_list[1][0]).startswith(b"EVENT/1.0 200 OK")
+    hap_proto.close()
+
+
+async def test_connection_close_after_delayed_response(
+    driver: AccessoryDriver,
+) -> None:
+    """A delayed response to a request with Connection: close closes it."""
+    release = asyncio.Event()
+    hap_proto, _, transport = _delayed_snapshot_protocol(driver, release)
+
+    with patch.object(hap_proto.transport, "writelines"):
+        hap_proto.data_received(_snapshot_request(b"Connection: close"))
+        release.set()
+        await _await_response(hap_proto)
+        await asyncio.sleep(0)
+
+    transport.close.assert_called_once()
 
 
 async def test_camera_snapshot_timeout_async(driver: AccessoryDriver) -> None:
