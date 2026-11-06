@@ -57,7 +57,7 @@ def decode(data: bytes, from_base64: bool = False) -> dict[bytes, Any]:
         data = util.base64_to_bytes(data)
 
     objects = {}
-    chunked = type(data) is bytes
+    chunked = isinstances(data, bytes)
     current = 0
     while current < len(data):
         if current + 2 > len(data):
