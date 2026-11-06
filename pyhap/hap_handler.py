@@ -368,7 +368,7 @@ class HAPServerHandler:
         try:
             decrypted_data = ChaCha20Poly1305(hkdf_enc_key).decrypt(
                 self.PAIRING_3_NONCE,
-                encrypted_data if type(encrypted_data) is bytes else bytes(encrypted_data),
+                encrypted_data if isinstance(encrypted_data, bytes) else bytes(encrypted_data),
                 b"",
             )
         except InvalidTag:
