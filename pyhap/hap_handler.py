@@ -228,7 +228,12 @@ class HAPServerHandler:
         """Dispatch the request to the appropriate handler method."""
         self.path = request.target.decode()
         self.command = request.method.decode()
-        self.headers = {k.decode(): v.decode() for k, v in request.headers}
+        if logger.isEnabledFor(logging.DEBUG):
+            # The decoded headers are only used for debug logging; skip the
+            # per-request str allocations when debug logging is disabled.
+            self.headers = {k.decode(): v.decode() for k, v in request.headers}
+        else:
+            self.headers = None
         self.request_body = body
         self.parsed_url = urlparse(self.path)
         response = HAPResponse()
