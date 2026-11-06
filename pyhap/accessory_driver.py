@@ -73,6 +73,17 @@ LEADING_TRAILING_SPACE_DASH = re.compile(r"^[ -]+|[ -]+$")
 DASH_REGEX = re.compile(r"[-]+")
 KEYS_TO_EXCLUDE = {HAP_REPR_IID, HAP_REPR_AID}
 
+# Consecutive failed pair-setup proofs (each is a setup-code guess) before
+# pair-setup is locked out, and for how long.
+MAX_FAILED_PAIRING_ATTEMPTS = 5
+PAIRING_LOCKOUT_SECONDS = 60
+
+# Prepared writes are short-lived (HomeKit uses ~10 second TTLs); cap both
+# the TTL and the number of pending writes per client so a paired peer cannot
+# grow ``prepared_writes`` without bound.
+MAX_PREPARED_WRITES_PER_CLIENT = 16
+MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
+
 
 def _wrap_char_setter(char, value, client_addr):
     """Process an characteristic setter callback trapping and logging all exceptions."""
@@ -214,6 +225,7 @@ class AccessoryDriver:
         interface_choice=None,
         async_zeroconf_instance=None,
         zeroconf_server=None,
+        advertise=True,
     ):
         """Initialize a new AccessoryDriver object.
 
@@ -263,6 +275,11 @@ class AccessoryDriver:
         :param zeroconf_server: The server name that will be used for the zeroconf
             ServiceInfo.
         :type zeroconf_server: str
+
+        :param advertise: Whether to advertise the accessory via mDNS when
+            the driver starts. Pass False to run the HAP server without
+            mDNS advertising, e.g. for tests or benchmarks.
+        :type advertise: bool
         """
         if loop is None:
             if sys.platform == "win32":
@@ -282,6 +299,7 @@ class AccessoryDriver:
         self.loop = loop
 
         self.accessory: Accessory | None = None
+        self.advertise = advertise
         self.advertiser: AsyncZeroconf | None = async_zeroconf_instance
         self.zeroconf_server = zeroconf_server
         self.interface_choice = interface_choice
@@ -289,9 +307,6 @@ class AccessoryDriver:
         self.persist_file = os.path.expanduser(persist_file)
         self.encoder = encoder or AccessoryEncoder()
         self.topics = {}  # topic: set of (address, port) of subscribed clients
-        # Per-session HAP shared keys, keyed by client (address, port). Needed
-        # by transports derived from the session, e.g. HomeKit Data Stream.
-        self.session_shared_keys: dict[tuple[str, int], bytes] = {}
         self.loader = loader or Loader()
         self.aio_stop_event: asyncio.Event | None = None
         self.stop_event = threading.Event()
@@ -300,6 +315,13 @@ class AccessoryDriver:
 
         self.mdns_service_info: ServiceInfo | None = None
         self._srp_verifier: SrpServer | None = None
+
+        # Pair-setup rate limiting: each M1 regenerates a 3072-bit SRP
+        # verifier and each failed proof is a pincode guess, so excess
+        # failures lock pair-setup out for a while (see
+        # ``register_failed_pairing_attempt``).
+        self._failed_pairing_attempts = 0
+        self._pairing_lockout_until = 0.0
 
         address = address or util.get_local_address()
         advertised_address = advertised_address or address
@@ -397,20 +419,21 @@ class AccessoryDriver:
         if self.state.set_accessories_hash(self.accessories_hash):
             self.async_persist()
 
-        # Advertise the accessory as a mDNS service.
-        logger.debug("Starting mDNS.")
-        self.mdns_service_info = AccessoryMDNSServiceInfo(
-            self.accessory, self.state, self.zeroconf_server
-        )
+        if self.advertise:
+            # Advertise the accessory as a mDNS service.
+            logger.debug("Starting mDNS.")
+            self.mdns_service_info = AccessoryMDNSServiceInfo(
+                self.accessory, self.state, self.zeroconf_server
+            )
 
-        if not self.advertiser:
-            zc_args = {}
-            if self.interface_choice is not None:
-                zc_args["interfaces"] = self.interface_choice
-            self.advertiser = AsyncZeroconf(**zc_args)
-        await self.advertiser.async_register_service(
-            self.mdns_service_info, cooperating_responders=True
-        )
+            if not self.advertiser:
+                zc_args = {}
+                if self.interface_choice is not None:
+                    zc_args["interfaces"] = self.interface_choice
+                self.advertiser = AsyncZeroconf(**zc_args)
+            await self.advertiser.async_register_service(
+                self.mdns_service_info, cooperating_responders=True
+            )
 
         # Print accessory setup message
         if not self.state.paired:
@@ -432,13 +455,14 @@ class AccessoryDriver:
         self.stop_event.set()
         accessory = self.accessory
         assert accessory is not None  # noqa: S101
-        assert self.advertiser is not None  # noqa: S101
-        assert self.mdns_service_info is not None  # noqa: S101
         assert self.aio_stop_event is not None  # noqa: S101
         logger.debug("Stopping HAP server and event sending")
-        logger.debug("Stopping mDNS advertising for %s", accessory.display_name)
-        await self.advertiser.async_unregister_service(self.mdns_service_info)
-        await self.advertiser.async_close()
+        if self.advertise:
+            assert self.advertiser is not None  # noqa: S101
+            assert self.mdns_service_info is not None  # noqa: S101
+            logger.debug("Stopping mDNS advertising for %s", accessory.display_name)
+            await self.advertiser.async_unregister_service(self.mdns_service_info)
+            await self.advertiser.async_close()
 
         self.aio_stop_event.set()
 
@@ -497,6 +521,8 @@ class AccessoryDriver:
         if os.path.exists(self.persist_file):
             logger.info("Loading Accessory state from `%s`", self.persist_file)
             self.load()
+            # Accessories built before load() have not seen their stored state.
+            accessory.restore_accessory_state()
         else:
             logger.info("Storing Accessory state in `%s`", self.persist_file)
             self.persist()
@@ -551,7 +577,6 @@ class AccessoryDriver:
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
         self.prepared_writes.pop(client, None)
-        self.session_shared_keys.pop(client, None)
 
     def publish(self, data, sender_client_addr=None, immediate=False):
         """Publishes an event to the client.
@@ -633,6 +658,9 @@ class AccessoryDriver:
     def async_update_advertisement(self):
         """Updates the mDNS service info for the accessory from the event loop."""
         logger.debug("Updating mDNS advertisement")
+        if not self.advertise:
+            logger.debug("Not updating mDNS advertisement: advertising is disabled")
+            return
         assert self.advertiser is not None  # noqa: S101
         self.mdns_service_info = AccessoryMDNSServiceInfo(
             self.accessory, self.state, self.zeroconf_server
@@ -640,6 +668,14 @@ class AccessoryDriver:
         util.async_create_background_task(
             self.advertiser.async_update_service(self.mdns_service_info)
         )
+
+    def accessory_state(self, aid: int) -> dict[str, Any]:
+        """Return the persisted state dict of accessory ``aid``.
+
+        Accessories keep settings here that must survive a restart. Save
+        changes with :meth:`async_persist`.
+        """
+        return self.state.accessory_states.setdefault(aid, {})
 
     @callback
     def async_persist(self):
@@ -721,11 +757,39 @@ class AccessoryDriver:
             client_username_bytes,
             client_permissions,
         )
+        # A successful pairing clears the rate limiter.
+        self._failed_pairing_attempts = 0
+        self._pairing_lockout_until = 0.0
         self.state.add_paired_client(
             client_username_bytes, client_public, client_permissions
         )
         self.async_persist()
         return True
+
+    @callback
+    def register_failed_pairing_attempt(self) -> None:
+        """Register a failed pair-setup attempt.
+
+        Each failed SRP proof is effectively a setup-code guess and each pair
+        setup also regenerates a 3072-bit SRP verifier, so after too many
+        consecutive failures pair-setup is locked out for a cooldown period.
+
+        This method must be run in the event loop.
+        """
+        self._failed_pairing_attempts += 1
+        if self._failed_pairing_attempts >= MAX_FAILED_PAIRING_ATTEMPTS:
+            self._pairing_lockout_until = time.monotonic() + PAIRING_LOCKOUT_SECONDS
+            self._failed_pairing_attempts = 0
+            logger.warning(
+                "Pair-setup locked out for %s seconds after %s failed attempts",
+                PAIRING_LOCKOUT_SECONDS,
+                MAX_FAILED_PAIRING_ATTEMPTS,
+            )
+
+    @property
+    def pairing_locked_out(self) -> bool:
+        """Whether pair-setup is currently locked out due to failed attempts."""
+        return time.monotonic() < self._pairing_lockout_until
 
     @callback
     def unpair(self, client_uuid):
@@ -738,6 +802,12 @@ class AccessoryDriver:
         """
         logger.info("Unpairing client %s.", client_uuid)
         self.state.remove_paired_client(client_uuid)
+        if not self.state.paired and self.accessory is not None:
+            try:
+                self.accessory.reset_accessory_state()
+            except Exception:
+                # The removed pairing must be saved regardless.
+                logger.warning("Failed to reset the accessory state", exc_info=True)
         self.async_persist()
 
     def finish_pair(self):
@@ -892,6 +962,23 @@ class AccessoryDriver:
         logger.debug("Get chars response: %s", chars)
         return {HAP_REPR_CHARS: chars}
 
+    def derive_session_key(
+        self, client_addr: tuple[str, int] | None, salt: bytes, info: bytes
+    ) -> bytes | None:
+        """Derive a key from the pair-verify session key of ``client_addr``.
+
+        For transports set up from the HAP session, e.g. HomeKit Data Stream.
+        Never returns the session key itself, see
+        :meth:`HAPServerProtocol.derive_key`. Returns ``None`` when the
+        connection is unknown or not encrypted.
+        """
+        if client_addr is None:
+            return None
+        connection = self.http_server.connections.get(client_addr)
+        if connection is None:
+            return None
+        return connection.derive_key(salt, info)
+
     def set_characteristics(self, chars_query, client_addr):
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.
 
@@ -1034,10 +1121,21 @@ class AccessoryDriver:
         try:
             ttl = prepare_query[HAP_REPR_TTL]
             pid = prepare_query[HAP_REPR_PID]
-            self.prepared_writes.setdefault(client_addr, {})[pid] = time.time() + (
-                ttl / 1000
-            )
-        except (KeyError, ValueError):
+            now = time.time()
+            pending = self.prepared_writes.setdefault(client_addr, {})
+            # Prune expired entries and cap the number of pending writes so a
+            # paired client cannot grow prepared_writes without bound by
+            # registering endless unique pids with arbitrary TTLs.
+            for stale_pid in [
+                prepared_pid
+                for prepared_pid, expires_at in pending.items()
+                if expires_at <= now
+            ]:
+                del pending[stale_pid]
+            if len(pending) >= MAX_PREPARED_WRITES_PER_CLIENT:
+                del pending[min(pending, key=pending.get)]
+            pending[pid] = now + min(ttl / 1000, MAX_PREPARED_WRITE_TTL_SECONDS)
+        except (KeyError, TypeError, ValueError):
             return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
 
         return {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}

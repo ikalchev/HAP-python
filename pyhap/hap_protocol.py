@@ -15,7 +15,7 @@ import h11
 from pyhap.accessory import get_topic
 from pyhap.const import HAP_REPR_AID, HAP_REPR_IID
 
-from .hap_crypto import HAPCrypto
+from .hap_crypto import HAPCrypto, hap_hkdf
 from .hap_event import create_hap_event
 from .hap_handler import HAPResponse, HAPServerHandler
 from .util import async_create_background_task
@@ -34,6 +34,15 @@ HIGH_WRITE_BUFFER_SIZE = 2**19
 IDLE_CONNECTION_TIMEOUT_SECONDS = 90 * 60 * 60
 
 EVENT_COALESCE_TIME_WINDOW = 0.5
+
+# HAP request bodies are small - characteristics writes and pairings are a few
+# KiB at most, and even a very large bridge's accessories data is only a few
+# hundred KiB. h11 does not impose a total body-size limit on its own, so a
+# hostile peer could declare a huge Content-Length and stream data until the
+# process dies of memory exhaustion. Anything larger than this is abusive and
+# the connection is dropped. (The encrypted input buffer is inherently bounded
+# to about 64 KiB - one incomplete cipher block - by HAPCrypto.decrypt.)
+MAX_REQUEST_BODY_SIZE = 2**20
 
 H11_END_OF_MESSAGE = h11.EndOfMessage()
 H11_CONNECTION_CLOSED = h11.ConnectionClosed()
@@ -58,10 +67,12 @@ class HAPServerProtocol(asyncio.Protocol):
 
         self.request: h11.Request | None = None
         self.request_body: list[bytes] = []
+        self._request_body_size = 0
         self.response: HAPResponse | None = None
 
         self.last_activity: float | None = None
         self.hap_crypto: HAPCrypto | None = None
+        self._shared_key: bytes | None = None
         self._event_timer: asyncio.TimerHandle | None = None
         self._event_queue: dict[tuple[int, int], dict[str, Any]] = {}
 
@@ -114,6 +125,16 @@ class HAPServerProtocol(asyncio.Protocol):
         self.connections[peername] = self
         self.handler = HAPServerHandler(self.accessory_driver, peername)
 
+    def derive_key(self, salt: bytes, info: bytes) -> bytes | None:
+        """Derive a key from this connection's pair-verify session key.
+
+        Uses HKDF-SHA512 like the HAP control channel. Never returns the session
+        key itself. Returns ``None`` while the connection is not encrypted.
+        """
+        if self._shared_key is None:
+            return None
+        return hap_hkdf(self._shared_key, salt, info)
+
     def write(self, data: bytes) -> None:
         """Write data to the client."""
         self.last_activity = time.time()
@@ -137,8 +158,13 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def close(self) -> None:
         """Remove the connection and close the transport."""
-        if self.peername in self.connections:
-            del self.connections[self.peername]
+        # A newer connection may already be registered under the same peername,
+        # and a connection without a peername must still be removed.
+        if self.connections.get(self.peername) is self:
+            # The identity check above ensures the key belongs to this protocol;
+            # peername is None only for transports without a peername.
+            del self.connections[self.peername]  # ty: ignore[invalid-argument-type]
+        self._shared_key = None
         self._transport.write_eof()
         self._transport.close()
 
@@ -288,6 +314,7 @@ class HAPServerProtocol(asyncio.Protocol):
                 assert isinstance(event, h11.Request)  # noqa: S101
             self.request = event
             self.request_body = []
+            self._request_body_size = 0
             return True
 
         if event_type is h11.Data:
@@ -296,6 +323,18 @@ class HAPServerProtocol(asyncio.Protocol):
             if TYPE_CHECKING:
                 assert isinstance(event, h11.Data)  # noqa: S101
             self.request_body.append(event.data)
+            self._request_body_size += len(event.data)
+            if self._request_body_size > MAX_REQUEST_BODY_SIZE:
+                # A hostile peer streaming an oversized body must not be able
+                # to make us buffer it all before handling the request.
+                logger.warning(
+                    "%s (%s): Request body exceeds %d bytes, closing connection",
+                    self.peername,
+                    self._handler.client_uuid,
+                    MAX_REQUEST_BODY_SIZE,
+                )
+                self.close()
+                return False
             return True
 
         if event_type is h11.EndOfMessage:
@@ -304,6 +343,7 @@ class HAPServerProtocol(asyncio.Protocol):
             self._process_response(response)
             self.request = None
             self.request_body = []
+            self._request_body_size = 0
             return True
 
         return self._handle_invalid_conn_state(f"Unexpected event: {event}")
@@ -321,12 +361,8 @@ class HAPServerProtocol(asyncio.Protocol):
         # If we get a shared key, upgrade to encrypted
         if response.shared_key:
             self.hap_crypto = HAPCrypto(response.shared_key)
-            # Publish the session key so transports derived from this session
-            # (e.g. HomeKit Data Stream) can be set up from a characteristic write.
-            assert self.peername is not None  # noqa: S101
-            self.accessory_driver.session_shared_keys[self.peername] = (
-                response.shared_key
-            )
+            # Kept for transports derived from this session, e.g. HomeKit Data Stream.
+            self._shared_key = response.shared_key
         # Only update mDNS after sending the response
         if response.pairing_changed:
             async_create_background_task(

@@ -1,11 +1,13 @@
 """Tests for the HDS dataSend recording transfer."""
 
 import asyncio
+import functools
 import os
 
 import pytest
 
 from pyhap import hds, hds_recording, hds_server
+from pyhap.hap_crypto import hap_hkdf
 from pyhap.hds_protocol import EVENT, REQUEST, RESPONSE, HDSStatus, Message
 
 
@@ -14,6 +16,30 @@ def _paired(listener):
     accessory_salt = listener.register_transport(secret, salt)
     acc_read, acc_write = hds.derive_keys(secret, salt, accessory_salt)
     return hds.HDSCrypto(acc_write, acc_read)
+
+
+def test_derive_session_keys():
+    secret, controller_key_salt, accessory_key_salt = (os.urandom(32) for _ in "abc")
+    salt = controller_key_salt + accessory_key_salt
+    keys = hds.derive_session_keys(
+        functools.partial(hap_hkdf, secret), controller_key_salt, accessory_key_salt
+    )
+    assert keys == (
+        hap_hkdf(secret, salt, b"HDS-Read-Encryption-Key"),
+        hap_hkdf(secret, salt, b"HDS-Write-Encryption-Key"),
+    )
+    assert keys == hds.derive_keys(secret, controller_key_salt, accessory_key_salt)
+    assert hds.derive_session_keys(lambda salt, info: None, b"", b"") is None
+    # A session that ends between the two derivations yields no keys either.
+    for missing in (b"HDS-Read-Encryption-Key", b"HDS-Write-Encryption-Key"):
+        assert (
+            hds.derive_session_keys(
+                lambda salt, info, missing=missing: None if info == missing else b"k",
+                b"",
+                b"",
+            )
+            is None
+        )
 
 
 class _CaptureTransport(asyncio.Transport):

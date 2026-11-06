@@ -27,3 +27,20 @@ def test_tlv_invalid_pairs():
     """Test we encode fails with an odd amount of args."""
     with pytest.raises(ValueError):
         tlv.encode(b"\x01", b"A", b"\02")
+
+
+def test_tlv_decode_truncated_record():
+    """Verify a truncated TLV record raises instead of mis-parsing."""
+    with pytest.raises(ValueError):
+        tlv.decode(b"\x01")
+
+
+def test_tlv_decode_truncated_value():
+    """Verify a TLV value shorter than its length byte raises."""
+    with pytest.raises(ValueError):
+        tlv.decode(b"\x01\x05AB")
+
+
+def test_tlv_decode_full_value():
+    """Verify a value exactly as long as its length byte decodes."""
+    assert tlv.decode(b"\x01\x03ABC") == {b"\x01": b"ABC"}

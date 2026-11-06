@@ -2,7 +2,9 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import os
 import tempfile
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid1
 
@@ -12,7 +14,14 @@ from zeroconf import InterfaceChoice
 
 from pyhap import util
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
-from pyhap.accessory_driver import AccessoryDriver, AccessoryMDNSServiceInfo
+from pyhap.accessory_driver import (
+    MAX_FAILED_PAIRING_ATTEMPTS,
+    MAX_PREPARED_WRITE_TTL_SECONDS,
+    MAX_PREPARED_WRITES_PER_CLIENT,
+    PAIRING_LOCKOUT_SECONDS,
+    AccessoryDriver,
+    AccessoryMDNSServiceInfo,
+)
 from pyhap.characteristic import (
     HAP_FORMAT_INT,
     HAP_PERMISSION_READ,
@@ -21,14 +30,19 @@ from pyhap.characteristic import (
     Characteristic,
 )
 from pyhap.const import (
+    HAP_PERMISSIONS,
     HAP_REPR_AID,
     HAP_REPR_CHARS,
     HAP_REPR_IID,
+    HAP_REPR_PID,
     HAP_REPR_STATUS,
+    HAP_REPR_TTL,
     HAP_REPR_VALUE,
     HAP_REPR_WRITE_RESPONSE,
     HAP_SERVER_STATUS,
 )
+from pyhap.hap_crypto import hap_hkdf
+from pyhap.hap_protocol import HAPServerProtocol
 from pyhap.service import Service
 from pyhap.state import State
 
@@ -1130,6 +1144,40 @@ async def test_start_service_and_update_config(async_zeroconf):
         assert driver.aio_stop_event.is_set()
 
 
+async def test_start_without_advertising():
+    """Test starting and stopping with mDNS advertising disabled.
+
+    No zeroconf instance should be created and none of the
+    advertisement methods should be called.
+    """
+    with (
+        patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock),
+        patch("pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock),
+        patch("pyhap.accessory_driver.AccessoryDriver.persist"),
+        patch("pyhap.accessory_driver.AccessoryDriver.load"),
+        patch("pyhap.accessory_driver.AsyncZeroconf") as mock_async_zeroconf,
+    ):
+        driver = AccessoryDriver(loop=asyncio.get_event_loop(), advertise=False)
+        acc = Accessory(driver, "TestAcc")
+        driver.add_accessory(acc)
+        await driver.async_start()
+
+        assert driver.advertiser is None
+        assert driver.mdns_service_info is None
+        assert not mock_async_zeroconf.called
+
+        # Pairing changes must not crash when advertising is disabled.
+        driver.async_update_advertisement()
+
+        for _ in range(3):
+            await asyncio.sleep(0)
+        await driver.async_stop()
+        await asyncio.sleep(0)
+        assert not driver.loop.is_closed()
+        assert driver.aio_stop_event is not None
+        assert driver.aio_stop_event.is_set()
+
+
 def test_call_add_job_with_none(driver):
     """Test calling add job with none."""
     with pytest.raises(ValueError):
@@ -1285,3 +1333,95 @@ def test_hash_ignores_values(driver: AccessoryDriver):
     char_brightness2.set_value(43)
 
     assert driver.accessories_hash == new_hash
+
+
+def _hap_connection(driver, client, shared_key=None):
+    """Register a HAP connection from ``client``, encrypted with ``shared_key``."""
+    transport = MagicMock()
+    transport.get_extra_info.return_value = client
+    connection = HAPServerProtocol(MagicMock(), driver.http_server.connections, driver)
+    connection.connection_made(transport)
+    # As set by pair-verify.
+    connection._shared_key = shared_key
+    return connection
+
+
+@pytest.mark.parametrize(
+    "client", [("10.0.0.9", 5000), ("fe80::1", 5000, 0, 2)], ids=["ipv4", "ipv6"]
+)
+def test_derive_session_key(driver, client):
+    """Test keys are derived only from the session key of an encrypted connection."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    salt, info = b"salt", b"info"
+    assert driver.derive_session_key(client, salt, info) is None
+
+    connection = _hap_connection(driver, client)
+    assert driver.derive_session_key(client, salt, info) is None
+
+    shared_key = os.urandom(32)
+    connection._shared_key = shared_key
+    key = driver.derive_session_key(client, salt, info)
+    assert key == hap_hkdf(shared_key, salt, info)
+    assert key != shared_key
+    assert driver.derive_session_key(("10.0.0.9", 5001), salt, info) is None
+
+    connection.close()
+    assert driver.derive_session_key(client, salt, info) is None
+
+
+def test_derive_session_key_without_client_addr(driver):
+    """Test a write without a sender address never matches a connection."""
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    _hap_connection(driver, None, os.urandom(32))
+    assert driver.derive_session_key(None, b"salt", b"info") is None
+
+
+def test_pairing_rate_limit_lockout_and_reset(driver: AccessoryDriver):
+    """Verify the pair-setup lockout engages, expires and resets on success."""
+    with patch("pyhap.accessory_driver.time.monotonic", return_value=100.0) as mock_now:
+        assert not driver.pairing_locked_out
+
+        # One below the threshold: no lockout yet.
+        for _ in range(MAX_FAILED_PAIRING_ATTEMPTS - 1):
+            driver.register_failed_pairing_attempt()
+        assert not driver.pairing_locked_out
+
+        # The threshold failure engages the lockout.
+        driver.register_failed_pairing_attempt()
+        assert driver.pairing_locked_out
+
+        # The lockout expires after the cooldown.
+        mock_now.return_value = 100.0 + PAIRING_LOCKOUT_SECONDS
+        assert not driver.pairing_locked_out
+
+        # A successful pairing resets the counter mid-streak.
+        for _ in range(MAX_FAILED_PAIRING_ATTEMPTS - 1):
+            driver.register_failed_pairing_attempt()
+        driver.pair(str(uuid1()).encode(), b"public-key", HAP_PERMISSIONS.ADMIN)
+        assert driver._failed_pairing_attempts == 0
+        assert driver._pairing_lockout_until == 0.0
+        driver.register_failed_pairing_attempt()
+        assert not driver.pairing_locked_out
+
+
+def test_prepare_bounds_prepared_writes(driver: AccessoryDriver):
+    """Verify the TTL is capped and pending writes per client are bounded."""
+    client_addr = ("1.2.3.4", 5)
+
+    # An absurd TTL is clamped to the maximum.
+    driver.prepare({HAP_REPR_TTL: 10_000_000_000, HAP_REPR_PID: 1}, client_addr)
+    assert (
+        driver.prepared_writes[client_addr][1] - time.time()
+        <= MAX_PREPARED_WRITE_TTL_SECONDS
+    )
+
+    # Registering more unique pids than the cap evicts the soonest-to-expire
+    # entry instead of growing the dict without bound.
+    for pid in range(MAX_PREPARED_WRITES_PER_CLIENT + 5):
+        driver.prepare({HAP_REPR_TTL: 10_000, HAP_REPR_PID: pid}, client_addr)
+
+    pending = driver.prepared_writes[client_addr]
+    assert len(pending) == MAX_PREPARED_WRITES_PER_CLIENT
+    # The earliest-registered pids were evicted, the latest kept.
+    assert 0 not in pending
+    assert MAX_PREPARED_WRITES_PER_CLIENT + 4 in pending

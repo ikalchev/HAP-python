@@ -55,19 +55,27 @@ class HAPCrypto:
     OUT_CIPHER_INFO = b"Control-Read-Encryption-Key"
     IN_CIPHER_INFO = b"Control-Write-Encryption-Key"
 
-    def __init__(self, shared_key) -> None:
+    def __init__(self, shared_key, *, client_side: bool = False) -> None:
         self._out_count = 0
         self._in_count = 0
         self._crypt_in_buffer = bytearray()  # Encrypted buffer
-        self.reset(shared_key)
+        self.reset(shared_key, client_side)
 
-    def reset(self, shared_key):
-        """Setup the ciphers."""
+    def reset(self, shared_key, client_side: bool = False) -> None:
+        """Setup the ciphers.
+
+        HAP derives separate encryption keys for each direction of the
+        session. By default the ciphers are set up from the accessory's
+        point of view. A HAP controller (client) must pass client_side=True
+        to swap the read and write keys.
+        """
+        out_info = self.IN_CIPHER_INFO if client_side else self.OUT_CIPHER_INFO
+        in_info = self.OUT_CIPHER_INFO if client_side else self.IN_CIPHER_INFO
         self._out_cipher = ChaCha20Poly1305(
-            hap_hkdf(shared_key, self.CIPHER_SALT, self.OUT_CIPHER_INFO)
+            hap_hkdf(shared_key, self.CIPHER_SALT, out_info)
         )
         self._in_cipher = ChaCha20Poly1305(
-            hap_hkdf(shared_key, self.CIPHER_SALT, self.IN_CIPHER_INFO)
+            hap_hkdf(shared_key, self.CIPHER_SALT, in_info)
         )
 
     def receive_data(self, buffer: bytes) -> None:

@@ -18,6 +18,7 @@ streaming.
 
 import asyncio
 import functools
+import hashlib
 import ipaddress
 import logging
 import os
@@ -29,7 +30,7 @@ from pyhap import RESOURCE_DIR, hds, hds_recording, hds_server, hksv_recording, 
 from pyhap.accessory import Accessory
 from pyhap.camera_talkback import TalkbackReceiver, talkback_available
 from pyhap.const import CATEGORY_CAMERA
-from pyhap.util import base64_to_bytes, byte_bool, to_base64_str
+from pyhap.util import base64_to_bytes, byte_bool, callback, to_base64_str
 
 if sys.version_info >= (3, 11):
     from asyncio import timeout as async_timeout
@@ -228,6 +229,21 @@ FFMPEG_CMD = (
 """Template for the ffmpeg command."""
 
 logger = logging.getLogger(__name__)
+
+SELECTED_RECORDING_CHAR = "SelectedCameraRecordingConfiguration"
+PERSISTED_RECORDING_CHARS = (
+    ("CameraRecordingManagement", "Active"),
+    ("CameraRecordingManagement", "RecordingAudioActive"),
+    ("CameraRecordingManagement", SELECTED_RECORDING_CHAR),
+    ("CameraOperatingMode", "EventSnapshotsActive"),
+    ("CameraOperatingMode", "HomeKitCameraActive"),
+    ("CameraOperatingMode", "PeriodicSnapshotsActive"),
+)
+SUPPORTED_RECORDING_CHARS = (
+    "SupportedCameraRecordingConfiguration",
+    "SupportedVideoRecordingConfiguration",
+    "SupportedAudioRecordingConfiguration",
+)
 
 
 class Camera(Accessory):
@@ -471,6 +487,10 @@ class Camera(Accessory):
         self._status_active_char = None
         self._recording_service = None
         self._selected_recording_config = None
+        # Last selection that decoded, the char may hold a rejected write.
+        self._selected_recording_raw = None
+        self._recording_defaults = {}
+        self._recording_save_pending = False
         self._motion_detected_char = None
         # Bumped on stop so a start still binding does not publish its listener.
         self._hds_generation = 0
@@ -619,13 +639,19 @@ class Camera(Accessory):
             setter_callback=self.set_selected_recording_configuration,
         )
         self._recording_service = service
+        for service_name, char_name in PERSISTED_RECORDING_CHARS:
+            persisted_service = self.get_service(service_name)
+            assert persisted_service is not None  # noqa: S101
+            char = persisted_service.get_characteristic(char_name)
+            self._recording_defaults[char] = char.value
+        self._restore_recording_state()
         self._setup_data_stream_transport()
 
     def _setup_data_stream_transport(self):
         """Create the Data Stream Transport Management service used by HDS.
 
         SetupDataStreamTransport needs the HAP session shared secret, so its
-        setter receives the sender's client address to look the secret up.
+        setter receives the sender's client address to derive keys from it.
         """
         transport = self.add_preload_service("DataStreamTransportManagement")
         transport.configure_char("Version", value="1.0")
@@ -682,18 +708,19 @@ class Camera(Accessory):
         the port, so it can never open the HDS connection.
         """
         request = hds.SetupRequest.decode(base64_to_bytes(value))
-        shared_secret = self.driver.session_shared_keys.get(sender_client_addr)
-        if shared_secret is None or self._hds_listener is None:
+        listener = self._hds_listener
+        accessory_salt = None
+        if listener is not None:
+            accessory_salt = listener.register_session_transport(
+                functools.partial(self.driver.derive_session_key, sender_client_addr),
+                request.controller_key_salt,
+            )
+        if listener is None or accessory_salt is None:
             response = hds.encode_setup_response(
                 0, b"", status=hds.SETUP_STATUS_GENERIC_ERROR
             )
         else:
-            accessory_salt = self._hds_listener.register_transport(
-                shared_secret, request.controller_key_salt
-            )
-            response = hds.encode_setup_response(
-                self._hds_listener.port, accessory_salt
-            )
+            response = hds.encode_setup_response(listener.port, accessory_salt)
         return to_base64_str(response)
 
     def _recording_delegate(self, stream_id):
@@ -725,10 +752,110 @@ class Camera(Accessory):
         self._selected_recording_config = (
             hksv_recording.SelectedRecordingConfiguration.decode(base64_to_bytes(value))
         )
+        self._selected_recording_raw = value
         self.recording_configuration_selected(self._selected_recording_config)
 
     def recording_configuration_selected(self, configuration):
         """React to the controller selecting a recording configuration. Override."""
+
+    def recording_state_changed(self):
+        """React to a change of the recording state, once per burst. Override.
+
+        Persistence does not use the characteristic setters, so subclasses may
+        set their own and should override this hook rather than the setters.
+        """
+
+    def publish(self, value, sender, sender_client_addr=None, immediate=False):
+        """Forward the update and store recording state changes."""
+        super().publish(value, sender, sender_client_addr, immediate)
+        # Without an aid there is no entry to store under.
+        if sender not in self._recording_defaults or self.aid is None:
+            return
+        # Store now so a camera rebuilt before the save restores this change.
+        stored = {char.display_name: char.value for char in self._recording_defaults}
+        stored[SELECTED_RECORDING_CHAR] = self._selected_recording_raw
+        stored["supported_hash"] = self._supported_recording_hash()
+        self.driver.accessory_state(self.aid)["recording"] = stored
+        self._schedule_recording_save()
+
+    def _schedule_recording_save(self):
+        if self._recording_save_pending:
+            return
+        # One disk write per hub burst.
+        self._recording_save_pending = True
+        try:
+            self.driver.add_job(self._save_recording_state)
+        except RuntimeError:
+            self._recording_save_pending = False
+            logger.warning("Could not schedule saving the recording state")
+
+    def _supported_recording_hash(self):
+        digest = hashlib.sha256()
+        assert self._recording_service is not None  # noqa: S101
+        for name in SUPPORTED_RECORDING_CHARS:
+            char = self._recording_service.get_characteristic(name)
+            digest.update(char.value.encode())
+        return digest.hexdigest()
+
+    @callback
+    def _save_recording_state(self):
+        self._recording_save_pending = False
+        self.driver.async_persist()
+        self.recording_state_changed()
+
+    def restore_accessory_state(self) -> None:
+        """Restore the stored recording state."""
+        self._restore_recording_state()
+
+    def _restore_recording_state(self):
+        # Private so construction does not run a subclass override early.
+        # No aid yet, e.g. before Bridge.add_accessory. The driver restores later.
+        if self.aid is None:
+            return
+        stored = self.driver.accessory_state(self.aid).get("recording")
+        if not self._recording_defaults or not isinstance(stored, dict):
+            return
+        for char in self._recording_defaults:
+            name = char.display_name
+            if name == SELECTED_RECORDING_CHAR or name not in stored:
+                continue
+            try:
+                char.set_value(stored[name], should_notify=False)
+            except (TypeError, ValueError, OverflowError):
+                logger.warning("Ignoring stored %s of aid %s", name, self.aid)
+        # The hub does not select again after a restart, so keep the selection
+        # unless the supported configuration changed.
+        selected = stored.get(SELECTED_RECORDING_CHAR)
+        stale = stored.get("supported_hash") != self._supported_recording_hash()
+        if not selected or stale:
+            return
+        try:
+            config = hksv_recording.SelectedRecordingConfiguration.decode(
+                base64_to_bytes(selected)
+            )
+        # A damaged state file can fail decoding in many ways, fall back to
+        # the defaults instead of failing the accessory.
+        except Exception:  # noqa: BLE001
+            logger.warning("Ignoring stored recording selection of aid %s", self.aid)
+            return
+        assert self._recording_service is not None  # noqa: S101
+        self._recording_service.get_characteristic(SELECTED_RECORDING_CHAR).set_value(
+            selected, should_notify=False
+        )
+        self._selected_recording_config = config
+        self._selected_recording_raw = selected
+
+    def reset_accessory_state(self) -> None:
+        """Return the recording state to its defaults for a new home."""
+        if not self._recording_defaults:
+            return
+        for char, value in self._recording_defaults.items():
+            char.set_value(value, should_notify=False)
+        self._selected_recording_config = None
+        self._selected_recording_raw = None
+        if self.aid is not None:
+            self.driver.accessory_state(self.aid).pop("recording", None)
+        self._schedule_recording_save()
 
     def set_motion_detected(self, detected):
         """Fire (``True``) or clear (``False``) the recording motion trigger.
@@ -1049,21 +1176,23 @@ class Camera(Accessory):
         audio_master_key = audio_info_objs[SETUP_SRTP_PARAM["MASTER_KEY"]]
         audio_master_salt = audio_info_objs[SETUP_SRTP_PARAM["MASTER_SALT"]]
 
+        # Do not log the SRTP key material: debug logs may end up in less
+        # trusted log collections, and the keys live for the whole session.
         logger.debug(
             "Received endpoint configuration:"
             "\nsession_id: %s\naddress: %s\nis_ipv6: %s"
             "\ntarget_video_port: %s\ntarget_audio_port: %s"
-            "\nvideo_crypto_suite: %s\nvideo_srtp: %s"
-            "\naudio_crypto_suite: %s\naudio_srtp: %s",
+            "\nvideo_crypto_suite: %s\nvideo_master_key_len: %s"
+            "\naudio_crypto_suite: %s\naudio_master_key_len: %s",
             session_id,
             address,
             is_ipv6,
             target_video_port,
             target_audio_port,
             video_crypto_suite,
-            to_base64_str(video_master_key + video_master_salt),
+            len(video_master_key) + len(video_master_salt),
             audio_crypto_suite,
-            to_base64_str(audio_master_key + audio_master_salt),
+            len(audio_master_key) + len(audio_master_salt),
         )
 
         # Configure the SetupEndpoints response
@@ -1115,6 +1244,7 @@ class Camera(Accessory):
                     self._talkback_payload_received, session_id
                 ),
                 is_ipv6=bool(is_ipv6),
+                controller_address=address,
             )
             audio_backchannel.start()
             audio_rtp_port = audio_backchannel.local_port
@@ -1268,6 +1398,16 @@ class Camera(Accessory):
             stream_config,
         )
 
+        try:
+            self._validate_stream_config(stream_config)
+        except ValueError as ex:
+            logger.error(
+                "[%s] Refusing to start stream with unsafe configuration: %s",
+                session_info["id"],
+                ex,
+            )
+            return False
+
         cmd = self.start_stream_cmd.format(**stream_config).split()
         logger.debug('Executing start stream command: "%s"', " ".join(cmd))
         try:
@@ -1291,6 +1431,32 @@ class Camera(Accessory):
         )
 
         return True
+
+    @staticmethod
+    def _validate_stream_config(stream_config):
+        """Reject controller-supplied values unsafe to format into a command.
+
+        The default start stream command is built by formatting the negotiated
+        configuration into a template and splitting it on whitespace before
+        exec, so a controller-supplied string containing whitespace could
+        inject additional command-line arguments into the streaming process.
+        The stream address must be a valid IP address (per the HAP spec that is
+        all a controller may send) and no formatted string value may contain
+        whitespace.
+
+        :raises ValueError: If any value is unsafe.
+        """
+        address = stream_config["address"]
+        try:
+            ipaddress.ip_address(address)
+        except ValueError as ex:
+            raise ValueError(f"invalid stream address {address!r}") from ex
+
+        for key, value in stream_config.items():
+            if not isinstance(value, str):
+                continue
+            if not value or value.split() != [value]:
+                raise ValueError(f"value for {key!r} contains whitespace")
 
     async def stop_stream(self, session_info):
         """Stop the stream for the given ``session_id``.

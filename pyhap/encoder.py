@@ -56,6 +56,7 @@ class AccessoryEncoder:
             - UUID and public key of paired clients.
             - Config version.
             - Accessories Hash
+            - Per-accessory state, e.g. HKSV recording settings.
         """
         paired_clients = {
             str(client): bytes.hex(key) for client, key in state.paired_clients.items()
@@ -73,6 +74,9 @@ class AccessoryEncoder:
             "client_properties": client_properties,
             "accessories_hash": state.accessories_hash,
             "client_uuid_to_bytes": client_uuid_to_bytes,
+            "accessory_states": {
+                str(aid): data for aid, data in state.accessory_states.items() if data
+            },
             "private_key": bytes.hex(
                 state.private_key.private_bytes(
                     encoding=serialization.Encoding.Raw,
@@ -124,4 +128,13 @@ class AccessoryEncoder:
         state.uuid_to_bytes = {
             uuid.UUID(client): bytes.fromhex(key)
             for client, key in loaded.get("client_uuid_to_bytes", {}).items()
+        }
+        accessory_states = loaded.get("accessory_states")
+        if not isinstance(accessory_states, dict):
+            accessory_states = {}
+        # Drop damaged entries instead of failing to load the pairings.
+        state.accessory_states = {
+            int(aid): data
+            for aid, data in accessory_states.items()
+            if aid.isdecimal() and isinstance(data, dict)
         }
