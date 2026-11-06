@@ -683,9 +683,8 @@ class AccessoryDriver:
 
         Must be run in the event loop.
         """
-        loop = asyncio.get_event_loop()
         logger.debug("Scheduling write of accessory state to disk")
-        util.async_create_background_task(loop.run_in_executor(None, self.persist))
+        util.async_create_background_task(self.loop.run_in_executor(None, self.persist))
 
     def persist(self):
         """Saves the state of the accessory.
