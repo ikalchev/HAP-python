@@ -69,8 +69,9 @@ class HAPServerProtocol(asyncio.Protocol):
         self.request_body: list[bytes] = []
         self._request_body_size = 0
         self.response: HAPResponse | None = None
-        # Bytes received while a delayed response is pending; h11 buffers them
-        # without the per-request body limit until the response has been sent.
+        # Bytes received while a delayed response is pending. h11 buffers them
+        # until that response is sent, so _hold_data caps them at
+        # MAX_REQUEST_BODY_SIZE.
         self._held_bytes = 0
 
         self.last_activity: float | None = None
@@ -307,11 +308,9 @@ class HAPServerProtocol(asyncio.Protocol):
         if self._event_timer:
             self._event_timer.cancel()
             self._event_timer = None
-        if not self._event_queue:
-            return
-        if self.response is not None:
-            # Events must not be sent while a response is outstanding; they
-            # are flushed once the delayed response has been sent.
+        # Events must not be sent while a response is outstanding; they are
+        # flushed once the delayed response has been sent.
+        if not self._event_queue or self.response is not None:
             return
         subscribed_events = self._event_queue_with_active_subscriptions()
         if subscribed_events:
@@ -410,9 +409,9 @@ class HAPServerProtocol(asyncio.Protocol):
     def _handle_response_ready(self, task: asyncio.Future[bytes]) -> None:
         """Handle delayed response."""
         response = self.response
+        assert response is not None  # noqa: S101
         self.response = None
         self._held_bytes = 0
-        assert response is not None  # noqa: S101
         try:
             response.body = task.result()
         except (Exception, asyncio.CancelledError) as ex:
