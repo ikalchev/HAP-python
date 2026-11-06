@@ -497,6 +497,8 @@ class Camera(Accessory):
         self._hds_listener = None
         self._hds_connections = set()
         self._recording_stream = None
+        self._homekit_camera_active_char = None
+        self._motion_status_active_char = None
         if options.get("video"):
             self._setup_stream_management(options)
         # Classic HomeKit Secure Video recording (HDS + fragmented MP4).
@@ -601,7 +603,11 @@ class Camera(Accessory):
             "CameraOperatingMode", chars=["PeriodicSnapshotsActive"]
         )
         operating_mode.configure_char("EventSnapshotsActive", value=1)
-        operating_mode.configure_char("HomeKitCameraActive", value=1)
+        self._homekit_camera_active_char = operating_mode.configure_char(
+            "HomeKitCameraActive",
+            value=1,
+            setter_callback=self._handle_homekit_camera_active,
+        )
         operating_mode.configure_char("PeriodicSnapshotsActive", value=1)
 
         # HKSV records on an event trigger; the camera owns a motion sensor and
@@ -611,7 +617,10 @@ class Camera(Accessory):
             "MotionDetected", value=False
         )
         # HAP-NodeJS marks the HKSV event-trigger sensor as active; iOS expects it.
-        motion.configure_char("StatusActive", value=True)
+        # A restored HomeKitCameraActive bypasses the setter, so reads derive it.
+        self._motion_status_active_char = motion.configure_char(
+            "StatusActive", value=True, getter_callback=self._homekit_camera_on
+        )
 
         general, video, audio = self._default_recording_configs(options)
         service = self.add_preload_service(
@@ -1047,6 +1056,32 @@ class Camera(Accessory):
         Called when iOS reads the StreaminStatus ``Characteristic``.
         """
         return tlv.encode(b"\x01", self._streaming_status[stream_idx], to_base64=True)
+
+    def _homekit_camera_on(self):
+        assert self._homekit_camera_active_char is not None  # noqa: S101
+        return bool(self._homekit_camera_active_char.value)
+
+    def _handle_homekit_camera_active(self, value):
+        # A camera turned off must not record, and the hub must not treat its
+        # motion sensor as an active trigger.
+        active = bool(value)
+        assert self._motion_status_active_char is not None  # noqa: S101
+        # Always notify: a restored value may have bypassed the stored one,
+        # so set_value alone could see no change.
+        self._motion_status_active_char.set_value(active, should_notify=False)
+        self._motion_status_active_char.notify()
+        if not active and self._recording_stream is not None:
+            self._recording_stream.close(hds_recording.RecordingReason.NOT_ALLOWED)
+        self.homekit_camera_active_changed(active)
+
+    def homekit_camera_active_changed(self, active):
+        """React to the user turning the camera on or off in the Home app.
+
+        Override instead of replacing the characteristic's setter. A running
+        recording is already closed when the camera is turned off. Like other
+        setters, every controller write calls this, setting the value locally
+        does not.
+        """
 
     async def _stop_stream(self, objs):
         """Stop the stream for the specified session.

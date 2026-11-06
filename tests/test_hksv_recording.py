@@ -385,3 +385,56 @@ async def test_setup_data_stream_transport_with_session(recording_camera):
         assert port == camera._hds_listener.port
     finally:
         await camera.stop()
+
+
+def test_camera_off_in_home_app_marks_sensor_inactive(recording_camera):
+    camera_active = recording_camera.get_service(
+        "CameraOperatingMode"
+    ).get_characteristic("HomeKitCameraActive")
+    status_active = recording_camera.get_service("MotionSensor").get_characteristic(
+        "StatusActive"
+    )
+    recording_camera.homekit_camera_active_changed = MagicMock()
+
+    with patch.object(recording_camera, "publish") as publish:
+        camera_active.client_update_value(0)
+    # Subscribed controllers learn about the inactive sensor, exactly once.
+    events = [
+        call.args[0] for call in publish.call_args_list if call.args[1] is status_active
+    ]
+    assert events == [False]
+    assert status_active.get_value() is False
+    recording_camera.homekit_camera_active_changed.assert_called_once_with(False)
+
+    camera_active.client_update_value(1)
+    assert status_active.get_value() is True
+    recording_camera.homekit_camera_active_changed.assert_called_with(True)
+
+
+def test_sensor_follows_camera_active_set_without_write(recording_camera):
+    """E.g. a restored or locally set value, which runs no setter."""
+    recording_camera.get_service("CameraOperatingMode").get_characteristic(
+        "HomeKitCameraActive"
+    ).set_value(0)
+    status_active = recording_camera.get_service("MotionSensor").get_characteristic(
+        "StatusActive"
+    )
+    assert status_active.get_value() is False
+
+
+def test_sensor_event_after_restored_camera_off(recording_camera):
+    """A restore sets the value without a write, the next write still notifies."""
+    camera_active = recording_camera.get_service(
+        "CameraOperatingMode"
+    ).get_characteristic("HomeKitCameraActive")
+    status_active = recording_camera.get_service("MotionSensor").get_characteristic(
+        "StatusActive"
+    )
+    camera_active.set_value(0, should_notify=False)
+
+    with patch.object(recording_camera, "publish") as publish:
+        camera_active.client_update_value(1)
+    events = [
+        call.args[0] for call in publish.call_args_list if call.args[1] is status_active
+    ]
+    assert events == [True]
