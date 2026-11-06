@@ -282,6 +282,19 @@ class HAPServerHandler:
 
     def handle_pairing(self) -> None:
         """Handles arbitrary step of the pairing process."""
+        if self.accessory_handler.pairing_locked_out:
+            # Too many failed attempts recently; answer with BUSY so the
+            # controller retries later instead of grinding the setup code
+            # (and burning SRP verifier generation CPU).
+            self._send_tlv_pairing_response(
+                tlv.encode(
+                    HAP_TLV_TAGS.SEQUENCE_NUM,
+                    HAP_TLV_STATES.M2,
+                    HAP_TLV_TAGS.ERROR_CODE,
+                    HAP_TLV_ERRORS.BUSY,
+                )
+            )
+            return
         if self.state.paired:
             self._send_tlv_pairing_response(
                 tlv.encode(
@@ -335,11 +348,24 @@ class HAPServerHandler:
         A = tlv_objects[HAP_TLV_TAGS.PUBLIC_KEY]
         M = tlv_objects[HAP_TLV_TAGS.PASSWORD_PROOF]
         verifier = self.accessory_handler.srp_verifier
-        verifier.set_A(A)
+        try:
+            verifier.set_A(A)
+        except ValueError:
+            # A % N == 0 must be rejected (RFC 5054 section 2.5.1.3);
+            # respond with an authentication error instead of a generic 500.
+            logger.warning(
+                "%s: Rejected SRP A value divisible by N during pairing [2/5]",
+                self.client_address,
+            )
+            self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
+            return
 
         hamk = verifier.verify(M)
 
         if hamk is None:  # Probably the provided pincode was wrong.
+            # Each failed proof is a setup-code guess; count it towards
+            # the pair-setup lockout.
+            self.accessory_handler.register_failed_pairing_attempt()
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
 
@@ -590,14 +616,14 @@ class HAPServerHandler:
         if perm_client_public is None:
             accessory = self.accessory_handler.accessory
             assert accessory is not None  # noqa: S101
+            # Do not log the (session or paired-client) public keys: error
+            # logs are commonly collected by less trusted systems.
             logger.error(
                 "%s: Client %s with uuid %s attempted pair verify "
-                "without being paired first (public_key=%s, paired clients=%s).",
+                "without being paired first.",
                 accessory.display_name,
                 self.client_address,
                 client_uuid,
-                raw_public_key.hex(),
-                {uuid: key.hex() for uuid, key in self.state.paired_clients.items()},
             )
             self._send_authentication_error_tlv_response(HAP_TLV_STATES.M4)
             return
@@ -836,6 +862,11 @@ class HAPServerHandler:
 
     def handle_resource(self) -> None:
         """Get a snapshot from the camera."""
+        if not self.is_encrypted:
+            # POST /resource requires a secured (pair-verified) session, per
+            # the HAP spec - otherwise any LAN peer can read camera snapshots.
+            raise UnprivilegedRequestException
+
         assert self.request_body is not None  # noqa: S101
         data = from_hap_json(self.request_body.decode("utf-8"))
 

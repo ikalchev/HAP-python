@@ -1041,21 +1041,23 @@ class Camera(Accessory):
         audio_master_key = audio_info_objs[SETUP_SRTP_PARAM["MASTER_KEY"]]
         audio_master_salt = audio_info_objs[SETUP_SRTP_PARAM["MASTER_SALT"]]
 
+        # Do not log the SRTP key material: debug logs may end up in less
+        # trusted log collections, and the keys live for the whole session.
         logger.debug(
             "Received endpoint configuration:"
             "\nsession_id: %s\naddress: %s\nis_ipv6: %s"
             "\ntarget_video_port: %s\ntarget_audio_port: %s"
-            "\nvideo_crypto_suite: %s\nvideo_srtp: %s"
-            "\naudio_crypto_suite: %s\naudio_srtp: %s",
+            "\nvideo_crypto_suite: %s\nvideo_master_key_len: %s"
+            "\naudio_crypto_suite: %s\naudio_master_key_len: %s",
             session_id,
             address,
             is_ipv6,
             target_video_port,
             target_audio_port,
             video_crypto_suite,
-            to_base64_str(video_master_key + video_master_salt),
+            len(video_master_key) + len(video_master_salt),
             audio_crypto_suite,
-            to_base64_str(audio_master_key + audio_master_salt),
+            len(audio_master_key) + len(audio_master_salt),
         )
 
         # Configure the SetupEndpoints response
@@ -1107,6 +1109,7 @@ class Camera(Accessory):
                     self._talkback_payload_received, session_id
                 ),
                 is_ipv6=bool(is_ipv6),
+                controller_address=address,
             )
             audio_backchannel.start()
             audio_rtp_port = audio_backchannel.local_port
@@ -1237,6 +1240,16 @@ class Camera(Accessory):
             stream_config,
         )
 
+        try:
+            self._validate_stream_config(stream_config)
+        except ValueError as ex:
+            logger.error(
+                "[%s] Refusing to start stream with unsafe configuration: %s",
+                session_info["id"],
+                ex,
+            )
+            return False
+
         cmd = self.start_stream_cmd.format(**stream_config).split()
         logger.debug('Executing start stream command: "%s"', " ".join(cmd))
         try:
@@ -1260,6 +1273,32 @@ class Camera(Accessory):
         )
 
         return True
+
+    @staticmethod
+    def _validate_stream_config(stream_config):
+        """Reject controller-supplied values unsafe to format into a command.
+
+        The default start stream command is built by formatting the negotiated
+        configuration into a template and splitting it on whitespace before
+        exec, so a controller-supplied string containing whitespace could
+        inject additional command-line arguments into the streaming process.
+        The stream address must be a valid IP address (per the HAP spec that is
+        all a controller may send) and no formatted string value may contain
+        whitespace.
+
+        :raises ValueError: If any value is unsafe.
+        """
+        address = stream_config["address"]
+        try:
+            ipaddress.ip_address(address)
+        except ValueError as ex:
+            raise ValueError(f"invalid stream address {address!r}") from ex
+
+        for key, value in stream_config.items():
+            if not isinstance(value, str):
+                continue
+            if not value or value.split() != [value]:
+                raise ValueError(f"value for {key!r} contains whitespace")
 
     async def stop_stream(self, session_info):
         """Stop the stream for the given ``session_id``.

@@ -1,0 +1,130 @@
+# HAP-python benchmarks
+
+Performance benchmarks for the HAP accessory server. They measure the cost
+of serving real HAP traffic (pair-verify, characteristic reads/writes,
+subscriptions and EVENT push) from a bridge of switch accessories, plus
+the memory footprint of the server process.
+
+The benchmark drives the **real protocol**: each mock client is a real
+TCP connection performing the full pair-verify handshake and then speaking
+the encrypted HAP transport, so crypto, h11 parsing and socket costs are all included.
+
+## Scenarios
+
+| Scenario   | Clients | Accessories | Purpose                              |
+| ---------- | ------- | ----------- | ------------------------------------ |
+| `baseline` | 1       | 5           | small setup sanity floor             |
+| `moderate` | 3       | 25          | typical home                         |
+| `heavy`    | 5       | 250         | large installations                  |
+
+Each scenario measures:
+
+- `pair_verify_ms` – session establishment latency (crypto handshake).
+- `write_latency_ms` – switch toggle round trip (`PUT /characteristics`).
+- `read_latency_ms` – characteristic read round trip.
+- `get_accessories_ms` – full accessory list fetch (large JSON payload).
+- `event_latency_ms` – write → `EVENT` frame received by the *other*
+  subscribed clients. Note: value-change events are coalesced server-side
+  within a 0.5 s window (`EVENT_COALESCE_TIME_WINDOW`), so this metric
+  measures the coalesced delivery the way clients actually experience it.
+- `writes_per_second` – sustained sequential write throughput.
+- Memory (psutil RSS of the server process): at startup, after the
+  clients connect, per phase, peak, and the marginal cost per accessory
+  (derived from a zero-accessory probe server).
+
+## Requirements
+
+```sh
+pip install -e ".[bench]"
+```
+
+installs the runtime dependencies plus `psutil` and `py-spy`.
+
+## Running
+
+From the repository root:
+
+```sh
+python benchmarks/run.py --scenario all          # all scenarios
+python benchmarks/run.py --scenario heavy        # one scenario
+python benchmarks/run.py --scenario heavy --flamegraph   # + py-spy flamegraph
+python benchmarks/run.py --scenario heavy --tracemalloc  # + allocation sites
+```
+
+Results are written to `benchmarks/results/bench-<timestamp>.json`
+(or `--output FILE` / `--results-dir DIR`). Use `--label` to tag runs, e.g.
+`--label before-tuning`, so you can tell files apart.
+
+Every run records the commit, Python version, platform, CPU, exact
+parameters and all raw samples, so results can be compared over time.
+
+### Comparing two runs
+
+```sh
+python benchmarks/compare.py results/bench-<old>.json results/bench-<new>.json
+```
+
+prints a per-scenario delta table (p50/p95 for latencies, plus throughput
+and memory). To gate a change on it:
+
+```sh
+python benchmarks/compare.py base.json head.json --fail-over 20
+```
+
+exits non-zero when any latency p50 or the throughput regresses by more
+than 20%. Memory is reported but never gated - it is too noisy on
+shared CI runners for that.
+
+### Flamegraphs
+
+`--flamegraph` records the server process with `py-spy record` and
+writes `benchmarks/results/<scenario>-flamegraph.svg`. The client code
+lives in the orchestrator process, so the flamegraph contains only
+server work.
+
+- On Linux CI runners and most desktops this works out of the box.
+- On macOS `py-spy` needs root: run the whole command under `sudo`.
+  The shared scratch directory is made world-writable so a
+  mix of uids between orchestrator and server cannot break the run;
+  result and SVG files created under sudo are owned by root, so point
+  `--results-dir` at a scratch directory or `chown` them after.
+
+For a work-only graph (drops threads that are not holding the GIL,
+including the idle wait), use the passthrough flag:
+
+```sh
+python benchmarks/run.py --scenario heavy --flamegraph \
+    --py-spy-args '--gil --rate 250'
+```
+
+Caveat: native code that releases the GIL (some crypto/orjson calls on
+large buffers) also disappears from a `--gil` graph.
+
+### tracemalloc
+
+`--tracemalloc` makes the server record the top Python allocation sites
+(by line) at shutdown, stored under the scenario's `tracemalloc` key.
+This distorts latency, so use it to answer "what allocates?" questions,
+not "how fast?" questions.
+
+## GitHub Actions
+
+The `benchmarks` workflow (`.github/workflows/benchmarks.yaml`) runs on
+demand (`workflow_dispatch`) with inputs:
+
+- `base_ref` – ref to use as the baseline (default: `master`),
+- `head_ref` – ref to compare (default: the ref that triggered the run),
+- `scenarios` – `baseline`, `moderate`, `heavy` or `all`,
+- `flamegraph` – also record flamegraphs.
+
+It checks out both refs side by side, runs the benchmark in a separate
+venv per ref, prints the comparison into the job summary and uploads the
+result files and flamegraphs as artifacts.
+
+## Caveats
+
+- Clients and server communicate over loopback TCP in separate
+  processes; latencies include the full socket + crypto + parsing path,
+  but not physical network latency.
+- This is not an extremely precise bench since there is no CPU isolation, etc.
+  but is good enough for now.

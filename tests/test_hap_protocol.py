@@ -142,6 +142,64 @@ def test_pair_setup(driver):
     hap_proto.close()
 
 
+def test_request_body_over_limit_closes_connection(driver):
+    """Verify a request body over the size limit aborts the connection.
+
+    Without the limit a peer can stream an arbitrarily large body (h11 does
+    not cap total body size) and exhaust memory before the request is ever
+    handled.
+    """
+    loop = MagicMock()
+    transport = MockTransport()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    body = b"x" * (hap_protocol.MAX_REQUEST_BODY_SIZE + 1)
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.1\r\n"
+            b"Host: Bridge\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: " + str(len(body)).encode("ascii") + b"\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n" + body
+        )
+
+    # The connection is dropped before the request is dispatched.
+    assert transport._is_closing is True
+    assert not connections
+    writer.assert_not_called()
+
+
+def test_request_body_at_limit_is_processed(driver):
+    """Verify a body exactly at the limit is still handled normally."""
+    loop = MagicMock()
+    transport = MagicMock()
+    connections = {}
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+
+    body = b"x" * hap_protocol.MAX_REQUEST_BODY_SIZE
+    with patch.object(hap_proto.transport, "write") as writer:
+        hap_proto.data_received(
+            b"POST /pair-setup HTTP/1.1\r\n"
+            b"Host: Bridge\032C77C47._hap._tcp.local\r\n"
+            b"Content-Length: " + str(len(body)).encode("ascii") + b"\r\n"
+            b"Content-Type: application/pairing+tlv8\r\n"
+            b"\r\n" + body
+        )
+
+    # The (garbage) body is dispatched and answered with a 500, not dropped.
+    assert not transport.close.called
+    assert connections
+    assert writer.call_args_list[0][0][0].startswith(b"HTTP/1.1 500") is True
+    hap_proto.close()
+
+
 def test_http10_close(driver):
     """Test we handle http/1.0."""
     loop = MagicMock()

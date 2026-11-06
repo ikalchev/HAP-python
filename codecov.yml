@@ -1,2 +1,16 @@
 comment:
   layout: "header, diff, tree"
+
+coverage:
+  status:
+    # Compare against the base branch of the PR (works for PRs into dev and main)
+    project:
+      default:
+        # Fail the check if coverage drops by more than 2%
+        target: auto
+        threshold: 2%
+    patch:
+      default:
+        target: auto
+        # Allow new/changed lines to be up to 2% below the current coverage
+        threshold: 2%

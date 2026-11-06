@@ -8,13 +8,17 @@ from uuid import UUID
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519, x25519
+import h11
 import pytest
 
 from pyhap import hap_handler, tlv
 from pyhap.accessory import Accessory, Bridge
-from pyhap.accessory_driver import AccessoryDriver
+from pyhap.accessory_driver import (
+    MAX_FAILED_PAIRING_ATTEMPTS,
+    AccessoryDriver,
+)
 from pyhap.characteristic import CharacteristicError
-from pyhap.const import HAP_PERMISSIONS
+from pyhap.const import HAP_PERMISSIONS, HAP_SERVER_STATUS
 
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
 CLIENT_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
@@ -1003,6 +1007,126 @@ def test_handle_get_characteristics_encrypted(driver: AccessoryDriver):
     assert decoded_response["characteristics"][0]["status"] == -70402
 
 
+def test_handle_resource_unencrypted_rejected(driver: AccessoryDriver):
+    """Verify an unencrypted POST /resource is rejected with 401.
+
+    /resource returns camera snapshots, so it must require a secured
+    (pair-verified) session like every other data handler.
+    """
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    request = h11.Request(method="POST", target="/resource", headers=[(b"host", b"t")])
+    response = handler.dispatch(request, b'{"aid": 1}')
+
+    assert response.status_code == 401
+    assert json.loads(response.body)["status"] == (
+        HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
+    )
+
+
+async def test_handle_resource_encrypted_allows_snapshot(driver: AccessoryDriver):
+    """Verify an encrypted POST /resource still reaches the snapshot."""
+
+    class SnapshotAccessory(Accessory):
+        async def async_get_snapshot(self, _data):
+            return b"jpeg-data"
+
+    driver.add_accessory(SnapshotAccessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+    request = h11.Request(method="POST", target="/resource", headers=[(b"host", b"t")])
+    response = handler.dispatch(request, b'{"aid": 1}')
+
+    assert response.status_code == 200
+    assert response.task is not None
+    assert await response.task == b"jpeg-data"
+
+
+def test_pairing_two_rejects_zero_a(driver: AccessoryDriver):
+    """Verify a pair-setup M3 with A % N == 0 gets an authentication error.
+
+    A zero (or N-multiple) A makes the SRP session key public, so the client
+    could otherwise forge the proof and pair without the setup code.
+    """
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M3,
+        hap_handler.HAP_TLV_TAGS.PUBLIC_KEY,
+        b"\x00",
+        hap_handler.HAP_TLV_TAGS.PASSWORD_PROOF,
+        b"\x00" * 64,
+    )
+    driver.setup_srp_verifier()
+    handler.handle_pairing()
+
+    tlv_objects = tlv.decode(response.body)
+
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M4,
+        hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.AUTHENTICATION,
+    }
+
+
+def test_pairing_lockout_after_failed_attempts(driver: AccessoryDriver):
+    """Verify pair-setup locks out after too many failed SRP proofs.
+
+    Each failed proof is a setup-code guess, so excess failures must be
+    answered with BUSY instead of letting the peer keep guessing.
+    """
+    driver.add_accessory(Accessory(driver, "TestAcc"))
+    driver.setup_srp_verifier()
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = False
+
+    for _ in range(MAX_FAILED_PAIRING_ATTEMPTS):
+        response = hap_handler.HAPResponse()
+        handler.response = response
+        handler.request_body = tlv.encode(
+            hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+            hap_handler.HAP_TLV_STATES.M3,
+            hap_handler.HAP_TLV_TAGS.PUBLIC_KEY,
+            b"\x01",
+            hap_handler.HAP_TLV_TAGS.PASSWORD_PROOF,
+            b"\x00" * 64,
+        )
+        handler.handle_pairing()
+
+        tlv_objects = tlv.decode(response.body)
+        assert tlv_objects == {
+            hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M4,
+            hap_handler.HAP_TLV_TAGS.ERROR_CODE: (
+                hap_handler.HAP_TLV_ERRORS.AUTHENTICATION
+            ),
+        }
+
+    assert driver.pairing_locked_out
+
+    # Further pair-setup attempts - even a fresh M1 - are answered with BUSY.
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.request_body = tlv.encode(
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM,
+        hap_handler.HAP_TLV_STATES.M1,
+    )
+    handler.handle_pairing()
+
+    tlv_objects = tlv.decode(response.body)
+    assert tlv_objects == {
+        hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M2,
+        hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.BUSY,
+    }
+
+
 def test_invalid_pairing_two(driver: AccessoryDriver):
     """Verify we respond with error with invalid request."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
@@ -1047,7 +1171,8 @@ def test_invalid_pairing_three(driver: AccessoryDriver):
         b"",
     )
     handler.accessory_handler.setup_srp_verifier()
-    handler.accessory_handler.srp_verifier.set_A(b"")
+    # A valid (non-zero mod N) A is needed to reach the M5 decrypt step.
+    handler.accessory_handler.srp_verifier.set_A(b"\x01")
     handler.handle_pairing()
 
     tlv_objects = tlv.decode(response.body)
