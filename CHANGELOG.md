@@ -16,6 +16,57 @@ Sections
 ### Developers
 -->
 
+## [5.2.0] - 2026-11-07
+
+- Harden the pairing flow: validate TLV records, reject SRP A values divisible
+  by N, and rate-limit pair-setup after repeated failed proofs.
+  [#512](https://github.com/ikalchev/HAP-python/pull/512)
+  [#515](https://github.com/ikalchev/HAP-python/pull/515)
+  [#517](https://github.com/ikalchev/HAP-python/pull/517)
+- Require a secured session for `POST /resource`, cap the size of buffered
+  request bodies, bound the TTL and number of pending prepared writes, and
+  reject unsafe controller-supplied stream configuration values.
+  [#513](https://github.com/ikalchev/HAP-python/pull/513)
+  [#514](https://github.com/ikalchev/HAP-python/pull/514)
+  [#516](https://github.com/ikalchev/HAP-python/pull/516)
+  [#518](https://github.com/ikalchev/HAP-python/pull/518)
+- Redact SRTP keys and client public keys from logs and filter talkback audio
+  by the negotiated controller address.
+  [#519](https://github.com/ikalchev/HAP-python/pull/519)
+  [#520](https://github.com/ikalchev/HAP-python/pull/520)
+- Improve HomeKit Secure Video: mark the camera inactive and end recording
+  when turned off, persist recording state across restarts, send fMP4 init
+  and fragments as soon as they are complete, send the status in the HDS
+  dataSend open response, expose recording accessors and the transport port,
+  and harden the HDS lifecycle.
+  [#499](https://github.com/ikalchev/HAP-python/pull/499)
+  [#500](https://github.com/ikalchev/HAP-python/pull/500)
+  [#501](https://github.com/ikalchev/HAP-python/pull/501)
+  [#502](https://github.com/ikalchev/HAP-python/pull/502)
+  [#503](https://github.com/ikalchev/HAP-python/pull/503)
+  [#504](https://github.com/ikalchev/HAP-python/pull/504)
+  [#505](https://github.com/ikalchev/HAP-python/pull/505)
+  [#508](https://github.com/ikalchev/HAP-python/pull/508)
+  [#509](https://github.com/ikalchev/HAP-python/pull/509)
+  [#510](https://github.com/ikalchev/HAP-python/pull/510)
+- Performance: speed up pairing key conversion (39% less runtime), join TLV
+  decoded fragments once (96% less time), join decrypted blocks once, skip
+  request body UTF-8 decoding, decode request headers lazily, and use the
+  driver event loop.
+  [#505](https://github.com/ikalchev/HAP-python/pull/505)
+  [#521](https://github.com/ikalchev/HAP-python/pull/521)
+  [#522](https://github.com/ikalchev/HAP-python/pull/522)
+  [#523](https://github.com/ikalchev/HAP-python/pull/523)
+  [#524](https://github.com/ikalchev/HAP-python/pull/524)
+  [#525](https://github.com/ikalchev/HAP-python/pull/525)
+- Add a benchmark suite and an on-demand benchmark workflow.
+  [#511](https://github.com/ikalchev/HAP-python/pull/511)
+- Adopt ruff and ty, enforce stronger linting and typing rules, restore
+  codecov checks, and add a `client_side` HAPCrypto with an `advertise=False`
+  driver option.
+  [#506](https://github.com/ikalchev/HAP-python/pull/506)
+  [#507](https://github.com/ikalchev/HAP-python/pull/507)
+
 ## [5.1.0] - 2026-11-04
 
 - Add support for camera talkback (two-way) audio.
