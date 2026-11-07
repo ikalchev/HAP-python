@@ -15,10 +15,12 @@ CLIENT2_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c2")
 CLIENT2_UUID_BYTES = str(CLIENT2_UUID).upper().encode("utf-8")
 
 
-def test_setup():
+def test_setup() -> None:
     """Test if State class is setup correctly."""
     with pytest.raises(TypeError):
-        State("invalid_argument")
+        # State.__init__ is keyword-only by design; the invalid
+        # positional call is exactly what this test asserts against.
+        State("invalid_argument")  # ty: ignore[too-many-positional-arguments]
 
     addr = "172.0.0.1"
     mac = "00:00:00:00:00:00"
@@ -58,7 +60,7 @@ def test_setup():
         assert state.config_version == 1
 
 
-def test_pairing_remove_last_admin():
+def test_pairing_remove_last_admin() -> None:
     """Test if pairing methods work."""
     with (
         patch("pyhap.util.get_local_address"),
@@ -71,14 +73,14 @@ def test_pairing_remove_last_admin():
     assert not state.paired
     assert not state.paired_clients
 
-    state.add_paired_client(CLIENT_UUID_BYTES, "public", HAP_PERMISSIONS.ADMIN)
+    state.add_paired_client(CLIENT_UUID_BYTES, b"public", HAP_PERMISSIONS.ADMIN)
     assert state.paired
-    assert state.paired_clients == {CLIENT_UUID: "public"}
+    assert state.paired_clients == {CLIENT_UUID: b"public"}
     assert state.client_properties == {CLIENT_UUID: {CLIENT_PROP_PERMS: 1}}
 
-    state.add_paired_client(CLIENT2_UUID_BYTES, "public", HAP_PERMISSIONS.USER)
+    state.add_paired_client(CLIENT2_UUID_BYTES, b"public", HAP_PERMISSIONS.USER)
     assert state.paired
-    assert state.paired_clients == {CLIENT_UUID: "public", CLIENT2_UUID: "public"}
+    assert state.paired_clients == {CLIENT_UUID: b"public", CLIENT2_UUID: b"public"}
     assert state.client_properties == {
         CLIENT_UUID: {CLIENT_PROP_PERMS: 1},
         CLIENT2_UUID: {CLIENT_PROP_PERMS: 0},
@@ -94,7 +96,7 @@ def test_pairing_remove_last_admin():
     assert not state.paired_clients
 
 
-def test_pairing_two_admins():
+def test_pairing_two_admins() -> None:
     """Test if pairing methods work."""
     with (
         patch("pyhap.util.get_local_address"),
@@ -107,14 +109,14 @@ def test_pairing_two_admins():
     assert not state.paired
     assert not state.paired_clients
 
-    state.add_paired_client(CLIENT_UUID_BYTES, "public", HAP_PERMISSIONS.ADMIN)
+    state.add_paired_client(CLIENT_UUID_BYTES, b"public", HAP_PERMISSIONS.ADMIN)
     assert state.paired
-    assert state.paired_clients == {CLIENT_UUID: "public"}
+    assert state.paired_clients == {CLIENT_UUID: b"public"}
     assert state.client_properties == {CLIENT_UUID: {CLIENT_PROP_PERMS: 1}}
 
-    state.add_paired_client(CLIENT2_UUID_BYTES, "public", HAP_PERMISSIONS.ADMIN)
+    state.add_paired_client(CLIENT2_UUID_BYTES, b"public", HAP_PERMISSIONS.ADMIN)
     assert state.paired
-    assert state.paired_clients == {CLIENT_UUID: "public", CLIENT2_UUID: "public"}
+    assert state.paired_clients == {CLIENT_UUID: b"public", CLIENT2_UUID: b"public"}
     assert state.client_properties == {
         CLIENT_UUID: {CLIENT_PROP_PERMS: 1},
         CLIENT2_UUID: {CLIENT_PROP_PERMS: 1},
@@ -123,6 +125,6 @@ def test_pairing_two_admins():
     # Removing the admin should leave the other admin
     state.remove_paired_client(CLIENT2_UUID)
     assert state.paired
-    assert state.paired_clients == {CLIENT_UUID: "public"}
+    assert state.paired_clients == {CLIENT_UUID: b"public"}
     assert state.client_properties == {CLIENT_UUID: {CLIENT_PROP_PERMS: 1}}
     assert not state.is_admin(CLIENT2_UUID)

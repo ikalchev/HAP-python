@@ -7,8 +7,8 @@ and completes a ``control``/``hello`` handshake; from there both sides exchange
 request/response/event messages on named protocols (e.g. ``dataSend`` for
 recording fragment transfer).
 
-The listener does not know the HAP session shared secret on its own; the camera
-accessory registers a transport with the secret when it answers
+The listener does not know the HAP session shared secret; the camera accessory
+registers a transport with keys derived from the session when it answers
 SetupDataStreamTransport, and the first frame from the controller is matched
 against the registered transports by trial decryption.
 """
@@ -16,16 +16,22 @@ against the registered transports by trial decryption.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+import errno
+import functools
 import logging
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 from pyhap import hds
+from pyhap.hap_crypto import hap_hkdf
 from pyhap.hds_protocol import EVENT, REQUEST, RESPONSE, HDSStatus, Message
 
 logger = logging.getLogger(__name__)
 
-RequestHandler = Callable[[Message], Tuple[int, dict]]  # returns (HDSStatus, body)
+RequestHandler = Callable[
+    [Message], tuple[int, dict[str, Any]]
+]  # returns (HDSStatus, body)
 EventHandler = Callable[[Message], None]
 
 # A connection that has not completed the control handshake buffers only the
@@ -36,6 +42,10 @@ _BIND_TIMEOUT = 10.0
 # Controllers re-run SetupDataStreamTransport and may abandon transports; bound
 # the registrations we keep (and trial-decrypt against) so they cannot pile up.
 _MAX_PENDING_TRANSPORTS = 16
+# A peer that has not drained our send buffer for this long is gone.
+_DRAIN_TIMEOUT = 30.0
+_BIND_ATTEMPTS = 3
+_STOP_TIMEOUT = 10.0
 
 
 @dataclass
@@ -47,17 +57,17 @@ class _PendingTransport:
 class HDSConnection(asyncio.Protocol):
     """One HDS TCP connection: key binding, framing and message dispatch."""
 
-    def __init__(self, listener: "HDSListener") -> None:
+    def __init__(self, listener: HDSListener) -> None:
         self._listener = listener
         self._buffer = bytearray()
-        self._crypto: Optional[hds.HDSCrypto] = None
-        self._transport: Optional[asyncio.Transport] = None
-        self._request_handlers: Dict[Tuple[str, str], RequestHandler] = {}
-        self._event_handlers: Dict[Tuple[str, str], EventHandler] = {}
-        self._pending_requests: Dict[int, asyncio.Future] = {}
+        self._crypto: hds.HDSCrypto | None = None
+        self._transport: asyncio.Transport | None = None
+        self._request_handlers: dict[tuple[str, str], RequestHandler] = {}
+        self._event_handlers: dict[tuple[str, str], EventHandler] = {}
+        self._pending_requests: dict[int, asyncio.Future[Message]] = {}
         self._next_request_id = 1
-        self._bind_timeout_handle: Optional[asyncio.TimerHandle] = None
-        self._close_callbacks: List[Callable[["HDSConnection"], None]] = []
+        self._bind_timeout_handle: asyncio.TimerHandle | None = None
+        self._close_callbacks: list[Callable[[HDSConnection], None]] = []
         # Writable unless the transport has asked us to pause (back-pressure).
         self._can_write = asyncio.Event()
         self._can_write.set()
@@ -80,7 +90,7 @@ class HDSConnection(asyncio.Protocol):
         """Register a handler for a fire-and-forget event."""
         self._event_handlers[(protocol, topic)] = handler
 
-    def add_close_callback(self, callback: Callable[["HDSConnection"], None]) -> None:
+    def add_close_callback(self, callback: Callable[[HDSConnection], None]) -> None:
         """Register a callback invoked once when the connection is lost.
 
         Several owners (the listener's connection set, any recording stream
@@ -91,17 +101,17 @@ class HDSConnection(asyncio.Protocol):
 
     # --- send API ---
 
-    def send_event(self, protocol: str, topic: str, message: dict) -> None:
+    def send_event(self, protocol: str, topic: str, message: dict[str, Any]) -> None:
         """Send an event message (no response expected)."""
         self._send(Message(protocol, EVENT, topic, message))
 
     def send_request(
-        self, protocol: str, topic: str, message: dict
-    ) -> "asyncio.Future[Message]":
+        self, protocol: str, topic: str, message: dict[str, Any]
+    ) -> asyncio.Future[Message]:
         """Send a request; the future resolves with the controller's response."""
         request_id = self._next_request_id
         self._next_request_id += 1
-        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        future: asyncio.Future[Message] = asyncio.get_running_loop().create_future()
         self._pending_requests[request_id] = future
         self._send(Message(protocol, REQUEST, topic, message, id=request_id))
         return future
@@ -110,10 +120,23 @@ class HDSConnection(asyncio.Protocol):
         if self._transport is not None:
             self._transport.close()
 
+    def abort(self) -> None:
+        """Close without flushing the send buffer (dead or stalled peer)."""
+        if self._transport is not None:
+            self._transport.abort()
+
+    def track_task(self, task: asyncio.Task[None]) -> None:
+        """Let the listener await ``task`` (e.g. a recording stream) on stop."""
+        self._listener.track_task(task)
+
     # --- asyncio.Protocol ---
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
-        self._transport = transport  # type: ignore[assignment]
+        if TYPE_CHECKING:
+            # TCP transports are always full asyncio transports.
+            assert isinstance(transport, asyncio.Transport)  # noqa: S101
+        self._transport = transport
+        self._listener._connections.add(self)
         self._bind_timeout_handle = asyncio.get_running_loop().call_later(
             _BIND_TIMEOUT, self._on_bind_timeout
         )
@@ -145,10 +168,21 @@ class HDSConnection(asyncio.Protocol):
         self._can_write.set()
 
     async def drain(self) -> None:
-        """Wait until the transport can accept more data (write back-pressure)."""
-        await self._can_write.wait()
+        """Wait until the transport can accept more data (write back-pressure).
 
-    def connection_lost(self, exc: Optional[Exception]) -> None:
+        A peer that stops reading is aborted after ``_DRAIN_TIMEOUT`` seconds.
+        """
+        try:
+            await asyncio.wait_for(self._can_write.wait(), _DRAIN_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.info("Aborting HDS connection: peer stopped reading")
+            self.abort()
+            # connection_lost wakes us and cancels the recording streams, so a
+            # stalled hub is not reported as a failed stream.
+            await self._can_write.wait()
+            raise ConnectionResetError("HDS peer stopped reading") from None
+
+    def connection_lost(self, exc: Exception | None) -> None:
         if self._bind_timeout_handle is not None:
             self._bind_timeout_handle.cancel()
             self._bind_timeout_handle = None
@@ -158,7 +192,7 @@ class HDSConnection(asyncio.Protocol):
             if not future.done():
                 future.cancel()
         self._pending_requests.clear()
-        self._listener._connections.discard(self)  # pylint: disable=protected-access
+        self._listener._connections.discard(self)
         for callback in self._close_callbacks:
             callback(self)
         self._close_callbacks.clear()
@@ -170,15 +204,15 @@ class HDSConnection(asyncio.Protocol):
         if len(self._buffer) < 4:
             return False
         # The listener and its connections cooperate within this module.
-        # pylint: disable=protected-access
         for pending in list(self._listener._pending):
             trial = hds.HDSCrypto(pending.encrypt_key, pending.decrypt_key)
             probe = bytearray(self._buffer)
             try:
                 payload = trial.decrypt_frame(probe)
-            # Wrong keys fail the auth tag; try the next pending transport.
-            except Exception:  # pylint: disable=broad-exception-caught
-                continue  # nosec B112
+            # Wrong keys fail the auth tag with varying exception types;
+            # any failure means "try the next pending transport".
+            except Exception:  # noqa: S112, BLE001
+                continue
             if payload is None:
                 # Right keys but the frame is not complete yet; wait for more.
                 return False
@@ -188,16 +222,18 @@ class HDSConnection(asyncio.Protocol):
                 self._bind_timeout_handle.cancel()
                 self._bind_timeout_handle = None
             self._listener._pending.remove(pending)
-            self._listener._connections.add(self)
             self._dispatch(payload)
             return True
         return False
 
     def _drain_frames(self) -> None:
+        assert self._crypto is not None  # noqa: S101
         while True:
             try:
                 payload = self._crypto.decrypt_frame(self._buffer)
-            except Exception:  # pylint: disable=broad-exception-caught
+            # A corrupt or hostile frame can make decryption fail with
+            # any exception type; drop the connection regardless.
+            except Exception:  # noqa: BLE001
                 logger.warning("Dropping HDS connection on frame decrypt failure")
                 self.close()
                 return
@@ -229,7 +265,7 @@ class HDSConnection(asyncio.Protocol):
         else:
             try:
                 status, response_message = handler(message)
-            except Exception:  # pylint: disable=broad-exception-caught
+            except Exception:
                 logger.warning(
                     "HDS request handler for %s/%s failed",
                     message.protocol,
@@ -258,18 +294,48 @@ class HDSListener:
     """An asyncio TCP server accepting HDS connections."""
 
     def __init__(self) -> None:
-        self._server: Optional[asyncio.AbstractServer] = None
+        self._servers: list[asyncio.Server] = []
         self._pending = []
         self._connections = set()
-        self.on_connection: Optional[Callable[[HDSConnection], None]] = None
+        self._tasks: set[asyncio.Task[None]] = set()
+        self.on_connection: Callable[[HDSConnection], None] | None = None
 
-    async def start(self, host: str = "0.0.0.0") -> int:  # nosec B104
-        """Bind the server to an ephemeral port and return it."""
+    async def start(
+        self,
+        host: str | Sequence[str] = "0.0.0.0",  # noqa: S104
+    ) -> int:
+        """Bind one address or several to one ephemeral port and return it."""
+        hosts = [host] if isinstance(host, str) else list(host)
+        if not hosts:
+            raise ValueError("HDS listener needs at least one address")
         loop = asyncio.get_running_loop()
-        # The host is a caller-configurable parameter; the default matches the
-        # HAP server, which also listens on all interfaces by default.
-        self._server = await loop.create_server(self._make_connection, host, 0)  # nosec B104
-        return self.port
+        attempts = _BIND_ATTEMPTS
+        while True:
+            try:
+                for bind_host in hosts:
+                    # The setup response carries a single port, so every
+                    # socket must listen on the one the first bind picked.
+                    port = self.port if self._servers else 0
+                    server = await loop.create_server(
+                        self._make_connection, bind_host, port
+                    )
+                    self._servers.append(server)
+                    if len({sock.getsockname()[1] for sock in server.sockets}) > 1:
+                        # A wildcard host binds each family on its own port.
+                        port = server.sockets[0].getsockname()[1]
+                        server.close()
+                        # Nobody knows the port yet, so no connection holds this up.
+                        await server.wait_closed()
+                        self._servers[-1] = await loop.create_server(
+                            self._make_connection, bind_host, port
+                        )
+                return self.port
+            except OSError as err:
+                await self.stop()
+                attempts -= 1
+                # That port may be taken in another address family, try a new one.
+                if err.errno != errno.EADDRINUSE or not attempts:
+                    raise
 
     def _make_connection(self) -> HDSConnection:
         connection = HDSConnection(self)
@@ -279,31 +345,65 @@ class HDSListener:
 
     @property
     def port(self) -> int:
-        return self._server.sockets[0].getsockname()[1]
+        """The listening port of the first bound server."""
+        return int(self._servers[0].sockets[0].getsockname()[1])
+
+    def track_task(self, task: asyncio.Task[None]) -> None:
+        """Await ``task`` (e.g. a recording stream) with timeout on stop."""
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     def register_transport(
         self, shared_secret: bytes, controller_key_salt: bytes
-    ) -> bytes:
+    ) -> bytes | None:
+        """Register an expected transport from a raw HAP session shared secret.
+
+        Entry point for tests and controller-side tooling. The camera uses
+        :meth:`register_session_transport` and never sees the secret.
+        """
+        return self.register_session_transport(
+            functools.partial(hap_hkdf, shared_secret), controller_key_salt
+        )
+
+    def register_session_transport(
+        self,
+        derive_key: Callable[[bytes, bytes], bytes | None],
+        controller_key_salt: bytes,
+    ) -> bytes | None:
         """Register an expected transport, returning the accessory key salt.
 
         The camera calls this when it answers SetupDataStreamTransport, passing
-        the HAP session shared secret and the controller's key salt. The
-        returned accessory key salt goes into the setup response.
+        ``derive_key(salt, info)`` bound to the writing HAP session and the
+        controller's key salt. The returned accessory key salt goes into the
+        setup response. Returns ``None`` and registers nothing without a session.
         """
         accessory_key_salt = hds.new_key_salt()
-        encrypt_key, decrypt_key = hds.derive_keys(
-            shared_secret, controller_key_salt, accessory_key_salt
+        keys = hds.derive_session_keys(
+            derive_key, controller_key_salt, accessory_key_salt
         )
-        self._pending.append(_PendingTransport(encrypt_key, decrypt_key))
+        if keys is None:
+            return None
+        self._pending.append(_PendingTransport(*keys))
         # Evict the oldest stale registration if the controller keeps setting up
         # transports it never connects to.
         while len(self._pending) > _MAX_PENDING_TRANSPORTS:
             self._pending.pop(0)
         return accessory_key_salt
 
-    async def stop(self) -> None:
+    async def stop(self, timeout: float = _STOP_TIMEOUT) -> None:
+        """Drop all connections and wait up to ``timeout`` for their streams."""
         for connection in list(self._connections):
-            connection.close()
-        if self._server is not None:
-            self._server.close()
-            await self._server.wait_closed()
+            connection.abort()
+        for server in self._servers:
+            server.close()
+            await server.wait_closed()
+        self._servers = []
+        if self._tasks:
+            # Losing the connection cancels each stream, let its cleanup finish.
+            _, pending = await asyncio.wait(set(self._tasks), timeout=timeout)
+            if pending:
+                logger.warning(
+                    "%d HDS recording tasks did not stop within %s s",
+                    len(pending),
+                    timeout,
+                )

@@ -1,12 +1,9 @@
-base36
-flake8
-flake8-docstrings
-pydocstyle
-pylint
+# Test/lint tooling only. Library dependencies (including the optional
+# QRCode/Talkback extras) come from the package itself - tox installs it,
+# so use e.g. `pip install -e ".[QRCode,Talkback]"` in a dev venv.
 pytest
 pytest-asyncio
 pytest-cov
 pytest-timeout>=1.2.1
-pyqrcode
-pylibsrtp
-tox
+ruff
+ty

@@ -1,9 +1,62 @@
 """Tests for the HAPCrypto."""
 
+from cryptography.exceptions import InvalidTag
+import pytest
+
 from pyhap import hap_crypto
 
 
-def test_round_trip():
+def test_accessory_client_round_trip() -> None:
+    """Test an accessory and a client-side instance round trip both directions."""
+    plaintext = b"bobdata1232" * 1000
+    key = b"mykeydsfdsfdsfsdfdsfsdf"
+
+    accessory = hap_crypto.HAPCrypto(key)
+    client = hap_crypto.HAPCrypto(key, client_side=True)
+
+    # Client -> accessory direction
+    encrypted = bytes(b"".join(client.encrypt(plaintext)))
+    accessory.receive_data(encrypted)
+    assert accessory.decrypt() == plaintext
+
+    # Accessory -> client direction
+    encrypted = bytes(b"".join(accessory.encrypt(plaintext)))
+    client.receive_data(encrypted)
+    assert client.decrypt() == plaintext
+
+
+def test_client_side_swaps_cipher_direction() -> None:
+    """Test client_side instances use the opposite cipher keys of the default."""
+    plaintext = b"data"
+    key = b"mykeydsfdsfdsfsdfdsfsdf"
+
+    # Two instances on the same side cannot decrypt each other, as they
+    # encrypt with the outgoing key and expect the incoming key.
+    encrypted = bytes(b"".join(hap_crypto.HAPCrypto(key).encrypt(plaintext)))
+    accessory_b = hap_crypto.HAPCrypto(key)
+    accessory_b.receive_data(encrypted)
+    with pytest.raises(InvalidTag):
+        accessory_b.decrypt()
+
+    encrypted = bytes(
+        b"".join(hap_crypto.HAPCrypto(key, client_side=True).encrypt(plaintext))
+    )
+    client_b = hap_crypto.HAPCrypto(key, client_side=True)
+    client_b.receive_data(encrypted)
+    with pytest.raises(InvalidTag):
+        client_b.decrypt()
+
+    # An accessory and a client_side instance derive complementary keys,
+    # so they can talk to each other (both directions are covered by
+    # test_accessory_client_round_trip).
+    accessory_a = hap_crypto.HAPCrypto(key)
+    client_a = hap_crypto.HAPCrypto(key, client_side=True)
+    encrypted = bytes(b"".join(accessory_a.encrypt(plaintext)))
+    client_a.receive_data(encrypted)
+    assert client_a.decrypt() == plaintext
+
+
+def test_round_trip() -> None:
     """Test we can roundtrip data by using the same cipher info."""
     plaintext = b"bobdata1232" * 1000
     key = b"mykeydsfdsfdsfsdfdsfsdf"
@@ -20,13 +73,39 @@ def test_round_trip():
     assert crypto.decrypt() == b""
 
     # Receive not a whole block
-    crypto.receive_data(encrypted[:50])
+    crypto.receive_data(bytes(encrypted[:50]))
     assert crypto.decrypt() == b""
 
     del encrypted[:50]
     # Receive the rest of the block
-    crypto.receive_data(encrypted)
+    crypto.receive_data(bytes(encrypted))
 
     decrypted = crypto.decrypt()
 
     assert decrypted == plaintext
+
+
+def test_decrypt_interleaved_chunks() -> None:
+    """Test decrypt drains completed blocks as ciphertext arrives in chunks.
+
+    The chunk size intentionally does not align with the 2 + 1024 + 16 byte
+    frame of a full block, so each decrypt call may end with both completed
+    blocks returned and a partial frame buffered for the next receive.
+    """
+    plaintext = b"interleaved-chunk-data" * 2000  # spans many 1024-byte blocks
+    key = b"mykeydsfdsfdsfsdfdsfsdf"
+
+    client = hap_crypto.HAPCrypto(key, client_side=True)
+    accessory = hap_crypto.HAPCrypto(key)
+
+    encrypted = bytes(b"".join(client.encrypt(plaintext)))
+
+    parts = []
+    chunk_size = 1500
+    for offset in range(0, len(encrypted), chunk_size):
+        accessory.receive_data(encrypted[offset : offset + chunk_size])
+        parts.append(accessory.decrypt())
+
+    assert b"".join(parts) == plaintext
+    # Everything was drained; only a partial frame would remain buffered.
+    assert accessory.decrypt() == b""

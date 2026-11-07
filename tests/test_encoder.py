@@ -13,7 +13,7 @@ from pyhap.state import State
 from pyhap.util import generate_mac
 
 
-def test_persist_and_load():
+def test_persist_and_load() -> None:
     """Stores an Accessory and then loads the stored state into another
     Accessory. Tests if the two accessories have the same property values.
     """
@@ -73,8 +73,8 @@ def test_persist_and_load():
     assert state.client_properties == config_loaded.client_properties
 
 
-def test_migration_to_include_client_properties():
-    """Verify we build client properties if its missing since it was not present in older versions."""
+def test_migration_to_include_client_properties() -> None:
+    """Verify client properties are built when missing from older versions."""
     mac = generate_mac()
     _pk = ed25519.Ed25519PrivateKey.generate()
     sample_client_pk = _pk.public_key()

@@ -1,10 +1,9 @@
 """This module partially implements crypto for HAP."""
 
+from collections.abc import Iterable
 from functools import partial
 import logging
-import struct
 from struct import Struct
-from typing import Iterable, List
 
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.hazmat.backends import default_backend
@@ -16,7 +15,8 @@ logger = logging.getLogger(__name__)
 CRYPTO_BACKEND = default_backend()
 
 PACK_NONCE = partial(Struct("<LQ").pack, 0)
-PACK_LENGTH = Struct("H").pack
+PACK_LENGTH = Struct("<H").pack
+UNPACK_LENGTH = Struct("<H").unpack
 
 
 class HAP_CRYPTO:
@@ -26,12 +26,12 @@ class HAP_CRYPTO:
     TLS_NONCE_LEN = 12  # bytes, length of TLS encryption nonce
 
 
-def pad_tls_nonce(nonce, total_len=HAP_CRYPTO.TLS_NONCE_LEN):
+def pad_tls_nonce(nonce: bytes, total_len: int = HAP_CRYPTO.TLS_NONCE_LEN) -> bytes:
     """Pads a nonce with zeroes so that total_len is reached."""
     return nonce.rjust(total_len, b"\x00")
 
 
-def hap_hkdf(key, salt, info):
+def hap_hkdf(key: bytes, salt: bytes, info: bytes) -> bytes:
     """Just a shorthand."""
     hkdf = HKDF(
         algorithm=HAP_CRYPTO.HKDF_HASH,
@@ -55,19 +55,27 @@ class HAPCrypto:
     OUT_CIPHER_INFO = b"Control-Read-Encryption-Key"
     IN_CIPHER_INFO = b"Control-Write-Encryption-Key"
 
-    def __init__(self, shared_key) -> None:
+    def __init__(self, shared_key: bytes, *, client_side: bool = False) -> None:
         self._out_count = 0
         self._in_count = 0
         self._crypt_in_buffer = bytearray()  # Encrypted buffer
-        self.reset(shared_key)
+        self.reset(shared_key, client_side)
 
-    def reset(self, shared_key):
-        """Setup the ciphers."""
+    def reset(self, shared_key: bytes, client_side: bool = False) -> None:
+        """Setup the ciphers.
+
+        HAP derives separate encryption keys for each direction of the
+        session. By default the ciphers are set up from the accessory's
+        point of view. A HAP controller (client) must pass client_side=True
+        to swap the read and write keys.
+        """
+        out_info = self.IN_CIPHER_INFO if client_side else self.OUT_CIPHER_INFO
+        in_info = self.OUT_CIPHER_INFO if client_side else self.IN_CIPHER_INFO
         self._out_cipher = ChaCha20Poly1305(
-            hap_hkdf(shared_key, self.CIPHER_SALT, self.OUT_CIPHER_INFO)
+            hap_hkdf(shared_key, self.CIPHER_SALT, out_info)
         )
         self._in_cipher = ChaCha20Poly1305(
-            hap_hkdf(shared_key, self.CIPHER_SALT, self.IN_CIPHER_INFO)
+            hap_hkdf(shared_key, self.CIPHER_SALT, in_info)
         )
 
     def receive_data(self, buffer: bytes) -> None:
@@ -80,42 +88,44 @@ class HAPCrypto:
         The received full cipher blocks are decrypted and returned and partial cipher
         blocks are buffered locally.
         """
-        result = b""
         crypt_in_buffer = self._crypt_in_buffer
         length_length = self.LENGTH_LENGTH
         tag_length = HAP_CRYPTO.TAG_LENGTH
+        # Decrypted blocks are collected in a list and joined once: building the
+        # result with ``+=`` is quadratic in the number of blocks for large bodies.
+        result = []
 
         while len(crypt_in_buffer) > self.MIN_BLOCK_LENGTH:
             block_length_bytes = crypt_in_buffer[:length_length]
-            block_size = struct.unpack("H", block_length_bytes)[0]
-            block_size_with_length = length_length + block_size + tag_length
-
-            if len(crypt_in_buffer) < block_size_with_length:
-                logger.debug("Incoming buffer does not have the full block")
-                return result
-
-            # Trim off the length
-            del crypt_in_buffer[:length_length]
-
+            block_size = UNPACK_LENGTH(block_length_bytes)[0]
             data_size = block_size + tag_length
+
+            if len(crypt_in_buffer) < length_length + data_size:
+                logger.debug("Incoming buffer does not have the full block")
+                break
+
             nonce = PACK_NONCE(self._in_count)
 
-            result += self._in_cipher.decrypt(
-                nonce,
-                bytes(crypt_in_buffer[:data_size]),
-                bytes(block_length_bytes),
+            result.append(
+                self._in_cipher.decrypt(
+                    nonce,
+                    bytes(crypt_in_buffer[length_length : length_length + data_size]),
+                    bytes(block_length_bytes),
+                )
             )
 
             self._in_count += 1
 
-            # Now trim out the decrypted data
-            del crypt_in_buffer[:data_size]
+            # Now trim off the length prefix and the decrypted data in one memmove
+            del crypt_in_buffer[: length_length + data_size]
 
-        return result
+        if not result:
+            return b""
+        return b"".join(result)
 
     def encrypt(self, data: bytes) -> Iterable[bytes]:
         """Encrypt and send the return bytes."""
-        result: List[bytes] = []
+        result: list[bytes] = []
         offset = 0
         total = len(data)
         while offset < total:

@@ -1,5 +1,4 @@
-"""
-Various classes that construct representations of
+"""Various classes that construct representations of
 HAP services and characteristics from a json
 representation.
 
@@ -8,7 +7,9 @@ instance of it (as long as it is described in some
 json file).
 """
 
+import functools
 import logging
+from typing import Any
 
 import orjson
 
@@ -16,7 +17,6 @@ from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
 from pyhap.characteristic import Characteristic
 from pyhap.service import Service
 
-_loader = None
 logger = logging.getLogger(__name__)
 
 
@@ -27,18 +27,22 @@ class Loader:
     .. seealso:: pyhap/resources/characteristics.json
     """
 
-    def __init__(self, path_char=CHARACTERISTICS_FILE, path_service=SERVICES_FILE):
+    def __init__(
+        self,
+        path_char: Any = CHARACTERISTICS_FILE,
+        path_service: Any = SERVICES_FILE,
+    ) -> None:
         """Initialize a new Loader instance."""
         self.char_types = self._read_file(path_char)
         self.serv_types = self._read_file(path_service)
 
     @staticmethod
-    def _read_file(path):
+    def _read_file(path: Any) -> Any:
         """Read file and return a dict."""
-        with open(path, "r", encoding="utf8") as file:
-            return orjson.loads(file.read())  # pylint: disable=no-member
+        with open(path, encoding="utf8") as file:
+            return orjson.loads(file.read())
 
-    def get_char(self, name):
+    def get_char(self, name: str) -> Characteristic:
         """Return new Characteristic object."""
         char_dict = self.char_types[name].copy()
         if (
@@ -49,7 +53,7 @@ class Loader:
             raise KeyError(f"Could not load char {name}!")
         return Characteristic.from_dict(name, char_dict, from_loader=True)
 
-    def get_service(self, name):
+    def get_service(self, name: str) -> Service:
         """Return new service object."""
         service_dict = self.serv_types[name].copy()
         if "RequiredCharacteristics" not in service_dict or "UUID" not in service_dict:
@@ -57,7 +61,7 @@ class Loader:
         return Service.from_dict(name, service_dict, self)
 
     @classmethod
-    def from_dict(cls, char_dict=None, serv_dict=None):
+    def from_dict(cls, char_dict: Any = None, serv_dict: Any = None) -> "Loader":
         """Create a new instance directly from json dicts."""
         loader = cls.__new__(Loader)
         loader.char_types = char_dict or {}
@@ -65,13 +69,10 @@ class Loader:
         return loader
 
 
-def get_loader():
+@functools.cache
+def get_loader() -> Loader:
     """Get a service and char loader.
 
     If already initialized it returns the existing one.
     """
-    # pylint: disable=global-statement
-    global _loader
-    if _loader is None:
-        _loader = Loader()
-    return _loader
+    return Loader()

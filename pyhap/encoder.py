@@ -5,6 +5,7 @@ it can work properly after a restart.
 """
 
 import json
+from typing import Any
 import uuid
 
 from cryptography.hazmat.primitives import serialization
@@ -19,8 +20,8 @@ class AccessoryEncoder:
 
     The AccessoryEncoder is used by the AccessoryDriver to persist and restore the
     state of an Accessory between restarts. This is needed in order to allow iOS
-    clients to see the same MAC, public key, etc. of the Accessory they paired with, thus
-    allowing an Accessory to "be remembered".
+    clients to see the same MAC, public key, etc. of the Accessory they paired
+    with, thus allowing an Accessory to "be remembered".
 
     The idea is:
         - The Accessory(ies) is created and added to an AccessoryDriver.
@@ -47,7 +48,7 @@ class AccessoryEncoder:
     """
 
     @staticmethod
-    def persist(fp, state: State):
+    def persist(fp: Any, state: State) -> None:
         """Persist the state of the given Accessory to the given file object.
 
         Persists:
@@ -56,6 +57,7 @@ class AccessoryEncoder:
             - UUID and public key of paired clients.
             - Config version.
             - Accessories Hash
+            - Per-accessory state, e.g. HKSV recording settings.
         """
         paired_clients = {
             str(client): bytes.hex(key) for client, key in state.paired_clients.items()
@@ -73,6 +75,9 @@ class AccessoryEncoder:
             "client_properties": client_properties,
             "accessories_hash": state.accessories_hash,
             "client_uuid_to_bytes": client_uuid_to_bytes,
+            "accessory_states": {
+                str(aid): data for aid, data in state.accessory_states.items() if data
+            },
             "private_key": bytes.hex(
                 state.private_key.private_bytes(
                     encoding=serialization.Encoding.Raw,
@@ -90,7 +95,7 @@ class AccessoryEncoder:
         json.dump(config_state, fp)
 
     @staticmethod
-    def load_into(fp, state: State) -> None:
+    def load_into(fp: Any, state: State) -> None:
         """Load the accessory state from the given file object into the given Accessory.
 
         @see: AccessoryEncoder.persist
@@ -124,4 +129,13 @@ class AccessoryEncoder:
         state.uuid_to_bytes = {
             uuid.UUID(client): bytes.fromhex(key)
             for client, key in loaded.get("client_uuid_to_bytes", {}).items()
+        }
+        accessory_states = loaded.get("accessory_states")
+        if not isinstance(accessory_states, dict):
+            accessory_states = {}
+        # Drop damaged entries instead of failing to load the pairings.
+        state.accessory_states = {
+            int(aid): data
+            for aid, data in accessory_states.items()
+            if aid.isdecimal() and isinstance(data, dict)
         }

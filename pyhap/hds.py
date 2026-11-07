@@ -13,10 +13,12 @@ protocol (control/dataSend topics) build on top of it.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+import functools
 import os
 import struct
-from typing import Optional, Tuple
+from typing import cast
 
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
@@ -76,7 +78,7 @@ class SetupRequest:
     session_command: bytes = SESSION_COMMAND_START
 
     @classmethod
-    def decode(cls, data: bytes) -> "SetupRequest":
+    def decode(cls, data: bytes) -> SetupRequest:
         objs = tlv.decode(data)
         return cls(
             controller_key_salt=objs[SETUP_TYPES["CONTROLLER_KEY_SALT"]],
@@ -111,16 +113,40 @@ def encode_setup_response(
 
 def derive_keys(
     shared_secret: bytes, controller_key_salt: bytes, accessory_key_salt: bytes
-) -> Tuple[bytes, bytes]:
+) -> tuple[bytes, bytes]:
     """Derive the (encrypt, decrypt) HDS keys from the HAP session shared secret.
 
     ``encrypt`` seals accessory->controller frames; ``decrypt`` opens
     controller->accessory frames. The salt is the concatenation of the two key
     salts, matching the controller's derivation.
     """
+    # hap_hkdf always returns a key, so this is never None.
+    return cast(
+        tuple[bytes, bytes],
+        derive_session_keys(
+            functools.partial(hap_hkdf, shared_secret),
+            controller_key_salt,
+            accessory_key_salt,
+        ),
+    )
+
+
+def derive_session_keys(
+    derive_key: Callable[[bytes, bytes], bytes | None],
+    controller_key_salt: bytes,
+    accessory_key_salt: bytes,
+) -> tuple[bytes, bytes] | None:
+    """Derive the (encrypt, decrypt) HDS keys like :func:`derive_keys`.
+
+    ``derive_key(salt, info)`` derives from the HAP session key, e.g.
+    ``AccessoryDriver.derive_session_key`` bound to the client, so the session
+    key itself is never read. Returns ``None`` when it has no session.
+    """
     salt = controller_key_salt + accessory_key_salt
-    encrypt_key = hap_hkdf(shared_secret, salt, _KEY_INFO_ACCESSORY_ENCRYPT)
-    decrypt_key = hap_hkdf(shared_secret, salt, _KEY_INFO_ACCESSORY_DECRYPT)
+    encrypt_key = derive_key(salt, _KEY_INFO_ACCESSORY_ENCRYPT)
+    decrypt_key = derive_key(salt, _KEY_INFO_ACCESSORY_DECRYPT)
+    if encrypt_key is None or decrypt_key is None:
+        return None
     return encrypt_key, decrypt_key
 
 
@@ -159,7 +185,7 @@ class HDSCrypto:
         ciphertext = self._encrypt_cipher.encrypt(nonce, payload, header)
         return header + ciphertext
 
-    def decrypt_frame(self, buffer: bytearray) -> Optional[bytes]:
+    def decrypt_frame(self, buffer: bytearray) -> bytes | None:
         """Decrypt one complete frame from the front of ``buffer``.
 
         Returns the plaintext payload and removes the frame from ``buffer``, or

@@ -8,10 +8,10 @@ zero-length type-0 TLV).
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import IntEnum
 import struct
-from typing import List, Union
 
 from pyhap import tlv
 
@@ -67,11 +67,11 @@ def _int(data: bytes) -> int:
     return int.from_bytes(data, "little")
 
 
-def _join(items: List[bytes]) -> bytes:
+def _join(items: list[bytes]) -> bytes:
     return _SEPARATOR.join(items)
 
 
-def _iter(data: bytes):
+def _iter(data: bytes) -> Iterator[tuple[int, bytes]]:
     offset = 0
     while offset < len(data):
         tag = data[offset]
@@ -85,14 +85,14 @@ def _iter(data: bytes):
         yield tag, value
 
 
-def _decode(data: bytes) -> dict:
-    out: dict = {}
+def _decode(data: bytes) -> dict[int, bytes]:
+    out: dict[int, bytes] = {}
     for tag, value in _iter(data):
         out.setdefault(tag, value)
     return out
 
 
-def _split(data: bytes) -> list:
+def _split(data: bytes) -> list[bytes]:
     items = []
     current = b""
     for tag, value in _iter(data):
@@ -117,7 +117,7 @@ class MediaContainerConfiguration:
         return tlv.encode(b"\x01", _u8(self.container_type), b"\x02", params)
 
     @classmethod
-    def decode(cls, data: bytes) -> "MediaContainerConfiguration":
+    def decode(cls, data: bytes) -> MediaContainerConfiguration:
         d = _decode(data)
         params = _decode(d[2])
         return cls(
@@ -130,7 +130,7 @@ class MediaContainerConfiguration:
 class SupportedRecordingConfiguration:
     prebuffer_length_ms: int = 4000
     event_triggers: int = EventTrigger.MOTION
-    media_containers: List[MediaContainerConfiguration] = field(
+    media_containers: list[MediaContainerConfiguration] = field(
         default_factory=lambda: [MediaContainerConfiguration()]
     )
 
@@ -145,7 +145,7 @@ class SupportedRecordingConfiguration:
         )
 
     @classmethod
-    def decode(cls, data: bytes) -> "SupportedRecordingConfiguration":
+    def decode(cls, data: bytes) -> SupportedRecordingConfiguration:
         d = _decode(data)
         return cls(
             prebuffer_length_ms=_int(d[1]),
@@ -173,7 +173,7 @@ class VideoAttributes:
         )
 
     @classmethod
-    def decode(cls, data: bytes) -> "VideoAttributes":
+    def decode(cls, data: bytes) -> VideoAttributes:
         d = _decode(data)
         return cls(width=_int(d[1]), height=_int(d[2]), frame_rate=_int(d[3]))
 
@@ -181,11 +181,11 @@ class VideoAttributes:
 @dataclass
 class VideoCodecConfiguration:
     codec_type: VideoCodecType
-    profile: Union[int, List[int]]
-    level: Union[int, List[int]]
+    profile: int | list[int]
+    level: int | list[int]
     bitrate_kbps: int
     iframe_interval_ms: int
-    attributes: List[VideoAttributes]
+    attributes: list[VideoAttributes]
 
     def encode(self) -> bytes:
         # Matches HAP-NodeJS' SupportedVideoRecordingConfiguration exactly:
@@ -241,7 +241,7 @@ class VideoCodecConfiguration:
         )
 
     @classmethod
-    def decode(cls, data: bytes) -> "VideoCodecConfiguration":
+    def decode(cls, data: bytes) -> VideoCodecConfiguration:
         d = _decode(data)
         # Collect ALL profile (0x01) and level (0x02) entries: the supported
         # advertisement lists several (0x00-separated), the selected config a
@@ -264,14 +264,14 @@ class VideoCodecConfiguration:
         )
 
 
-def encode_supported_video(configs: List[VideoCodecConfiguration]) -> bytes:
+def encode_supported_video(configs: list[VideoCodecConfiguration]) -> bytes:
     # Each configuration is its own 0x01 TLV; multiple configs are separated by
     # a zero-length 0x00 TLV (a config's own body already contains 0x00 list
     # separators, so we must not flatten them under a single 0x01).
     return _SEPARATOR.join(tlv.encode(b"\x01", c.encode()) for c in configs)
 
 
-def decode_supported_video(data: bytes) -> List[VideoCodecConfiguration]:
+def decode_supported_video(data: bytes) -> list[VideoCodecConfiguration]:
     return [VideoCodecConfiguration.decode(v) for t, v in _iter(data) if t == 1]
 
 
@@ -314,7 +314,7 @@ class AudioCodecConfiguration:
         return tlv.encode(b"\x01", _u8(self.codec_type), b"\x02", params)
 
     @classmethod
-    def decode(cls, data: bytes) -> "AudioCodecConfiguration":
+    def decode(cls, data: bytes) -> AudioCodecConfiguration:
         d = _decode(data)
         params = _decode(d[2])
         return cls(
@@ -326,11 +326,11 @@ class AudioCodecConfiguration:
         )
 
 
-def encode_supported_audio(configs: List[AudioCodecConfiguration]) -> bytes:
+def encode_supported_audio(configs: list[AudioCodecConfiguration]) -> bytes:
     return _SEPARATOR.join(tlv.encode(b"\x01", c.encode()) for c in configs)
 
 
-def decode_supported_audio(data: bytes) -> List[AudioCodecConfiguration]:
+def decode_supported_audio(data: bytes) -> list[AudioCodecConfiguration]:
     return [AudioCodecConfiguration.decode(v) for t, v in _iter(data) if t == 1]
 
 
@@ -355,7 +355,7 @@ class SelectedRecordingConfiguration:
         )
 
     @classmethod
-    def decode(cls, data: bytes) -> "SelectedRecordingConfiguration":
+    def decode(cls, data: bytes) -> SelectedRecordingConfiguration:
         d = _decode(data)
         return cls(
             recording=SupportedRecordingConfiguration.decode(d[1]),

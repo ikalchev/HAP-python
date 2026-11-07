@@ -1,5 +1,6 @@
 """Tests for pyhap.characteristic."""
 
+from typing import Any
 from unittest.mock import ANY, MagicMock, Mock, patch
 from uuid import uuid1
 
@@ -18,8 +19,14 @@ from pyhap.characteristic import (
     Characteristic,
 )
 
-PROPERTIES = {"Format": HAP_FORMAT_INT, "Permissions": [HAP_PERMISSION_READ]}
-PROPERTIES_FLOAT = {"Format": HAP_FORMAT_FLOAT, "Permissions": [HAP_PERMISSION_READ]}
+PROPERTIES: dict[str, Any] = {
+    "Format": HAP_FORMAT_INT,
+    "Permissions": [HAP_PERMISSION_READ],
+}
+PROPERTIES_FLOAT: dict[str, Any] = {
+    "Format": HAP_FORMAT_FLOAT,
+    "Permissions": [HAP_PERMISSION_READ],
+}
 
 HAP_FORMAT_INTS = [
     HAP_FORMAT_INT,
@@ -30,7 +37,12 @@ HAP_FORMAT_INTS = [
 ]
 
 
-def get_char(props, valid=None, min_value=None, max_value=None):
+def get_char(
+    props: dict[str, Any],
+    valid: Any = None,
+    min_value: Any = None,
+    max_value: Any = None,
+) -> Characteristic:
     """Return a char object with given parameters."""
     if valid:
         props["ValidValues"] = valid
@@ -41,7 +53,7 @@ def get_char(props, valid=None, min_value=None, max_value=None):
     return Characteristic(display_name="Test Char", type_id=uuid1(), properties=props)
 
 
-def test_repr():
+def test_repr() -> None:
     """Test representation of a characteristic."""
     char = get_char(PROPERTIES.copy())
     del char.properties["Permissions"]
@@ -51,7 +63,7 @@ def test_repr():
     )
 
 
-def test_char_with_unique_id():
+def test_char_with_unique_id() -> None:
     """Test Characteristic with unique_id."""
     service = Characteristic(
         display_name="Test Char",
@@ -62,13 +74,13 @@ def test_char_with_unique_id():
     assert service.unique_id == "123"
 
 
-def test_default_value():
+def test_default_value() -> None:
     """Test getting the default value for a specific format."""
     char = get_char(PROPERTIES.copy())
     assert char.value == HAP_FORMAT_DEFAULTS[PROPERTIES["Format"]]
 
 
-def test_get_default_value():
+def test_get_default_value() -> None:
     """Test getting the default value for valid values."""
     valid_values = {"foo": 2, "bar": 3}
     char = get_char(PROPERTIES.copy(), valid=valid_values)
@@ -78,7 +90,7 @@ def test_get_default_value():
     assert char.value == 3
 
 
-def test_to_valid_value():
+def test_to_valid_value() -> None:
     """Test function to test if value is valid and saved correctly."""
     char = get_char(
         PROPERTIES.copy(), valid={"foo": 2, "bar": 3}, min_value=2, max_value=7
@@ -106,7 +118,7 @@ def test_to_valid_value():
     assert char.to_valid_value({"a": 1}) == {"a": 1}
 
 
-def test_override_properties_properties():
+def test_override_properties_properties() -> None:
     """Test if overriding the properties works."""
     new_properties = {"minValue": 10, "maxValue": 20, "step": 1}
     char = get_char(PROPERTIES.copy(), min_value=0, max_value=1)
@@ -116,7 +128,7 @@ def test_override_properties_properties():
     assert char.properties["step"] == new_properties["step"]
 
 
-def test_override_properties_exceed_max_length():
+def test_override_properties_exceed_max_length() -> None:
     """Test if overriding the properties with invalid values throws."""
     new_properties = {"minValue": 10, "maxValue": 20, "step": 1, "maxLen": 5000}
     char = get_char(PROPERTIES.copy(), min_value=0, max_value=1)
@@ -124,7 +136,7 @@ def test_override_properties_exceed_max_length():
         char.override_properties(properties=new_properties)
 
 
-def test_override_properties_valid_values():
+def test_override_properties_valid_values() -> None:
     """Test if overriding the properties works for valid values."""
     new_valid_values = {"foo2": 2, "bar2": 3}
     char = get_char(PROPERTIES.copy(), valid={"foo": 1, "bar": 2})
@@ -132,7 +144,7 @@ def test_override_properties_valid_values():
     assert char.properties["ValidValues"] == new_valid_values
 
 
-def test_override_properties_error():
+def test_override_properties_error() -> None:
     """Test that method throws an error if no arguments have been passed."""
     char = get_char(PROPERTIES.copy())
     with pytest.raises(ValueError):
@@ -140,7 +152,7 @@ def test_override_properties_error():
 
 
 @pytest.mark.parametrize("int_format", HAP_FORMAT_INTS)
-def test_set_value_invalid_min_step(int_format):
+def test_set_value_invalid_min_step(int_format: str) -> None:
     """Test setting the value of a characteristic that is outside the minStep."""
     path = "pyhap.characteristic.Characteristic.notify"
     props = PROPERTIES.copy()
@@ -177,7 +189,7 @@ def test_set_value_invalid_min_step(int_format):
         assert mock_notify.call_count == 1
 
 
-def test_set_value_invalid_min_float():
+def test_set_value_invalid_min_float() -> None:
     """Test setting the value of a characteristic that is outside the minStep."""
     props = PROPERTIES.copy()
     props["Format"] = HAP_FORMAT_FLOAT
@@ -228,7 +240,7 @@ def test_set_value_invalid_min_float():
 
 
 @pytest.mark.parametrize("int_format", HAP_FORMAT_INTS)
-def test_set_value_int(int_format):
+def test_set_value_int(int_format: str) -> None:
     """Test setting the value of a characteristic."""
     path = "pyhap.characteristic.Characteristic.notify"
     props = PROPERTIES.copy()
@@ -256,7 +268,7 @@ def test_set_value_int(int_format):
         assert mock_notify.call_count == 1
 
 
-def test_set_value_immediate():
+def test_set_value_immediate() -> None:
     """Test setting the value of a characteristic generates immediate notify."""
     char = Characteristic(
         display_name="Switch Event",
@@ -277,7 +289,7 @@ def test_set_value_immediate():
     publish_mock.assert_called_with(1, char, None, True)
 
 
-def test_switch_event_always_serializes_to_null_via_set_value():
+def test_switch_event_always_serializes_to_null_via_set_value() -> None:
     """Test that the switch event char is always null."""
     char = Characteristic(
         display_name="Switch Event",
@@ -292,7 +304,7 @@ def test_switch_event_always_serializes_to_null_via_set_value():
     assert char.to_HAP()["value"] is None
 
 
-def test_switch_event_always_serializes_to_null_via_client_update_value():
+def test_switch_event_always_serializes_to_null_via_client_update_value() -> None:
     """Test that the switch event char is always null."""
     char = Characteristic(
         display_name="Switch Event",
@@ -307,7 +319,7 @@ def test_switch_event_always_serializes_to_null_via_client_update_value():
     assert char.to_HAP()["value"] is None
 
 
-def test_set_value_float():
+def test_set_value_float() -> None:
     """Test setting the value of a characteristic."""
     path = "pyhap.characteristic.Characteristic.notify"
     char = get_char(PROPERTIES_FLOAT.copy(), min_value=2.55, max_value=7.5)
@@ -328,7 +340,7 @@ def test_set_value_float():
         assert mock_notify.call_count == 1
 
 
-def test_client_update_value():
+def test_client_update_value() -> None:
     """Test updating the characteristic value with call from the driver."""
     path_notify = "pyhap.characteristic.Characteristic.notify"
     char = get_char(PROPERTIES.copy())
@@ -344,34 +356,34 @@ def test_client_update_value():
     mock_callback.assert_called_with(3)
 
     with patch(path_notify) as mock_notify:
-        char.client_update_value(9, "mock_client_addr")
+        char.client_update_value(9, "mock_client_addr")  # ty: ignore[invalid-argument-type]
         assert char.value == 9
         mock_notify.assert_called_once_with("mock_client_addr")
         assert len(mock_notify.mock_calls) == 1
 
         # Same value, do not call again
-        char.client_update_value(9, "mock_client_addr")
+        char.client_update_value(9, "mock_client_addr")  # ty: ignore[invalid-argument-type]
         assert char.value == 9
         assert len(mock_notify.mock_calls) == 1
 
         # New value, should notify
-        char.client_update_value(12, "mock_client_addr")
+        char.client_update_value(12, "mock_client_addr")  # ty: ignore[invalid-argument-type]
         assert char.value == 12
         assert len(mock_notify.mock_calls) == 2
 
         # Same value, do not call again
-        char.client_update_value(12, "mock_client_addr")
+        char.client_update_value(12, "mock_client_addr")  # ty: ignore[invalid-argument-type]
         assert char.value == 12
         assert len(mock_notify.mock_calls) == 2
 
         # New value, should notify
-        char.client_update_value(9, "mock_client_addr")
+        char.client_update_value(9, "mock_client_addr")  # ty: ignore[invalid-argument-type]
         assert char.value == 9
         assert len(mock_notify.mock_calls) == 3
 
 
-def test_client_update_value_with_invalid_value():
-    """Test updating the characteristic value with call from the driver with invalid values."""
+def test_client_update_value_with_invalid_value() -> None:
+    """Test updating the characteristic value from the driver with invalid values."""
     char = get_char(PROPERTIES.copy(), valid={"foo": 0, "bar": 2, "baz": 1})
 
     with patch.object(char, "broker"):
@@ -382,7 +394,7 @@ def test_client_update_value_with_invalid_value():
         char.client_update_value(4)
 
 
-def test_notify():
+def test_notify() -> None:
     """Test if driver is notified correctly about a changed characteristic."""
     char = get_char(PROPERTIES.copy())
 
@@ -395,11 +407,11 @@ def test_notify():
     mock_broker.publish.assert_called_with(2, char, None, False)
 
     with patch.object(char, "broker") as mock_broker:
-        char.notify("mock_client_addr")
+        char.notify("mock_client_addr")  # ty: ignore[invalid-argument-type]
     mock_broker.publish.assert_called_with(2, char, "mock_client_addr", False)
 
 
-def test_to_HAP_numberic():
+def test_to_HAP_numberic() -> None:
     """Test created HAP representation for numeric formats."""
     char = get_char(PROPERTIES.copy(), min_value=1, max_value=2)
     with patch.object(char, "broker") as mock_broker:
@@ -420,7 +432,7 @@ def test_to_HAP_numberic():
     }
 
 
-def test_to_HAP_valid_values():
+def test_to_HAP_valid_values() -> None:
     """Test created HAP representation for valid values constraint."""
     char = get_char(PROPERTIES.copy(), valid={"foo": 0, "bar": 2, "baz": 1})
     with patch.object(char, "broker") as mock_broker:
@@ -432,7 +444,7 @@ def test_to_HAP_valid_values():
     assert hap_repr["valid-values"] == [0, 1, 2]
 
 
-def test_to_HAP_string():
+def test_to_HAP_string() -> None:
     """Test created HAP representation for strings."""
     char = get_char(PROPERTIES.copy())
     char.properties["Format"] = "string"
@@ -451,7 +463,7 @@ def test_to_HAP_string():
     assert hap_repr["value"] == char.value[:64]
 
 
-def test_to_HAP_string_max_length_override():
+def test_to_HAP_string_max_length_override() -> None:
     """Test created HAP representation for strings."""
     char = get_char(PROPERTIES.copy())
     char.properties["Format"] = "string"
@@ -472,9 +484,8 @@ def test_to_HAP_string_max_length_override():
     assert hap_repr["value"] == longer_than_sixty_four
 
 
-def test_to_HAP_bool():
+def test_to_HAP_bool() -> None:
     """Test created HAP representation for booleans."""
-    # pylint: disable=protected-access
     char = get_char(PROPERTIES.copy())
     char.properties["Format"] = "bool"
     char._clear_cache()
@@ -489,7 +500,7 @@ def test_to_HAP_bool():
     assert "value" not in hap_repr
 
 
-def test_from_dict():
+def test_from_dict() -> None:
     """Test creating a characteristic object from a dictionary."""
     uuid = uuid1()
     json_dict = {
@@ -504,7 +515,7 @@ def test_from_dict():
     assert char.properties == {"Format": "int", "Permissions": "read"}
 
 
-def test_getter_callback():
+def test_getter_callback() -> None:
     """Test getter callback."""
     char = Characteristic(
         display_name="Test Char", type_id="A1", properties=PROPERTIES.copy()

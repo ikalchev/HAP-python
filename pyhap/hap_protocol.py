@@ -1,12 +1,13 @@
 """This module implements the communication of HAP.
 
-The HAPServerProtocol is a protocol implementation that manages the "TLS" of the connection.
+The HAPServerProtocol is a protocol implementation that manages the "TLS" of the
+connection.
 """
 
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 from cryptography.exceptions import InvalidTag
 import h11
@@ -14,7 +15,7 @@ import h11
 from pyhap.accessory import get_topic
 from pyhap.const import HAP_REPR_AID, HAP_REPR_IID
 
-from .hap_crypto import HAPCrypto
+from .hap_crypto import HAPCrypto, hap_hkdf
 from .hap_event import create_hap_event
 from .hap_handler import HAPResponse, HAPServerHandler
 from .util import async_create_background_task
@@ -34,6 +35,15 @@ IDLE_CONNECTION_TIMEOUT_SECONDS = 90 * 60 * 60
 
 EVENT_COALESCE_TIME_WINDOW = 0.5
 
+# HAP request bodies are small - characteristics writes and pairings are a few
+# KiB at most, and even a very large bridge's accessories data is only a few
+# hundred KiB. h11 does not impose a total body-size limit on its own, so a
+# hostile peer could declare a huge Content-Length and stream data until the
+# process dies of memory exhaustion. Anything larger than this is abusive and
+# the connection is dropped. (The encrypted input buffer is inherently bounded
+# to about 64 KiB - one incomplete cipher block - by HAPCrypto.decrypt.)
+MAX_REQUEST_BODY_SIZE = 2**20
+
 H11_END_OF_MESSAGE = h11.EndOfMessage()
 H11_CONNECTION_CLOSED = h11.ConnectionClosed()
 
@@ -44,55 +54,90 @@ class HAPServerProtocol(asyncio.Protocol):
     def __init__(
         self,
         loop: asyncio.AbstractEventLoop,
-        connections: Dict[str, "HAPServerProtocol"],
+        connections: dict[tuple[str, int], "HAPServerProtocol"],
         accessory_driver: "AccessoryDriver",
     ) -> None:
         self.loop = loop
         self.conn = h11.Connection(h11.SERVER)
         self.connections = connections
         self.accessory_driver = accessory_driver
-        self.handler: Optional[HAPServerHandler] = None
-        self.peername: Optional[str] = None
-        self.transport: Optional[asyncio.Transport] = None
+        self.handler: HAPServerHandler | None = None
+        self.peername: tuple[str, int] | None = None
+        self.transport: asyncio.Transport | None = None
 
-        self.request: Optional[h11.Request] = None
-        self.request_body: List[bytes] = []
-        self.response: Optional[HAPResponse] = None
+        self.request: h11.Request | None = None
+        self.request_body: list[bytes] = []
+        self._request_body_size = 0
+        self.response: HAPResponse | None = None
+        # Bytes held in h11's buffer while a delayed response is pending. h11
+        # does not limit that buffer while we are not reading events from it,
+        # so _hold_data closes the connection beyond MAX_REQUEST_BODY_SIZE.
+        self._held_bytes = 0
 
-        self.last_activity: Optional[float] = None
-        self.hap_crypto: Optional[HAPCrypto] = None
-        self._event_timer: Optional[asyncio.TimerHandle] = None
-        self._event_queue: Dict[Tuple[int, int], Dict[str, Any]] = {}
+        self.last_activity: float | None = None
+        self.hap_crypto: HAPCrypto | None = None
+        self._shared_key: bytes | None = None
+        self._event_timer: asyncio.TimerHandle | None = None
+        self._event_queue: dict[tuple[int, int], dict[str, Any]] = {}
 
-    def connection_lost(self, exc: Exception) -> None:
+    @property
+    def _handler(self) -> HAPServerHandler:
+        """Return the request handler, which exists once connected."""
+        assert self.handler is not None  # noqa: S101
+        return self.handler
+
+    @property
+    def _transport(self) -> asyncio.Transport:
+        """Return the transport, which exists once connected."""
+        assert self.transport is not None  # noqa: S101
+        return self.transport
+
+    def connection_lost(self, exc: BaseException | None) -> None:
         """Handle connection lost."""
+        accessory = self.accessory_driver.accessory
+        assert accessory is not None  # noqa: S101
         logger.debug(
             "%s (%s): Connection lost to %s: %s",
             self.peername,
-            self.handler.client_uuid,
-            self.accessory_driver.accessory.display_name,
+            self._handler.client_uuid,
+            accessory.display_name,
             exc,
         )
         self.accessory_driver.connection_lost(self.peername)
         self.close()
 
-    def connection_made(self, transport: asyncio.Transport) -> None:
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
         """Handle incoming connection."""
         self.last_activity = time.time()
         peername = transport.get_extra_info("peername")
+        accessory = self.accessory_driver.accessory
+        assert accessory is not None  # noqa: S101
         logger.info(
             "%s: Connection made to %s",
             peername,
-            self.accessory_driver.accessory.display_name,
+            accessory.display_name,
         )
         # Ensure we do not write a partial encrypted response
         # as it can cause the controller to send a RST and drop
         # the connection with large responses.
+        if TYPE_CHECKING:
+            # TCP transports are always full asyncio transports.
+            assert isinstance(transport, asyncio.Transport)  # noqa: S101
         transport.set_write_buffer_limits(high=HIGH_WRITE_BUFFER_SIZE)
         self.transport = transport
         self.peername = peername
         self.connections[peername] = self
         self.handler = HAPServerHandler(self.accessory_driver, peername)
+
+    def derive_key(self, salt: bytes, info: bytes) -> bytes | None:
+        """Derive a key from this connection's pair-verify session key.
+
+        Uses HKDF-SHA512 like the HAP control channel. Never returns the session
+        key itself. Returns ``None`` while the connection is not encrypted.
+        """
+        if self._shared_key is None:
+            return None
+        return hap_hkdf(self._shared_key, salt, info)
 
     def write(self, data: bytes) -> None:
         """Write data to the client."""
@@ -102,27 +147,38 @@ class HAPServerProtocol(asyncio.Protocol):
             logger.debug(
                 "%s (%s): Send encrypted: %s",
                 self.peername,
-                self.handler.client_uuid,
+                self._handler.client_uuid,
                 data,
             )
-            self.transport.writelines(result)
+            self._transport.writelines(result)
         else:
             logger.debug(
                 "%s (%s): Send unencrypted: %s",
                 self.peername,
-                self.handler.client_uuid,
+                self._handler.client_uuid,
                 data,
             )
-            self.transport.write(data)
+            self._transport.write(data)
 
     def close(self) -> None:
         """Remove the connection and close the transport."""
-        if self.peername in self.connections:
-            del self.connections[self.peername]
-        self.transport.write_eof()
-        self.transport.close()
+        # A newer connection may already be registered under the same peername,
+        # and a connection without a peername must still be removed.
+        if self.connections.get(self.peername) is self:
+            # The identity check above ensures the key belongs to this protocol;
+            # peername is None only for transports without a peername.
+            del self.connections[self.peername]  # ty: ignore[invalid-argument-type]
+        self._shared_key = None
+        # Nobody is left to answer; stop work for a delayed response. Cancel
+        # on the next iteration so a task created in this one has started and
+        # its coroutines are cancelled rather than never awaited.
+        if self.response is not None and self.response.task is not None:
+            task = self.response.task
+            task.get_loop().call_soon(task.cancel)
+        self._transport.write_eof()
+        self._transport.close()
 
-    def queue_event(self, data: dict, immediate: bool) -> None:
+    def queue_event(self, data: dict[str, Any], immediate: bool) -> None:
         """Queue an event for sending."""
         self._event_queue[(data[HAP_REPR_AID], data[HAP_REPR_IID])] = data
         if immediate:
@@ -163,13 +219,16 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def check_idle(self, now: float) -> None:
         """Abort when do not get any data within the timeout."""
+        assert self.last_activity is not None  # noqa: S101
+        accessory = self.accessory_driver.accessory
+        assert accessory is not None  # noqa: S101
         if self.last_activity + IDLE_CONNECTION_TIMEOUT_SECONDS >= now:
             return
         logger.info(
             "%s: Idle time out after %s to %s",
             self.peername,
             IDLE_CONNECTION_TIMEOUT_SECONDS,
-            self.accessory_driver.accessory.display_name,
+            accessory.display_name,
         )
         self.close()
 
@@ -184,7 +243,7 @@ class HAPServerProtocol(asyncio.Protocol):
                 logger.debug(
                     "%s (%s): Decrypt failed, closing connection: %s",
                     self.peername,
-                    self.handler.client_uuid,
+                    self._handler.client_uuid,
                     ex,
                 )
                 self.close()
@@ -195,24 +254,49 @@ class HAPServerProtocol(asyncio.Protocol):
             logger.debug(
                 "%s (%s): Recv decrypted: %s",
                 self.peername,
-                self.handler.client_uuid,
+                self._handler.client_uuid,
                 unencrypted_data,
             )
-            self.conn.receive_data(unencrypted_data)
         else:
-            self.conn.receive_data(data)
+            unencrypted_data = data
             logger.debug(
                 "%s (%s): Recv unencrypted: %s",
                 self.peername,
-                self.handler.client_uuid,
+                self._handler.client_uuid,
                 data,
             )
+        if not self._hold_data(len(unencrypted_data)):
+            return
+        self.conn.receive_data(unencrypted_data)
         self._process_events()
+
+    def _hold_data(self, size: int) -> bool:
+        """Account for data held while a delayed response is pending.
+
+        Returns ``False`` and closes the connection when more than
+        ``MAX_REQUEST_BODY_SIZE`` bytes are held before the response is sent.
+        """
+        if self.response is None:
+            return True
+        self._held_bytes += size
+        if self._held_bytes <= MAX_REQUEST_BODY_SIZE:
+            return True
+        logger.warning(
+            "%s (%s): Received more than %d bytes while a response is pending, "
+            "closing connection",
+            self.peername,
+            self._handler.client_uuid,
+            MAX_REQUEST_BODY_SIZE,
+        )
+        self.close()
+        return False
 
     def _process_events(self) -> None:
         """Process pending events."""
         try:
-            while self._process_one_event():
+            # While a delayed response is outstanding, further requests stay
+            # buffered in h11 and are processed once it has been sent.
+            while self.response is None and self._process_one_event():
                 if self.conn.our_state is h11.MUST_CLOSE:
                     self.finish_and_close()
                     return
@@ -224,15 +308,17 @@ class HAPServerProtocol(asyncio.Protocol):
         if self._event_timer:
             self._event_timer.cancel()
             self._event_timer = None
-        if not self._event_queue:
+        # Events must not be sent while a response is outstanding; they are
+        # flushed once the delayed response has been sent.
+        if not self._event_queue or self.response is not None:
             return
         subscribed_events = self._event_queue_with_active_subscriptions()
         if subscribed_events:
             self.write(create_hap_event(subscribed_events))
         self._event_queue.clear()
 
-    def _event_queue_with_active_subscriptions(self) -> List[Dict[str, Any]]:
-        """Remove any topics that have been unsubscribed after the event was generated."""
+    def _event_queue_with_active_subscriptions(self) -> list[dict[str, Any]]:
+        """Remove topics that were unsubscribed after the event was generated."""
         topics = self.accessory_driver.topics
         return [
             event
@@ -245,7 +331,7 @@ class HAPServerProtocol(asyncio.Protocol):
         """Process one http event."""
         event = self.conn.next_event()
         logger.debug(
-            "%s (%s): h11 Event: %s", self.peername, self.handler.client_uuid, event
+            "%s (%s): h11 Event: %s", self.peername, self._handler.client_uuid, event
         )
         if event is h11.NEED_DATA:
             return False
@@ -259,21 +345,42 @@ class HAPServerProtocol(asyncio.Protocol):
             return False
 
         if event_type is h11.Request:
+            # Narrow the event for static analysis only; the runtime
+            # check above already established the concrete type.
+            if TYPE_CHECKING:
+                assert isinstance(event, h11.Request)  # noqa: S101
             self.request = event
             self.request_body = []
+            self._request_body_size = 0
             return True
 
         if event_type is h11.Data:
+            # Narrow the event for static analysis only; the runtime
+            # check above already established the concrete type.
             if TYPE_CHECKING:
-                assert isinstance(event, h11.Data)  # nosec
+                assert isinstance(event, h11.Data)  # noqa: S101
             self.request_body.append(event.data)
+            self._request_body_size += len(event.data)
+            if self._request_body_size > MAX_REQUEST_BODY_SIZE:
+                # A hostile peer streaming an oversized body must not be able
+                # to make us buffer it all before handling the request.
+                logger.warning(
+                    "%s (%s): Request body exceeds %d bytes, closing connection",
+                    self.peername,
+                    self._handler.client_uuid,
+                    MAX_REQUEST_BODY_SIZE,
+                )
+                self.close()
+                return False
             return True
 
         if event_type is h11.EndOfMessage:
-            response = self.handler.dispatch(self.request, b"".join(self.request_body))
+            assert self.request is not None  # noqa: S101
+            response = self._handler.dispatch(self.request, b"".join(self.request_body))
             self._process_response(response)
             self.request = None
             self.request_body = []
+            self._request_body_size = 0
             return True
 
         return self._handle_invalid_conn_state(f"Unexpected event: {event}")
@@ -284,6 +391,8 @@ class HAPServerProtocol(asyncio.Protocol):
             # If there is a task pending we will schedule
             # the response later
             self.response = response
+            # Pipelined data already received is held from now on as well.
+            self._held_bytes = len(self.conn.trailing_data[0])
             response.task.add_done_callback(self._handle_response_ready)
         else:
             self.send_response(response)
@@ -291,46 +400,52 @@ class HAPServerProtocol(asyncio.Protocol):
         # If we get a shared key, upgrade to encrypted
         if response.shared_key:
             self.hap_crypto = HAPCrypto(response.shared_key)
-            # Publish the session key so transports derived from this session
-            # (e.g. HomeKit Data Stream) can be set up from a characteristic write.
-            self.accessory_driver.session_shared_keys[self.peername] = (
-                response.shared_key
-            )
+            # Kept for transports derived from this session, e.g. HomeKit Data Stream.
+            self._shared_key = response.shared_key
         # Only update mDNS after sending the response
         if response.pairing_changed:
             async_create_background_task(
                 self.loop.run_in_executor(None, self.accessory_driver.finish_pair)
             )
 
-    def _handle_response_ready(self, task: asyncio.Task) -> None:
+    def _handle_response_ready(self, task: asyncio.Future[bytes]) -> None:
         """Handle delayed response."""
         response = self.response
+        assert response is not None  # noqa: S101
         self.response = None
         try:
             response.body = task.result()
-        except Exception as ex:  # pylint: disable=broad-except
+        except (Exception, asyncio.CancelledError) as ex:
             logger.debug(
                 "%s (%s): exception during delayed response",
                 self.peername,
-                self.handler.client_uuid,
+                self._handler.client_uuid,
                 exc_info=ex,
             )
-            response = self.handler.generic_failure_response()
-        if self.transport.is_closing():
+            response = self._handler.generic_failure_response()
+        if self._transport.is_closing():
             logger.debug(
                 "%s (%s): delayed response not sent as the transport as closed.",
                 self.peername,
-                self.handler.client_uuid,
+                self._handler.client_uuid,
             )
             return
         self.send_response(response)
+        if self.conn.our_state is h11.MUST_CLOSE:
+            self.finish_and_close()
+            return
+        # Requests that arrived meanwhile come first; events held meanwhile are
+        # sent unless their coalescing timer has not fired yet.
+        self._process_events()
+        if self._event_timer is None and not self._transport.is_closing():
+            self._send_events()
 
-    def _handle_invalid_conn_state(self, message: Exception) -> bool:
+    def _handle_invalid_conn_state(self, message: str | Exception) -> bool:
         """Log invalid state and close."""
         logger.debug(
             "%s (%s): Invalid state: %s: close the client socket",
             self.peername,
-            self.handler.client_uuid,
+            self._handler.client_uuid,
             message,
         )
         self.close()

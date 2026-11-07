@@ -6,7 +6,7 @@ The HAPServer is the point of contact to and from the world.
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 from .hap_protocol import HAPServerProtocol
 from .util import callback
@@ -23,26 +23,28 @@ class HAPServer:
     """Point of contact for HAP clients.
 
     The HAPServer handles all incoming client requests (e.g. pair) and also handles
-    communication from Accessories to clients (value changes). The outbound communication
-    is something like HTTP push.
+    communication from Accessories to clients (value changes). The outbound
+    communication is something like HTTP push.
 
-    @note: Client requests responses as well as outgoing event notifications happen through
-    the same socket for the same client. This introduces a race condition - an Accessory
-    decides to push a change in current temperature, while in the same time the HAP client
-    decides to query the state of the Accessory. To overcome this the HAPSocket class
-    implements exclusive access to the send methods.
+    @note: Client requests responses as well as outgoing event notifications happen
+    through the same socket for the same client. This introduces a race condition - an
+    Accessory decides to push a change in current temperature, while in the same time
+    the HAP client decides to query the state of the Accessory. To overcome this the
+    HAPSocket class implements exclusive access to the send methods.
     """
 
     def __init__(
-        self, addr_port: Tuple[str, int], accessory_handler: "AccessoryDriver"
+        self,
+        addr_port: tuple[str, int | None],
+        accessory_handler: "AccessoryDriver",
     ) -> None:
         """Create a HAP Server."""
         self._addr_port = addr_port
-        self.connections: Dict[Tuple[str, int], HAPServerProtocol] = {}
+        self.connections: dict[tuple[str, int], HAPServerProtocol] = {}
         self.accessory_handler = accessory_handler
-        self.server: Optional[asyncio.Server] = None
-        self._connection_cleanup: Optional[asyncio.TimerHandle] = None
-        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self.server: asyncio.Server | None = None
+        self._connection_cleanup: asyncio.TimerHandle | None = None
+        self.loop: asyncio.AbstractEventLoop | None = None
 
     async def async_start(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start the http-hap server."""
@@ -60,6 +62,7 @@ class HAPServer:
         now = time.time()
         for hap_proto in list(self.connections.values()):
             hap_proto.check_idle(now)
+        assert self.loop is not None  # noqa: S101
         self._connection_cleanup = self.loop.call_later(
             IDLE_CONNECTION_CHECK_INTERVAL_SECONDS, self.async_cleanup_connections
         )
@@ -70,14 +73,19 @@ class HAPServer:
 
         This method must be run in the event loop.
         """
-        self._connection_cleanup.cancel()
+        if self._connection_cleanup is not None:
+            self._connection_cleanup.cancel()
         for hap_proto in list(self.connections.values()):
             hap_proto.close()
+        assert self.server is not None  # noqa: S101
         self.server.close()
         self.connections.clear()
 
     def push_event(
-        self, data: bytes, client_addr: Tuple[str, int], immediate: bool = False
+        self,
+        data: dict[str, Any],
+        client_addr: tuple[str, int],
+        immediate: bool = False,
     ) -> bool:
         """Queue an event to the current connection with the provided data.
 

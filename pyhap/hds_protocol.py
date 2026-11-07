@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum
 import struct
-from typing import Any, Optional
+from typing import Any
 
 
 class HDSStatus(IntEnum):
@@ -93,7 +93,7 @@ def _encode_int(value: int) -> bytes:
 
 
 def _encode_length_prefixed(
-    value: bytes, base: int, len8, len16, len32, len64
+    value: bytes, base: int, len8: int, len16: int, len32: int, len64: int
 ) -> bytes:
     length = len(value)
     if length <= 32:
@@ -249,9 +249,9 @@ class Message:
     protocol: str
     kind: str  # REQUEST / RESPONSE / EVENT
     topic: str
-    message: dict = field(default_factory=dict)
-    id: Optional[int] = None
-    status: Optional[int] = None
+    message: dict[str, Any] = field(default_factory=dict)
+    id: int | None = None
+    status: int | None = None
 
     def encode(self) -> bytes:
         """Return the plaintext HDS frame payload for this message.
@@ -259,7 +259,7 @@ class Message:
         The frame payload is a header-length byte, the serialized header
         dictionary and the serialized message dictionary.
         """
-        header: dict = {"protocol": self.protocol, self.kind: self.topic}
+        header: dict[str, Any] = {"protocol": self.protocol, self.kind: self.topic}
         if self.id is not None:
             header["id"] = Int64(self.id)
         if self.status is not None:
@@ -270,7 +270,7 @@ class Message:
         return bytes([len(header_bytes)]) + header_bytes + encode(self.message)
 
     @classmethod
-    def decode(cls, payload: bytes) -> "Message":
+    def decode(cls, payload: bytes) -> Message:
         header_length = payload[0]
         header = decode(payload[1 : 1 + header_length])
         message = decode(payload[1 + header_length :])
@@ -290,18 +290,24 @@ class Message:
         )
 
 
-def request(protocol: str, topic: str, message: dict, request_id: int) -> Message:
+def request(
+    protocol: str, topic: str, message: dict[str, Any], request_id: int
+) -> Message:
     """Build a request message."""
     return Message(protocol, REQUEST, topic, message, id=request_id)
 
 
 def response(
-    protocol: str, topic: str, message: dict, request_id: int, status: int = 0
+    protocol: str,
+    topic: str,
+    message: dict[str, Any],
+    request_id: int,
+    status: int = 0,
 ) -> Message:
     """Build a response message."""
     return Message(protocol, RESPONSE, topic, message, id=request_id, status=status)
 
 
-def event(protocol: str, topic: str, message: dict) -> Message:
+def event(protocol: str, topic: str, message: dict[str, Any]) -> Message:
     """Build an event message."""
     return Message(protocol, EVENT, topic, message)
