@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import IntEnum
+import secrets
 from typing import TypeVar
 from uuid import UUID
 
@@ -712,3 +713,387 @@ def check_video_tiers(sensor: SensorConfiguration) -> list[str]:
         if stream.peak_bitrate > guide[1]:
             warnings.append(f"{name}: peak above the guide's {guide[1]} kbps")
     return warnings
+
+
+class WebRTCSolicitOfferStatus(IntEnum):
+    SUCCESS = 0
+    PRIVACY_MODE_ACTIVE = 1
+    ERROR = 2
+
+
+class WebRTCStreamingStatus(IntEnum):
+    SUCCESS = 0
+    UNKNOWN_SESSION = 1
+    BUSY = 2
+    ERROR = 3
+
+
+class WebRTCStreamingCommand(IntEnum):
+    END = 1
+
+
+# Limits of what a controller may send: the SDP of an answer or reoffer in
+# bytes, the ICE candidates of a write and the bytes of one, and the SFrame
+# keys an Update Session adds or removes. Larger writes do not decode.
+MAX_SDP_SIZE = 32 * 1024
+MAX_ICE_CANDIDATES = 64
+MAX_ICE_CANDIDATE_SIZE = 1024
+MAX_SFRAME_KEY_CHANGES = 16
+
+
+def _to_str(data: bytes) -> str:
+    # A UnicodeDecodeError is a ValueError.
+    return data.decode("utf-8")
+
+
+def _to_sdp(data: bytes) -> str:
+    if len(data) > MAX_SDP_SIZE:
+        raise ValueError(f"SDP of {len(data)} bytes, at most {MAX_SDP_SIZE}")
+    return _to_str(data)
+
+
+def _encode_str(value: str | None) -> bytes | None:
+    return None if value is None else value.encode("utf-8")
+
+
+def _session_id(session_id: UUID | None) -> bytes:
+    return b"" if session_id is None else encode_item(1, session_id.bytes)
+
+
+@dataclass
+class WebRTCOfferOptions:
+    """The WebRTC Offer Options of a Solicit Offer or Reoffer write.
+
+    ``sframe_enabled`` is None if the controller left it out.
+    """
+
+    sframe_enabled: bool | None = None
+
+    def encode(self) -> bytes:
+        if self.sframe_enabled is None:
+            return b""
+        return encode_item(1, _uint(self.sframe_enabled, 1))
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCOfferOptions:
+        enabled = _optional_int(_fields(data), 1)
+        return cls(None if enabled is None else bool(enabled))
+
+
+def _options(fields: dict[int, list[bytes]], tag: int) -> WebRTCOfferOptions:
+    if tag not in fields:
+        return WebRTCOfferOptions()
+    return WebRTCOfferOptions.decode(fields[tag][0])
+
+
+@dataclass(frozen=True)
+class IceCandidate:
+    """An ICE candidate as HAP carries it: RFC 8839 string, mid and m-line.
+
+    One of the types shared with WebRTC media, see :class:`WebRTCOffer`.
+    """
+
+    candidate: str
+    sdp_mid: str | None = None
+    sdp_mline_index: int | None = None
+
+    def encode(self) -> bytes:
+        index = self.sdp_mline_index
+        return (
+            encode_item(1, self.candidate.encode("utf-8"))
+            + _optional_item(2, _encode_str(self.sdp_mid))
+            + _optional_item(3, None if index is None else _uint(index, 2))
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> IceCandidate:
+        if len(data) > MAX_ICE_CANDIDATE_SIZE:
+            raise ValueError(
+                f"ICE candidate of {len(data)} bytes, at most {MAX_ICE_CANDIDATE_SIZE}"
+            )
+        fields = _fields(data)
+        return cls(
+            _to_str(_required(fields, 1)),
+            _optional(fields, 2, _to_str),
+            _optional_int(fields, 3),
+        )
+
+
+def _encode_candidates(candidates: Iterable[IceCandidate]) -> bytes:
+    return encode_list(3, (candidate.encode() for candidate in candidates))
+
+
+def _candidates(fields: dict[int, list[bytes]]) -> list[IceCandidate]:
+    candidates = fields.get(3, [])
+    if len(candidates) > MAX_ICE_CANDIDATES:
+        raise ValueError(
+            f"{len(candidates)} ICE candidates, at most {MAX_ICE_CANDIDATES}"
+        )
+    return [IceCandidate.decode(candidate) for candidate in candidates]
+
+
+@dataclass(frozen=True)
+class SFrameKey:
+    """SFrame Key Data: a key and its 64-bit key ID.
+
+    One of the types shared with WebRTC media, see :class:`WebRTCOffer`.
+    """
+
+    key: bytes = field(repr=False)
+    kid: int
+
+    def encode(self) -> bytes:
+        return encode_item(1, self.key) + encode_item(2, _uint(self.kid, 8))
+
+    @classmethod
+    def decode(cls, data: bytes) -> SFrameKey:
+        fields = _fields(data)
+        return cls(_required(fields, 1), _to_int(_required(fields, 2)))
+
+
+def generate_sframe_key() -> SFrameKey:
+    """Make an SFrame key to send with: 32 random bytes and a random key ID."""
+    return SFrameKey(secrets.token_bytes(32), secrets.randbits(64))
+
+
+@dataclass(frozen=True)
+class WebRTCOffer:
+    """The accessory's offer for a new WebRTC session.
+
+    This, :class:`WebRTCReofferAnswer`, :class:`IceCandidate` and
+    :class:`SFrameKey` are the types WebRTC media and the HAP side share.
+
+    ``sdp`` carries all ICE candidates, HAP has no trickle ICE; the candidate
+    list of the Solicit Offer answer stays empty, as in the Scrypted HomeKit
+    plugin. ``sframe`` is the key the accessory sends with, see
+    :func:`generate_sframe_key`; None for a session without SFrame.
+    """
+
+    sdp: str
+    sframe: SFrameKey | None = None
+
+
+@dataclass(frozen=True)
+class WebRTCReofferAnswer:
+    """The accessory's answer to a controller's reoffer, see :class:`WebRTCOffer`.
+
+    ``sframe`` is the key the accessory sends with from now on.
+    """
+
+    sdp: str
+    sframe: SFrameKey | None = None
+
+
+def _encode_sframe(tag: int, sframe: SFrameKey | None) -> bytes:
+    return b"" if sframe is None else encode_item(tag, sframe.encode())
+
+
+@dataclass
+class WebRTCSolicitOffer:
+    """A write to WebRTC Solicit Offer, the controller asks for an offer."""
+
+    options: WebRTCOfferOptions = field(default_factory=WebRTCOfferOptions)
+
+    def encode(self) -> bytes:
+        return encode_item(1, self.options.encode())
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCSolicitOffer:
+        return cls(_options(_fields(data), 1))
+
+
+@dataclass
+class WebRTCSolicitOfferResponse:
+    """The read back value of WebRTC Solicit Offer.
+
+    Only a successful one has a session, an offer and candidates.
+    """
+
+    status: WebRTCSolicitOfferStatus | int
+    session_id: UUID | None = None
+    sdp_offer: str | None = None
+    candidates: list[IceCandidate] = field(default_factory=list)
+    sframe: SFrameKey | None = None
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                _session_id(self.session_id),
+                _optional_item(2, _encode_str(self.sdp_offer)),
+                _encode_candidates(self.candidates),
+                encode_item(4, _uint(self.status, 1)),
+                _encode_sframe(5, self.sframe),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCSolicitOfferResponse:
+        fields = _fields(data)
+        return cls(
+            _to_enum(WebRTCSolicitOfferStatus, _required(fields, 4)),
+            _optional(fields, 1, _to_uuid),
+            _optional(fields, 2, _to_str),
+            _candidates(fields),
+            _optional(fields, 5, SFrameKey.decode),
+        )
+
+
+@dataclass
+class WebRTCProvideAnswer:
+    """A write to WebRTC Provide Answer."""
+
+    session_id: UUID
+    sdp_answer: str
+    candidates: list[IceCandidate] = field(default_factory=list)
+
+    def encode(self) -> bytes:
+        return (
+            encode_item(1, self.session_id.bytes)
+            + encode_item(2, self.sdp_answer.encode("utf-8"))
+            + _encode_candidates(self.candidates)
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCProvideAnswer:
+        fields = _fields(data)
+        return cls(
+            _to_uuid(_required(fields, 1)),
+            _to_sdp(_required(fields, 2)),
+            _candidates(fields),
+        )
+
+
+@dataclass
+class WebRTCSessionStatus:
+    """The read back value of Provide Answer, Streaming Control and Update Session.
+
+    Without a session, e.g. for a write that did not decode, only the status
+    is sent.
+    """
+
+    session_id: UUID | None
+    status: WebRTCStreamingStatus | int
+
+    def encode(self) -> bytes:
+        return _session_id(self.session_id) + encode_item(2, _uint(self.status, 1))
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCSessionStatus:
+        fields = _fields(data)
+        return cls(
+            _optional(fields, 1, _to_uuid),
+            _to_enum(WebRTCStreamingStatus, _required(fields, 2)),
+        )
+
+
+@dataclass
+class WebRTCStreamingControl:
+    """A write to WebRTC Streaming Control."""
+
+    session_id: UUID
+    command: WebRTCStreamingCommand | int
+
+    def encode(self) -> bytes:
+        return encode_item(1, self.session_id.bytes) + encode_item(
+            2, _uint(self.command, 1)
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCStreamingControl:
+        fields = _fields(data)
+        return cls(
+            _to_uuid(_required(fields, 1)),
+            _to_enum(WebRTCStreamingCommand, _required(fields, 2)),
+        )
+
+
+@dataclass
+class WebRTCReoffer:
+    """A write to WebRTC Reoffer, the controller renegotiates with an offer."""
+
+    session_id: UUID
+    sdp_offer: str
+    options: WebRTCOfferOptions = field(default_factory=WebRTCOfferOptions)
+
+    def encode(self) -> bytes:
+        return (
+            encode_item(1, self.session_id.bytes)
+            + encode_item(2, self.sdp_offer.encode("utf-8"))
+            + encode_item(3, self.options.encode())
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCReoffer:
+        fields = _fields(data)
+        return cls(
+            _to_uuid(_required(fields, 1)),
+            _to_sdp(_required(fields, 2)),
+            _options(fields, 3),
+        )
+
+
+@dataclass
+class WebRTCReofferResponse:
+    """The read back value of WebRTC Reoffer.
+
+    Only a successful one has an answer.
+    """
+
+    session_id: UUID | None
+    status: WebRTCStreamingStatus | int
+    sdp_answer: str | None = None
+    sframe: SFrameKey | None = None
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                _session_id(self.session_id),
+                _optional_item(2, _encode_str(self.sdp_answer)),
+                encode_item(3, _uint(self.status, 1)),
+                _encode_sframe(4, self.sframe),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCReofferResponse:
+        fields = _fields(data)
+        return cls(
+            _optional(fields, 1, _to_uuid),
+            _to_enum(WebRTCStreamingStatus, _required(fields, 3)),
+            _optional(fields, 2, _to_str),
+            _optional(fields, 4, SFrameKey.decode),
+        )
+
+
+@dataclass
+class WebRTCUpdateSession:
+    """A write to WebRTC Update Session, the SFrame keys the controller sends with."""
+
+    session_id: UUID
+    add_keys: list[SFrameKey] = field(default_factory=list)
+    remove_kids: list[int] = field(default_factory=list)
+
+    def encode(self) -> bytes:
+        return (
+            encode_item(1, self.session_id.bytes)
+            + encode_list(2, (key.encode() for key in self.add_keys))
+            + encode_list(
+                3, (encode_item(1, _uint(kid, 8)) for kid in self.remove_kids)
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCUpdateSession:
+        fields = _fields(data)
+        keys = fields.get(2, [])
+        kids = fields.get(3, [])
+        if max(len(keys), len(kids)) > MAX_SFRAME_KEY_CHANGES:
+            raise ValueError(
+                f"{len(keys)} keys to add and {len(kids)} to remove,"
+                f" at most {MAX_SFRAME_KEY_CHANGES} each"
+            )
+        return cls(
+            _to_uuid(_required(fields, 1)),
+            [SFrameKey.decode(key) for key in keys],
+            [_to_int(_required(_fields(kid), 1)) for kid in kids],
+        )

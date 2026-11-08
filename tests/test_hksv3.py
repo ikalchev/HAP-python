@@ -1,5 +1,6 @@
 """Tests for pyhap.hksv3."""
 
+from collections.abc import Callable
 import random
 from uuid import UUID
 
@@ -14,6 +15,7 @@ from pyhap.hksv3 import (
     CameraCapabilities,
     CameraZones,
     EndpointAddress,
+    IceCandidate,
     RTPStreamingCommand,
     RTPStreamingControl,
     RTPStreamingStatus,
@@ -23,6 +25,7 @@ from pyhap.hksv3 import (
     SetupEndpoints,
     SetupEndpointsResponse,
     SetupEndpointsStatus,
+    SFrameKey,
     SRTPCryptoSuite,
     SRTPParameters,
     SupportedAudioStreamTiers,
@@ -31,6 +34,18 @@ from pyhap.hksv3 import (
     VideoQuality,
     VideoStreamCapability,
     VideoStreamTier,
+    WebRTCOfferOptions,
+    WebRTCProvideAnswer,
+    WebRTCReoffer,
+    WebRTCReofferResponse,
+    WebRTCSessionStatus,
+    WebRTCSolicitOffer,
+    WebRTCSolicitOfferResponse,
+    WebRTCSolicitOfferStatus,
+    WebRTCStreamingCommand,
+    WebRTCStreamingControl,
+    WebRTCStreamingStatus,
+    WebRTCUpdateSession,
     ZoneData,
     ZoneMethod,
     ZonePolygon,
@@ -651,3 +666,325 @@ def test_setup_endpoints_invalid(data: str) -> None:
     """Test missing fields, bad text and bad ports raise."""
     with pytest.raises(ValueError):
         SetupEndpoints.decode(bytes.fromhex(data))
+
+
+def _item(tag: int, value: bytes) -> str:
+    """Hand encode one TLV of up to 255 bytes as hex."""
+    return f"{tag:02x}{len(value):02x}{value.hex()}"
+
+
+HOST = b"candidate:1 1 udp 2122260223 192.0.2.10 50000 typ host"
+SRFLX = (
+    b"candidate:2 1 udp 1686052607 198.51.100.7 50001 typ srflx"
+    b" raddr 192.0.2.10 rport 50000"
+)
+# The host candidate for the first m-line, mid "0", and one without either.
+HOST_HEX = _item(1, HOST) + "020130 03020000"
+SRFLX_HEX = _item(1, SRFLX)
+CANDIDATES = [
+    IceCandidate(HOST.decode(), "0", 0),
+    IceCandidate(SRFLX.decode()),
+]
+SFRAME = SFrameKey(bytes(range(32)), 0x0102030405060708)
+SFRAME_HEX = _item(1, bytes(range(32))) + "02080807060504030201"
+
+
+@pytest.mark.parametrize(
+    ("data", "enabled"),
+    [("0103 010101", True), ("0103 010100", False), ("0100", None), ("", None)],
+)
+def test_solicit_offer_decode(data: str, enabled: bool | None) -> None:
+    """Test SFrame Enabled, an empty and a missing Options TLV."""
+    request = WebRTCSolicitOffer.decode(bytes.fromhex(data))
+    assert request == WebRTCSolicitOffer(WebRTCOfferOptions(enabled))
+
+
+def test_solicit_offer_round_trip() -> None:
+    """Test the encoding a controller sends, unknown types are skipped."""
+    request = WebRTCSolicitOffer(WebRTCOfferOptions(True))
+    assert request.encode() == bytes.fromhex("0103 010101")
+    raw = bytes.fromhex("0106 010101 0901aa 0a00")
+    assert WebRTCSolicitOffer.decode(raw) == request
+
+
+def test_solicit_offer_response_golden() -> None:
+    """Test a successful response with two candidates and an SFrame key."""
+    response = WebRTCSolicitOfferResponse(
+        WebRTCSolicitOfferStatus.SUCCESS, SESSION, "v=0\r\n", CANDIDATES, SFRAME
+    )
+    encoded = response.encode()
+    assert encoded == bytes.fromhex(
+        "0110"
+        + SESSION.hex
+        + "0205 763d300d0a"
+        + _item(3, bytes.fromhex(HOST_HEX))
+        + "0000"
+        + _item(3, bytes.fromhex(SRFLX_HEX))
+        + "040100"
+        + _item(5, bytes.fromhex(SFRAME_HEX))
+    )
+    top = reference_parse(encoded)
+    assert top[2:4] == [
+        (3, bytes.fromhex(HOST_HEX)),
+        (3, bytes.fromhex(SRFLX_HEX)),
+    ]
+    assert reference_parse(top[2][1]) == [(1, HOST), (2, b"0"), (3, b"\x00\x00")]
+    assert reference_parse(top[5][1]) == [
+        (1, bytes(range(32))),
+        (2, bytes.fromhex("0807060504030201")),
+    ]
+    assert WebRTCSolicitOfferResponse.decode(encoded) == response
+
+
+@pytest.mark.parametrize(
+    ("status", "data"),
+    [
+        (WebRTCSolicitOfferStatus.PRIVACY_MODE_ACTIVE, "040101"),
+        (WebRTCSolicitOfferStatus.ERROR, "040102"),
+    ],
+)
+def test_solicit_offer_response_failed(
+    status: WebRTCSolicitOfferStatus, data: str
+) -> None:
+    """Test a failed response has only the status."""
+    assert WebRTCSolicitOfferResponse(status).encode() == bytes.fromhex(data)
+
+
+@pytest.mark.parametrize("length", [255, 300, 600])
+def test_solicit_offer_response_long_sdp(length: int) -> None:
+    """Test an SDP offer over 255 bytes is fragmented, then the candidates."""
+    sdp = ("v=0\r\n" + "a=x" * length)[:length]
+    response = WebRTCSolicitOfferResponse(0, SESSION, sdp, CANDIDATES)
+    encoded = response.encode()
+    assert encoded[18:20] == b"\x02\xff"
+    top = reference_parse(encoded)
+    assert top[1] == (2, sdp.encode())
+    assert top[2] == (3, bytes.fromhex(HOST_HEX))
+    assert WebRTCSolicitOfferResponse.decode(encoded) == response
+
+
+def test_provide_answer_golden() -> None:
+    """Test decoding an answer with two candidates."""
+    raw = bytes.fromhex(
+        "0110"
+        + SESSION.hex
+        + "0205 763d300d0a"
+        + _item(3, bytes.fromhex(SRFLX_HEX))
+        + "0000"
+        + _item(3, bytes.fromhex(HOST_HEX))
+    )
+    request = WebRTCProvideAnswer.decode(raw)
+    assert request == WebRTCProvideAnswer(SESSION, "v=0\r\n", CANDIDATES[::-1])
+    assert request.encode() == raw
+    assert reference_parse(raw)[2:] == [
+        (3, bytes.fromhex(SRFLX_HEX)),
+        (3, bytes.fromhex(HOST_HEX)),
+    ]
+
+
+def test_session_status() -> None:
+    """Test the read back status with and without a session."""
+    encoded = WebRTCSessionStatus(SESSION, WebRTCStreamingStatus.BUSY).encode()
+    assert encoded == bytes.fromhex("0110" + SESSION.hex + "020102")
+    assert reference_parse(encoded) == [(1, SESSION.bytes), (2, b"\x02")]
+    error = WebRTCSessionStatus(None, WebRTCStreamingStatus.ERROR)
+    assert error.encode() == b"\x02\x01\x03"
+    assert WebRTCSessionStatus.decode(b"\x02\x01\x03") == error
+
+
+def test_streaming_control() -> None:
+    """Test an End, and an unknown command kept as int."""
+    raw = bytes.fromhex("0110" + SESSION.hex + "020101")
+    request = WebRTCStreamingControl.decode(raw)
+    assert request == WebRTCStreamingControl(SESSION, WebRTCStreamingCommand.END)
+    assert request.encode() == raw
+    unknown = WebRTCStreamingControl.decode(
+        bytes.fromhex("0110" + SESSION.hex + "020107 0901aa")
+    )
+    assert unknown.command == 7
+    assert not isinstance(unknown.command, WebRTCStreamingCommand)
+
+
+def test_reoffer_golden() -> None:
+    """Test a reoffer with and without options."""
+    raw = bytes.fromhex("0110" + SESSION.hex + "0205 763d300d0a 0303 010100")
+    request = WebRTCReoffer.decode(raw)
+    assert request == WebRTCReoffer(SESSION, "v=0\r\n", WebRTCOfferOptions(False))
+    assert request.encode() == raw
+    plain = WebRTCReoffer.decode(bytes.fromhex("0110" + SESSION.hex + "0200"))
+    assert plain == WebRTCReoffer(SESSION, "")
+    assert plain.options.sframe_enabled is None
+
+
+def test_reoffer_response_golden() -> None:
+    """Test a successful reoffer response, and a failed one."""
+    response = WebRTCReofferResponse(SESSION, 0, "v=0\r\n", SFRAME)
+    encoded = response.encode()
+    assert encoded == bytes.fromhex(
+        "0110"
+        + SESSION.hex
+        + "0205 763d300d0a 030100"
+        + _item(4, bytes.fromhex(SFRAME_HEX))
+    )
+    assert WebRTCReofferResponse.decode(encoded) == response
+    failed = WebRTCReofferResponse(SESSION, WebRTCStreamingStatus.UNKNOWN_SESSION)
+    assert failed.encode() == bytes.fromhex("0110" + SESSION.hex + "030101")
+
+
+def test_update_session_golden() -> None:
+    """Test keys to add and key IDs to remove are list items."""
+    other = SFrameKey(b"\xaa" * 16, 9)
+    other_hex = _item(1, b"\xaa" * 16) + "02080900000000000000"
+    raw = bytes.fromhex(
+        "0110"
+        + SESSION.hex
+        + _item(2, bytes.fromhex(SFRAME_HEX))
+        + "0000"
+        + _item(2, bytes.fromhex(other_hex))
+        + "030a 0108 0807060504030201 0000 030a 0108 0200000000000000"
+    )
+    request = WebRTCUpdateSession.decode(raw)
+    assert request == WebRTCUpdateSession(
+        SESSION, [SFRAME, other], [0x0102030405060708, 2]
+    )
+    assert request.encode() == raw
+    top = reference_parse(raw)
+    assert len(top) == 5
+    assert top[1] == (2, bytes.fromhex(SFRAME_HEX))
+    assert reference_parse(top[2][1]) == [(1, b"\xaa" * 16), (2, b"\x09" + bytes(7))]
+    assert top[3][0] == top[4][0] == 3
+    assert reference_parse(top[4][1]) == [(1, b"\x02" + bytes(7))]
+
+
+def test_update_session_short_and_empty() -> None:
+    """Test short key IDs are accepted and lists may be empty."""
+    request = WebRTCUpdateSession.decode(
+        bytes.fromhex("0110" + SESSION.hex + "0303 010105")
+    )
+    assert request == WebRTCUpdateSession(SESSION, [], [5])
+    empty = WebRTCUpdateSession(SESSION)
+    assert empty.encode() == bytes.fromhex("0110" + SESSION.hex)
+    assert WebRTCUpdateSession.decode(empty.encode()) == empty
+
+
+def test_webrtc_unknown_values() -> None:
+    """Test unknown statuses are kept as int and unknown types are skipped."""
+    response = WebRTCSolicitOfferResponse.decode(
+        bytes.fromhex("040109 0901aa 0306 010161 0a01ff")
+    )
+    assert response == WebRTCSolicitOfferResponse(9, candidates=[IceCandidate("a")])
+    status = WebRTCSessionStatus.decode(bytes.fromhex("020107"))
+    assert status.status == 7
+    assert not isinstance(status.status, WebRTCStreamingStatus)
+    assert repr(SFRAME) == f"SFrameKey(kid={SFRAME.kid})"
+
+
+@pytest.mark.parametrize(
+    ("decode", "data"),
+    [
+        # Missing session, bad session length, missing SDP.
+        (WebRTCProvideAnswer.decode, "0205 763d300d0a"),
+        (WebRTCProvideAnswer.decode, "0104aabbccdd 0200"),
+        (WebRTCReoffer.decode, "0110" + SESSION.hex),
+        # A candidate without its string, an SDP that is not UTF-8.
+        (WebRTCProvideAnswer.decode, "0110" + SESSION.hex + "0200 0303 020130"),
+        (WebRTCProvideAnswer.decode, "0110" + SESSION.hex + "0201ff"),
+        # A key ID over 64 bits, a key without its ID.
+        (WebRTCUpdateSession.decode, "0110" + SESSION.hex + "030b 0109" + "00" * 9),
+        (WebRTCUpdateSession.decode, "0110" + SESSION.hex + "0203 0101aa"),
+        (WebRTCStreamingControl.decode, "0110" + SESSION.hex),
+        (WebRTCSolicitOffer.decode, "0103 0101"),
+        (WebRTCSolicitOfferResponse.decode, "0110" + SESSION.hex),
+    ],
+)
+def test_webrtc_invalid(decode: Callable[[bytes], object], data: str) -> None:
+    """Test malformed writes raise ValueError."""
+    with pytest.raises(ValueError):
+        decode(bytes.fromhex(data))
+
+
+def test_generate_sframe_key() -> None:
+    """Test generated keys have 32 random bytes and a 64-bit key ID."""
+    first = hksv3.generate_sframe_key()
+    second = hksv3.generate_sframe_key()
+    assert len(first.key) == 32
+    assert first.key != second.key
+    assert 0 <= first.kid < 2**64
+    assert SFrameKey.decode(first.encode()) == first
+    assert first.key.hex() not in repr(first)
+
+
+def test_shared_webrtc_types_are_frozen() -> None:
+    """Test the offer and answer types the media side gets cannot change."""
+    offer = hksv3.WebRTCOffer("v=0\r\n", hksv3.generate_sframe_key())
+    with pytest.raises(AttributeError):
+        offer.sdp = ""  # ty: ignore[invalid-assignment]
+    assert hksv3.WebRTCReofferAnswer("v=0\r\n").sframe is None
+
+
+LIMIT_CANDIDATE = IceCandidate("candidate:1 1 udp 1 192.168.1.2 50000 typ host")
+MAX_SDP = "a" * hksv3.MAX_SDP_SIZE
+LONG_CANDIDATE = IceCandidate("a" * (hksv3.MAX_ICE_CANDIDATE_SIZE - 32), "0", 0)
+OVERSIZED_CANDIDATE = IceCandidate("a" * hksv3.MAX_ICE_CANDIDATE_SIZE, "0", 0)
+LIMIT_KEYS = [SFRAME] * hksv3.MAX_SFRAME_KEY_CHANGES
+LIMIT_KIDS = [5] * hksv3.MAX_SFRAME_KEY_CHANGES
+
+
+def test_webrtc_size_limits_accepted() -> None:
+    """Test writes at the SDP, candidate and key limits decode."""
+    answer = WebRTCProvideAnswer(
+        SESSION, MAX_SDP, [LIMIT_CANDIDATE] * hksv3.MAX_ICE_CANDIDATES
+    )
+    assert WebRTCProvideAnswer.decode(answer.encode()) == answer
+    assert WebRTCReoffer.decode(WebRTCReoffer(SESSION, MAX_SDP).encode()).sdp_offer
+    assert len(LONG_CANDIDATE.encode()) <= hksv3.MAX_ICE_CANDIDATE_SIZE
+    assert IceCandidate.decode(LONG_CANDIDATE.encode()) == LONG_CANDIDATE
+    update = WebRTCUpdateSession(SESSION, LIMIT_KEYS, LIMIT_KIDS)
+    assert WebRTCUpdateSession.decode(update.encode()) == update
+
+
+@pytest.mark.parametrize(
+    ("decode", "request_value"),
+    [
+        (WebRTCProvideAnswer.decode, WebRTCProvideAnswer(SESSION, MAX_SDP + "a")),
+        (
+            WebRTCProvideAnswer.decode,
+            WebRTCProvideAnswer(
+                SESSION, "v=0", [LIMIT_CANDIDATE] * (hksv3.MAX_ICE_CANDIDATES + 1)
+            ),
+        ),
+        (WebRTCReoffer.decode, WebRTCReoffer(SESSION, MAX_SDP + "a")),
+        (
+            WebRTCProvideAnswer.decode,
+            WebRTCProvideAnswer(SESSION, "v=0", [OVERSIZED_CANDIDATE]),
+        ),
+        (IceCandidate.decode, OVERSIZED_CANDIDATE),
+        (
+            WebRTCUpdateSession.decode,
+            WebRTCUpdateSession(SESSION, [*LIMIT_KEYS, SFRAME]),
+        ),
+        (
+            WebRTCUpdateSession.decode,
+            WebRTCUpdateSession(SESSION, [], [*LIMIT_KIDS, 5]),
+        ),
+    ],
+    ids=[
+        "answer-sdp",
+        "answer-candidates",
+        "reoffer-sdp",
+        "answer-candidate-size",
+        "candidate-size",
+        "update-add-keys",
+        "update-remove-kids",
+    ],
+)
+def test_webrtc_size_limits_refused(
+    decode: Callable[[bytes], object],
+    request_value: WebRTCProvideAnswer
+    | WebRTCReoffer
+    | IceCandidate
+    | WebRTCUpdateSession,
+) -> None:
+    """Test writes above the SDP, candidate or key limits do not decode."""
+    with pytest.raises(ValueError, match="at most"):
+        decode(request_value.encode())
