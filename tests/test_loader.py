@@ -238,3 +238,19 @@ def test_loader_motion_sensor_hksv3_optional() -> None:
     assert {"ContributingSensors", "MotionEnabled"} <= set(optional)
     service = loader.get_service("MotionSensor")
     assert [char.display_name for char in service.characteristics] == ["MotionDetected"]
+
+
+@pytest.mark.parametrize(
+    ("name", "permissions"),
+    [
+        ("CameraOperatingModeIndicator", {"pr", "pw", "ev", "tw"}),
+        ("NightVision", {"pr", "pw", "ev", "tw"}),
+        ("ThirdPartyCameraActive", {"pr", "ev"}),
+    ],
+)
+def test_loader_camera_operating_mode_permissions(
+    name: str, permissions: set[str]
+) -> None:
+    """Test the operating mode settings shared with the HKSV 17.99 services."""
+    char = Loader().get_char(name)
+    assert set(char.properties[PROP_PERMISSIONS]) == permissions
