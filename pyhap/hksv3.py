@@ -1,5 +1,8 @@
 """TLV8 values of the HomeKit Secure Video 17.99 camera services.
 
+Developer Preview: HomeKit Secure Video 17.99 is a preview of the guide, so
+this API is experimental and may change.
+
 Follows the HAP TLV8 list encoding: each item of a list is a TLV of its own,
 and items of the same type are separated by an empty TLV of type 0. Values
 longer than 255 bytes are sent as 255-byte fragments of the same type; a TLV
@@ -8,7 +11,7 @@ continues the value before it only after such a full fragment.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import TypeVar
@@ -22,6 +25,7 @@ CAPABILITIES_VERSION = 1
 ZONES_VERSION = 2
 
 _E = TypeVar("_E", bound=IntEnum)
+_T = TypeVar("_T")
 
 
 class SensorType(IntEnum):
@@ -278,3 +282,434 @@ class CameraZones:
         if version != ZONES_VERSION:
             return cls([], version)
         return cls([ZoneData.decode(zone) for zone in fields.get(2, [])], version)
+
+
+class VideoCodec(IntEnum):
+    H264 = 1
+    H265 = 2
+
+
+class AudioCodec(IntEnum):
+    OPUS = 3
+
+
+class AudioSampleRate(IntEnum):
+    KHZ_16 = 1
+    KHZ_24 = 2
+    KHZ_32 = 3
+    KHZ_48 = 4
+
+
+class AudioBitDepth(IntEnum):
+    BITS_8 = 1
+    BITS_16 = 2
+    BITS_24 = 3
+
+
+class RTPStreamingCommand(IntEnum):
+    END = 1
+    START = 2
+
+
+class RTPStreamingStatus(IntEnum):
+    SUCCESS = 0
+    UNKNOWN_SESSION = 1
+    NO_SUCH_STREAM = 2
+    BUSY = 3
+    ERROR = 4
+
+
+# The payload types of the stream tier characteristics. WebRTC media and its
+# SDP use the same ones.
+VIDEO_PAYLOAD_TYPE = 99
+AUDIO_PAYLOAD_TYPE = 110
+
+
+@dataclass(frozen=True)
+class VideoStreamTier:
+    """A video tier a controller can pick for a stream, bit rates in kbps.
+
+    ``peak_bitrate`` is not part of the TLV. :func:`tiers_from_sensor` takes
+    it from the sensor's video encoding, e.g. for the ``max-br`` of a WebRTC
+    offer.
+    """
+
+    identifier: int
+    quality: VideoQuality | int
+    target_bitrate: int
+    width: int
+    height: int
+    frame_rate: int
+    peak_bitrate: int | None = None
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                encode_item(1, _uint(self.identifier, 4)),
+                encode_item(2, _uint(self.quality, 1)),
+                encode_item(3, _uint(self.target_bitrate, 4)),
+                encode_item(4, _uint(self.width, 2)),
+                encode_item(5, _uint(self.height, 2)),
+                encode_item(6, _uint(self.frame_rate, 1)),
+            )
+        )
+
+
+@dataclass(frozen=True)
+class AudioStreamTier:
+    """An audio tier a controller can pick for a stream, bit rate in bps.
+
+    With Opus the guide has the sample rate of the RTP stream, always 48 kHz,
+    whatever the capture rate.
+    """
+
+    identifier: int
+    target_bitrate: int
+    sample_rate: AudioSampleRate | int
+    bit_depth: AudioBitDepth | int = AudioBitDepth.BITS_16
+    packet_time: int = 20
+    channels: int = 1
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                encode_item(1, _uint(self.identifier, 4)),
+                encode_item(2, _uint(self.target_bitrate, 4)),
+                encode_item(3, _uint(self.sample_rate, 1)),
+                encode_item(4, _uint(self.bit_depth, 1)),
+                encode_item(5, _uint(self.packet_time, 1)),
+                encode_item(6, _uint(self.channels, 1)),
+            )
+        )
+
+
+@dataclass
+class SupportedVideoStreamTiers:
+    """Value of the Supported Video Stream Tiers characteristic."""
+
+    codec: VideoCodec | int
+    payload_type: int
+    tiers: list[VideoStreamTier]
+
+    def encode(self) -> bytes:
+        return (
+            encode_item(1, _uint(self.codec, 1))
+            + encode_item(2, _uint(self.payload_type, 1))
+            + encode_list(3, (tier.encode() for tier in self.tiers))
+        )
+
+
+@dataclass
+class SupportedAudioStreamTiers:
+    """Value of the Supported Audio Stream Tiers characteristic."""
+
+    codec: AudioCodec | int
+    payload_type: int
+    tiers: list[AudioStreamTier]
+
+    def encode(self) -> bytes:
+        return (
+            encode_item(1, _uint(self.codec, 1))
+            + encode_item(2, _uint(self.payload_type, 1))
+            + encode_list(3, (tier.encode() for tier in self.tiers))
+        )
+
+
+def _optional_int(fields: dict[int, list[bytes]], tag: int) -> int | None:
+    return _to_int(fields[tag][0]) if tag in fields else None
+
+
+def _optional(
+    fields: dict[int, list[bytes]], tag: int, convert: Callable[[bytes], _T]
+) -> _T | None:
+    return convert(fields[tag][0]) if tag in fields else None
+
+
+def _optional_item(tag: int, value: bytes | None) -> bytes:
+    return b"" if value is None else encode_item(tag, value)
+
+
+@dataclass
+class RTPStreamingControl:
+    """A write to the RTP Streaming Control characteristic.
+
+    Tiers and SSRCs come only with :attr:`RTPStreamingCommand.START`, the
+    audio ones only if the controller wants audio.
+    """
+
+    session_id: UUID
+    command: RTPStreamingCommand | int
+    video_tier: int | None = None
+    video_ssrc: int | None = None
+    audio_tier: int | None = None
+    audio_ssrc: int | None = None
+
+    @classmethod
+    def decode(cls, data: bytes) -> RTPStreamingControl:
+        fields = _fields(data)
+        return cls(
+            _to_uuid(_required(fields, 1)),
+            _to_enum(RTPStreamingCommand, _required(fields, 2)),
+            _optional_int(fields, 3),
+            _optional_int(fields, 4),
+            _optional_int(fields, 5),
+            _optional_int(fields, 6),
+        )
+
+
+def encode_streaming_status(
+    session_id: UUID | None, status: RTPStreamingStatus | int
+) -> bytes:
+    """Encode the read back value of RTP Streaming Control.
+
+    Without a session, e.g. for a write that did not decode, only the status
+    is sent.
+    """
+    session = b"" if session_id is None else encode_item(1, session_id.bytes)
+    return session + encode_item(2, _uint(status, 1))
+
+
+class SetupEndpointsStatus(IntEnum):
+    SUCCESS = 0
+    BUSY = 1
+    ERROR = 2
+
+
+class SRTPCryptoSuite(IntEnum):
+    AES_CM_128_HMAC_SHA1_80 = 0
+    AES_256_CM_HMAC_SHA1_80 = 1
+    DISABLED = 2
+
+
+def _port(data: bytes) -> int:
+    if len(data) != 2:
+        raise ValueError(f"Invalid port length {len(data)}")
+    return _to_int(data)
+
+
+@dataclass(frozen=True)
+class EndpointAddress:
+    """An address of Setup Endpoints and its RTP ports.
+
+    ``address`` is the text the controller sent. Check it with
+    :func:`pyhap.camera.parse_setup_address` before using it.
+    """
+
+    address: str
+    is_ipv6: bool
+    video_port: int
+    audio_port: int
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                encode_item(1, _uint(self.is_ipv6, 1)),
+                encode_item(2, self.address.encode("utf-8")),
+                encode_item(3, _uint(self.video_port, 2)),
+                encode_item(4, _uint(self.audio_port, 2)),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> EndpointAddress:
+        fields = _fields(data)
+        return cls(
+            _required(fields, 2).decode("utf-8"),
+            bool(_to_int(_required(fields, 1))),
+            _port(_required(fields, 3)),
+            _port(_required(fields, 4)),
+        )
+
+
+@dataclass(frozen=True)
+class SRTPParameters:
+    """The SRTP crypto suite, master key and master salt of a stream."""
+
+    crypto_suite: SRTPCryptoSuite | int
+    master_key: bytes = field(repr=False)
+    master_salt: bytes = field(repr=False)
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                encode_item(1, _uint(self.crypto_suite, 1)),
+                encode_item(2, self.master_key),
+                encode_item(3, self.master_salt),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> SRTPParameters:
+        fields = _fields(data)
+        return cls(
+            _to_enum(SRTPCryptoSuite, _required(fields, 1)),
+            _required(fields, 2),
+            _required(fields, 3),
+        )
+
+
+@dataclass(frozen=True)
+class SetupEndpoints:
+    """A write to Setup Endpoints: where the controller receives, and its keys."""
+
+    session_id: UUID
+    address: EndpointAddress
+    video_srtp: SRTPParameters
+    audio_srtp: SRTPParameters
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                encode_item(1, self.session_id.bytes),
+                encode_item(3, self.address.encode()),
+                encode_item(4, self.video_srtp.encode()),
+                encode_item(5, self.audio_srtp.encode()),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> SetupEndpoints:
+        fields = _fields(data)
+        return cls(
+            _to_uuid(_required(fields, 1)),
+            EndpointAddress.decode(_required(fields, 3)),
+            SRTPParameters.decode(_required(fields, 4)),
+            SRTPParameters.decode(_required(fields, 5)),
+        )
+
+
+@dataclass(frozen=True)
+class SetupEndpointsResponse:
+    """The read back value of Setup Endpoints.
+
+    Without a session, e.g. for a write that did not decode, only the status
+    is sent. Only a successful one has the accessory's address, keys and
+    SSRCs.
+    """
+
+    session_id: UUID | None
+    status: SetupEndpointsStatus | int
+    address: EndpointAddress | None = None
+    video_srtp: SRTPParameters | None = None
+    audio_srtp: SRTPParameters | None = None
+    video_ssrc: int | None = None
+    audio_ssrc: int | None = None
+
+    def encode(self) -> bytes:
+        def encoded(value: EndpointAddress | SRTPParameters | None) -> bytes | None:
+            return None if value is None else value.encode()
+
+        def ssrc(value: int | None) -> bytes | None:
+            return None if value is None else _uint(value, 4)
+
+        session_id = None if self.session_id is None else self.session_id.bytes
+        return b"".join(
+            (
+                _optional_item(1, session_id),
+                encode_item(2, _uint(self.status, 1)),
+                _optional_item(3, encoded(self.address)),
+                _optional_item(4, encoded(self.video_srtp)),
+                _optional_item(5, encoded(self.audio_srtp)),
+                _optional_item(6, ssrc(self.video_ssrc)),
+                _optional_item(7, ssrc(self.audio_ssrc)),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> SetupEndpointsResponse:
+        fields = _fields(data)
+        return cls(
+            _optional(fields, 1, _to_uuid),
+            _to_enum(SetupEndpointsStatus, _required(fields, 2)),
+            _optional(fields, 3, EndpointAddress.decode),
+            _optional(fields, 4, SRTPParameters.decode),
+            _optional(fields, 5, SRTPParameters.decode),
+            _optional_int(fields, 6),
+            _optional_int(fields, 7),
+        )
+
+
+def tiers_from_sensor(sensor: SensorConfiguration) -> list[VideoStreamTier]:
+    """Offer each video encoding of the sensor as a tier, numbered from 1.
+
+    Tier ``n`` is ``sensor.video_streams[n - 1]``.
+    """
+    return [
+        VideoStreamTier(
+            index,
+            stream.quality,
+            stream.average_bitrate,
+            stream.width,
+            stream.height,
+            stream.frame_rate,
+            stream.peak_bitrate,
+        )
+        for index, stream in enumerate(sensor.video_streams, 1)
+    ]
+
+
+DEFAULT_AUDIO_TIER = AudioStreamTier(1, 24000, AudioSampleRate.KHZ_48)
+
+# Average and maximum kbps of the guide's bit rate table, by the short side
+# of the frame; the aspect ratio does not matter. A frame between two rows
+# takes the larger one.
+_GUIDE_BITRATES = {
+    2160: (4500, 5000),
+    1440: (2800, 3000),
+    1080: (1700, 1800),
+    720: (768, 800),
+    360: (180, 190),
+    240: (180, 190),
+}
+
+
+def check_audio_tier(tier: AudioStreamTier) -> None:
+    """Check an audio tier against the guide.
+
+    :raises ValueError: For anything this revision of the guide does not
+        allow: a packet time other than 20 ms, more than one channel or an
+        unknown sample rate or bit depth.
+    """
+    if tier.packet_time != 20 or tier.channels != 1:
+        raise ValueError("Audio tiers have a 20 ms packet time and one channel")
+    if tier.sample_rate not in set(AudioSampleRate) or tier.bit_depth not in set(
+        AudioBitDepth
+    ):
+        raise ValueError("Unknown audio sample rate or bit depth")
+    if tier.target_bitrate <= 0:
+        raise ValueError("The audio bit rate must be positive")
+
+
+def check_video_tiers(sensor: SensorConfiguration) -> list[str]:
+    """Check the video encodings of a sensor as tiers against the guide.
+
+    Returns warnings for what the guide only recommends: a gap between peak
+    and average of more than 10 % of the peak, peaks above its table and
+    frames larger than 4K, which the table does not cover.
+
+    :raises ValueError: For a sensor without encodings, an unknown quality,
+        Highest without High or a peak below the average.
+    """
+    if not sensor.video_streams:
+        raise ValueError("A sensor needs at least one video encoding")
+    warnings = []
+    qualities = {stream.quality for stream in sensor.video_streams}
+    if not qualities <= set(VideoQuality):
+        raise ValueError(f"Unknown video quality in {sorted(qualities)}")
+    if VideoQuality.HIGHEST in qualities and VideoQuality.HIGH not in qualities:
+        raise ValueError("A Highest video encoding needs a High one")
+    for stream in sensor.video_streams:
+        name = f"{stream.width}x{stream.height}@{stream.frame_rate}"
+        if stream.peak_bitrate < stream.average_bitrate:
+            raise ValueError(f"{name}: peak bit rate below the average")
+        if (stream.peak_bitrate - stream.average_bitrate) * 10 > stream.peak_bitrate:
+            warnings.append(f"{name}: average more than 10 % below the peak")
+        short_side = min(stream.width, stream.height)
+        rows = [row for row in sorted(_GUIDE_BITRATES) if row >= short_side]
+        if not rows:
+            warnings.append(f"{name}: larger than the guide's 4K bit rate table")
+            continue
+        guide = _GUIDE_BITRATES[rows[0]]
+        if stream.peak_bitrate > guide[1]:
+            warnings.append(f"{name}: peak above the guide's {guide[1]} kbps")
+    return warnings
