@@ -40,6 +40,7 @@ from pyhap.characteristic import PROP_PERMISSIONS, Characteristic, Characteristi
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PERMISSION_READ,
+    HAP_PERMISSION_WRITE,
     HAP_PROTOCOL_SHORT_VERSION,
     HAP_REPR_ACCS,
     HAP_REPR_AID,
@@ -1073,6 +1074,15 @@ class AccessoryDriver:
                 continue
             char = acc.get_characteristic(aid, iid)
             if char is None:
+                continue
+
+            if (
+                value is not None
+                and HAP_PERMISSION_WRITE not in char.properties[PROP_PERMISSIONS]
+            ):
+                results[aid][iid] = {
+                    HAP_REPR_STATUS: HAP_SERVER_STATUS.READ_ONLY_CHARACTERISTIC
+                }
                 continue
 
             set_result = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST

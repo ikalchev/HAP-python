@@ -930,7 +930,7 @@ def test_handle_set_handle_set_characteristics_encrypted_with_exception(
 
     response = hap_handler.HAPResponse()
     handler.response = response
-    handler.request_body = b'{"characteristics":[{"aid":1,"iid":11,"value":1}]}'
+    handler.request_body = b'{"characteristics":[{"aid":1,"iid":12,"value":1}]}'
     handler.handle_set_characteristics()
 
     assert response.status_code == 207
