@@ -1043,6 +1043,22 @@ class AccessoryDriver:
         """
         queries: list[dict[str, Any]] = chars_query[HAP_REPR_CHARS]
 
+        if HAP_REPR_PID in chars_query and not self._take_prepared_write(
+            chars_query[HAP_REPR_PID], client_addr
+        ):
+            # The spec requires a timed write that was never prepared, was
+            # already used or has expired to be ignored as a whole.
+            return {
+                HAP_REPR_CHARS: [
+                    {
+                        HAP_REPR_AID: query[HAP_REPR_AID],
+                        HAP_REPR_IID: query[HAP_REPR_IID],
+                        HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST,
+                    }
+                    for query in queries
+                ]
+            }
+
         not_notifiable = self._notify(queries, client_addr)
 
         updates_by_accessories_services: dict[
@@ -1052,12 +1068,6 @@ class AccessoryDriver:
             lambda: defaultdict(dict)
         )
         char_to_iid: dict[Characteristic, int] = {}
-
-        expired = False
-        if HAP_REPR_PID in chars_query:
-            pid = chars_query[HAP_REPR_PID]
-            expire_time = self.prepared_writes.get(client_addr, {}).pop(pid, None)
-            expired = expire_time is None or time.time() > expire_time
 
         primary_accessory = self.accessory
         assert primary_accessory is not None  # noqa: S101
@@ -1073,7 +1083,7 @@ class AccessoryDriver:
             iid = query[HAP_REPR_IID]
             if (aid, iid) in not_notifiable:
                 continue
-            if HAP_REPR_VALUE not in query and not expired:
+            if HAP_REPR_VALUE not in query:
                 # Listed with status 0 if the response has other results.
                 results[aid][iid] = {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
                 continue
@@ -1170,6 +1180,11 @@ class AccessoryDriver:
 
         return {HAP_REPR_CHARS: characteristics} if nonempty_results_exist else None
 
+    def _take_prepared_write(self, pid: Any, client_addr: tuple[str, int]) -> bool:
+        """Consume the prepared write ``pid`` and return whether it is still valid."""
+        expires_at = self.prepared_writes.get(client_addr, {}).pop(pid, None)
+        return expires_at is not None and time.monotonic() <= expires_at
+
     def prepare(
         self, prepare_query: dict[str, Any], client_addr: tuple[str, int]
     ) -> dict[str, int]:
@@ -1189,7 +1204,7 @@ class AccessoryDriver:
         try:
             ttl = prepare_query[HAP_REPR_TTL]
             pid = prepare_query[HAP_REPR_PID]
-            now = time.time()
+            now = time.monotonic()
             pending = self.prepared_writes.setdefault(client_addr, {})
             # Prune expired entries and cap the number of pending writes so a
             # paired client cannot grow prepared_writes without bound by

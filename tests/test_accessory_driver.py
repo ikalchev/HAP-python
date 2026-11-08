@@ -1817,7 +1817,7 @@ def test_prepare_bounds_prepared_writes(driver: AccessoryDriver) -> None:
     # An absurd TTL is clamped to the maximum.
     driver.prepare({HAP_REPR_TTL: 10_000_000_000, HAP_REPR_PID: 1}, client_addr)
     assert (
-        driver.prepared_writes[client_addr][1] - time.time()
+        driver.prepared_writes[client_addr][1] - time.monotonic()
         <= MAX_PREPARED_WRITE_TTL_SECONDS
     )
 
