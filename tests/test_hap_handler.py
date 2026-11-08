@@ -19,7 +19,13 @@ from pyhap.accessory_driver import (
     MAX_FAILED_PAIRING_ATTEMPTS,
     AccessoryDriver,
 )
-from pyhap.characteristic import Characteristic, CharacteristicError
+from pyhap.characteristic import (
+    HAP_FORMAT_INT,
+    PROP_FORMAT,
+    PROP_PERMISSIONS,
+    Characteristic,
+    CharacteristicError,
+)
 from pyhap.const import HAP_PERMISSIONS, HAP_SERVER_STATUS
 from pyhap.service import Service
 
@@ -1018,6 +1024,51 @@ def test_handle_get_characteristics_encrypted(driver: AccessoryDriver) -> None:
     assert "characteristics" in decoded_response
     assert "status" in decoded_response["characteristics"][0]
     assert decoded_response["characteristics"][0]["status"] == -70402
+
+
+@pytest.mark.parametrize(
+    ("reader", "expected"),
+    [
+        pytest.param(("1.2.3.4", 5), b'"value":7', id="writer"),
+        pytest.param(("5.6.7.8", 9), b'"value":0', id="other-controller"),
+    ],
+)
+def test_handle_get_characteristics_write_response_per_client(
+    driver: AccessoryDriver, reader: tuple[str, int], expected: bytes
+) -> None:
+    """Only the client that wrote reads the write response back."""
+    acc = Accessory(driver, "TestAcc", aid=1)
+    service = Service(uuid1(), "Test Service")
+    char = Characteristic(
+        "Value",
+        uuid1(),
+        {PROP_FORMAT: HAP_FORMAT_INT, PROP_PERMISSIONS: ["pr", "pw", "wr"]},
+    )
+    char.setter_callback = lambda _value: 7
+    service.add_characteristic(char)
+    acc.add_service(service)
+    driver.add_accessory(acc)
+    iid = acc.iid_manager.get_iid(char)
+
+    writer = hap_handler.HAPServerHandler(driver, ("1.2.3.4", 5))
+    writer.is_encrypted = True
+    writer.response = hap_handler.HAPResponse()
+    writer.request_body = (
+        b'{"characteristics":[{"aid":1,"iid":%d,"value":5,"r":true}]}' % iid
+    )
+    writer.handle_set_characteristics()
+    assert b'"value":7' in writer.response.body
+
+    handler = hap_handler.HAPServerHandler(driver, reader)
+    handler.is_encrypted = True
+    response = hap_handler.HAPResponse()
+    handler.response = response
+    handler.path = f"/characteristics?id=1.{iid}"
+    handler.parsed_url = urlparse(handler.path)
+    handler.handle_get_characteristics()
+
+    assert response.status_code == 200
+    assert expected in response.body
 
 
 def test_handle_resource_unencrypted_rejected(driver: AccessoryDriver) -> None:
