@@ -18,6 +18,7 @@ streaming.
 
 import asyncio
 from collections.abc import AsyncGenerator
+import contextlib
 import functools
 import hashlib
 import ipaddress
@@ -1560,7 +1561,8 @@ class Camera(Accessory):
         if ffmpeg_process:
             logger.info("[%s] Stopping stream.", session_id)
             try:
-                ffmpeg_process.terminate()
+                with contextlib.suppress(ProcessLookupError):
+                    ffmpeg_process.terminate()
                 async with async_timeout(2.0):
                     _, stderr = await ffmpeg_process.communicate()
                 logger.debug("Stream command stderr: %s", stderr)
@@ -1569,7 +1571,8 @@ class Camera(Accessory):
                     "Timeout while waiting for the stream process "
                     "to terminate. Trying with kill."
                 )
-                ffmpeg_process.kill()
+                with contextlib.suppress(ProcessLookupError):
+                    ffmpeg_process.kill()
                 await ffmpeg_process.wait()
             logger.debug("Stream process stopped.")
         else:
