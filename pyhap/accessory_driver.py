@@ -89,22 +89,12 @@ MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
 
 
-def _store_write_response(char: Characteristic, response: Any) -> Any:
-    """Keep the write response as the value and return what to send.
-
-    The written value of a write response characteristic, such as an SDP
-    offer, is a request. What the accessory answered is its state.
-    """
+def _stored_value(char: Any, value: Any) -> Any:
+    """Return the value ``client_update_value`` stores for ``value``."""
     try:
-        char.value = char.to_valid_value(response)
+        return char.to_valid_value(value)
     except ValueError:
-        logger.debug(
-            "%s: keeping the written value, the write response is invalid: %s",
-            char.display_name,
-            response,
-        )
-        return response
-    return char.value
+        return value
 
 
 def _wrap_char_setter(char: Any, value: Any, client_addr: Any) -> tuple[int, Any]:
@@ -368,6 +358,8 @@ class AccessoryDriver:
         network_tuple = (self._listen_address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
         self.prepared_writes = {}
+        # Write responses of readable characteristics, per client.
+        self._write_responses: dict[tuple[str, int], dict[Characteristic, Any]] = {}
 
     def listen_address(self) -> str | list[str]:
         """Return the address, or list of addresses, the HAP server listens on."""
@@ -614,6 +606,8 @@ class AccessoryDriver:
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
         self.prepared_writes.pop(client, None)
+        # Deferred, so a write response that is already on its way is dropped too.
+        self.loop.call_soon(self._write_responses.pop, client, None)
 
     def publish(
         self,
@@ -938,11 +932,17 @@ class AccessoryDriver:
         logger.debug("Get accessories response: %s", hap_rep)
         return {HAP_REPR_ACCS: hap_rep}
 
-    def get_characteristics(self, char_ids: Any) -> dict[str, Any]:
+    def get_characteristics(
+        self, char_ids: Any, client_addr: tuple[str, int] | None = None
+    ) -> dict[str, Any]:
         """Returns values for the required characteristics.
 
         :param char_ids: A list of characteristic "paths", e.g. "1.2" is aid 1, iid 2.
         :type char_ids: list<str>
+
+        :param client_addr: The client that reads. It reads back its own write
+            responses.
+        :type client_addr: tuple <str, int>
 
         :return: Status success for each required characteristic. For example:
 
@@ -959,6 +959,9 @@ class AccessoryDriver:
         :rtype: dict
         """
         assert self.accessory is not None  # noqa: S101
+        write_responses = (
+            self._write_responses.get(client_addr, {}) if client_addr else {}
+        )
         chars = []
         for aid_iid in char_ids:
             aid, iid = (int(i) for i in aid_iid.split("."))
@@ -996,7 +999,11 @@ class AccessoryDriver:
                             HAP_SERVER_STATUS.WRITE_ONLY_CHARACTERISTIC
                         )
                     elif available:
-                        rep[HAP_REPR_VALUE] = char.get_value()
+                        rep[HAP_REPR_VALUE] = (
+                            write_responses[char]
+                            if char in write_responses
+                            else char.get_value()
+                        )
                         rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             except CharacteristicError:
                 logger.error(
@@ -1142,6 +1149,24 @@ class AccessoryDriver:
                     char.display_name,
                 )
 
+            # Only characteristics with the write response permission answer
+            # a write with a value, and only when the controller asks for it.
+            write_response = bool(
+                query.get(HAP_REPR_WRITE_RESPONSE, False)
+                and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
+            )
+            # A new write replaces a former response of this connection. The
+            # request of a readable write response characteristic is not
+            # shared, whatever the setter does, except to ev subscribers.
+            if value is not None:
+                self._write_responses.get(client_addr, {}).pop(char, None)
+            private_write = (
+                write_response
+                and value is not None
+                and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
+            )
+            previous_value = char.value
+
             set_result = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
             set_result_value = None
 
@@ -1149,17 +1174,16 @@ class AccessoryDriver:
                 set_result, set_result_value = _wrap_char_setter(
                     char, value, client_addr
                 )
+            # Put back the former value unless the setter set its own.
+            if private_write and char.value == _stored_value(char, value):
+                char.value = previous_value
 
-            # Only characteristics with the write response permission answer
-            # a write with a value, and only when the controller asks for it.
-            if (
-                set_result_value is not None
-                and query.get(HAP_REPR_WRITE_RESPONSE, False)
-                and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
-            ):
+            if set_result_value is not None and write_response:
                 result = {
                     HAP_REPR_STATUS: set_result,
-                    HAP_REPR_VALUE: _store_write_response(char, set_result_value),
+                    HAP_REPR_VALUE: self._store_write_response(
+                        char, set_result_value, client_addr
+                    ),
                 }
             else:
                 result = {HAP_REPR_STATUS: set_result}
@@ -1213,6 +1237,40 @@ class AccessoryDriver:
         """Consume the prepared write ``pid`` and return whether it is still valid."""
         expires_at = self.prepared_writes.get(client_addr, {}).pop(pid, None)
         return expires_at is not None and time.monotonic() <= expires_at
+
+    def _store_write_response(
+        self,
+        char: Characteristic,
+        response: Any,
+        client_addr: tuple[str, int] | None,
+    ) -> Any:
+        """Keep the write response and return what to send.
+
+        The written value of a write response characteristic, such as an SDP
+        offer, is a request. What the accessory answered is its state. If the
+        characteristic is readable, only the connection that wrote reads the
+        response back, until it closes, and it wins over the getter and a later
+        ``set_value``. Other connections read the characteristic's own value,
+        which the write leaves as it was. A write without ``r`` stays readable
+        for everyone, and a characteristic that also has ``ev`` notifies the
+        written value as any write does.
+        """
+        readable = HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
+        try:
+            response = char.to_valid_value(response)
+        except ValueError:
+            logger.debug(
+                "%s: not keeping the write response, it is invalid: %s",
+                char.display_name,
+                response,
+            )
+            return response
+        if readable:
+            if client_addr is not None:
+                self._write_responses.setdefault(client_addr, {})[char] = response
+        else:
+            char.value = response
+        return response
 
     def prepare(
         self, prepare_query: dict[str, Any], client_addr: tuple[str, int]
