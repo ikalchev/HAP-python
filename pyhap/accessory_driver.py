@@ -40,6 +40,7 @@ from pyhap.characteristic import PROP_PERMISSIONS, Characteristic, Characteristi
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PERMISSION_READ,
+    HAP_PERMISSION_TIMED_WRITE,
     HAP_PERMISSION_WRITE,
     HAP_PERMISSION_WRITE_RESPONSE,
     HAP_PROTOCOL_SHORT_VERSION,
@@ -249,6 +250,7 @@ class AccessoryDriver:
         async_zeroconf_instance: Any = None,
         zeroconf_server: Any = None,
         advertise: bool = True,
+        enforce_timed_writes: bool = False,
     ) -> None:
         """Initialize a new AccessoryDriver object.
 
@@ -303,6 +305,15 @@ class AccessoryDriver:
             the driver starts. Pass False to run the HAP server without
             mDNS advertising, e.g. for tests or benchmarks.
         :type advertise: bool
+
+        :param enforce_timed_writes: Whether to reject a plain write to a
+            characteristic with the timed write ("tw") permission with -70410,
+            as the HAP specification requires. When False, such a write is
+            applied and only logged at debug level: a Home hub has been seen
+            writing HomeKit Camera Active without a timed write, and the HomeKit
+            Secure Video guide gives Streaming Enabled and Motion Enabled tw too,
+            so enforcing it would break HKSV with such hubs.
+        :type enforce_timed_writes: bool
         """
         if loop is None:
             if sys.platform == "win32":
@@ -335,6 +346,7 @@ class AccessoryDriver:
         self.stop_event = threading.Event()
 
         self.safe_mode = False
+        self.enforce_timed_writes = enforce_timed_writes
 
         self.mdns_service_info: ServiceInfo | None = None
         self._srp_verifier: SrpServer | None = None
@@ -1043,7 +1055,8 @@ class AccessoryDriver:
         """
         queries: list[dict[str, Any]] = chars_query[HAP_REPR_CHARS]
 
-        if HAP_REPR_PID in chars_query and not self._take_prepared_write(
+        timed_write = HAP_REPR_PID in chars_query
+        if timed_write and not self._take_prepared_write(
             chars_query[HAP_REPR_PID], client_addr
         ):
             # The spec requires a timed write that was never prepared, was
@@ -1112,6 +1125,22 @@ class AccessoryDriver:
                     HAP_REPR_STATUS: HAP_SERVER_STATUS.READ_ONLY_CHARACTERISTIC
                 }
                 continue
+
+            if (
+                value is not None
+                and not timed_write
+                and HAP_PERMISSION_TIMED_WRITE in char.properties[PROP_PERMISSIONS]
+            ):
+                if self.enforce_timed_writes:
+                    results[aid][iid] = {
+                        HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
+                    }
+                    continue
+                logger.debug(
+                    "%s: %s requires a timed write but was written without one",
+                    client_addr,
+                    char.display_name,
+                )
 
             set_result = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
             set_result_value = None

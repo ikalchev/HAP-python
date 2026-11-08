@@ -1,6 +1,7 @@
 """Tests for timed writes (prepare, then write with the pid)."""
 
 from collections.abc import Iterator
+import logging
 from typing import Any, NamedTuple
 from unittest.mock import MagicMock, patch
 
@@ -162,3 +163,80 @@ def test_prepared_pid_belongs_to_its_connection(
         HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
     )
     door.setter.assert_not_called()
+
+
+def _rejection(char: WritableChar, status: int | None) -> dict[str, Any] | None:
+    """Return the expected write response, None for a plain success."""
+    if status is None:
+        return None
+    return {
+        HAP_REPR_CHARS: [
+            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_STATUS: status}
+        ]
+    }
+
+
+def _highest_level(records: list[logging.LogRecord]) -> int:
+    """Return the highest log level in ``records``, 0 without any."""
+    return max((record.levelno for record in records), default=0)
+
+
+REJECTED = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
+
+
+@pytest.mark.parametrize(
+    ("enforce", "name", "request_extra", "status", "calls", "logged"),
+    [
+        (True, "HomeKitCameraActive", {}, REJECTED, 0, 0),
+        (True, "HomeKitCameraActive", {HAP_REPR_PID: 7}, None, 1, 0),
+        (True, "TargetDoorState", {}, None, 1, 0),
+        (False, "HomeKitCameraActive", {}, None, 1, 1),
+        (False, "HomeKitCameraActive", {HAP_REPR_PID: 7}, None, 1, 0),
+        (False, "TargetDoorState", {}, None, 1, 0),
+    ],
+    ids=[
+        "enforced_plain_write",
+        "enforced_timed_write",
+        "enforced_plain_write_without_tw",
+        "lenient_plain_write",
+        "lenient_timed_write",
+        "lenient_plain_write_without_tw",
+    ],
+)
+def test_timed_write_permission(
+    driver: AccessoryDriver,
+    chars: dict[str, WritableChar],
+    caplog: pytest.LogCaptureFixture,
+    enforce: bool,
+    name: str,
+    request_extra: dict[str, Any],
+    status: int | None,
+    calls: int,
+    logged: int,
+) -> None:
+    """Test a plain write to a timed write characteristic is refused or logged."""
+    caplog.set_level(logging.DEBUG, logger="pyhap.accessory_driver")
+    char = chars[name]
+    driver.enforce_timed_writes = enforce
+    driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 7}, CLIENT)
+    query = {
+        HAP_REPR_CHARS: [
+            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_VALUE: 0}
+        ],
+        **request_extra,
+    }
+
+    response = driver.set_characteristics(query, CLIENT)
+
+    assert response == _rejection(char, status)
+    assert char.setter.call_count == calls
+    assert caplog.text.count("requires a timed write") == logged
+    # Lenient mode must not warn, hubs write these values all the time.
+    assert _highest_level(caplog.records) < logging.WARNING
+
+
+def test_enforce_timed_writes_defaults_to_off(driver: AccessoryDriver) -> None:
+    """Test timed writes are only enforced on request."""
+    assert driver.enforce_timed_writes is False
+    enforced = AccessoryDriver(loop=driver.loop, enforce_timed_writes=True)
+    assert enforced.enforce_timed_writes is True
