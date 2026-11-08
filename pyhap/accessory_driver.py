@@ -30,13 +30,20 @@ import tempfile
 import threading
 import time
 from typing import Any
+from uuid import UUID
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
 from pyhap.accessory import Accessory, Bridge, get_topic
-from pyhap.characteristic import Characteristic, CharacteristicError
+from pyhap.characteristic import (
+    ADMIN_ONLY_READ,
+    ADMIN_ONLY_WRITE,
+    PROP_ADMIN_ONLY_ACCESS,
+    Characteristic,
+    CharacteristicError,
+)
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PROTOCOL_SHORT_VERSION,
@@ -83,6 +90,11 @@ PAIRING_LOCKOUT_SECONDS = 60
 # grow ``prepared_writes`` without bound.
 MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
+
+
+def _admin_only(char: Characteristic, access: str) -> bool:
+    """Return whether ``access`` to ``char`` is restricted to admin controllers."""
+    return access in char.properties.get(PROP_ADMIN_ONLY_ACCESS, ())
 
 
 def _wrap_char_setter(char: Any, value: Any, client_addr: Any) -> tuple[int, Any]:
@@ -905,11 +917,18 @@ class AccessoryDriver:
         logger.debug("Get accessories response: %s", hap_rep)
         return {HAP_REPR_ACCS: hap_rep}
 
-    def get_characteristics(self, char_ids: Any) -> dict[str, Any]:
+    def get_characteristics(
+        self, char_ids: Any, client_uuid: UUID | None = None
+    ) -> dict[str, Any]:
         """Returns values for the required characteristics.
 
         :param char_ids: A list of characteristic "paths", e.g. "1.2" is aid 1, iid 2.
         :type char_ids: list<str>
+
+        :param client_uuid: The paired controller that sent the request. Reads
+            of characteristics restricted to admins are refused with -70401
+            unless it is an admin.
+        :type client_uuid: uuid.UUID
 
         :return: Status success for each required characteristic. For example:
 
@@ -926,6 +945,7 @@ class AccessoryDriver:
         :rtype: dict
         """
         assert self.accessory is not None  # noqa: S101
+        is_admin = self._is_admin(client_uuid)
         chars = []
         for aid_iid in char_ids:
             aid, iid = (int(i) for i in aid_iid.split("."))
@@ -956,7 +976,13 @@ class AccessoryDriver:
 
                 # A characteristic IID may resolve to a Service or be unknown;
                 # only a Characteristic can report a value.
-                if available and isinstance(char, Characteristic):
+                if (
+                    isinstance(char, Characteristic)
+                    and not is_admin
+                    and _admin_only(char, ADMIN_ONLY_READ)
+                ):
+                    rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
+                elif available and isinstance(char, Characteristic):
                     rep[HAP_REPR_VALUE] = char.get_value()
                     rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             except CharacteristicError:
@@ -994,7 +1020,10 @@ class AccessoryDriver:
         return connection.derive_key(salt, info)
 
     def set_characteristics(
-        self, chars_query: dict[str, Any], client_addr: tuple[str, int]
+        self,
+        chars_query: dict[str, Any],
+        client_addr: tuple[str, int],
+        client_uuid: UUID | None = None,
     ) -> dict[str, Any] | None:
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.
 
@@ -1013,6 +1042,11 @@ class AccessoryDriver:
            }
 
         :type chars_query: dict
+
+        :param client_uuid: The paired controller that sent the request. Writes
+            to characteristics restricted to admins are refused with -70401
+            unless it is an admin.
+        :type client_uuid: uuid.UUID
         """
         # TODO: Add support for chars that do no support notifications.
 
@@ -1060,6 +1094,16 @@ class AccessoryDriver:
                 continue
             char = acc.get_characteristic(aid, iid)
             if char is None:
+                continue
+
+            if (
+                value is not None
+                and _admin_only(char, ADMIN_ONLY_WRITE)
+                and not self._is_admin(client_uuid)
+            ):
+                results[aid][iid] = {
+                    HAP_REPR_STATUS: HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
+                }
                 continue
 
             set_result = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
@@ -1119,6 +1163,10 @@ class AccessoryDriver:
                     nonempty_results_exist = True
 
         return {HAP_REPR_CHARS: characteristics} if nonempty_results_exist else None
+
+    def _is_admin(self, client_uuid: UUID | None) -> bool:
+        """Return whether ``client_uuid`` is a paired admin controller."""
+        return client_uuid is not None and self.state.is_admin(client_uuid)
 
     def prepare(
         self, prepare_query: dict[str, Any], client_addr: tuple[str, int]

@@ -95,6 +95,11 @@ HAP_UNIT_PERCENTAGE = "percentage"
 HAP_UNIT_SECONDS = "seconds"
 
 # ### Properties ###
+# Accesses ("read", "write") only admin controllers may use. Not part of the
+# HAP representation, the accessory driver enforces it.
+PROP_ADMIN_ONLY_ACCESS = "AdminOnlyAccess"
+ADMIN_ONLY_READ = "read"
+ADMIN_ONLY_WRITE = "write"
 PROP_FORMAT = "Format"
 PROP_MAX_VALUE = "maxValue"
 PROP_MIN_STEP = "minStep"
