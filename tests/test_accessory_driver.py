@@ -32,10 +32,12 @@ from pyhap.characteristic import (
 )
 from pyhap.const import (
     HAP_PERMISSIONS,
+    HAP_REPR_ACCS,
     HAP_REPR_AID,
     HAP_REPR_CHARS,
     HAP_REPR_IID,
     HAP_REPR_PID,
+    HAP_REPR_SERVICES,
     HAP_REPR_STATUS,
     HAP_REPR_TTL,
     HAP_REPR_VALUE,
@@ -138,6 +140,109 @@ def test_get_characteristics_honors_availability(
                 HAP_REPR_CHARS: [expected]
             }
         getter.assert_called_once_with()
+
+
+def _add_bridged_or_standalone(
+    driver: AccessoryDriver, permissions: list[str], bridged: bool
+) -> tuple[Accessory, Characteristic, MagicMock]:
+    """Add an accessory with one int characteristic that has a getter."""
+    acc = Accessory(driver, "Test Accessory", aid=2 if bridged else STANDALONE_AID)
+    service = Service(uuid1(), "Test Service")
+    char = Characteristic(
+        "Value",
+        uuid1(),
+        {PROP_FORMAT: HAP_FORMAT_INT, PROP_PERMISSIONS: permissions},
+    )
+    getter = MagicMock(return_value=42)
+    char.getter_callback = getter
+    service.add_characteristic(char)
+    acc.add_service(service)
+    if bridged:
+        bridge = Bridge(driver, "Test Bridge")
+        bridge.add_accessory(acc)
+        driver.add_accessory(bridge)
+    else:
+        driver.add_accessory(acc)
+    return acc, char, getter
+
+
+READ_PERMISSION_CASES = [
+    pytest.param(
+        ["pr"],
+        {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS, HAP_REPR_VALUE: 42},
+        1,
+        id="read",
+    ),
+    pytest.param(
+        ["pr", "pw", "ev"],
+        {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS, HAP_REPR_VALUE: 42},
+        1,
+        id="read-write-notify",
+    ),
+    pytest.param(
+        ["pw"],
+        {HAP_REPR_STATUS: HAP_SERVER_STATUS.WRITE_ONLY_CHARACTERISTIC},
+        0,
+        id="write-only",
+    ),
+    pytest.param(
+        ["pw", "ev"],
+        {HAP_REPR_STATUS: HAP_SERVER_STATUS.WRITE_ONLY_CHARACTERISTIC},
+        0,
+        id="write-notify",
+    ),
+    pytest.param(
+        ["pw", "tw"],
+        {HAP_REPR_STATUS: HAP_SERVER_STATUS.WRITE_ONLY_CHARACTERISTIC},
+        0,
+        id="timed-write-only",
+    ),
+]
+
+
+@pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
+@pytest.mark.parametrize(("permissions", "expected", "reads"), READ_PERMISSION_CASES)
+def test_get_characteristics_requires_read_permission(
+    driver: AccessoryDriver,
+    bridged: bool,
+    permissions: list[str],
+    expected: dict[str, Any],
+    reads: int,
+) -> None:
+    """A read of a characteristic without paired read returns no value."""
+    acc, char, getter = _add_bridged_or_standalone(driver, permissions, bridged)
+    iid = acc.iid_manager.get_iid(char)
+
+    result = driver.get_characteristics([f"{acc.aid}.{iid}"])
+
+    assert result == {
+        HAP_REPR_CHARS: [{HAP_REPR_AID: acc.aid, HAP_REPR_IID: iid, **expected}]
+    }
+    assert getter.call_count == reads
+
+
+@pytest.mark.parametrize(
+    ("permissions", "values", "reads"),
+    [
+        (["pr"], {HAP_REPR_VALUE}, 1),
+        (["pr", "pw", "ev"], {HAP_REPR_VALUE}, 1),
+        (["pw"], set(), 0),
+        (["pw", "ev"], set(), 0),
+        (["pw", "tw"], set(), 0),
+    ],
+)
+def test_get_accessories_value_requires_read_permission(
+    driver: AccessoryDriver, permissions: list[str], values: set[str], reads: int
+) -> None:
+    """The accessory database only includes values the controller may read."""
+    acc, char, getter = _add_bridged_or_standalone(driver, permissions, False)
+
+    (acc_rep,) = driver.get_accessories()[HAP_REPR_ACCS]
+    (char_rep,) = acc_rep[HAP_REPR_SERVICES][-1][HAP_REPR_CHARS]
+
+    assert char_rep[HAP_REPR_IID] == acc.iid_manager.get_iid(char)
+    assert char_rep.keys() & {HAP_REPR_VALUE} == values
+    assert getter.call_count == reads
 
 
 def test_auto_add_aid_mac(driver: AccessoryDriver) -> None:

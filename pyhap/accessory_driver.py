@@ -36,9 +36,10 @@ from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
 from pyhap.accessory import Accessory, Bridge, get_topic
-from pyhap.characteristic import Characteristic, CharacteristicError
+from pyhap.characteristic import PROP_PERMISSIONS, Characteristic, CharacteristicError
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
+    HAP_PERMISSION_READ,
     HAP_PROTOCOL_SHORT_VERSION,
     HAP_REPR_ACCS,
     HAP_REPR_AID,
@@ -955,10 +956,16 @@ class AccessoryDriver:
                         available = False
 
                 # A characteristic IID may resolve to a Service or be unknown;
-                # only a Characteristic can report a value.
-                if available and isinstance(char, Characteristic):
-                    rep[HAP_REPR_VALUE] = char.get_value()
-                    rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
+                # only a Characteristic can report a value, and only when it
+                # has the paired read permission.
+                if isinstance(char, Characteristic):
+                    if HAP_PERMISSION_READ not in char.properties[PROP_PERMISSIONS]:
+                        rep[HAP_REPR_STATUS] = (
+                            HAP_SERVER_STATUS.WRITE_ONLY_CHARACTERISTIC
+                        )
+                    elif available:
+                        rep[HAP_REPR_VALUE] = char.get_value()
+                        rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             except CharacteristicError:
                 logger.error(
                     "%s: Error getting value for characteristic %s.",
