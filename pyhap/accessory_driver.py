@@ -156,6 +156,26 @@ def _wrap_service_setter(service: Any, chars: Any, client_addr: Any) -> Any:
     return HAP_SERVER_STATUS.SUCCESS
 
 
+def _set_characteristics_response(
+    results: dict[int, dict[int, dict[str, Any]]],
+) -> dict[str, Any] | None:
+    """Build the write response, or None if every write succeeded without a value."""
+    characteristics = []
+    nonempty_results_exist = False
+    for aid, iid_results in results.items():
+        for iid, result in iid_results.items():
+            result[HAP_REPR_AID] = aid
+            result[HAP_REPR_IID] = iid
+            characteristics.append(result)
+            if (
+                result[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS
+                or HAP_REPR_VALUE in result
+            ):
+                nonempty_results_exist = True
+
+    return {HAP_REPR_CHARS: characteristics} if nonempty_results_exist else None
+
+
 class AccessoryMDNSServiceInfo(ServiceInfo):
     """A mDNS service info representation of an accessory."""
 
@@ -1194,20 +1214,7 @@ class AccessoryDriver:
                 for char in chars:
                     aid_results[char_to_iid[char]][HAP_REPR_STATUS] = set_result
 
-        characteristics = []
-        nonempty_results_exist = False
-        for aid, iid_results in results.items():
-            for iid, result in iid_results.items():
-                result[HAP_REPR_AID] = aid
-                result[HAP_REPR_IID] = iid
-                characteristics.append(result)
-                if (
-                    result[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS
-                    or HAP_REPR_VALUE in result
-                ):
-                    nonempty_results_exist = True
-
-        return {HAP_REPR_CHARS: characteristics} if nonempty_results_exist else None
+        return _set_characteristics_response(results)
 
     def _take_prepared_write(self, pid: Any, client_addr: tuple[str, int]) -> bool:
         """Consume the prepared write ``pid`` and return whether it is still valid."""

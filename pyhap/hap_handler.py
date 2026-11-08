@@ -711,16 +711,24 @@ class HAPServerHandler:
             "%s: Set characteristics content: %s", self.client_address, requested_chars
         )
 
-        response = self.accessory_handler.set_characteristics(
+        result = self.accessory_handler.set_characteristics(
             requested_chars, cast("tuple[str, int]", self.client_address)
         )
-        if response is None:
-            self.send_response(HTTPStatus.NO_CONTENT)
-            return
+        assert self.response is not None  # noqa: S101
+        self._fill_set_characteristics_response(self.response, result)
 
-        self.send_response(HTTPStatus.MULTI_STATUS)
-        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(to_hap_json(response))
+    def _fill_set_characteristics_response(
+        self, response: HAPResponse, result: dict[str, Any] | None
+    ) -> None:
+        """Fill in the response to a characteristics write."""
+        if result is None:
+            response.status_code = HTTPStatus.NO_CONTENT.value
+            response.reason = HTTPStatus.NO_CONTENT.phrase
+            return
+        response.status_code = HTTPStatus.MULTI_STATUS.value
+        response.reason = HTTPStatus.MULTI_STATUS.phrase
+        response.headers.append(("Content-Type", self.JSON_RESPONSE_TYPE))
+        response.body = to_hap_json(result)
 
     def handle_prepare(self) -> None:
         """Handles a client request to prepare to write."""
