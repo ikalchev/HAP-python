@@ -609,109 +609,118 @@ def test_listen_address(kwargs: dict[str, Any], expected: Any) -> None:
     assert server.call_args.args[0] == (expected, 51234)
 
 
-def test_write_response_returned_when_not_requested(driver: AccessoryDriver) -> None:
-    bridge = Bridge(driver, "mybridge")
-    acc = Accessory(driver, "TestAcc", aid=2)
-    service = Service(uuid1(), "NFCAccess")
-    char_nfc_access_control_point = Characteristic(
-        "NFCAccessControlPoint", uuid1(), CHAR_PROPS
-    )
-    service.add_characteristic(char_nfc_access_control_point)
-
-    mock_callback = MagicMock()
-    service.setter_callback = mock_callback
-
-    def setter_with_write_response(value: int = 0) -> int:
-        return 1
-
-    char_nfc_access_control_point.setter_callback = setter_with_write_response
-    acc.add_service(service)
-
-    char_nfc_access_control_point_iid = char_nfc_access_control_point.to_HAP()[
-        HAP_REPR_IID
-    ]
-
-    bridge.add_accessory(acc)
-    driver.add_accessory(bridge)
-
-    response = driver.set_characteristics(
+def _write(
+    driver: AccessoryDriver, acc: Accessory, char: Characteristic, **query: Any
+) -> dict[str, Any] | None:
+    """Write 0 to ``char`` from a mock client with extra query fields."""
+    return driver.set_characteristics(
         {
             HAP_REPR_CHARS: [
                 {
                     HAP_REPR_AID: acc.aid,
-                    HAP_REPR_IID: char_nfc_access_control_point_iid,
+                    HAP_REPR_IID: acc.iid_manager.get_iid(char),
                     HAP_REPR_VALUE: 0,
-                    HAP_REPR_WRITE_RESPONSE: False,
+                    **query,
                 }
             ]
         },
-        "mock_addr",  # ty: ignore[invalid-argument-type]
+        ("1.2.3.4", 5),
     )
-    assert response is None
-
-    response = driver.set_characteristics(
-        {
-            HAP_REPR_CHARS: [
-                {
-                    HAP_REPR_AID: acc.aid,
-                    HAP_REPR_IID: char_nfc_access_control_point_iid,
-                    HAP_REPR_VALUE: 0,
-                }
-            ]
-        },
-        "mock_addr",  # ty: ignore[invalid-argument-type]
-    )
-    assert response is None
 
 
-def test_write_response_returned_when_requested(driver: AccessoryDriver) -> None:
-    bridge = Bridge(driver, "mybridge")
-    acc = Accessory(driver, "TestAcc", aid=2)
-    service = Service(uuid1(), "NFCAccess")
-    char_nfc_access_control_point = Characteristic(
-        "NFCAccessControlPoint", uuid1(), CHAR_PROPS
-    )
-    service.add_characteristic(char_nfc_access_control_point)
+@pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
+@pytest.mark.parametrize("permissions", [["pr", "pw", "wr"], ["pw", "wr"]])
+@pytest.mark.parametrize(("returned", "sent"), [(1, 1), (1.7, 1)])
+def test_write_response_returned_when_requested(
+    driver: AccessoryDriver,
+    bridged: bool,
+    permissions: list[str],
+    returned: Any,
+    sent: int,
+) -> None:
+    """A write response carries the setter's value as the char stores it."""
+    acc, char, _ = _add_bridged_or_standalone(driver, permissions, bridged)
+    service_setter = MagicMock()
+    assert char.service is not None
+    char.service.setter_callback = service_setter
+    char.setter_callback = MagicMock(return_value=returned)
 
-    mock_callback = MagicMock()
-    service.setter_callback = mock_callback
+    response = _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
 
-    def setter_with_write_response(value: int = 0) -> int:
-        return 1
-
-    char_nfc_access_control_point.setter_callback = setter_with_write_response
-    acc.add_service(service)
-
-    char_nfc_access_control_point_iid = char_nfc_access_control_point.to_HAP()[
-        HAP_REPR_IID
-    ]
-
-    bridge.add_accessory(acc)
-    driver.add_accessory(bridge)
-
-    response = driver.set_characteristics(
-        {
-            HAP_REPR_CHARS: [
-                {
-                    HAP_REPR_AID: acc.aid,
-                    HAP_REPR_IID: char_nfc_access_control_point_iid,
-                    HAP_REPR_VALUE: 0,
-                    HAP_REPR_WRITE_RESPONSE: True,
-                }
-            ]
-        },
-        "mock_addr",  # ty: ignore[invalid-argument-type]
-    )
     assert response == {
         HAP_REPR_CHARS: [
             {
                 HAP_REPR_AID: acc.aid,
-                HAP_REPR_IID: char_nfc_access_control_point_iid,
-                HAP_REPR_STATUS: 0,
-                HAP_REPR_VALUE: 1,
-            },
+                HAP_REPR_IID: acc.iid_manager.get_iid(char),
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS,
+                HAP_REPR_VALUE: sent,
+            }
         ]
     }
+    char.setter_callback.assert_called_once_with(0)
+    service_setter.assert_called_once_with({"Value": 0})
+    # Like HAP-NodeJS, the response is the value from now on.
+    assert char.value == sent
+
+
+@pytest.mark.parametrize(
+    ("permissions", "query"),
+    [
+        pytest.param(["pr", "pw", "wr"], {}, id="not-requested"),
+        pytest.param(
+            ["pr", "pw", "wr"], {HAP_REPR_WRITE_RESPONSE: False}, id="declined"
+        ),
+        pytest.param(
+            ["pr", "pw"], {HAP_REPR_WRITE_RESPONSE: True}, id="no-wr-permission"
+        ),
+        pytest.param(["pw"], {HAP_REPR_WRITE_RESPONSE: True}, id="write-only"),
+    ],
+)
+def test_write_response_not_returned(
+    driver: AccessoryDriver, permissions: list[str], query: dict[str, Any]
+) -> None:
+    """Without a request or the wr permission the write has no response body."""
+    acc, char, _ = _add_bridged_or_standalone(driver, permissions, False)
+    char.setter_callback = MagicMock(return_value=1)
+
+    assert _write(driver, acc, char, **query) is None
+    char.setter_callback.assert_called_once_with(0)
+    assert char.value == 0
+
+
+def test_invalid_write_response_keeps_written_value(driver: AccessoryDriver) -> None:
+    """A response the char can't hold is still sent, the written value stays."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "wr"], False)
+    char.setter_callback = MagicMock(return_value="not a number")
+
+    response = _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
+
+    assert response is not None
+    assert response[HAP_REPR_CHARS][0][HAP_REPR_VALUE] == "not a number"
+    assert char.value == 0
+
+
+def test_write_response_value_of_write_only_char_not_readable(
+    driver: AccessoryDriver,
+) -> None:
+    """Neither the written nor the response value of a wr char without pr leaks."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pw", "wr"], False)
+    char.setter_callback = MagicMock(return_value=1)
+    iid = acc.iid_manager.get_iid(char)
+
+    _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
+
+    assert driver.get_characteristics([f"{acc.aid}.{iid}"]) == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.WRITE_ONLY_CHARACTERISTIC,
+            }
+        ]
+    }
+    (acc_rep,) = driver.get_accessories()[HAP_REPR_ACCS]
+    assert HAP_REPR_VALUE not in acc_rep[HAP_REPR_SERVICES][-1][HAP_REPR_CHARS][0]
 
 
 def test_service_callbacks(driver: AccessoryDriver) -> None:

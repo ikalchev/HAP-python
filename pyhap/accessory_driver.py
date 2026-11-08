@@ -41,6 +41,7 @@ from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PERMISSION_READ,
     HAP_PERMISSION_WRITE,
+    HAP_PERMISSION_WRITE_RESPONSE,
     HAP_PROTOCOL_SHORT_VERSION,
     HAP_REPR_ACCS,
     HAP_REPR_AID,
@@ -85,6 +86,24 @@ PAIRING_LOCKOUT_SECONDS = 60
 # grow ``prepared_writes`` without bound.
 MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
+
+
+def _store_write_response(char: Characteristic, response: Any) -> Any:
+    """Keep the write response as the value and return what to send.
+
+    The written value of a write response characteristic, such as an SDP
+    offer, is a request. What the accessory answered is its state.
+    """
+    try:
+        char.value = char.to_valid_value(response)
+    except ValueError:
+        logger.debug(
+            "%s: keeping the written value, the write response is invalid: %s",
+            char.display_name,
+            response,
+        )
+        return response
+    return char.value
 
 
 def _wrap_char_setter(char: Any, value: Any, client_addr: Any) -> tuple[int, Any]:
@@ -1059,7 +1078,6 @@ class AccessoryDriver:
                 results[aid][iid] = {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
                 continue
             value = query.get(HAP_REPR_VALUE)
-            write_response_requested = query.get(HAP_REPR_WRITE_RESPONSE, False)
 
             if aid == primary_aid:
                 acc = primary_accessory
@@ -1093,8 +1111,17 @@ class AccessoryDriver:
                     char, value, client_addr
                 )
 
-            if set_result_value is not None and write_response_requested:
-                result = {HAP_REPR_STATUS: set_result, HAP_REPR_VALUE: set_result_value}
+            # Only characteristics with the write response permission answer
+            # a write with a value, and only when the controller asks for it.
+            if (
+                set_result_value is not None
+                and query.get(HAP_REPR_WRITE_RESPONSE, False)
+                and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
+            ):
+                result = {
+                    HAP_REPR_STATUS: set_result,
+                    HAP_REPR_VALUE: _store_write_response(char, set_result_value),
+                }
             else:
                 result = {HAP_REPR_STATUS: set_result}
 

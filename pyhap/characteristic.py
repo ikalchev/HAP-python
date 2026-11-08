@@ -201,7 +201,9 @@ class Characteristic:
         self._value = self._get_default_value()
         self.getter_callback: Callable[[], Any] | None = None
         # Setters may take just the value or (value, sender_client_addr); see
-        # ``_setter_wants_addr``. The return value is used for write responses.
+        # ``_setter_wants_addr``. The return value is sent back as the write
+        # response when the characteristic has the "wr" permission and the
+        # controller asked for one.
         self.setter_callback: Callable[..., Any] | None = None
         # Cache of whether ``setter_callback`` opts into the client address,
         # recomputed only when the setter object itself changes.
