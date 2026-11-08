@@ -61,6 +61,80 @@
       ],
       "UUID": "00000096-0000-1000-8000-0026BB765291"
    },
+   "CameraBufferManagement": {
+      "OptionalCharacteristics": [],
+      "RequiredCharacteristics": [
+         "BufferUploadCommand",
+         "BufferActivityCommand",
+         "BufferEventCommand",
+         "BufferEventSequenceNumber",
+         "CameraRecordingPublishingPoint"
+      ],
+      "UUID": "00008000-0000-1000-8000-0026BB765291"
+   },
+   "CameraCapabilities": {
+      "OptionalCharacteristics": [
+         "ManuallyDisabled"
+      ],
+      "RequiredCharacteristics": [
+         "Version",
+         "CameraCapabilities"
+      ],
+      "UUID": "00008010-0000-1000-8000-0026BB765291"
+   },
+   "CameraClientCertificateManagement": {
+      "OptionalCharacteristics": [],
+      "RequiredCharacteristics": [
+         "CameraClientCSR",
+         "CameraClientCertificate",
+         "CameraClientCertificateStatus"
+      ],
+      "UUID": "00008080-0000-1000-8000-0026BB765291"
+   },
+   "CameraGlobalOperatingMode": {
+      "OptionalCharacteristics": [
+         "ManuallyDisabled",
+         "NightVision",
+         "ThirdPartyCameraActive"
+      ],
+      "RequiredCharacteristics": [
+         "HomeKitCameraActive",
+         "StreamingEnabled",
+         "CameraOperatingModeIndicator"
+      ],
+      "UUID": "00008032-0000-1000-8000-0026BB765291"
+   },
+   "CameraKeyManagement": {
+      "OptionalCharacteristics": [],
+      "RequiredCharacteristics": [
+         "CameraKey",
+         "CameraKeyID"
+      ],
+      "UUID": "00008050-0000-1000-8000-0026BB765291"
+   },
+   "CameraMotionZones": {
+      "OptionalCharacteristics": [],
+      "RequiredCharacteristics": [
+         "Version",
+         "Active",
+         "CameraZones"
+      ],
+      "UUID": "00008021-0000-1000-8000-0026BB765291"
+   },
+   "CameraMultiTierRTPStreamManagement": {
+      "OptionalCharacteristics": [],
+      "RequiredCharacteristics": [
+         "StreamingEnabled",
+         "StatusActive",
+         "SupportedVideoStreamTiers",
+         "SupportedAudioStreamTiers",
+         "SupportedRTPConfiguration",
+         "SetupEndpoints",
+         "RTPStreamingControl",
+         "SensorUUID"
+      ],
+      "UUID": "00008031-0000-1000-8000-0026BB765291"
+   },
    "CameraOperatingMode": {
       "OptionalCharacteristics": [
          "CameraOperatingModeIndicator",
@@ -102,6 +176,22 @@
          "SelectedCameraRecordingConfiguration"
       ],
       "UUID": "00000204-0000-1000-8000-0026BB765291"
+   },
+   "CameraWebRTCStreamManagement": {
+      "OptionalCharacteristics": [],
+      "RequiredCharacteristics": [
+         "WebRTCSolicitOffer",
+         "WebRTCProvideAnswer",
+         "WebRTCStreamingControl",
+         "WebRTCNumberOfActiveSessions",
+         "WebRTCReoffer",
+         "WebRTCUpdateSession",
+         "WebRTCSupportedVideoStreamTiers",
+         "WebRTCSupportedAudioStreamTiers",
+         "StreamingEnabled",
+         "SensorUUID"
+      ],
+      "UUID": "00008033-0000-1000-8000-0026BB765291"
    },
    "CarbonDioxideSensor": {
       "OptionalCharacteristics": [
@@ -400,7 +490,9 @@
          "StatusFault",
          "StatusTampered",
          "StatusLowBattery",
-         "Name"
+         "Name",
+         "ContributingSensors",
+         "MotionEnabled"
       ],
       "RequiredCharacteristics": [
          "MotionDetected"
