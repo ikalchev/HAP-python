@@ -31,6 +31,7 @@ from pyhap.characteristic import (
     Characteristic,
 )
 from pyhap.const import (
+    HAP_PERMISSION_NOTIFY,
     HAP_PERMISSIONS,
     HAP_REPR_ACCS,
     HAP_REPR_AID,
@@ -243,6 +244,151 @@ def test_get_accessories_value_requires_read_permission(
     assert char_rep[HAP_REPR_IID] == acc.iid_manager.get_iid(char)
     assert char_rep.keys() & {HAP_REPR_VALUE} == values
     assert getter.call_count == reads
+
+
+@pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
+@pytest.mark.parametrize(
+    "permissions", [["pr", "ev"], ["pr", "pw", "ev"], ["pw", "ev"]]
+)
+def test_subscribe_with_notify_permission(
+    driver: AccessoryDriver, bridged: bool, permissions: list[str]
+) -> None:
+    """Characteristics with the notify permission can be (un)subscribed."""
+    acc, char, _ = _add_bridged_or_standalone(driver, permissions, bridged)
+    iid = acc.iid_manager.get_iid(char)
+    client = ("1.2.3.4", 5)
+
+    subscribe = {HAP_REPR_AID: acc.aid, HAP_REPR_IID: iid, HAP_PERMISSION_NOTIFY: True}
+    assert driver.set_characteristics({HAP_REPR_CHARS: [subscribe]}, client) is None
+    assert driver.topics == {f"{acc.aid}.{iid}": {client}}
+
+    unsubscribe = {**subscribe, HAP_PERMISSION_NOTIFY: False}
+    assert driver.set_characteristics({HAP_REPR_CHARS: [unsubscribe]}, client) is None
+    assert driver.topics == {}
+
+
+@pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
+@pytest.mark.parametrize("ev", [True, False], ids=["subscribe", "unsubscribe"])
+@pytest.mark.parametrize("permissions", [["pr"], ["pr", "pw"], ["pw"], ["pw", "tw"]])
+def test_subscribe_without_notify_permission(
+    driver: AccessoryDriver, bridged: bool, ev: bool, permissions: list[str]
+) -> None:
+    """(Un)subscribing a characteristic without notify answers -70406."""
+    acc, char, _ = _add_bridged_or_standalone(driver, permissions, bridged)
+    iid = acc.iid_manager.get_iid(char)
+    client = ("1.2.3.4", 5)
+
+    result = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {HAP_REPR_AID: acc.aid, HAP_REPR_IID: iid, HAP_PERMISSION_NOTIFY: ev}
+            ]
+        },
+        client,
+    )
+
+    assert result == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.NOTIFICATION_NOT_SUPPORTED,
+            }
+        ]
+    }
+    assert driver.topics == {}
+
+
+def test_refused_subscription_lists_the_others(driver: AccessoryDriver) -> None:
+    """A 207 for a refused subscription also lists the accepted ones."""
+    acc = Accessory(driver, "Test Accessory", aid=STANDALONE_AID)
+    service = Service(uuid1(), "Test Service")
+    notifiable = Characteristic(
+        "Notifiable",
+        uuid1(),
+        {PROP_FORMAT: HAP_FORMAT_INT, PROP_PERMISSIONS: ["pr", "ev"]},
+    )
+    silent = Characteristic(
+        "Silent", uuid1(), {PROP_FORMAT: HAP_FORMAT_INT, PROP_PERMISSIONS: ["pr"]}
+    )
+    service.add_characteristic(notifiable)
+    service.add_characteristic(silent)
+    acc.add_service(service)
+    driver.add_accessory(acc)
+    ok_iid = acc.iid_manager.get_iid(notifiable)
+    refused_iid = acc.iid_manager.get_iid(silent)
+    client = ("1.2.3.4", 5)
+
+    result = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: ok_iid,
+                    HAP_PERMISSION_NOTIFY: True,
+                },
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: refused_iid,
+                    HAP_PERMISSION_NOTIFY: True,
+                },
+            ]
+        },
+        client,
+    )
+
+    assert result == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: refused_iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.NOTIFICATION_NOT_SUPPORTED,
+            },
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: ok_iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS,
+            },
+        ]
+    }
+    assert driver.topics == {f"{acc.aid}.{ok_iid}": {client}}
+
+
+@pytest.mark.parametrize("ev", [True, False], ids=["subscribe", "unsubscribe"])
+def test_write_with_subscribe_without_notify_permission(
+    driver: AccessoryDriver, ev: bool
+) -> None:
+    """A write combined with a refused subscription is not applied."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw"], False)
+    iid = acc.iid_manager.get_iid(char)
+    setter = MagicMock()
+    char.setter_callback = setter
+
+    result = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: iid,
+                    HAP_PERMISSION_NOTIFY: ev,
+                    HAP_REPR_VALUE: 5,
+                }
+            ]
+        },
+        ("1.2.3.4", 5),
+    )
+
+    assert result == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.NOTIFICATION_NOT_SUPPORTED,
+            }
+        ]
+    }
+    setter.assert_not_called()
+    assert driver.topics == {}
 
 
 def test_auto_add_aid_mac(driver: AccessoryDriver) -> None:

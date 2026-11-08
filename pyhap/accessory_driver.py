@@ -1021,11 +1021,9 @@ class AccessoryDriver:
 
         :type chars_query: dict
         """
-        # TODO: Add support for chars that do no support notifications.
-
         queries: list[dict[str, Any]] = chars_query[HAP_REPR_CHARS]
 
-        self._notify(queries, client_addr)
+        not_notifiable = self._notify(queries, client_addr)
 
         updates_by_accessories_services: dict[
             Accessory, dict[Service, dict[Characteristic, Any]]
@@ -1045,12 +1043,20 @@ class AccessoryDriver:
         assert primary_accessory is not None  # noqa: S101
         primary_aid = primary_accessory.aid
 
-        for query in queries:
-            if HAP_REPR_VALUE not in query and not expired:
-                continue
+        for aid, iid in not_notifiable:
+            results[aid][iid] = {
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.NOTIFICATION_NOT_SUPPORTED
+            }
 
+        for query in queries:
             aid = query[HAP_REPR_AID]
             iid = query[HAP_REPR_IID]
+            if (aid, iid) in not_notifiable:
+                continue
+            if HAP_REPR_VALUE not in query and not expired:
+                # Listed with status 0 if the response has other results.
+                results[aid][iid] = {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
+                continue
             value = query.get(HAP_REPR_VALUE)
             write_response_requested = query.get(HAP_REPR_WRITE_RESPONSE, False)
 
@@ -1184,8 +1190,15 @@ class AccessoryDriver:
 
     def _notify(
         self, queries: list[dict[str, Any]], client_addr: tuple[str, int]
-    ) -> None:
-        """Notify the driver that the client has subscribed or unsubscribed."""
+    ) -> set[tuple[int, int]]:
+        """Notify the driver that the client has subscribed or unsubscribed.
+
+        Characteristics without the notify permission are left alone; their
+        ``(aid, iid)`` pairs are returned so the request can report
+        -70406 for them.
+        """
+        assert self.accessory is not None  # noqa: S101
+        not_notifiable: set[tuple[int, int]] = set()
         for query in queries:
             if HAP_PERMISSION_NOTIFY not in query:
                 continue
@@ -1193,7 +1206,16 @@ class AccessoryDriver:
             iid = query[HAP_REPR_IID]
             ev = query[HAP_PERMISSION_NOTIFY]
 
+            char = self.accessory.get_characteristic(aid, iid)
+            if (
+                char is not None
+                and HAP_PERMISSION_NOTIFY not in char.properties[PROP_PERMISSIONS]
+            ):
+                not_notifiable.add((aid, iid))
+                continue
+
             char_topic = get_topic(aid, iid)
             action = "Subscribed" if ev else "Unsubscribed"
             logger.debug("%s client %s to topic %s", action, client_addr, char_topic)
             self.async_subscribe_client_topic(client_addr, char_topic, ev)
+        return not_notifiable

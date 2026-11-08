@@ -727,7 +727,7 @@ def test_handle_set_handle_set_characteristics_encrypted_pid_missing_prepare(
     response = hap_handler.HAPResponse()
     handler.response = response
     handler.request_body = (
-        b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+        b'{"pid":123,"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
     )
     handler.handle_set_characteristics()
 
@@ -759,7 +759,7 @@ def test_handle_set_handle_set_characteristics_encrypted_with_prepare(
     response = hap_handler.HAPResponse()
     handler.response = response
     handler.request_body = (
-        b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+        b'{"pid":123,"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
     )
     handler.handle_set_characteristics()
 
@@ -797,7 +797,7 @@ def test_handle_set_handle_set_characteristics_encrypted_with_multiple_prepare(
     response = hap_handler.HAPResponse()
     handler.response = response
     handler.request_body = (
-        b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+        b'{"pid":123,"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
     )
     handler.handle_set_characteristics()
 
@@ -851,7 +851,7 @@ def test_handle_set_handle_set_characteristics_encrypted_with_expired_ttl(
     response = hap_handler.HAPResponse()
     handler.response = response
     handler.request_body = (
-        b'{"pid":123,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+        b'{"pid":123,"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
     )
     handler.handle_set_characteristics()
 
@@ -883,7 +883,7 @@ def test_handle_set_handle_set_characteristics_encrypted_with_wrong_pid(
     response = hap_handler.HAPResponse()
     handler.response = response
     handler.request_body = (
-        b'{"pid":456,"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+        b'{"pid":456,"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
     )
     handler.handle_set_characteristics()
 
