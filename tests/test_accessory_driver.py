@@ -847,6 +847,89 @@ async def test_async_setter_result(
 
 
 @pytest.mark.parametrize(
+    ("reader", "expected"),
+    [
+        pytest.param(WRITER, 1, id="writer"),
+        pytest.param(OTHER_CONTROLLER, 0, id="other-controller"),
+    ],
+)
+async def test_async_write_response_readable_only_by_writer(
+    driver: AccessoryDriver, reader: tuple[str, int], expected: int
+) -> None:
+    """Only the controller that wrote reads an async setter's response back."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "wr"], False)
+    char.getter_callback = None
+    char.setter_callback = _async_return_one
+
+    await _controller_write(
+        driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+    )
+
+    char_id = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
+    assert _read(driver, char_id, reader) == expected
+
+
+async def test_async_write_response_dropped_when_closed_while_queued(
+    driver: AccessoryDriver,
+) -> None:
+    """A response that completes as the connection closes is not kept."""
+    # This covers a completion that is already queued when the connection
+    # closes. The cancel in ``HAPServerProtocol.close()`` covers the rest.
+    driver.loop = asyncio.get_running_loop()
+    acc, char, _ = _add_write_response_char(driver, False)
+    release = asyncio.Event()
+
+    async def _setter(value: int) -> int:
+        await release.wait()
+        return 7
+
+    char.setter_callback = _setter
+    write = asyncio.ensure_future(
+        _controller_write(
+            driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+        )
+    )
+    await asyncio.sleep(0)
+    release.set()
+    # Two loop steps: the setter is done and the write's completion is queued.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    driver.connection_lost(WRITER)
+    await write
+    await asyncio.sleep(0)
+
+    assert driver._write_responses == {}
+
+
+async def test_async_write_response_request_not_shared(
+    driver: AccessoryDriver,
+) -> None:
+    """Other controllers don't read the written request while the setter runs."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "wr"], False)
+    char.getter_callback = None
+    release = asyncio.Event()
+
+    async def _setter(value: int) -> int:
+        await release.wait()
+        return 1
+
+    char.setter_callback = _setter
+    write = asyncio.ensure_future(
+        _controller_write(
+            driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+        )
+    )
+    await asyncio.sleep(0)
+
+    char_id = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
+    assert _read(driver, char_id, OTHER_CONTROLLER) == 0
+    release.set()
+    await write
+    assert _read(driver, char_id, OTHER_CONTROLLER) == 0
+
+
+@pytest.mark.parametrize(
     ("setter", "permissions", "query"),
     [
         pytest.param(_async_return_one, ["pr", "pw", "wr"], {}, id="not-requested"),
