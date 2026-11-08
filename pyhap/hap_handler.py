@@ -6,6 +6,7 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 import asyncio
 from collections.abc import Awaitable
 from http import HTTPStatus
+import inspect
 import logging
 import sys
 from typing import TYPE_CHECKING, Any, cast
@@ -711,10 +712,19 @@ class HAPServerHandler:
             "%s: Set characteristics content: %s", self.client_address, requested_chars
         )
 
-        result = self.accessory_handler.set_characteristics(
-            requested_chars, cast("tuple[str, int]", self.client_address)
+        result = self.accessory_handler._set_characteristics_for_controller(
+            requested_chars,
+            cast("tuple[str, int]", self.client_address),
+            RESPONSE_TIMEOUT,
         )
         assert self.response is not None  # noqa: S101
+        if inspect.isawaitable(result):
+            # A setter is still running; answer once it is done. The driver
+            # times out slow setters itself.
+            self.response.task = asyncio.ensure_future(
+                self._async_set_characteristics_body(self.response, result)
+            )
+            return
         self._fill_set_characteristics_response(self.response, result)
 
     def _fill_set_characteristics_response(
@@ -729,6 +739,13 @@ class HAPServerHandler:
         response.reason = HTTPStatus.MULTI_STATUS.phrase
         response.headers.append(("Content-Type", self.JSON_RESPONSE_TYPE))
         response.body = to_hap_json(result)
+
+    async def _async_set_characteristics_body(
+        self, response: HAPResponse, result: Awaitable[dict[str, Any] | None]
+    ) -> bytes:
+        """Wait for the pending setters, then fill in the write response."""
+        self._fill_set_characteristics_response(response, await result)
+        return response.body
 
     def handle_prepare(self) -> None:
         """Handles a client request to prepare to write."""

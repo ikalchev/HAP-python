@@ -1,10 +1,11 @@
 """Tests for the HAPServerHandler."""
 
+import asyncio
 import json
 from typing import Any, NoReturn
 from unittest.mock import patch
 from urllib.parse import urlparse
-from uuid import UUID
+from uuid import UUID, uuid1
 
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
 from cryptography.hazmat.primitives import serialization
@@ -18,8 +19,9 @@ from pyhap.accessory_driver import (
     MAX_FAILED_PAIRING_ATTEMPTS,
     AccessoryDriver,
 )
-from pyhap.characteristic import CharacteristicError
+from pyhap.characteristic import Characteristic, CharacteristicError
 from pyhap.const import HAP_PERMISSIONS, HAP_SERVER_STATUS
+from pyhap.service import Service
 
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
 CLIENT_UUID_BYTES = str(CLIENT_UUID).upper().encode("utf-8")
@@ -1194,3 +1196,85 @@ def test_invalid_pairing_three(driver: AccessoryDriver) -> None:
         hap_handler.HAP_TLV_TAGS.SEQUENCE_NUM: hap_handler.HAP_TLV_STATES.M6,
         hap_handler.HAP_TLV_TAGS.ERROR_CODE: hap_handler.HAP_TLV_ERRORS.AUTHENTICATION,
     }
+
+
+def _dispatch_write_to_async_setter(
+    driver: AccessoryDriver, setter: Any, body: bytes
+) -> hap_handler.HAPResponse:
+    """Dispatch a characteristics write to a wr characteristic with ``setter``."""
+    acc = Accessory(driver, "TestAcc")
+    service = Service(uuid1(), "Test Service")
+    char = Characteristic(
+        "Value", uuid1(), {"Format": "int", "Permissions": ["pr", "pw", "wr"]}
+    )
+    char.setter_callback = setter
+    service.add_characteristic(char)
+    acc.add_service(service)
+    driver.add_accessory(acc)
+    assert acc.iid_manager.get_iid(char) == 9
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+    request = h11.Request(
+        method="PUT", target="/characteristics", headers=[(b"host", b"t")]
+    )
+    return handler.dispatch(request, body)
+
+
+async def _async_return_one(_value: int) -> int:
+    await asyncio.sleep(0)
+    return 1
+
+
+async def _async_sleep(_value: int) -> None:
+    await asyncio.sleep(10)
+
+
+@pytest.mark.parametrize(
+    ("body", "status_code", "headers", "response_body"),
+    [
+        pytest.param(
+            b'{"characteristics":[{"aid":1,"iid":9,"value":0,"r":true}]}',
+            207,
+            [("Content-Type", "application/hap+json")],
+            b'{"characteristics":[{"status":0,"value":1,"aid":1,"iid":9}]}',
+            id="write-response",
+        ),
+        pytest.param(
+            b'{"characteristics":[{"aid":1,"iid":9,"value":0}]}',
+            204,
+            [],
+            b"",
+            id="no-write-response",
+        ),
+    ],
+)
+async def test_handle_set_characteristics_async_setter(
+    driver: AccessoryDriver,
+    body: bytes,
+    status_code: int,
+    headers: list[tuple[str, str]],
+    response_body: bytes,
+) -> None:
+    """A write to an async setter is answered once the setter is done."""
+    response = _dispatch_write_to_async_setter(driver, _async_return_one, body)
+
+    assert response.task is not None
+    assert await response.task == response_body
+    assert response.status_code == status_code
+    assert response.headers == headers
+
+
+async def test_handle_set_characteristics_async_setter_timeout(
+    driver: AccessoryDriver,
+) -> None:
+    """An async setter that does not finish in time answers -70408 for its char."""
+    with patch.object(hap_handler, "RESPONSE_TIMEOUT", 0.01):
+        response = _dispatch_write_to_async_setter(
+            driver, _async_sleep, b'{"characteristics":[{"aid":1,"iid":9,"value":0}]}'
+        )
+        assert response.task is not None
+        assert await response.task == (
+            b'{"characteristics":[{"status":-70408,"aid":1,"iid":9}]}'
+        )
+    assert response.status_code == 207

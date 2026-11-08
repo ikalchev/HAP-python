@@ -203,7 +203,8 @@ class Characteristic:
         # Setters may take just the value or (value, sender_client_addr); see
         # ``_setter_wants_addr``. The return value is sent back as the write
         # response when the characteristic has the "wr" permission and the
-        # controller asked for one.
+        # controller asked for one. A setter may also be a coroutine function;
+        # a controller's write is answered once it is done.
         self.setter_callback: Callable[..., Any] | None = None
         # Cache of whether ``setter_callback`` opts into the client address,
         # recomputed only when the setter object itself changes.
@@ -398,7 +399,8 @@ class Characteristic:
     ) -> Any:
         """Called from broker for value change in Home app.
 
-        Change self.value to value and call callback.
+        Change self.value to value and call callback. Returns what the callback
+        returned, which the caller has to await if it is awaitable.
         """
         original_value = value
         if not self._always_null or original_value is not None:
