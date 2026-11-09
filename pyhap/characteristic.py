@@ -160,6 +160,7 @@ class Characteristic:
         "_always_null",
         "_setter_addr_cache",
         "_setter_addr_cache_for",
+        "read_back_response",
     )
 
     def __init__(
@@ -216,6 +217,10 @@ class Characteristic:
         self._loader_display_name: str | None = None
         self._to_hap_cache_with_value: dict[str, Any] | None = None
         self._to_hap_cache: dict[str, Any] | None = None
+        # For a control point a controller writes and then reads, such as
+        # Setup Endpoints: the setter's return value is what the writing
+        # connection reads back, like a write response.
+        self.read_back_response = False
 
     @property
     def display_name(self) -> str | None:

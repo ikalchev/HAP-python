@@ -1333,14 +1333,14 @@ async def test_write_response_dropped_on_disconnect(driver: AccessoryDriver) -> 
 
 
 def test_plain_write_replaces_write_response(driver: AccessoryDriver) -> None:
-    """A write without ``r`` drops the writer's former response."""
+    """A write without ``r`` drops the writer's former response, privately too."""
     acc, char, char_id = _add_write_response_char(driver, False)
     _write(driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True})
 
     _write(driver, acc, char, **{HAP_REPR_VALUE: 9})
 
-    assert _read(driver, char_id, WRITER) == 9
-    assert _read(driver, char_id, OTHER_CONTROLLER) == 9
+    assert _read(driver, char_id, WRITER) == 0
+    assert _read(driver, char_id, OTHER_CONTROLLER) == 0
 
 
 @pytest.mark.parametrize(
@@ -1451,15 +1451,15 @@ def test_write_response_without_client_not_kept(driver: AccessoryDriver) -> None
         pytest.param({HAP_REPR_WRITE_RESPONSE: False}, id="declined"),
     ],
 )
-def test_written_value_readable_without_write_response(
+def test_written_value_private_without_write_response(
     driver: AccessoryDriver, reader: Any, query: dict[str, Any]
 ) -> None:
-    """Without a write response the written value is read by every controller."""
+    """Without a write response the written value is not left readable either."""
     acc, char, char_id = _add_write_response_char(driver, False)
 
     _write(driver, acc, char, **{HAP_REPR_VALUE: 5, **query})
 
-    assert _read(driver, char_id, reader) == 5
+    assert _read(driver, char_id, reader) == 0
 
 
 def test_service_callbacks(driver: AccessoryDriver) -> None:
@@ -2570,3 +2570,46 @@ def test_prepare_bounds_prepared_writes(driver: AccessoryDriver) -> None:
     # The earliest-registered pids were evicted, the latest kept.
     assert 0 not in pending
     assert MAX_PREPARED_WRITES_PER_CLIENT + 4 in pending
+
+
+def _add_read_back_char(driver: AccessoryDriver) -> tuple[Accessory, Characteristic]:
+    """Add a pr and pw char that answers a write with 7 to read back."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw"], False)
+    char.getter_callback = None
+    char.setter_callback = MagicMock(return_value=7)
+    char.read_back_response = True
+    return acc, char
+
+
+@pytest.mark.parametrize(
+    ("reader", "expected"),
+    [
+        pytest.param(WRITER, 7, id="writer"),
+        pytest.param(OTHER_CONTROLLER, 0, id="other-controller"),
+    ],
+)
+def test_read_back_response_only_for_writer(
+    driver: AccessoryDriver, reader: Any, expected: int
+) -> None:
+    """Only the writing controller reads back what the setter answered."""
+    acc, char = _add_read_back_char(driver)
+
+    assert _write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
+
+    assert _read(driver, f"{acc.aid}.{acc.iid_manager.get_iid(char)}", reader) == (
+        expected
+    )
+    acc_rep = driver.get_accessories()[HAP_REPR_ACCS][-1]
+    assert acc_rep[HAP_REPR_SERVICES][-1][HAP_REPR_CHARS][0][HAP_REPR_VALUE] == 0
+
+
+async def test_async_read_back_response(driver: AccessoryDriver) -> None:
+    """A coroutine setter's answer is read back, not sent as a write response."""
+    acc, char = _add_read_back_char(driver)
+    char.setter_callback = _async_return_one
+
+    assert await _controller_write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
+
+    char_id = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
+    assert _read(driver, char_id, WRITER) == 1
+    assert _read(driver, char_id, OTHER_CONTROLLER) == 0

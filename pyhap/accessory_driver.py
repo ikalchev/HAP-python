@@ -1256,12 +1256,16 @@ class AccessoryDriver:
                 and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
             )
             # A new write replaces a former response of this connection. The
-            # request of a readable write response characteristic is not
-            # shared, whatever the setter does, except to ev subscribers.
+            # request of a readable write response or read back characteristic
+            # is not shared, with or without r and whatever the setter does,
+            # except to ev subscribers.
             if value is not None:
                 self._write_responses.get(client_addr, {}).pop(char, None)
             private_write = (
-                write_response
+                (
+                    HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
+                    or char.read_back_response
+                )
                 and value is not None
                 and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
             )
@@ -1285,9 +1289,9 @@ class AccessoryDriver:
             result: dict[str, Any] = {HAP_REPR_STATUS: set_result}
             if inspect.iscoroutine(set_result_value):
                 pending.append((result, set_result_value, write_response, char))
-            elif set_result_value is not None and write_response:
-                result[HAP_REPR_VALUE] = self._store_write_response(
-                    char, set_result_value, client_addr
+            elif set_result_value is not None:
+                self._keep_response(
+                    result, char, set_result_value, write_response, client_addr
                 )
 
             results[aid][iid] = result
@@ -1363,13 +1367,30 @@ class AccessoryDriver:
                     HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
                 )
                 continue
-            if outcome is not None and write_response:
+            if outcome is not None:
                 # A response queued when the connection closes is dropped by
                 # the deferred cleanup in connection_lost.
-                result[HAP_REPR_VALUE] = self._store_write_response(
-                    char, outcome, client_addr
-                )
+                self._keep_response(result, char, outcome, write_response, client_addr)
         return _set_characteristics_response(results)
+
+    def _keep_response(
+        self,
+        result: dict[str, Any],
+        char: Characteristic,
+        response: HAPValue,
+        write_response: bool,
+        client_addr: tuple[str, int] | None,
+    ) -> None:
+        """Keep what a setter returned as a write response or read back value."""
+        if write_response:
+            result[HAP_REPR_VALUE] = self._store_write_response(
+                char, response, client_addr
+            )
+        elif (
+            char.read_back_response
+            and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
+        ):
+            self._store_write_response(char, response, client_addr)
 
     def _take_prepared_write(self, pid: Any, client_addr: tuple[str, int]) -> bool:
         """Consume the prepared write ``pid`` and return whether it is still valid."""
@@ -1389,9 +1410,10 @@ class AccessoryDriver:
         characteristic is readable, only the connection that wrote reads the
         response back, until it closes, and it wins over the getter and a later
         ``set_value``. Other connections read the characteristic's own value,
-        which the write leaves as it was. A write without ``r`` stays readable
-        for everyone, and a characteristic that also has ``ev`` notifies the
-        written value as any write does.
+        which the write leaves as it was, also for a write without ``r``. A
+        characteristic that also has ``ev`` notifies the written value as any
+        write does. A read back characteristic keeps the response the same
+        way, without a write response.
         """
         readable = HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
         try:

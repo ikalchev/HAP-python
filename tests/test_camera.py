@@ -90,9 +90,9 @@ def test_setup_endpoints(mock_driver: Any) -> None:
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(set_endpoint_req)
+    response = setup_endpoints.client_update_value(set_endpoint_req)
 
-    assert setup_endpoints.get_value()[:171] == set_endpoint_res[:171]
+    assert response[:171] == set_endpoint_res[:171]
 
 
 def test_setup_endpoints_does_not_log_srtp_keys(
@@ -270,13 +270,13 @@ def test_setup_endpoints_reports_real_port_when_talkback_enabled(
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(set_endpoint_req)
+    response = setup_endpoints.client_update_value(set_endpoint_req)
 
     session_id = list(acc.sessions)[0]
     receiver = acc.sessions[session_id]["audio_backchannel"]
     assert receiver is not None
 
-    reported_port = _accessory_audio_port(setup_endpoints.get_value())
+    reported_port = _accessory_audio_port(response)
     assert reported_port == receiver.local_port
     assert reported_port != _controller_audio_port(set_endpoint_req)
 
@@ -420,3 +420,35 @@ async def test_start_stream_rejects_argument_injection(mock_driver: Any) -> None
     ):
         assert await acc.start_stream(session_info, safe_config) is True
         exec_mock.assert_called_once()
+
+
+def test_setup_endpoints_read_back_by_writer_only(driver: Any) -> None:
+    """Test only the controller that set up a session reads its answer."""
+    acc = camera.Camera(_OPTIONS, driver, "Camera")
+    driver.add_accessory(acc)
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    char = management.get_characteristic("SetupEndpoints")
+    char_id = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
+    request = (
+        "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
+        "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
+        "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
+    )
+    query = {
+        "characteristics": [
+            {"aid": acc.aid, "iid": acc.iid_manager.get_iid(char), "value": request}
+        ]
+    }
+
+    assert driver.set_characteristics(query, ("192.168.1.114", 50000)) is None
+
+    (writer,) = driver.get_characteristics([char_id], ("192.168.1.114", 50000))[
+        "characteristics"
+    ]
+    (other,) = driver.get_characteristics([char_id], ("192.168.1.115", 50000))[
+        "characteristics"
+    ]
+    assert writer["value"][:20] == "ARCszGzBBWNFFY2pdLRQ"
+    assert other["value"] == ""
+    assert char.value == ""

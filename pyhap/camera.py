@@ -590,12 +590,14 @@ class Camera(Accessory):
             "SelectedRTPStreamConfiguration",
             setter_callback=self.set_selected_stream_configuration,
         )
-        management.configure_char(
+        setup_endpoints = management.configure_char(
             "SetupEndpoints",
             setter_callback=lambda value: self.set_endpoints(
                 value, stream_idx=stream_idx
             ),
         )
+        # The answer has the session's SRTP keys, only its controller reads it.
+        setup_endpoints.read_back_response = True
         return management
 
     def _default_recording_configs(
@@ -1254,11 +1256,12 @@ class Camera(Accessory):
         self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
         self._management[stream_idx].get_characteristic("StreamingStatus").notify()
 
-    def set_endpoints(self, value: str, stream_idx: int | None = None) -> None:
+    def set_endpoints(self, value: str, stream_idx: int | None = None) -> Any:
         """Configure streaming endpoints.
 
-        Called when iOS sets the SetupEndpoints ``Characteristic``. The endpoint
-        information for the camera should be set as the current value of SetupEndpoints.
+        Called when iOS sets the SetupEndpoints ``Characteristic``. Returns the
+        endpoint information of the camera, which only the connection that
+        wrote reads back.
 
         :param value: The base64-encoded stream session details in TLV format.
         :param value: ``str``
@@ -1412,9 +1415,7 @@ class Camera(Accessory):
             "audio_backchannel": audio_backchannel,
         }
 
-        self._management[stream_idx].get_characteristic("SetupEndpoints").set_value(
-            response_tlv
-        )
+        return response_tlv
 
     async def run(self) -> None:
         """Start the HDS listener when recording transport is available."""
