@@ -494,3 +494,173 @@ async def test_oversized_answer(
     assert _status(answer) == hksv3.WebRTCSessionStatus(None, 3)
     assert session.state is SessionState.SOLICITED
     webrtc_delegate.handle_answer.assert_not_called()
+
+
+# Renegotiation
+
+
+async def _reoffer(
+    camera: Camera, session_id: UUID, client: Any = CLIENT
+) -> hksv3.WebRTCReofferResponse:
+    request = hksv3.WebRTCReoffer(
+        session_id, "v=0\r\na=offer\r\n", hksv3.WebRTCOfferOptions(True)
+    )
+    response = await _controller(camera)._set_reoffer(
+        to_base64_str(request.encode()), client
+    )
+    return hksv3.WebRTCReofferResponse.decode(base64_to_bytes(response))
+
+
+async def _update(
+    camera: Camera, session_id: UUID, client: Any = CLIENT
+) -> hksv3.WebRTCSessionStatus:
+    request = hksv3.WebRTCUpdateSession(session_id, [KEY], [5])
+    return _status(
+        await _controller(camera)._set_update_session(
+            to_base64_str(request.encode()), client
+        )
+    )
+
+
+async def test_reoffer(
+    stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
+) -> None:
+    """Test a reoffer of an active session is answered."""
+    camera = stream_camera()
+    session = await _active(camera)
+
+    response = await _reoffer(camera, session.id)
+
+    assert response == hksv3.WebRTCReofferResponse(session.id, 0, "v=0\r\na=answer\r\n")
+    webrtc_delegate.handle_reoffer.assert_awaited_once_with(
+        session, "v=0\r\na=offer\r\n", hksv3.WebRTCOfferOptions(True)
+    )
+
+
+async def test_update_session(
+    stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
+) -> None:
+    """Test the controller's SFrame keys reach the delegate."""
+    camera = stream_camera()
+    session = await _active(camera)
+
+    assert (await _update(camera, session.id)).status == 0
+
+    webrtc_delegate.handle_update_session.assert_awaited_once_with(session, [KEY], [5])
+
+
+@pytest.mark.parametrize(
+    ("add_keys", "remove_kids"),
+    [
+        ([KEY] * (hksv3.MAX_SFRAME_KEY_CHANGES + 1), []),
+        ([], [5] * (hksv3.MAX_SFRAME_KEY_CHANGES + 1)),
+    ],
+    ids=["add-keys", "remove-kids"],
+)
+async def test_oversized_update_session(
+    stream_camera: Callable[..., Camera],
+    webrtc_delegate: AsyncMock,
+    add_keys: list[hksv3.SFrameKey],
+    remove_kids: list[int],
+) -> None:
+    """Test an update above the key limit answers an error before the delegate."""
+    camera = stream_camera()
+    session = await _active(camera)
+    request = hksv3.WebRTCUpdateSession(session.id, add_keys, remove_kids)
+
+    response = await _controller(camera)._set_update_session(
+        to_base64_str(request.encode()), CLIENT
+    )
+
+    assert _status(response) == hksv3.WebRTCSessionStatus(None, 3)
+    assert session.state is SessionState.ACTIVE
+    webrtc_delegate.handle_update_session.assert_not_called()
+
+
+async def test_renegotiation_needs_an_active_session(
+    stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
+) -> None:
+    """Test unknown, foreign and unanswered sessions are refused."""
+    camera = stream_camera()
+    session = await _session(camera)
+
+    assert (await _reoffer(camera, session.id)).status == 3
+    assert (await _update(camera, session.id)).status == 3
+    assert (await _reoffer(camera, uuid4())).status == 1
+    assert (await _update(camera, session.id, OTHER)).status == 1
+    webrtc_delegate.handle_reoffer.assert_not_called()
+    webrtc_delegate.handle_update_session.assert_not_called()
+
+
+async def test_renegotiation_fails(
+    stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
+) -> None:
+    """Test a failed reoffer or update answers its status, the session stays."""
+    webrtc_delegate.handle_reoffer.side_effect = RuntimeError
+    webrtc_delegate.handle_update_session.side_effect = StreamError(2)
+    camera = stream_camera()
+    session = await _active(camera)
+
+    assert (await _reoffer(camera, session.id)).status == 3
+    assert (await _update(camera, session.id)).status == 2
+    assert session.state is SessionState.ACTIVE
+
+
+async def test_renegotiation_while_busy(
+    stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
+) -> None:
+    """Test an update while a reoffer runs is busy."""
+    answered = asyncio.Event()
+
+    async def _answer_reoffer(*_: Any) -> hksv3.WebRTCReofferAnswer:
+        await answered.wait()
+        return hksv3.WebRTCReofferAnswer("v=0\r\n")
+
+    webrtc_delegate.handle_reoffer.side_effect = _answer_reoffer
+    camera = stream_camera()
+    session = await _active(camera)
+    reoffer = asyncio.ensure_future(_reoffer(camera, session.id))
+    await asyncio.sleep(0)
+
+    assert (await _update(camera, session.id)).status == 2
+
+    answered.set()
+    assert (await reoffer).status == 0
+
+
+async def test_slow_reoffer_ends_the_session(
+    stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
+) -> None:
+    """Test a reoffer beyond hook_timeout ends the session in the background."""
+
+    async def _never(*_: Any) -> None:
+        await asyncio.Event().wait()
+
+    webrtc_delegate.handle_reoffer.side_effect = _never
+    camera = stream_camera(webrtc={"delegate": webrtc_delegate, "hook_timeout": 0.05})
+    session = await _active(camera)
+
+    assert (await _reoffer(camera, session.id)).status == 3
+    await camera.stop()
+
+    assert session.state is SessionState.ENDED
+    assert _count(camera) == 0
+    webrtc_delegate.handle_end.assert_awaited_once_with(session)
+
+
+async def test_oversized_reoffer(
+    stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
+) -> None:
+    """Test a reoffer above the SDP limit answers an error before the delegate."""
+    camera = stream_camera()
+    session = await _active(camera)
+    request = hksv3.WebRTCReoffer(session.id, "a" * (hksv3.MAX_SDP_SIZE + 1))
+
+    response = await _controller(camera)._set_reoffer(
+        to_base64_str(request.encode()), CLIENT
+    )
+
+    assert hksv3.WebRTCReofferResponse.decode(base64_to_bytes(response)) == (
+        hksv3.WebRTCReofferResponse(None, 3)
+    )
+    webrtc_delegate.handle_reoffer.assert_not_called()

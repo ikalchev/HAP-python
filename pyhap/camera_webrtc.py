@@ -238,6 +238,8 @@ class WebRTCController(StreamController[WebRTCSession]):
             ("WebRTCSolicitOffer", self._set_solicit_offer),
             ("WebRTCProvideAnswer", self._set_provide_answer),
             ("WebRTCStreamingControl", self._set_streaming_control),
+            ("WebRTCReoffer", self._set_reoffer),
+            ("WebRTCUpdateSession", self._set_update_session),
         ):
             service.configure_char(name, setter_callback=setter)
 
@@ -400,3 +402,65 @@ class WebRTCController(StreamController[WebRTCSession]):
             return _status(session.id, _STATUS.ERROR)
         ended = await self._end_by_request(session, deadline)
         return _status(session.id, _STATUS.SUCCESS if ended else _STATUS.ERROR)
+
+    def _active_session(
+        self, session_id: UUID, client_addr: Any
+    ) -> WebRTCSession | hksv3.WebRTCStreamingStatus:
+        """The session to renegotiate or update, else the status to answer."""
+        session = self._owned(session_id, client_addr)
+        if session is None:
+            return _STATUS.UNKNOWN_SESSION
+        if session.state is not SessionState.ACTIVE:
+            return _STATUS.ERROR
+        if session.busy:
+            return _STATUS.BUSY
+        return session
+
+    async def _set_reoffer(self, value: str, sender_client_addr: Any = None) -> str:
+        deadline = self._deadline()
+        request = _decode("Reoffer", hksv3.WebRTCReoffer.decode, value)
+        if request is None:
+            response = hksv3.WebRTCReofferResponse(None, _STATUS.ERROR)
+        else:
+            response = await self._reoffer(request, sender_client_addr, deadline)
+        return to_base64_str(response.encode())
+
+    async def _reoffer(
+        self, request: hksv3.WebRTCReoffer, client_addr: Any, deadline: float
+    ) -> hksv3.WebRTCReofferResponse:
+        session = self._active_session(request.session_id, client_addr)
+        if not isinstance(session, WebRTCSession):
+            return hksv3.WebRTCReofferResponse(request.session_id, session)
+        hook = self._delegate.handle_reoffer(
+            session, request.sdp_offer, request.options
+        )
+        try:
+            answer = await self._run_hook(session, "reoffer", hook, deadline)
+        except HookFailed as err:
+            return hksv3.WebRTCReofferResponse(
+                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
+            )
+        return hksv3.WebRTCReofferResponse(
+            session.id, _STATUS.SUCCESS, answer.sdp, answer.sframe
+        )
+
+    async def _set_update_session(
+        self, value: str, sender_client_addr: Any = None
+    ) -> str:
+        deadline = self._deadline()
+        request = _decode("Update Session", hksv3.WebRTCUpdateSession.decode, value)
+        if request is None:
+            return _status(None, _STATUS.ERROR)
+        session = self._active_session(request.session_id, sender_client_addr)
+        if not isinstance(session, WebRTCSession):
+            return _status(request.session_id, session)
+        hook = self._delegate.handle_update_session(
+            session, request.add_keys, request.remove_kids
+        )
+        try:
+            await self._run_hook(session, "update session", hook, deadline)
+        except HookFailed as err:
+            return _status(
+                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
+            )
+        return _status(session.id, _STATUS.SUCCESS)
