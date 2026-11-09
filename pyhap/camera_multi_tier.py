@@ -13,36 +13,48 @@ them to its sources.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import logging
+import secrets
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from pyhap import hksv3
+from pyhap.camera import parse_setup_address
 from pyhap.camera_stream import (
     DEFAULT_HOOK_TIMEOUT,
+    HookFailed,
+    SessionState,
     StreamController,
     StreamSession,
     check_hook_timeout,
     config_from_option,
+    failure_status,
 )
-from pyhap.util import to_base64_str
+from pyhap.util import base64_to_bytes, to_base64_str
 
 if TYPE_CHECKING:
     from pyhap.camera import Camera
 
 __all__ = [
+    "DEFAULT_IDLE_TIMEOUT",
     "MULTI_TIER_MIN_SESSIONS",
     "MultiTierConfig",
     "MultiTierController",
     "MultiTierDelegate",
     "MultiTierSession",
+    "RtcpMonitor",
+    "open_rtcp_monitor",
 ]
 
 logger = logging.getLogger(__name__)
 
 # Multi-tier sessions per sensor the guide requires at least.
 MULTI_TIER_MIN_SESSIONS = 5
+# Seconds a started session lives without keep_alive().
+DEFAULT_IDLE_TIMEOUT = 30.0
+_SRTP_SUITE = hksv3.SRTPCryptoSuite.AES_CM_128_HMAC_SHA1_80
 
 
 @dataclass(eq=False, kw_only=True)
@@ -76,6 +88,72 @@ class MultiTierSession(StreamSession):
     controller_audio_ssrc: int | None = None
     video_tier: hksv3.VideoStreamTier | None = None
     audio_tier: hksv3.AudioStreamTier | None = None
+
+    def keep_alive(self) -> None:
+        """Restart the idle timeout of the started session.
+
+        Call it when the controller is still there, e.g. for each of its RTCP
+        packets as :class:`RtcpMonitor` does. Call it in the event loop.
+        """
+        controller = self._controller
+        if isinstance(controller, MultiTierController):
+            controller.keep_alive(self)
+
+
+class RtcpMonitor(asyncio.DatagramProtocol):
+    """Keeps a session alive while its controller sends RTCP.
+
+    Listens on the accessory's video port of the session, where the
+    controller sends its RTCP. Each datagram from the controller's address
+    calls :meth:`MultiTierSession.keep_alive`, without decrypting it. Others
+    are ignored. Open it with :func:`open_rtcp_monitor`.
+    """
+
+    def __init__(self, session: MultiTierSession) -> None:
+        self.session = session
+        self.port = 0
+        self._transport: asyncio.DatagramTransport | None = None
+
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        self._transport = cast(asyncio.DatagramTransport, transport)
+        self.port = int(transport.get_extra_info("sockname")[1])
+
+    def datagram_received(self, data: bytes, addr: tuple[Any, ...]) -> None:
+        # The controller's address has no scope ID, a received one may.
+        if str(addr[0]).split("%", 1)[0] == self.session.address:
+            self.session.keep_alive()
+
+    @property
+    def closed(self) -> bool:
+        return self._transport is None or self._transport.is_closing()
+
+    def close(self) -> None:
+        """Close the socket, e.g. in ``handle_end``."""
+        if self._transport is not None:
+            self._transport.close()
+
+
+async def open_rtcp_monitor(session: MultiTierSession) -> RtcpMonitor:
+    """Open an :class:`RtcpMonitor` for ``session``, e.g. in ``handle_prepare``.
+
+    Binds a free UDP port of the controller's IP version and announces it as
+    the accessory's video port, ``session.accessory_video_port``. The stream
+    is then sent from another port, with its RTCP to the controller's video
+    port; for ffmpeg, an ``srtp://`` output without ``localrtpport`` and with
+    ``rtcpport`` set to ``session.video_port``. Close the monitor when the
+    session ends.
+
+    :raises OSError: If no port can be bound.
+    """
+    loop = asyncio.get_running_loop()
+    # Any interface, as the stream's own ports. Only the controller's
+    # datagrams count.
+    any_address = "::" if session.is_ipv6 else "0.0.0.0"  # noqa: S104
+    _, monitor = await loop.create_datagram_endpoint(
+        lambda: RtcpMonitor(session), local_addr=(any_address, 0)
+    )
+    session.accessory_video_port = monitor.port
+    return monitor
 
 
 class MultiTierDelegate(Protocol):
@@ -137,7 +215,11 @@ class MultiTierConfig:
     ``delegate`` sends the media. ``audio`` is the one audio tier the guide
     allows. ``max_sessions`` per sensor is at least five, as the guide
     requires, and one connection has at most ``max_sessions_per_connection``
-    of them. A delegate hook gets ``hook_timeout`` seconds.
+    of them. A delegate hook gets ``hook_timeout`` seconds. A session must
+    start within ``setup_timeout`` seconds of its Setup Endpoints answer.
+    A started session ends unless :meth:`MultiTierSession.keep_alive` is
+    called at least every ``idle_timeout`` seconds, e.g. for each RTCP packet
+    of the controller; None turns that off.
     """
 
     delegate: MultiTierDelegate | None = None
@@ -145,6 +227,8 @@ class MultiTierConfig:
     max_sessions: int = MULTI_TIER_MIN_SESSIONS
     max_sessions_per_connection: int = 3
     hook_timeout: float = DEFAULT_HOOK_TIMEOUT
+    setup_timeout: float = 30.0
+    idle_timeout: float | None = DEFAULT_IDLE_TIMEOUT
 
     @classmethod
     def from_option(cls, value: MultiTierConfig | Mapping[str, Any]) -> MultiTierConfig:
@@ -167,6 +251,10 @@ class MultiTierConfig:
         if not isinstance(self.audio, hksv3.AudioStreamTier):
             raise ValueError("multi_tier audio must be exactly one audio tier")
         hksv3.check_audio_tier(self.audio)
+        if self.setup_timeout <= 0 or (
+            self.idle_timeout is not None and self.idle_timeout <= 0
+        ):
+            raise ValueError("multi_tier timeouts must be positive")
 
 
 def supported_audio_tiers(audio: hksv3.AudioStreamTier) -> bytes:
@@ -219,6 +307,14 @@ class MultiTierController(StreamController[MultiTierSession]):
         )
         self.streaming_enabled = service.configure_char("StreamingEnabled", value=True)
         self._status_active = service.get_characteristic("StatusActive")
+        setup_endpoints = service.configure_char(
+            "SetupEndpoints", setter_callback=self._set_setup_endpoints
+        )
+        # The answer has the session's SRTP keys, only its controller reads it.
+        setup_endpoints.read_back_response = True
+        service.configure_char(
+            "RTPStreamingControl", setter_callback=self._set_streaming_control
+        )
 
     @property
     def active(self) -> bool:
@@ -232,6 +328,23 @@ class MultiTierController(StreamController[MultiTierSession]):
         if not active:
             self._end_sessions("streaming was turned off")
 
+    def keep_alive(self, session: MultiTierSession) -> None:
+        """Restart the ``idle_timeout`` of a started session.
+
+        A former session with the same ID keeps nothing alive. See
+        :meth:`MultiTierSession.keep_alive`.
+        """
+        if (
+            self._sessions.get(session.id) is session
+            and session.state is SessionState.STARTED
+        ):
+            self._set_timer(
+                session,
+                self.config.idle_timeout,
+                "No stream activity",
+                SessionState.STARTED,
+            )
+
     @property
     def _delegate(self) -> MultiTierDelegate:
         # Only a controller with a delegate has sessions.
@@ -239,3 +352,239 @@ class MultiTierController(StreamController[MultiTierSession]):
 
     async def _release_hook(self, session: MultiTierSession) -> None:
         await self._delegate.handle_end(session)
+
+    async def _set_setup_endpoints(
+        self, value: str, sender_client_addr: Any = None
+    ) -> Any:
+        """Set up a session, only the writing connection reads the answer."""
+        deadline = self._deadline()
+        try:
+            request = hksv3.SetupEndpoints.decode(base64_to_bytes(value))
+        except ValueError:
+            logger.warning("Ignoring a malformed Setup Endpoints write")
+            status = hksv3.SetupEndpointsStatus.ERROR
+            return to_base64_str(hksv3.SetupEndpointsResponse(None, status).encode())
+        result = await self._setup(request, sender_client_addr, deadline)
+        if isinstance(result, MultiTierSession):
+            return to_base64_str(_answer(result).encode())
+        response = hksv3.SetupEndpointsResponse(request.session_id, result)
+        return to_base64_str(response.encode())
+
+    async def _setup(
+        self,
+        request: hksv3.SetupEndpoints,
+        client_addr: Any,
+        deadline: float,
+    ) -> MultiTierSession | hksv3.SetupEndpointsStatus:
+        session_id = request.session_id
+        endpoint = request.address
+        error = hksv3.SetupEndpointsStatus.ERROR
+        try:
+            address = parse_setup_address(
+                endpoint.address.encode("utf-8"), endpoint.is_ipv6
+            )
+            _check_srtp(request.video_srtp)
+            _check_srtp(request.audio_srtp)
+        except ValueError as ex:
+            logger.warning("[%s] Refusing the endpoints: %s", session_id, ex)
+            return error
+        logger.debug(
+            "[%s] Setup Endpoints: %s, video port %d, audio port %d",
+            session_id,
+            address,
+            endpoint.video_port,
+            endpoint.audio_port,
+        )
+        existing = self._owned(session_id, client_addr)
+        if existing is None and session_id in self._sessions:
+            return error
+        if not self.active:
+            logger.warning("[%s] Streaming is turned off, refusing it", session_id)
+            return error
+        if existing is None and (no_room := self._no_room(client_addr)):
+            logger.warning("[%s] %s", session_id, no_room)
+            return hksv3.SetupEndpointsStatus.BUSY
+        if self.delegate is None:
+            logger.warning("[%s] No multi-tier delegate, refusing", session_id)
+            return error
+        accessory_address = self.camera.stream_address_for(
+            client_addr, endpoint.is_ipv6
+        )
+        if accessory_address is None:
+            logger.warning(
+                "[%s] No local address of the controller's IP version", session_id
+            )
+            return error
+        if existing is not None:
+            # Set up again: the delegate releases the former session first.
+            if not await self._end_by_request(existing, deadline):
+                logger.warning(
+                    "[%s] The former session was not released, refusing",
+                    session_id,
+                )
+                return error
+            # Meanwhile another write may have set up the ID or taken the room.
+            if session_id in self._sessions:
+                logger.warning("[%s] Set up again meanwhile, refusing", session_id)
+                return error
+            if not self.active:
+                logger.warning("[%s] Streaming is turned off, refusing it", session_id)
+                return error
+            if no_room := self._no_room(client_addr):
+                logger.warning("[%s] %s", session_id, no_room)
+                return hksv3.SetupEndpointsStatus.BUSY
+        session = MultiTierSession(
+            id=session_id,
+            sensor=self.sensor,
+            client_addr=client_addr,
+            address=address,
+            is_ipv6=endpoint.is_ipv6,
+            video_port=endpoint.video_port,
+            audio_port=endpoint.audio_port,
+            video_srtp_key=request.video_srtp.master_key,
+            video_srtp_salt=request.video_srtp.master_salt,
+            audio_srtp_key=request.audio_srtp.master_key,
+            audio_srtp_salt=request.audio_srtp.master_salt,
+            video_ssrc=_ssrc(),
+            audio_ssrc=_ssrc(),
+            accessory_address=accessory_address,
+            accessory_video_port=endpoint.video_port,
+            accessory_audio_port=endpoint.audio_port,
+        )
+        while session.audio_ssrc == session.video_ssrc:
+            session.audio_ssrc = _ssrc()
+        # Registered before prepare, so a disconnect or the gate ends it too.
+        self._add(session)
+        try:
+            await self._run_hook(
+                session,
+                "prepare",
+                self.delegate.handle_prepare(session),
+                deadline,
+                end_on_failure=True,
+                first=True,
+            )
+        except HookFailed as err:
+            return failure_status(hksv3.SetupEndpointsStatus, err.status, error)
+        session.state = SessionState.PREPARED
+        self._set_timer(
+            session,
+            self.config.setup_timeout,
+            "Not started in time",
+            SessionState.PREPARED,
+        )
+        return session
+
+    async def _set_streaming_control(
+        self, value: str, sender_client_addr: Any = None
+    ) -> str:
+        """Start, change or end a stream, the write response is the status."""
+        deadline = self._deadline()
+        try:
+            request = hksv3.RTPStreamingControl.decode(base64_to_bytes(value))
+        except ValueError:
+            logger.warning("Ignoring a malformed RTP Streaming Control write")
+            status = hksv3.encode_streaming_status(None, hksv3.RTPStreamingStatus.ERROR)
+            return to_base64_str(status)
+        logger.debug("RTP Streaming Control: %s", request)
+        result = await self._streaming_control(request, sender_client_addr, deadline)
+        logger.debug("[%s] RTP Streaming Control: %s", request.session_id, result)
+        return to_base64_str(hksv3.encode_streaming_status(request.session_id, result))
+
+    async def _streaming_control(
+        self,
+        request: hksv3.RTPStreamingControl,
+        client_addr: Any,
+        deadline: float,
+    ) -> hksv3.RTPStreamingStatus:
+        status = hksv3.RTPStreamingStatus
+        session = self._owned(request.session_id, client_addr)
+        if session is None:
+            return status.UNKNOWN_SESSION
+        if request.command == hksv3.RTPStreamingCommand.END:
+            if session.state is not SessionState.STARTED:
+                self._end(session, "ended before it started")
+                return status.NO_SUCH_STREAM
+            ended = await self._end_by_request(session, deadline)
+            return status.SUCCESS if ended else status.ERROR
+        if request.command != hksv3.RTPStreamingCommand.START:
+            return status.ERROR
+        if session.state is SessionState.NEW or session.busy:
+            return status.BUSY
+        if not self.active:
+            logger.warning("[%s] Streaming is turned off, refusing it", session.id)
+            return status.ERROR
+        tiers = self._tiers(request)
+        if tiers is None:
+            return status.ERROR
+        session.controller_video_ssrc = request.video_ssrc
+        session.controller_audio_ssrc = request.audio_ssrc
+        started = session.state is SessionState.STARTED
+        if started:
+            hook = self._delegate.handle_reconfigure(session, *tiers)
+        else:
+            hook = self._delegate.handle_start(session, *tiers)
+        try:
+            await self._run_hook(
+                session, "reconfigure" if started else "start", hook, deadline
+            )
+        except HookFailed as err:
+            return failure_status(status, err.status, status.ERROR)
+        session.video_tier, session.audio_tier = tiers
+        session.state = SessionState.STARTED
+        self.keep_alive(session)
+        return status.SUCCESS
+
+    def _tiers(
+        self, request: hksv3.RTPStreamingControl
+    ) -> tuple[hksv3.VideoStreamTier, hksv3.AudioStreamTier | None] | None:
+        """The tiers a start picked, None if they are not advertised."""
+        video = next(
+            (tier for tier in self.tiers if tier.identifier == request.video_tier),
+            None,
+        )
+        audio = self.config.audio
+        if video is None or request.video_ssrc is None:
+            return None
+        if request.audio_tier is None:
+            return video, None
+        if request.audio_tier != audio.identifier or request.audio_ssrc is None:
+            return None
+        return video, audio
+
+
+def _ssrc() -> int:
+    # Up to 2^31 - 1, ffmpeg takes the SSRC as a signed int.
+    return secrets.randbelow(2**31 - 1) + 1
+
+
+def _check_srtp(params: hksv3.SRTPParameters) -> None:
+    """Accept only AES_CM_128_HMAC_SHA1_80 keys, the guide allows nothing else."""
+    if (
+        params.crypto_suite != _SRTP_SUITE
+        or len(params.master_key) != 16
+        or len(params.master_salt) != 14
+    ):
+        raise ValueError("only AES_CM_128_HMAC_SHA1_80 is supported")
+
+
+def _answer(session: MultiTierSession) -> hksv3.SetupEndpointsResponse:
+    """The successful Setup Endpoints answer of ``session``."""
+    return hksv3.SetupEndpointsResponse(
+        session.id,
+        hksv3.SetupEndpointsStatus.SUCCESS,
+        hksv3.EndpointAddress(
+            session.accessory_address,
+            session.is_ipv6,
+            session.accessory_video_port,
+            session.accessory_audio_port,
+        ),
+        hksv3.SRTPParameters(
+            _SRTP_SUITE, session.video_srtp_key, session.video_srtp_salt
+        ),
+        hksv3.SRTPParameters(
+            _SRTP_SUITE, session.audio_srtp_key, session.audio_srtp_salt
+        ),
+        session.video_ssrc,
+        session.audio_ssrc,
+    )
