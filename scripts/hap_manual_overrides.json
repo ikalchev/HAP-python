@@ -13,7 +13,22 @@
       "(TargetSlatState, TargetAirQuality, TelevisionSpeaker). Delete them once",
       "Apple ships them again. NOTE: the generator never removes a required or",
       "optional characteristic from an existing service - demotions in Apple's",
-      "metadata are ignored by design; use serviceOverrides to remove one deliberately."
+      "metadata are ignored by design; use serviceOverrides to remove one deliberately.",
+      "",
+      "characteristicOverrides also carries deliberate corrections of Apple's",
+      "plain-metadata.config, mirroring HAP-NodeJS's CharacteristicOverriding:",
+      " - WRITE_RESPONSE on the control-point characteristics (HAP spec requires",
+      "   write-response; the metadata does not encode it);",
+      " - uint8 format for HomeKitCameraActive/EventSnapshotsActive/",
+      "   PeriodicSnapshotsActive (the HKSV 17.99 guide defines them as uint8;",
+      "   the metadata wrongly says bool);",
+      " - CurrentTemperature minValue -270 (spec minimum; the metadata says 0,",
+      "   which makes HAP-python clamp negative readings to 0);",
+      " - LockLastKnownAction values 9/10 from the newer HAP spec.",
+      "Deliberately NOT mirrored from HAP-NodeJS: write perm on",
+      "ConfiguredName/IsConfigured/DisplayOrder (HAP-python never had it),",
+      "read-only PairingFeatures (kept writable for compatibility), and",
+      "SiriInputType maxValue 0 (kept at the metadata value 1)."
    ],
    "characteristicAdditions": {
       "BufferActivityCommand": {
@@ -283,6 +298,15 @@
       "snr": "SignalToNoiseRatio"
    },
    "characteristicOverrides": {
+      "AccessCodeControlPoint": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00000262-0000-1000-8000-0026BB765291"
+      },
       "CameraOperatingModeIndicator": {
          "Format": "bool",
          "Permissions": [
@@ -292,6 +316,85 @@
             "tw"
          ],
          "UUID": "0000021D-0000-1000-8000-0026BB765291"
+      },
+      "CurrentTemperature": {
+         "Format": "float",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "00000011-0000-1000-8000-0026BB765291",
+         "maxValue": 100,
+         "minStep": 0.1,
+         "minValue": -270,
+         "unit": "celsius"
+      },
+      "DataStreamHAPTransport": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00000138-0000-1000-8000-0026BB765291"
+      },
+      "EventSnapshotsActive": {
+         "Format": "uint8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev",
+            "tw"
+         ],
+         "UUID": "00000223-0000-1000-8000-0026BB765291",
+         "ValidValues": {
+            "Disable": 0,
+            "Enable": 1
+         }
+      },
+      "HomeKitCameraActive": {
+         "Format": "uint8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev",
+            "tw"
+         ],
+         "UUID": "0000021B-0000-1000-8000-0026BB765291",
+         "ValidValues": {
+            "Disable": 0,
+            "Enable": 1
+         }
+      },
+      "LockLastKnownAction": {
+         "Format": "uint8",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "0000001C-0000-1000-8000-0026BB765291",
+         "ValidValues": {
+            "SecuredPhysically": 9,
+            "SecuredPhysically,Exterior": 2,
+            "SecuredPhysically,Interior": 0,
+            "SecuredRemotely": 6,
+            "SecuredbyAutoSecureTimeout": 8,
+            "SecuredbyKeypad": 4,
+            "UnsecuredPhysically": 10,
+            "UnsecuredPhysically,Exterior": 3,
+            "UnsecuredPhysically,Interior": 1,
+            "UnsecuredRemotely": 7,
+            "UnsecuredbyKeypad": 5
+         }
+      },
+      "NFCAccessControlPoint": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00000264-0000-1000-8000-0026BB765291"
       },
       "NightVision": {
          "Format": "bool",
@@ -303,6 +406,29 @@
          ],
          "UUID": "0000011B-0000-1000-8000-0026BB765291"
       },
+      "PeriodicSnapshotsActive": {
+         "Format": "uint8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev",
+            "tw"
+         ],
+         "UUID": "00000225-0000-1000-8000-0026BB765291",
+         "ValidValues": {
+            "Disable": 0,
+            "Enable": 1
+         }
+      },
+      "SetupDataStreamTransport": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00000131-0000-1000-8000-0026BB765291"
+      },
       "ThirdPartyCameraActive": {
          "Format": "bool",
          "Permissions": [
@@ -310,6 +436,15 @@
             "ev"
          ],
          "UUID": "0000021C-0000-1000-8000-0026BB765291"
+      },
+      "TransitionControl": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00000143-0000-1000-8000-0026BB765291"
       }
    },
    "serviceAdditions": {

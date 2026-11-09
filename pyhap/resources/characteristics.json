@@ -3,7 +3,8 @@
       "Format": "tlv8",
       "Permissions": [
          "pr",
-         "pw"
+         "pw",
+         "wr"
       ],
       "UUID": "00000262-0000-1000-8000-0026BB765291"
    },
@@ -657,7 +658,7 @@
       "UUID": "00000011-0000-1000-8000-0026BB765291",
       "maxValue": 100,
       "minStep": 0.1,
-      "minValue": 0,
+      "minValue": -270,
       "unit": "celsius"
    },
    "CurrentTiltAngle": {
@@ -709,7 +710,8 @@
       "Format": "tlv8",
       "Permissions": [
          "pr",
-         "pw"
+         "pw",
+         "wr"
       ],
       "UUID": "00000138-0000-1000-8000-0026BB765291"
    },
@@ -747,7 +749,7 @@
       "UUID": "0000023D-0000-1000-8000-0026BB765291"
    },
    "EventSnapshotsActive": {
-      "Format": "bool",
+      "Format": "uint8",
       "Permissions": [
          "pr",
          "pw",
@@ -864,7 +866,7 @@
       "UUID": "0000006F-0000-1000-8000-0026BB765291"
    },
    "HomeKitCameraActive": {
-      "Format": "bool",
+      "Format": "uint8",
       "Permissions": [
          "pr",
          "pw",
@@ -1030,11 +1032,13 @@
       ],
       "UUID": "0000001C-0000-1000-8000-0026BB765291",
       "ValidValues": {
+         "SecuredPhysically": 9,
          "SecuredPhysically,Exterior": 2,
          "SecuredPhysically,Interior": 0,
          "SecuredRemotely": 6,
          "SecuredbyAutoSecureTimeout": 8,
          "SecuredbyKeypad": 4,
+         "UnsecuredPhysically": 10,
          "UnsecuredPhysically,Exterior": 3,
          "UnsecuredPhysically,Interior": 1,
          "UnsecuredRemotely": 7,
@@ -1222,7 +1226,8 @@
       "Format": "tlv8",
       "Permissions": [
          "pr",
-         "pw"
+         "pw",
+         "wr"
       ],
       "UUID": "00000264-0000-1000-8000-0026BB765291"
    },
@@ -1427,7 +1432,7 @@
       "UUID": "000000E4-0000-1000-8000-0026BB765291"
    },
    "PeriodicSnapshotsActive": {
-      "Format": "bool",
+      "Format": "uint8",
       "Permissions": [
          "pr",
          "pw",
@@ -1855,7 +1860,8 @@
       "Format": "tlv8",
       "Permissions": [
          "pr",
-         "pw"
+         "pw",
+         "wr"
       ],
       "UUID": "00000131-0000-1000-8000-0026BB765291"
    },
@@ -2541,7 +2547,8 @@
       "Format": "tlv8",
       "Permissions": [
          "pr",
-         "pw"
+         "pw",
+         "wr"
       ],
       "UUID": "00000143-0000-1000-8000-0026BB765291"
    },
