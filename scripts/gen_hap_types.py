@@ -47,17 +47,39 @@ Sources, in order of increasing precedence:
    The overrides file supports:
      characteristicNameOverrides  slug -> HAP-python name (when the derived name is wrong)
      characteristicAdditions       new characteristics, same schema as characteristics.json
-     characteristicOverrides       full replacement of a generated characteristic entry
+     characteristicOverrides       full replacement of a generated characteristic entry;
+                                     also carries deliberate corrections of Apple metadata
+                                     quirks (mirroring HAP-NodeJS's CharacteristicOverriding)
      serviceAdditions              new services, same schema as services.json
      serviceOverrides              full replacement of a generated service entry
 
 4. Previously generated output  (FIELD INHERITANCE)
-   When the simulator is unavailable, some fields (most importantly "ValidValues",
-   occasionally "maxLen"/"unit") cannot be derived from plain-metadata.config. To
-   avoid silently dropping them, fields present in the existing
-   characteristics.json / services.json entry (matched by UUID) are carried over
+   Some fields cannot be derived from plain-metadata.config at all (most
+   importantly "ValidValues" for characteristics the simulator plist does not
+   know about, occasionally "maxLen"/"unit"). To avoid silently dropping them,
+   such fields are carried over from the entry in the existing
+   characteristics.json / services.json (matched by name and verified by UUID)
    when the freshly generated entry is missing them. This keeps the catalog
-   stable across regenerations on machines without the simulator.
+   stable across regenerations even without the simulator.
+
+STABILITY RULES
+===============
+Regenerating must never break existing HAP-python accessories, so the
+following rules apply on top of the raw metadata:
+
+- NAMING: characteristics and services keep the name already used in the
+  committed catalog for a given UUID (Apple's descriptions drift over time,
+  e.g. "CarbonDioxideDetected" vs "Carbon dioxide Detected", "Slat" vs
+  "Slats"). New UUIDs get a name derived from the description.
+- SERVICES: pyhap's Service() auto-instantiates the REQUIRED characteristics
+  at runtime, so a required->optional demotion in Apple's metadata would
+  silently strip characteristics from existing accessories. Required stays
+  Required, Optional lists only ever grow; deliberate removals must go
+  through serviceOverrides.
+- VALID VALUES: when a characteristic has enumerated ValidValues, the numeric
+  min/max/step constraints are dropped. HAP-python clamps values to min/max
+  BEFORE checking ValidValues, so keeping both would turn invalid values into
+  silent clamping instead of a rejection.
 
 OUTPUT
 ======
@@ -66,12 +88,11 @@ added/removed/changed relative to the committed JSON files. Pass --write to
 actually rewrite them. Always review the diff before committing.
 
 The simulator overlay is REQUIRED by default: without it, ValidValues for newly
-added Apple characteristics would be silently missing and permissions fall
-back to the coarser bitmask. If the HomeKit Accessory Simulator is not
-installed, the script errors out - pass --allow-missing-simulator to proceed
-explicitly (existing characteristics are still covered by field inheritance
-from the previously generated files, but review the report for entries
-missing ValidValues).
+added Apple characteristics would be silently missing. If the HomeKit Accessory
+Simulator is not installed, the script errors out - pass --allow-missing-simulator
+to proceed explicitly (existing characteristics are still covered by field
+inheritance from the previously generated files, but review the report for
+entries missing ValidValues).
 """
 
 import argparse
@@ -228,7 +249,7 @@ def generate_characteristics(
 
     Steps:
       1. Convert every plain-metadata characteristic to catalog form.
-      2. Overlay simulator Permissions/ValidValues/constraints where available.
+      2. Overlay simulator ValidValues where available.
       3. Inherit fields (ValidValues etc.) from the previously generated file.
       4. Apply manual overrides and additions last (highest precedence).
     Returns (catalog, slug_to_final) where slug_to_final maps each Apple slug
