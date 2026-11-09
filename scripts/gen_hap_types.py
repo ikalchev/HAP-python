@@ -69,17 +69,13 @@ installed, the script errors out - pass --allow-missing-simulator to proceed
 explicitly (existing characteristics are still covered by field inheritance
 from the previously generated files, but review the report for entries
 missing ValidValues).
-
-The old version of this script parsed ONLY the HomeKit Accessory Simulator plist;
-it has been rewritten because that plist lags far behind (163 characteristics
-vs 242+ in plain-metadata.config at the time of writing) and requires Xcode.
 """
 
 import argparse
 import json
+from pathlib import Path
 import plistlib
 import sys
-from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Source locations
@@ -251,8 +247,9 @@ def fix_valid_values(char_info):
 # ---------------------------------------------------------------------------
 
 
-def generate_characteristics(meta_chars, units, hap_properties, sim_chars,
-                             manual, existing_chars, name_overrides):
+def generate_characteristics(
+    meta_chars, units, hap_properties, sim_chars, manual, existing_chars, name_overrides
+):
     """Build the HAP-python characteristics catalog.
 
     Steps:
@@ -278,9 +275,11 @@ def generate_characteristics(meta_chars, units, hap_properties, sim_chars,
         uuid_to_name.setdefault(prev.get("UUID", "").upper(), prev_name)
     for slug, info in meta_chars.items():
         uuid = long_uuid(info["ShortUUID"])
-        name = (name_overrides.get(slug)
-                or uuid_to_name.get(uuid.upper())
-                or to_hap_name(info["DefaultDescription"]))
+        name = (
+            name_overrides.get(slug)
+            or uuid_to_name.get(uuid.upper())
+            or to_hap_name(info["DefaultDescription"])
+        )
         slug_to_final[slug] = name
         entry = {
             "Format": info["Format"],
@@ -296,8 +295,11 @@ def generate_characteristics(meta_chars, units, hap_properties, sim_chars,
         # Simulator overlay: richer permission strings + constraints.
         sim = sim_chars.get(entry["UUID"].upper())
         if sim:
-            perms = [SIMULATOR_PERMS_MAP[p] for p in sim.get("Permissions", [])
-                     if p in SIMULATOR_PERMS_MAP]
+            perms = [
+                SIMULATOR_PERMS_MAP[p]
+                for p in sim.get("Permissions", [])
+                if p in SIMULATOR_PERMS_MAP
+            ]
             constraints = sim.get("Constraints") or {}
             for sim_key, out_key in SIMULATOR_CONSTRAINTS_MAP.items():
                 if sim_key in constraints:
@@ -321,8 +323,10 @@ def generate_characteristics(meta_chars, units, hap_properties, sim_chars,
         for name, entry in catalog.items():
             sim = sim_chars.get(entry["UUID"].upper())
             if sim and "ValidValues" in (sim.get("Constraints") or {}):
-                c = {"ValidValues": sim["Constraints"]["ValidValues"],
-                     "Format": entry["Format"]}
+                c = {
+                    "ValidValues": sim["Constraints"]["ValidValues"],
+                    "Format": entry["Format"],
+                }
                 fix_valid_values(c)
                 entry["ValidValues"] = c["ValidValues"]
     else:
@@ -351,8 +355,9 @@ def generate_characteristics(meta_chars, units, hap_properties, sim_chars,
     return catalog, slug_to_final
 
 
-def generate_services(meta_services, characteristics, manual, name_overrides,
-                        existing_services):
+def generate_services(
+    meta_services, characteristics, manual, name_overrides, existing_services
+):
     """Build the HAP-python services catalog from plain-metadata + manual files.
 
     plain-metadata references characteristics by slug; each slug is translated
@@ -370,12 +375,14 @@ def generate_services(meta_services, characteristics, manual, name_overrides,
     for slug, info in meta_services.items():
         uuid = long_uuid(info["ShortUUID"])
         name = uuid_to_name.get(uuid.upper()) or to_hap_name(info["DefaultDescription"])
+
         # Resolve the characteristic slugs referenced by the service into
         # catalog names using the slug -> name table (name_overrides["_slug_to_name"]
         # plus any manual name overrides).
         def resolve(slug_c):
-            return (name_overrides.get(slug_c)
-                    or name_overrides.get("_slug_to_name", {}).get(slug_c))
+            return name_overrides.get(slug_c) or name_overrides.get(
+                "_slug_to_name", {}
+            ).get(slug_c)
 
         req_opt = info["Characteristics"]
         entry = {
@@ -397,7 +404,10 @@ def generate_services(meta_services, characteristics, manual, name_overrides,
             else:
                 unknown.append(slug_c)
         if unknown:
-            print(f"  ! service {name}: unknown characteristics {unknown}", file=sys.stderr)
+            print(
+                f"  ! service {name}: unknown characteristics {unknown}",
+                file=sys.stderr,
+            )
 
         # COMPATIBILITY INHERITANCE from the previously generated catalog:
         # pyhap's Service() auto-instantiates the REQUIRED characteristics at
@@ -423,8 +433,11 @@ def generate_services(meta_services, characteristics, manual, name_overrides,
             # Optional characteristics that were dropped entirely are re-added
             # (the allowed list only ever grows).
             for c in prev.get("OptionalCharacteristics", []):
-                if c in characteristics and c not in entry["RequiredCharacteristics"] \
-                        and c not in entry["OptionalCharacteristics"]:
+                if (
+                    c in characteristics
+                    and c not in entry["RequiredCharacteristics"]
+                    and c not in entry["OptionalCharacteristics"]
+                ):
                     entry["OptionalCharacteristics"].append(c)
         catalog[name] = entry
 
@@ -445,8 +458,10 @@ def diff_report(old, new, label):
     added = sorted(set(new) - set(old))
     removed = sorted(set(old) - set(new))
     changed = sorted(k for k in set(new) & set(old) if new[k] != old[k])
-    print(f"{label}: {len(new)} entries ({len(added)} added, {len(removed)} removed, "
-          f"{len(changed)} changed)")
+    print(
+        f"{label}: {len(new)} entries ({len(added)} added, {len(removed)} removed, "
+        f"{len(changed)} changed)"
+    )
     for k in added:
         print(f"  + {k} ({new[k].get('UUID')})")
     for k in removed:
@@ -456,46 +471,74 @@ def diff_report(old, new, label):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--plain-metadata", type=Path, default=PLAIN_METADATA_PATH,
-                        help="Path to plain-metadata.config")
-    parser.add_argument("--simulator-plist", type=Path, default=SIMULATOR_PLIST,
-                        help="Path to the HomeKit Accessory Simulator default.metadata.plist")
-    parser.add_argument("--manual-overrides", type=Path, default=MANUAL_OVERRIDES_FILE,
-                        help="Path to hap_manual_overrides.json")
-    parser.add_argument("--write", action="store_true",
-                        help="Write the generated files (default is a dry-run report)")
-    parser.add_argument("--allow-missing-simulator", action="store_true",
-                        help="Proceed without the HomeKit Accessory Simulator "
-                             "plist (ValidValues for new characteristics will be "
-                             "missing; permissions use the bitmask).")
+    parser.add_argument(
+        "--plain-metadata",
+        type=Path,
+        default=PLAIN_METADATA_PATH,
+        help="Path to plain-metadata.config",
+    )
+    parser.add_argument(
+        "--simulator-plist",
+        type=Path,
+        default=SIMULATOR_PLIST,
+        help="Path to the HomeKit Accessory Simulator default.metadata.plist",
+    )
+    parser.add_argument(
+        "--manual-overrides",
+        type=Path,
+        default=MANUAL_OVERRIDES_FILE,
+        help="Path to hap_manual_overrides.json",
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write the generated files (default is a dry-run report)",
+    )
+    parser.add_argument(
+        "--allow-missing-simulator",
+        action="store_true",
+        help="Proceed without the HomeKit Accessory Simulator "
+        "plist (ValidValues for new characteristics will be "
+        "missing; permissions use the bitmask).",
+    )
     args = parser.parse_args()
 
     if not args.plain_metadata.exists():
-        sys.exit(f"Primary metadata not found at {args.plain_metadata}. "
-                 "This script must run on macOS.")
+        sys.exit(
+            f"Primary metadata not found at {args.plain_metadata}. "
+            "This script must run on macOS."
+        )
 
     manual = json.loads(args.manual_overrides.read_text())
 
-    meta_chars, meta_services, _units, hap_properties = load_plain_metadata(args.plain_metadata)
-    print(f"plain-metadata.config: {len(meta_chars)} characteristics, "
-          f"{len(meta_services)} services")
+    meta_chars, meta_services, _units, hap_properties = load_plain_metadata(
+        args.plain_metadata
+    )
+    print(
+        f"plain-metadata.config: {len(meta_chars)} characteristics, "
+        f"{len(meta_services)} services"
+    )
 
     sim_chars = {}
     if args.simulator_plist.exists():
         sim_chars = load_simulator_plist(args.simulator_plist)
         print(f"simulator plist: {len(sim_chars)} characteristics (overlay enabled)")
     elif args.allow_missing_simulator:
-        print("WARNING: simulator plist not found - proceeding without the "
-              "overlay (--allow-missing-simulator). ValidValues for newly added "
-              "characteristics will be missing; permissions use the coarser "
-              "bitmask.", file=sys.stderr)
+        print(
+            "WARNING: simulator plist not found - proceeding without the "
+            "overlay (--allow-missing-simulator). ValidValues for newly added "
+            "characteristics will be missing; permissions use the coarser "
+            "bitmask.",
+            file=sys.stderr,
+        )
     else:
         sys.exit(
             f"Simulator plist not found at {args.simulator_plist}.\n"
             "Without it, ValidValues for newly added characteristics are missing "
             "and permissions fall back to the coarser bitmask.\n"
             "Install Xcode's HomeKit Accessory Simulator, or pass "
-            "--allow-missing-simulator to proceed explicitly.")
+            "--allow-missing-simulator to proceed explicitly."
+        )
 
     existing_chars = json.loads(CHAR_OUT_FILE.read_text())
     existing_services = json.loads(SERVICE_OUT_FILE.read_text())
@@ -515,11 +558,18 @@ def main():
     name_overrides["_slug_to_name"] = slug_to_name
 
     new_chars, slug_to_final = generate_characteristics(
-        meta_chars, _units, hap_properties, sim_chars, manual, existing_chars,
-        name_overrides)
+        meta_chars,
+        _units,
+        hap_properties,
+        sim_chars,
+        manual,
+        existing_chars,
+        name_overrides,
+    )
     name_overrides["_slug_to_name"].update(slug_to_final)
     new_services = generate_services(
-        meta_services, new_chars, manual, name_overrides, existing_services)
+        meta_services, new_chars, manual, name_overrides, existing_services
+    )
 
     print()
     diff_report(existing_chars, new_chars, "characteristics.json")
@@ -528,7 +578,9 @@ def main():
 
     if args.write:
         CHAR_OUT_FILE.write_text(json.dumps(new_chars, indent=3, sort_keys=True) + "\n")
-        SERVICE_OUT_FILE.write_text(json.dumps(new_services, indent=3, sort_keys=True) + "\n")
+        SERVICE_OUT_FILE.write_text(
+            json.dumps(new_services, indent=3, sort_keys=True) + "\n"
+        )
         print("\nWrote", CHAR_OUT_FILE, "and", SERVICE_OUT_FILE)
     else:
         print("\nDry run - nothing written. Re-run with --write to update the files.")
