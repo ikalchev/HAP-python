@@ -1,0 +1,437 @@
+{
+   "_comment": [
+      "Manual additions and overrides for scripts/gen_hap_types.py.",
+      "Apple's machine-readable metadata (HomeKitDaemon plain-metadata.config and the",
+      "HomeKit Accessory Simulator plists) only covers characteristics and services that",
+      "have shipped in an OS release. Things published only in a developer-preview spec",
+      "(e.g. the HomeKit Secure Video 17.99 Open Source Compatibility Guide) must be",
+      "added by hand here until they show up in Apple's metadata.",
+      "Keys must use the same schema as pyhap/resources/characteristics.json and",
+      "pyhap/resources/services.json. Overrides replace the generated entry entirely.",
+      "Entries listed under additions here are also used to RETAIN definitions",
+      "that Apple dropped from plain-metadata.config but the HAP spec still defines",
+      "(TargetSlatState, TargetAirQuality, TelevisionSpeaker). Delete them once",
+      "Apple ships them again. NOTE: the generator never removes a required or",
+      "optional characteristic from an existing service - demotions in Apple's",
+      "metadata are ignored by design; use serviceOverrides to remove one deliberately."
+   ],
+   "characteristicAdditions": {
+      "BufferActivityCommand": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pw"
+         ],
+         "UUID": "00008017-0000-1000-8000-0026BB765291"
+      },
+      "BufferEventCommand": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00008014-0000-1000-8000-0026BB765291"
+      },
+      "BufferEventSequenceNumber": {
+         "Format": "uint32",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "00008015-0000-1000-8000-0026BB765291"
+      },
+      "BufferUploadCommand": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00008013-0000-1000-8000-0026BB765291"
+      },
+      "CameraCapabilities": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr"
+         ],
+         "UUID": "00008011-0000-1000-8000-0026BB765291"
+      },
+      "CameraClientCSR": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00008081-0000-1000-8000-0026BB765291"
+      },
+      "CameraClientCertificate": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "tw"
+         ],
+         "UUID": "00008082-0000-1000-8000-0026BB765291"
+      },
+      "CameraClientCertificateStatus": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "00008083-0000-1000-8000-0026BB765291"
+      },
+      "CameraKey": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pw",
+            "tw"
+         ],
+         "UUID": "00008051-0000-1000-8000-0026BB765291"
+      },
+      "CameraKeyID": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "00008052-0000-1000-8000-0026BB765291"
+      },
+      "CameraRecordingPublishingPoint": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw"
+         ],
+         "UUID": "00008016-0000-1000-8000-0026BB765291"
+      },
+      "CameraZones": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw"
+         ],
+         "UUID": "00008022-0000-1000-8000-0026BB765291"
+      },
+      "ContributingSensors": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "00008086-0000-1000-8000-0026BB765291"
+      },
+      "MotionEnabled": {
+         "AdminOnlyAccess": [
+            "write"
+         ],
+         "Format": "bool",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev",
+            "tw"
+         ],
+         "UUID": "00008087-0000-1000-8000-0026BB765291"
+      },
+      "RTPStreamingControl": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00008045-0000-1000-8000-0026BB765291"
+      },
+      "SensorUUID": {
+         "Format": "data",
+         "Permissions": [
+            "pr"
+         ],
+         "UUID": "0000805B-0000-1000-8000-0026BB765291"
+      },
+      "StreamingEnabled": {
+         "AdminOnlyAccess": [
+            "write"
+         ],
+         "Format": "bool",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev",
+            "tw"
+         ],
+         "UUID": "00008041-0000-1000-8000-0026BB765291"
+      },
+      "SupportedAudioStreamTiers": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "00008044-0000-1000-8000-0026BB765291"
+      },
+      "SupportedVideoStreamTiers": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "00008043-0000-1000-8000-0026BB765291"
+      },
+      "TargetAirQuality": {
+         "Format": "uint8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev"
+         ],
+         "UUID": "000000AE-0000-1000-8000-0026BB765291",
+         "ValidValues": {
+            "Excellent": 0,
+            "Fair": 2,
+            "Good": 1
+         }
+      },
+      "TargetSlatState": {
+         "Format": "uint8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev"
+         ],
+         "UUID": "000000BE-0000-1000-8000-0026BB765291",
+         "ValidValues": {
+            "Auto": 1,
+            "Manual": 0
+         }
+      },
+      "WebRTCNumberOfActiveSessions": {
+         "Format": "uint8",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "00008057-0000-1000-8000-0026BB765291",
+         "maxValue": 255,
+         "minValue": 0
+      },
+      "WebRTCProvideAnswer": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00008054-0000-1000-8000-0026BB765291"
+      },
+      "WebRTCReoffer": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00008058-0000-1000-8000-0026BB765291"
+      },
+      "WebRTCSolicitOffer": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00008053-0000-1000-8000-0026BB765291"
+      },
+      "WebRTCStreamingControl": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "00008056-0000-1000-8000-0026BB765291"
+      },
+      "WebRTCSupportedAudioStreamTiers": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "0000805A-0000-1000-8000-0026BB765291"
+      },
+      "WebRTCSupportedVideoStreamTiers": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "00008059-0000-1000-8000-0026BB765291"
+      },
+      "WebRTCUpdateSession": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "wr"
+         ],
+         "UUID": "0000805C-0000-1000-8000-0026BB765291"
+      }
+   },
+   "characteristicNameOverrides": {
+      "snr": "SignalToNoiseRatio"
+   },
+   "characteristicOverrides": {
+      "CameraOperatingModeIndicator": {
+         "Format": "bool",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev",
+            "tw"
+         ],
+         "UUID": "0000021D-0000-1000-8000-0026BB765291"
+      },
+      "NightVision": {
+         "Format": "bool",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev",
+            "tw"
+         ],
+         "UUID": "0000011B-0000-1000-8000-0026BB765291"
+      },
+      "ThirdPartyCameraActive": {
+         "Format": "bool",
+         "Permissions": [
+            "pr",
+            "ev"
+         ],
+         "UUID": "0000021C-0000-1000-8000-0026BB765291"
+      }
+   },
+   "serviceAdditions": {
+      "CameraBufferManagement": {
+         "OptionalCharacteristics": [],
+         "RequiredCharacteristics": [
+            "BufferUploadCommand",
+            "BufferActivityCommand",
+            "BufferEventCommand",
+            "BufferEventSequenceNumber",
+            "CameraRecordingPublishingPoint"
+         ],
+         "UUID": "00008000-0000-1000-8000-0026BB765291"
+      },
+      "CameraCapabilities": {
+         "OptionalCharacteristics": [
+            "ManuallyDisabled"
+         ],
+         "RequiredCharacteristics": [
+            "Version",
+            "CameraCapabilities"
+         ],
+         "UUID": "00008010-0000-1000-8000-0026BB765291"
+      },
+      "CameraClientCertificateManagement": {
+         "OptionalCharacteristics": [],
+         "RequiredCharacteristics": [
+            "CameraClientCSR",
+            "CameraClientCertificate",
+            "CameraClientCertificateStatus"
+         ],
+         "UUID": "00008080-0000-1000-8000-0026BB765291"
+      },
+      "CameraGlobalOperatingMode": {
+         "OptionalCharacteristics": [
+            "ManuallyDisabled",
+            "NightVision",
+            "ThirdPartyCameraActive"
+         ],
+         "RequiredCharacteristics": [
+            "HomeKitCameraActive",
+            "StreamingEnabled",
+            "CameraOperatingModeIndicator"
+         ],
+         "UUID": "00008032-0000-1000-8000-0026BB765291"
+      },
+      "CameraKeyManagement": {
+         "OptionalCharacteristics": [],
+         "RequiredCharacteristics": [
+            "CameraKey",
+            "CameraKeyID"
+         ],
+         "UUID": "00008050-0000-1000-8000-0026BB765291"
+      },
+      "CameraMotionZones": {
+         "OptionalCharacteristics": [],
+         "RequiredCharacteristics": [
+            "Version",
+            "Active",
+            "CameraZones"
+         ],
+         "UUID": "00008021-0000-1000-8000-0026BB765291"
+      },
+      "CameraMultiTierRTPStreamManagement": {
+         "OptionalCharacteristics": [],
+         "RequiredCharacteristics": [
+            "StreamingEnabled",
+            "StatusActive",
+            "SupportedVideoStreamTiers",
+            "SupportedAudioStreamTiers",
+            "SupportedRTPConfiguration",
+            "SetupEndpoints",
+            "RTPStreamingControl",
+            "SensorUUID"
+         ],
+         "UUID": "00008031-0000-1000-8000-0026BB765291"
+      },
+      "CameraWebRTCStreamManagement": {
+         "OptionalCharacteristics": [],
+         "RequiredCharacteristics": [
+            "WebRTCSolicitOffer",
+            "WebRTCProvideAnswer",
+            "WebRTCStreamingControl",
+            "WebRTCNumberOfActiveSessions",
+            "WebRTCReoffer",
+            "WebRTCUpdateSession",
+            "WebRTCSupportedVideoStreamTiers",
+            "WebRTCSupportedAudioStreamTiers",
+            "StreamingEnabled",
+            "SensorUUID"
+         ],
+         "UUID": "00008033-0000-1000-8000-0026BB765291"
+      },
+      "TelevisionSpeaker": {
+         "OptionalCharacteristics": [
+            "Active",
+            "Volume",
+            "VolumeControlType",
+            "VolumeSelector",
+            "Name"
+         ],
+         "RequiredCharacteristics": [
+            "Mute"
+         ],
+         "UUID": "00000113-0000-1000-8000-0026BB765291"
+      }
+   },
+   "serviceOverrides": {
+      "MotionSensor": {
+         "OptionalCharacteristics": [
+            "StatusActive",
+            "StatusFault",
+            "StatusTampered",
+            "StatusLowBattery",
+            "Name",
+            "ContributingSensors",
+            "MotionEnabled"
+         ],
+         "RequiredCharacteristics": [
+            "MotionDetected"
+         ],
+         "UUID": "00000085-0000-1000-8000-0026BB765291"
+      }
+   }
+}

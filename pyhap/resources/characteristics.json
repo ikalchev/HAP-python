@@ -1,4 +1,31 @@
 {
+   "AccessCodeControlPoint": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw"
+      ],
+      "UUID": "00000262-0000-1000-8000-0026BB765291"
+   },
+   "AccessCodeSupportedConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000261-0000-1000-8000-0026BB765291"
+   },
+   "AccessControlLevel": {
+      "Format": "uint16",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "000000E5-0000-1000-8000-0026BB765291",
+      "maxValue": 2,
+      "minStep": 1,
+      "minValue": 0
+   },
    "AccessoryFlags": {
       "Format": "uint32",
       "Permissions": [
@@ -9,6 +36,13 @@
       "ValidBits": {
          "0": "Requires Additional Setup"
       }
+   },
+   "AccessoryIdentifier": {
+      "Format": "string",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000057-0000-1000-8000-0026BB765291"
    },
    "Active": {
       "Format": "uint8",
@@ -30,7 +64,8 @@
          "pw",
          "ev"
       ],
-      "UUID": "000000E7-0000-1000-8000-0026BB765291"
+      "UUID": "000000E7-0000-1000-8000-0026BB765291",
+      "minValue": 0
    },
    "ActiveTransitionCount": {
       "Format": "uint8",
@@ -39,6 +74,16 @@
          "ev"
       ],
       "UUID": "0000024B-0000-1000-8000-0026BB765291"
+   },
+   "ActivityInterval": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "0000023B-0000-1000-8000-0026BB765291",
+      "minStep": 1,
+      "minValue": 0
    },
    "AdministratorOnlyAccess": {
       "Format": "bool",
@@ -58,7 +103,8 @@
       "UUID": "00000064-0000-1000-8000-0026BB765291",
       "maxValue": 1000,
       "minStep": 1,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "micrograms/m^3"
    },
    "AirParticulateSize": {
       "Format": "uint8",
@@ -99,6 +145,21 @@
          "Unknown": 0
       }
    },
+   "ApplicationMatchingIdentifier": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "000000A4-0000-1000-8000-0026BB765291"
+   },
+   "AssetUpdateReadiness": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000269-0000-1000-8000-0026BB765291"
+   },
    "AudioFeedback": {
       "Format": "bool",
       "Permissions": [
@@ -133,14 +194,135 @@
       "minValue": 0,
       "unit": "percentage"
    },
+   "BufferActivityCommand": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pw"
+      ],
+      "UUID": "00008017-0000-1000-8000-0026BB765291"
+   },
+   "BufferEventCommand": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "00008014-0000-1000-8000-0026BB765291"
+   },
+   "BufferEventSequenceNumber": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00008015-0000-1000-8000-0026BB765291"
+   },
+   "BufferUploadCommand": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "00008013-0000-1000-8000-0026BB765291"
+   },
+   "ButtonEvent": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000126-0000-1000-8000-0026BB765291"
+   },
+   "CCAEnergyDetectThreshold": {
+      "Format": "int",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000246-0000-1000-8000-0026BB765291"
+   },
+   "CCASignalDetectThreshold": {
+      "Format": "int",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000245-0000-1000-8000-0026BB765291"
+   },
+   "CameraCapabilities": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00008011-0000-1000-8000-0026BB765291"
+   },
+   "CameraClientCSR": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "00008081-0000-1000-8000-0026BB765291"
+   },
+   "CameraClientCertificate": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "tw"
+      ],
+      "UUID": "00008082-0000-1000-8000-0026BB765291"
+   },
+   "CameraClientCertificateStatus": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00008083-0000-1000-8000-0026BB765291"
+   },
+   "CameraKey": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pw",
+         "tw"
+      ],
+      "UUID": "00008051-0000-1000-8000-0026BB765291"
+   },
+   "CameraKeyID": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00008052-0000-1000-8000-0026BB765291"
+   },
    "CameraOperatingModeIndicator": {
       "Format": "bool",
       "Permissions": [
          "pr",
          "pw",
-         "ev"
+         "ev",
+         "tw"
       ],
       "UUID": "0000021D-0000-1000-8000-0026BB765291"
+   },
+   "CameraRecordingPublishingPoint": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw"
+      ],
+      "UUID": "00008016-0000-1000-8000-0026BB765291"
+   },
+   "CameraZones": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw"
+      ],
+      "UUID": "00008022-0000-1000-8000-0026BB765291"
    },
    "CarbonDioxideDetected": {
       "Format": "uint8",
@@ -162,7 +344,9 @@
       ],
       "UUID": "00000093-0000-1000-8000-0026BB765291",
       "maxValue": 100000,
-      "minValue": 0
+      "minStep": 1,
+      "minValue": 0,
+      "unit": "ppm"
    },
    "CarbonDioxidePeakLevel": {
       "Format": "float",
@@ -172,7 +356,9 @@
       ],
       "UUID": "00000094-0000-1000-8000-0026BB765291",
       "maxValue": 100000,
-      "minValue": 0
+      "minStep": 1,
+      "minValue": 0,
+      "unit": "ppm"
    },
    "CarbonMonoxideDetected": {
       "Format": "uint8",
@@ -194,7 +380,9 @@
       ],
       "UUID": "00000090-0000-1000-8000-0026BB765291",
       "maxValue": 100,
-      "minValue": 0
+      "minStep": 1,
+      "minValue": 0,
+      "unit": "ppm"
    },
    "CarbonMonoxidePeakLevel": {
       "Format": "float",
@@ -204,7 +392,9 @@
       ],
       "UUID": "00000091-0000-1000-8000-0026BB765291",
       "maxValue": 100,
-      "minValue": 0
+      "minStep": 1,
+      "minValue": 0,
+      "unit": "ppm"
    },
    "ChargingState": {
       "Format": "uint8",
@@ -233,7 +423,7 @@
       }
    },
    "ColorTemperature": {
-      "Format": "uint32",
+      "Format": "int",
       "Permissions": [
          "pr",
          "pw",
@@ -244,14 +434,30 @@
       "minStep": 1,
       "minValue": 140
    },
+   "ConfigurationState": {
+      "Format": "uint16",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000263-0000-1000-8000-0026BB765291"
+   },
    "ConfiguredName": {
       "Format": "string",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000E3-0000-1000-8000-0026BB765291"
+   },
+   "ConnectionHealthMonitor": {
+      "Format": "tlv8",
       "Permissions": [
          "pr",
          "pw",
          "ev"
       ],
-      "UUID": "000000E3-0000-1000-8000-0026BB765291"
+      "UUID": "00000273-0000-1000-8000-0026BB765291"
    },
    "ContactSensorState": {
       "Format": "uint8",
@@ -264,6 +470,14 @@
          "ContactDetected": 0,
          "ContactNotDetected": 1
       }
+   },
+   "ContributingSensors": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00008086-0000-1000-8000-0026BB765291"
    },
    "CoolingThresholdTemperature": {
       "Format": "float",
@@ -391,8 +605,8 @@
       ],
       "UUID": "000000E0-0000-1000-8000-0026BB765291",
       "ValidValues": {
-         "Play": 0,
          "Pause": 1,
+         "Play": 0,
          "Stop": 2,
          "Unknown": 3
       }
@@ -441,9 +655,9 @@
          "ev"
       ],
       "UUID": "00000011-0000-1000-8000-0026BB765291",
-      "maxValue": 1000,
+      "maxValue": 100,
       "minStep": 0.1,
-      "minValue": -273.1,
+      "minValue": 0,
       "unit": "celsius"
    },
    "CurrentTiltAngle": {
@@ -458,6 +672,13 @@
       "minValue": -90,
       "unit": "arcdegrees"
    },
+   "CurrentTransport": {
+      "Format": "bool",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000022B-0000-1000-8000-0026BB765291"
+   },
    "CurrentVerticalTiltAngle": {
       "Format": "int",
       "Permissions": [
@@ -470,7 +691,7 @@
       "minValue": -90,
       "unit": "arcdegrees"
    },
-   "CurrentVisibilityState":{
+   "CurrentVisibilityState": {
       "Format": "uint8",
       "Permissions": [
          "pr",
@@ -478,11 +699,27 @@
       ],
       "UUID": "00000135-0000-1000-8000-0026BB765291",
       "ValidValues": {
-         "Shown": 0,
          "Hidden": 1,
+         "Shown": 0,
          "State2": 2,
          "State3": 3
       }
+   },
+   "DataStreamHAPTransport": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw"
+      ],
+      "UUID": "00000138-0000-1000-8000-0026BB765291"
+   },
+   "DataStreamHAPTransportInterrupt": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000139-0000-1000-8000-0026BB765291"
    },
    "DigitalZoom": {
       "Format": "float",
@@ -491,29 +728,44 @@
          "pw",
          "ev"
       ],
-      "UUID": "0000011D-0000-1000-8000-0026BB765291"
+      "UUID": "0000011D-0000-1000-8000-0026BB765291",
+      "minStep": 0.1
    },
    "DisplayOrder": {
       "Format": "tlv8",
       "Permissions": [
          "pr",
-         "pw",
          "ev"
       ],
       "UUID": "00000136-0000-1000-8000-0026BB765291"
    },
-   "EventSnapshotsActive": {
+   "EventRetransmissionMaximum": {
       "Format": "uint8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000023D-0000-1000-8000-0026BB765291"
+   },
+   "EventSnapshotsActive": {
+      "Format": "bool",
       "Permissions": [
          "pr",
          "pw",
-         "ev"
+         "ev",
+         "tw"
       ],
       "UUID": "00000223-0000-1000-8000-0026BB765291",
       "ValidValues": {
          "Disable": 0,
          "Enable": 1
       }
+   },
+   "EventTransmissionCounters": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000023E-0000-1000-8000-0026BB765291"
    },
    "FilterChangeIndication": {
       "Format": "uint8",
@@ -535,6 +787,7 @@
       ],
       "UUID": "000000AB-0000-1000-8000-0026BB765291",
       "maxValue": 100,
+      "minStep": 1,
       "minValue": 0,
       "stepValue": 1
    },
@@ -545,12 +798,50 @@
       ],
       "UUID": "00000052-0000-1000-8000-0026BB765291"
    },
+   "FirmwareUpdateProtocolList": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000026F-0000-1000-8000-0026BB765291"
+   },
+   "FirmwareUpdateReadiness": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000234-0000-1000-8000-0026BB765291"
+   },
+   "FirmwareUpdateStatus": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000235-0000-1000-8000-0026BB765291"
+   },
+   "HardwareFinish": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000026C-0000-1000-8000-0026BB765291"
+   },
    "HardwareRevision": {
       "Format": "string",
       "Permissions": [
          "pr"
       ],
       "UUID": "00000053-0000-1000-8000-0026BB765291"
+   },
+   "HeartBeat": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "0000024A-0000-1000-8000-0026BB765291"
    },
    "HeatingThresholdTemperature": {
       "Format": "float",
@@ -573,7 +864,7 @@
       "UUID": "0000006F-0000-1000-8000-0026BB765291"
    },
    "HomeKitCameraActive": {
-      "Format": "uint8",
+      "Format": "bool",
       "Permissions": [
          "pr",
          "pw",
@@ -625,54 +916,17 @@
       "UUID": "0000011F-0000-1000-8000-0026BB765291"
    },
    "ImageRotation": {
-      "Format": "float",
+      "Format": "int",
       "Permissions": [
          "pr",
          "pw",
          "ev"
       ],
       "UUID": "0000011E-0000-1000-8000-0026BB765291",
-      "maxValue": 270,
-      "minStep": 90,
+      "maxValue": 360,
+      "minStep": 1,
       "minValue": 0,
       "unit": "arcdegrees"
-   },
-   "InputSourceType":{
-      "Format": "uint8",
-      "Permissions": [
-         "pr",
-         "ev"
-      ],
-      "UUID": "000000DB-0000-1000-8000-0026BB765291",
-      "ValidValues": {
-         "Other": 0,
-         "HomeScreen": 1,
-         "Tuner": 2,
-         "HDMI": 3,
-         "CompositeVideo": 4,
-         "SVideo": 5,
-         "ComponentVideo": 6,
-         "DVI": 7,
-         "AirPlay": 8,
-         "USB": 9,
-         "Application": 10
-      }
-   },
-   "InputDeviceType":{
-      "Format": "uint8",
-      "Permissions": [
-         "pr",
-         "ev"
-      ],
-      "UUID": "000000DC-0000-1000-8000-0026BB765291",
-      "ValidValues": {
-         "Other": 0,
-         "TV": 1,
-         "Recording": 2,
-         "Tuner": 3,
-         "Playback": 4,
-         "AudioSystem": 5
-      }
    },
    "InUse": {
       "Format": "uint8",
@@ -686,11 +940,47 @@
          "Notinuse": 0
       }
    },
+   "InputDeviceType": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000DC-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "AudioSystem": 5,
+         "Other": 0,
+         "Playback": 4,
+         "Recording": 2,
+         "TV": 1,
+         "Tuner": 3
+      }
+   },
+   "InputSourceType": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "000000DB-0000-1000-8000-0026BB765291",
+      "ValidValues": {
+         "AirPlay": 8,
+         "Application": 10,
+         "ComponentVideo": 6,
+         "CompositeVideo": 4,
+         "DVI": 7,
+         "HDMI": 3,
+         "HomeScreen": 1,
+         "Other": 0,
+         "SVideo": 5,
+         "Tuner": 2,
+         "USB": 9
+      }
+   },
    "IsConfigured": {
       "Format": "uint8",
       "Permissions": [
          "pr",
-         "pw",
          "ev"
       ],
       "UUID": "000000D6-0000-1000-8000-0026BB765291",
@@ -795,6 +1085,32 @@
       ],
       "UUID": "0000001F-0000-1000-8000-0026BB765291"
    },
+   "MACRetransmissionMaximum": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000247-0000-1000-8000-0026BB765291"
+   },
+   "MACTransmissionCounters": {
+      "Format": "data",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000248-0000-1000-8000-0026BB765291"
+   },
+   "ManagedNetworkEnable": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev",
+         "tw"
+      ],
+      "UUID": "00000215-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0
+   },
    "ManuallyDisabled": {
       "Format": "bool",
       "Permissions": [
@@ -808,14 +1124,59 @@
       "Permissions": [
          "pr"
       ],
-      "UUID": "00000020-0000-1000-8000-0026BB765291"
+      "UUID": "00000020-0000-1000-8000-0026BB765291",
+      "maxLen": 64
+   },
+   "MatterFirmwareRevisionNumber": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "0000026D-0000-1000-8000-0026BB765291"
+   },
+   "MatterFirmwareUpdateStatus": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "0000026E-0000-1000-8000-0026BB765291"
+   },
+   "MaximumTransmitPower": {
+      "Format": "int",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000243-0000-1000-8000-0026BB765291"
+   },
+   "MediaAccessControlLevel": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "000000EE-0000-1000-8000-0026BB765291",
+      "maxValue": 2,
+      "minStep": 1,
+      "minValue": 0
+   },
+   "MetricsBufferFullState": {
+      "Format": "bool",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000272-0000-1000-8000-0026BB765291"
    },
    "Model": {
       "Format": "string",
       "Permissions": [
          "pr"
       ],
-      "UUID": "00000021-0000-1000-8000-0026BB765291"
+      "UUID": "00000021-0000-1000-8000-0026BB765291",
+      "maxLen": 64
    },
    "MotionDetected": {
       "Format": "bool",
@@ -824,6 +1185,29 @@
          "ev"
       ],
       "UUID": "00000022-0000-1000-8000-0026BB765291"
+   },
+   "MotionEnabled": {
+      "AdminOnlyAccess": [
+         "write"
+      ],
+      "Format": "bool",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev",
+         "tw"
+      ],
+      "UUID": "00008087-0000-1000-8000-0026BB765291"
+   },
+   "MultifunctionButton": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "0000026B-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0
    },
    "Mute": {
       "Format": "bool",
@@ -834,19 +1218,67 @@
       ],
       "UUID": "0000011A-0000-1000-8000-0026BB765291"
    },
+   "NFCAccessControlPoint": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw"
+      ],
+      "UUID": "00000264-0000-1000-8000-0026BB765291"
+   },
+   "NFCAccessSupportedConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000265-0000-1000-8000-0026BB765291"
+   },
    "Name": {
       "Format": "string",
       "Permissions": [
          "pr"
       ],
-      "UUID": "00000023-0000-1000-8000-0026BB765291"
+      "UUID": "00000023-0000-1000-8000-0026BB765291",
+      "maxLen": 64
+   },
+   "NetworkAccessViolationControl": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev",
+         "tw",
+         "wr"
+      ],
+      "UUID": "0000021F-0000-1000-8000-0026BB765291"
+   },
+   "NetworkClientControl": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev",
+         "tw",
+         "wr"
+      ],
+      "UUID": "0000020C-0000-1000-8000-0026BB765291"
+   },
+   "NetworkClientStatusControl": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "0000020D-0000-1000-8000-0026BB765291"
    },
    "NightVision": {
       "Format": "bool",
       "Permissions": [
          "pr",
          "pw",
-         "ev"
+         "ev",
+         "tw"
       ],
       "UUID": "0000011B-0000-1000-8000-0026BB765291"
    },
@@ -859,7 +1291,8 @@
       "UUID": "000000C4-0000-1000-8000-0026BB765291",
       "maxValue": 1000,
       "minStep": 1,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "micrograms/m^3"
    },
    "ObstructionDetected": {
       "Format": "bool",
@@ -890,6 +1323,14 @@
       ],
       "UUID": "00000025-0000-1000-8000-0026BB765291"
    },
+   "OperatingStateResponse": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000232-0000-1000-8000-0026BB765291"
+   },
    "OpticalZoom": {
       "Format": "float",
       "Permissions": [
@@ -897,7 +1338,8 @@
          "pw",
          "ev"
       ],
-      "UUID": "0000011C-0000-1000-8000-0026BB765291"
+      "UUID": "0000011C-0000-1000-8000-0026BB765291",
+      "minStep": 0.1
    },
    "OutletInUse": {
       "Format": "bool",
@@ -916,7 +1358,8 @@
       "UUID": "000000C3-0000-1000-8000-0026BB765291",
       "maxValue": 1000,
       "minStep": 1,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "micrograms/m^3"
    },
    "PM10Density": {
       "Format": "float",
@@ -927,7 +1370,8 @@
       "UUID": "000000C7-0000-1000-8000-0026BB765291",
       "maxValue": 1000,
       "minStep": 1,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "micrograms/m^3"
    },
    "PM2.5Density": {
       "Format": "float",
@@ -938,7 +1382,8 @@
       "UUID": "000000C6-0000-1000-8000-0026BB765291",
       "maxValue": 1000,
       "minStep": 1,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "micrograms/m^3"
    },
    "PairSetup": {
       "Format": "tlv8",
@@ -959,7 +1404,8 @@
    "PairingFeatures": {
       "Format": "uint8",
       "Permissions": [
-         "pr"
+         "pr",
+         "pw"
       ],
       "UUID": "0000004F-0000-1000-8000-0026BB765291"
    },
@@ -971,12 +1417,22 @@
       ],
       "UUID": "00000050-0000-1000-8000-0026BB765291"
    },
-   "PeriodicSnapshotsActive": {
-      "Format": "uint8",
+   "PasswordSetting": {
+      "Format": "tlv8",
       "Permissions": [
          "pr",
          "pw",
          "ev"
+      ],
+      "UUID": "000000E4-0000-1000-8000-0026BB765291"
+   },
+   "PeriodicSnapshotsActive": {
+      "Format": "bool",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev",
+         "tw"
       ],
       "UUID": "00000225-0000-1000-8000-0026BB765291",
       "ValidValues": {
@@ -984,7 +1440,7 @@
          "Enable": 1
       }
    },
-   "PictureMode":{
+   "PictureMode": {
       "Format": "uint8",
       "Permissions": [
          "pr",
@@ -992,18 +1448,23 @@
          "ev"
       ],
       "UUID": "000000E2-0000-1000-8000-0026BB765291",
-      "maxValue": 13,
-      "minValue": 0,
       "ValidValues": {
-         "Other": 0,
-         "Standard": 1,
          "Calibrated": 2,
          "CalibratedDark": 3,
-         "Vivid": 4,
-         "Game": 5,
          "Computer": 6,
-         "Custom": 7
+         "Custom": 7,
+         "Game": 5,
+         "Other": 0,
+         "Standard": 1,
+         "Vivid": 4
       }
+   },
+   "Ping": {
+      "Format": "data",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000023C-0000-1000-8000-0026BB765291"
    },
    "PositionState": {
       "Format": "uint8",
@@ -1018,16 +1479,32 @@
          "Stopped": 2
       }
    },
-   "PowerModeSelection":{
+   "PowerModeSelection": {
       "Format": "uint8",
       "Permissions": [
          "pw"
       ],
       "UUID": "000000DF-0000-1000-8000-0026BB765291",
       "ValidValues": {
-         "Show": 0,
-         "Hide": 1
+         "Hide": 1,
+         "Show": 0
       }
+   },
+   "PreferredWiFiList": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "0000022E-0000-1000-8000-0026BB765291"
+   },
+   "ProductData": {
+      "Format": "data",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000220-0000-1000-8000-0026BB765291"
    },
    "ProgramMode": {
       "Format": "uint8",
@@ -1054,6 +1531,41 @@
          "LongPress": 2,
          "SinglePress": 0
       }
+   },
+   "ProgrammableSwitchOutputState": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000074-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minStep": 1,
+      "minValue": 0
+   },
+   "RTPStreamingControl": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "00008045-0000-1000-8000-0026BB765291"
+   },
+   "ReceivedSignalStrengthIndication": {
+      "Format": "int",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000023F-0000-1000-8000-0026BB765291"
+   },
+   "ReceiverSensitivity": {
+      "Format": "int",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000244-0000-1000-8000-0026BB765291"
    },
    "RecordingAudioActive": {
       "Format": "uint8",
@@ -1104,30 +1616,29 @@
       "UUID": "000000D4-0000-1000-8000-0026BB765291",
       "maxValue": 3600,
       "minStep": 1,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "seconds"
    },
-   "RemoteKey":{
+   "RemoteKey": {
       "Format": "uint8",
       "Permissions": [
          "pw"
       ],
       "UUID": "000000E1-0000-1000-8000-0026BB765291",
-      "maxValue": 16,
-      "minValue": 0,
       "ValidValues": {
-         "Rewind": 0,
-         "FastForward": 1,
-         "NextTrack": 2,
-         "PreviousTrack": 3,
-         "ArrowUp": 4,
          "ArrowDown": 5,
          "ArrowLeft": 6,
          "ArrowRight": 7,
-         "Select": 8,
+         "ArrowUp": 4,
          "Back": 9,
          "Exit": 10,
+         "FastForward": 1,
+         "Information": 15,
+         "NextTrack": 2,
          "PlayPause": 11,
-         "Information": 15
+         "PreviousTrack": 3,
+         "Rewind": 0,
+         "Select": 8
       }
    },
    "ResetFilterIndication": {
@@ -1165,6 +1676,16 @@
       "minStep": 1,
       "minValue": 0,
       "unit": "percentage"
+   },
+   "RouterStatus": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "0000020E-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0
    },
    "Saturation": {
       "Format": "float",
@@ -1220,6 +1741,14 @@
          "StayArm": 0
       }
    },
+   "SelectedAudioStreamConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw"
+      ],
+      "UUID": "00000128-0000-1000-8000-0026BB765291"
+   },
    "SelectedCameraRecordingConfiguration": {
       "Format": "tlv8",
       "Permissions": [
@@ -1229,6 +1758,14 @@
       ],
       "UUID": "00000209-0000-1000-8000-0026BB765291"
    },
+   "SelectedDiagnosticsModes": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr",
+         "pw"
+      ],
+      "UUID": "0000024D-0000-1000-8000-0026BB765291"
+   },
    "SelectedRTPStreamConfiguration": {
       "Format": "tlv8",
       "Permissions": [
@@ -1237,13 +1774,40 @@
       ],
       "UUID": "00000117-0000-1000-8000-0026BB765291"
    },
+   "SelectedSessionKeepaliveConfigurationList": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000275-0000-1000-8000-0026BB765291"
+   },
+   "SelectedSleepConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev",
+         "wr"
+      ],
+      "UUID": "00000252-0000-1000-8000-0026BB765291"
+   },
+   "SensorUUID": {
+      "Format": "data",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000805B-0000-1000-8000-0026BB765291"
+   },
    "SerialNumber": {
       "Format": "string",
       "MaximumLength": 64,
       "Permissions": [
          "pr"
       ],
-      "UUID": "00000030-0000-1000-8000-0026BB765291"
+      "UUID": "00000030-0000-1000-8000-0026BB765291",
+      "maxLen": 64
    },
    "ServiceLabelIndex": {
       "Format": "uint8",
@@ -1266,6 +1830,14 @@
          "Dots": 0
       }
    },
+   "ServiceSignature": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw"
+      ],
+      "UUID": "000000A5-0000-1000-8000-0026BB765291"
+   },
    "SetDuration": {
       "Format": "uint32",
       "Permissions": [
@@ -1276,14 +1848,14 @@
       "UUID": "000000D3-0000-1000-8000-0026BB765291",
       "maxValue": 3600,
       "minStep": 1,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "seconds"
    },
    "SetupDataStreamTransport": {
       "Format": "tlv8",
       "Permissions": [
          "pr",
-         "pw",
-         "wr"
+         "pw"
       ],
       "UUID": "00000131-0000-1000-8000-0026BB765291"
    },
@@ -1294,6 +1866,89 @@
          "pw"
       ],
       "UUID": "00000118-0000-1000-8000-0026BB765291"
+   },
+   "SetupTransferTransport": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pw",
+         "wr"
+      ],
+      "UUID": "00000201-0000-1000-8000-0026BB765291"
+   },
+   "SignalToNoiseRatio": {
+      "Format": "int",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000241-0000-1000-8000-0026BB765291"
+   },
+   "SiriEnable": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000255-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0
+   },
+   "SiriEndpointSessionStatus": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000254-0000-1000-8000-0026BB765291"
+   },
+   "SiriEngineVersion": {
+      "Format": "string",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000025A-0000-1000-8000-0026BB765291"
+   },
+   "SiriInputType": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000132-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0
+   },
+   "SiriLightOnUse": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000258-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0
+   },
+   "SiriListening": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000256-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0
+   },
+   "SiriTouchToUse": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000257-0000-1000-8000-0026BB765291",
+      "maxValue": 1,
+      "minValue": 0
    },
    "SlatType": {
       "Format": "uint8",
@@ -1314,9 +1969,19 @@
       ],
       "UUID": "000000E8-0000-1000-8000-0026BB765291",
       "ValidValues": {
-         "NotDiscoverable": 0,
-         "AlwaysDiscoverable": 1
+         "AlwaysDiscoverable": 1,
+         "NotDiscoverable": 0
       }
+   },
+   "SleepInterval": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "0000023A-0000-1000-8000-0026BB765291",
+      "minStep": 1,
+      "minValue": 0
    },
    "SmokeDetected": {
       "Format": "uint8",
@@ -1329,6 +1994,21 @@
          "SmokeDetected": 1,
          "SmokeNotDetected": 0
       }
+   },
+   "SoftwareRevision": {
+      "Format": "string",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000054-0000-1000-8000-0026BB765291"
+   },
+   "StagedFirmwareVersion": {
+      "Format": "string",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000249-0000-1000-8000-0026BB765291"
    },
    "StatusActive": {
       "Format": "bool",
@@ -1386,6 +2066,19 @@
          "Tampered": 1
       }
    },
+   "StreamingEnabled": {
+      "AdminOnlyAccess": [
+         "write"
+      ],
+      "Format": "bool",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev",
+         "tw"
+      ],
+      "UUID": "00008041-0000-1000-8000-0026BB765291"
+   },
    "StreamingStatus": {
       "Format": "tlv8",
       "Permissions": [
@@ -1403,7 +2096,15 @@
       "UUID": "000000C5-0000-1000-8000-0026BB765291",
       "maxValue": 1000,
       "minStep": 1,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "micrograms/m^3"
+   },
+   "SupportedAssetTypes": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000268-0000-1000-8000-0026BB765291"
    },
    "SupportedAudioRecordingConfiguration": {
       "Format": "tlv8",
@@ -1420,6 +2121,14 @@
       ],
       "UUID": "00000115-0000-1000-8000-0026BB765291"
    },
+   "SupportedAudioStreamTiers": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00008044-0000-1000-8000-0026BB765291"
+   },
    "SupportedCameraRecordingConfiguration": {
       "Format": "tlv8",
       "Permissions": [
@@ -1435,12 +2144,83 @@
       ],
       "UUID": "00000130-0000-1000-8000-0026BB765291"
    },
+   "SupportedDiagnosticsModes": {
+      "Format": "uint32",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "0000024C-0000-1000-8000-0026BB765291"
+   },
+   "SupportedDiagnosticsSnapshot": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000238-0000-1000-8000-0026BB765291"
+   },
+   "SupportedFirmwareUpdateConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000233-0000-1000-8000-0026BB765291"
+   },
+   "SupportedMetrics": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw"
+      ],
+      "UUID": "00000271-0000-1000-8000-0026BB765291"
+   },
    "SupportedRTPConfiguration": {
       "Format": "tlv8",
       "Permissions": [
          "pr"
       ],
       "UUID": "00000116-0000-1000-8000-0026BB765291"
+   },
+   "SupportedRouterConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000210-0000-1000-8000-0026BB765291"
+   },
+   "SupportedSessionKeepaliveConfigurationList": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000274-0000-1000-8000-0026BB765291"
+   },
+   "SupportedSleepConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000251-0000-1000-8000-0026BB765291"
+   },
+   "SupportedTargetConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000123-0000-1000-8000-0026BB765291"
+   },
+   "SupportedTransferTransportConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000202-0000-1000-8000-0026BB765291"
+   },
+   "SupportedTransitionConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000144-0000-1000-8000-0026BB765291"
    },
    "SupportedVideoRecordingConfiguration": {
       "Format": "tlv8",
@@ -1457,12 +2237,13 @@
       ],
       "UUID": "00000114-0000-1000-8000-0026BB765291"
    },
-   "SupportedTransitionConfiguration": {
+   "SupportedVideoStreamTiers": {
       "Format": "tlv8",
       "Permissions": [
-         "pr"
+         "pr",
+         "ev"
       ],
-      "UUID": "00000144-0000-1000-8000-0026BB765291"
+      "UUID": "00008043-0000-1000-8000-0026BB765291"
    },
    "SwingMode": {
       "Format": "uint8",
@@ -1586,6 +2367,15 @@
          "HumidifierorDehumidifier": 0
       }
    },
+   "TargetListConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "00000124-0000-1000-8000-0026BB765291"
+   },
    "TargetMediaState": {
       "Format": "uint8",
       "Permissions": [
@@ -1595,8 +2385,8 @@
       ],
       "UUID": "00000137-0000-1000-8000-0026BB765291",
       "ValidValues": {
-         "Play": 0,
          "Pause": 1,
+         "Play": 0,
          "Stop": 2
       }
    },
@@ -1678,7 +2468,7 @@
       "minValue": -90,
       "unit": "arcdegrees"
    },
-   "TargetVisibilityState":{
+   "TargetVisibilityState": {
       "Format": "uint8",
       "Permissions": [
          "pr",
@@ -1687,8 +2477,8 @@
       ],
       "UUID": "00000134-0000-1000-8000-0026BB765291",
       "ValidValues": {
-         "Shown": 0,
-         "Hidden": 1
+         "Hidden": 1,
+         "Shown": 0
       }
    },
    "TemperatureDisplayUnits": {
@@ -1708,19 +2498,59 @@
       "Format": "bool",
       "Permissions": [
          "pr",
-         "pw",
          "ev"
       ],
       "UUID": "0000021C-0000-1000-8000-0026BB765291"
+   },
+   "ThreadControlPoint": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pw"
+      ],
+      "UUID": "00000704-0000-1000-8000-0026BB765291"
+   },
+   "ThreadNodeCapabilities": {
+      "Format": "uint16",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000702-0000-1000-8000-0026BB765291",
+      "maxValue": 31,
+      "minStep": 1,
+      "minValue": 0
+   },
+   "ThreadOpenThreadVersion": {
+      "Format": "string",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000706-0000-1000-8000-0026BB765291"
+   },
+   "ThreadStatus": {
+      "Format": "uint16",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000703-0000-1000-8000-0026BB765291",
+      "maxValue": 6,
+      "minStep": 1,
+      "minValue": 0
    },
    "TransitionControl": {
       "Format": "tlv8",
       "Permissions": [
          "pr",
-         "pw",
-         "wr"
+         "pw"
       ],
       "UUID": "00000143-0000-1000-8000-0026BB765291"
+   },
+   "TransmitPower": {
+      "Format": "int",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000242-0000-1000-8000-0026BB765291"
    },
    "VOCDensity": {
       "Format": "float",
@@ -1731,7 +2561,8 @@
       "UUID": "000000C8-0000-1000-8000-0026BB765291",
       "maxValue": 1000,
       "minStep": 1,
-      "minValue": 0
+      "minValue": 0,
+      "unit": "micrograms/m^3"
    },
    "ValveType": {
       "Format": "uint8",
@@ -1753,7 +2584,17 @@
       "Permissions": [
          "pr"
       ],
-      "UUID": "00000037-0000-1000-8000-0026BB765291"
+      "UUID": "00000037-0000-1000-8000-0026BB765291",
+      "maxLen": 64
+   },
+   "VideoAnalysisActive": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev"
+      ],
+      "UUID": "00000229-0000-1000-8000-0026BB765291"
    },
    "Volume": {
       "Format": "uint8",
@@ -1776,10 +2617,10 @@
       ],
       "UUID": "000000E9-0000-1000-8000-0026BB765291",
       "ValidValues": {
+         "Absolute": 3,
          "None": 0,
          "Relative": 1,
-         "RelativeWithCurrent": 2,
-         "Absolute": 3
+         "RelativeWithCurrent": 2
       }
    },
    "VolumeSelector": {
@@ -1789,9 +2630,32 @@
       ],
       "UUID": "000000EA-0000-1000-8000-0026BB765291",
       "ValidValues": {
-         "Increment": 0,
-         "Decrement": 1
+         "Decrement": 1,
+         "Increment": 0
       }
+   },
+   "WANConfigurationList": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000211-0000-1000-8000-0026BB765291"
+   },
+   "WANStatusList": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00000212-0000-1000-8000-0026BB765291"
+   },
+   "WakeConfiguration": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr"
+      ],
+      "UUID": "00000222-0000-1000-8000-0026BB765291"
    },
    "WaterLevel": {
       "Format": "float",
@@ -1801,38 +2665,107 @@
       ],
       "UUID": "000000B5-0000-1000-8000-0026BB765291",
       "maxValue": 100,
+      "minStep": 1,
       "minValue": 0,
       "unit": "percentage"
    },
-   "HardwareFinish": {
-      "Format": "tlv8",
-      "Permissions": [
-         "pr"
-      ],
-      "UUID": "0000026C-0000-1000-8000-0026BB765291"
-   },
-   "ConfigurationState": {
-      "Format": "uint16",
+   "WebRTCNumberOfActiveSessions": {
+      "Format": "uint8",
       "Permissions": [
          "pr",
          "ev"
       ],
-      "UUID": "00000263-0000-1000-8000-0026BB765291"
+      "UUID": "00008057-0000-1000-8000-0026BB765291",
+      "maxValue": 255,
+      "minValue": 0
    },
-   "NFCAccessControlPoint": {
+   "WebRTCProvideAnswer": {
       "Format": "tlv8",
       "Permissions": [
          "pr",
          "pw",
          "wr"
       ],
-      "UUID": "00000264-0000-1000-8000-0026BB765291"
+      "UUID": "00008054-0000-1000-8000-0026BB765291"
    },
-   "NFCAccessSupportedConfiguration": {
+   "WebRTCReoffer": {
       "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "00008058-0000-1000-8000-0026BB765291"
+   },
+   "WebRTCSolicitOffer": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "00008053-0000-1000-8000-0026BB765291"
+   },
+   "WebRTCStreamingControl": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "00008056-0000-1000-8000-0026BB765291"
+   },
+   "WebRTCSupportedAudioStreamTiers": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "0000805A-0000-1000-8000-0026BB765291"
+   },
+   "WebRTCSupportedVideoStreamTiers": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "00008059-0000-1000-8000-0026BB765291"
+   },
+   "WebRTCUpdateSession": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "wr"
+      ],
+      "UUID": "0000805C-0000-1000-8000-0026BB765291"
+   },
+   "WiFiCapabilities": {
+      "Format": "uint32",
       "Permissions": [
          "pr"
       ],
-      "UUID": "00000265-0000-1000-8000-0026BB765291"
+      "UUID": "0000022C-0000-1000-8000-0026BB765291"
+   },
+   "WiFiConfigurationControl": {
+      "Format": "tlv8",
+      "Permissions": [
+         "pr",
+         "pw",
+         "ev",
+         "tw",
+         "wr"
+      ],
+      "UUID": "0000022D-0000-1000-8000-0026BB765291"
+   },
+   "WiFiSatelliteStatus": {
+      "Format": "uint8",
+      "Permissions": [
+         "pr",
+         "ev"
+      ],
+      "UUID": "0000021E-0000-1000-8000-0026BB765291",
+      "maxValue": 2,
+      "minValue": 0
    }
 }
