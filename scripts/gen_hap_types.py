@@ -23,15 +23,18 @@ Sources, in order of increasing precedence:
                                       ShortUUID, DefaultDescription }
      - Units, Properties (bit position legend for the Properties bitmask), Base UUID.
 
-2. HomeKit Accessory Simulator plists  (OPTIONAL OVERLAY, needs Xcode tools)
-   Located inside the "HomeKit Accessory Simulator.app" (see SIMULATOR_PLIST below).
-   The simulator metadata lags behind plain-metadata.config, but it carries two
-   things plain-metadata encodes poorly or not at all:
-     - Permissions in string form ("read", "write", "cnotify", "timedWrite",
-       "writeResponse", "uncnotify", ...) - richer than the bitmask.
-     - ValidValues constraints for enumerated characteristics.
-   When the simulator is not installed the script still works: permissions fall
-   back to the Properties bitmask and ValidValues fall back to source 4 below.
+2. HomeKit Accessory Simulator plist  (OPTIONAL OVERLAY, needs Xcode's
+   "Additional Tools for Xcode" download)
+   Located inside the "HomeKit Accessory Simulator.app" (see SIMULATOR_PLIST
+   below). The simulator metadata lags far behind plain-metadata.config (125
+   characteristics at the time of writing), so it is used ONLY for what
+   plain-metadata does not contain: the enumerated ValidValues constraints.
+   This mirrors HAP-NodeJS, whose generator likewise takes permissions and
+   min/max/step exclusively from plain-metadata.config. (Note: in recent
+   simulator plists the Permissions list holds auth flags like
+   "securedRead"/"securedWrite" while the read/write/notify strings live in
+   Properties - neither is used here.) When the simulator is not installed
+   the script still works: ValidValues fall back to source 4 below.
 
 3. scripts/hap_manual_overrides.json  (MANUAL OVERRIDES - the maintenance escape hatch)
    Apple's machine-readable metadata only covers definitions that have SHIPPED in
@@ -86,11 +89,17 @@ PLAIN_METADATA_PATH = Path(
     "/System/Library/PrivateFrameworks/HomeKitDaemon.framework/Resources/plain-metadata.config"
 )
 
-# Optional overlay: only present when Xcode's HomeKit Accessory Simulator is installed.
-SIMULATOR_PLIST = Path(
-    "/Applications/Xcode.app/Contents/Applications/HomeKit Accessory Simulator.app/"
-    "Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"
-)
+# Optional overlay: only present when Apple's HomeKit Accessory Simulator (part
+# of the "Additional Tools for Xcode" download) is installed. The app may be
+# dropped either into /Applications or into Xcode's nested Applications folder.
+SIMULATOR_PLIST_CANDIDATES = [
+    Path("/Applications/Xcode.app/Contents/Applications/HomeKit Accessory Simulator.app"
+         "/Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"),
+    Path("/Applications/HomeKit Accessory Simulator.app"
+         "/Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"),
+]
+SIMULATOR_PLIST = next((p for p in SIMULATOR_PLIST_CANDIDATES if p.exists()),
+                       SIMULATOR_PLIST_CANDIDATES[0])
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CHAR_OUT_FILE = REPO_ROOT / "pyhap/resources/characteristics.json"
@@ -111,25 +120,6 @@ PERMISSION_BITS = {
     "notify": "ev",
     "timedWrite": "tw",
     "writeResponse": "wr",
-}
-
-# Simulator plist permission strings -> HAP-python permission strings.
-# (Kept from the previous version of this script; "uncnotify" has no
-# HAP-python representation and is skipped.)
-SIMULATOR_PERMS_MAP = {
-    "read": "pr",
-    "write": "pw",
-    "cnotify": "ev",
-    "timedWrite": "tw",
-    "writeResponse": "wr",
-}
-
-# Simulator plist constraint keys -> HAP-python characteristic field names.
-SIMULATOR_CONSTRAINTS_MAP = {
-    "MaximumValue": "maxValue",
-    "MinimumValue": "minValue",
-    "StepValue": "minStep",
-    "MaxLength": "maxLen",
 }
 
 # plain-metadata.config char fields -> HAP-python characteristic field names.
@@ -226,22 +216,6 @@ def load_simulator_plist(path):
     return chars
 
 
-def fix_valid_values(char_info):
-    """Valid values are given in a value: key format. Reverse them."""
-    for char in char_info.values():
-        if "ValidValues" not in char:
-            continue
-        valid_values = {}
-        for value, state in char["ValidValues"].items():
-            if "int" in char["Format"] or char["Format"].startswith("uint"):
-                value = int(value)
-            elif "float" == char["Format"]:
-                value = float(value)
-            state = state.replace(" ", "")  # To camel case.
-            valid_values[state] = value
-        char["ValidValues"] = valid_values
-
-
 # ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
@@ -292,18 +266,9 @@ def generate_characteristics(
 
         perms, admin_only = perms_from_bitmask(info["Properties"], hap_properties)
 
-        # Simulator overlay: richer permission strings + constraints.
-        sim = sim_chars.get(entry["UUID"].upper())
-        if sim:
-            perms = [
-                SIMULATOR_PERMS_MAP[p]
-                for p in sim.get("Permissions", [])
-                if p in SIMULATOR_PERMS_MAP
-            ]
-            constraints = sim.get("Constraints") or {}
-            for sim_key, out_key in SIMULATOR_CONSTRAINTS_MAP.items():
-                if sim_key in constraints:
-                    entry[out_key] = constraints[sim_key]
+        # NOTE: the simulator plist does NOT contribute permissions or numeric
+        # constraints - those come exclusively from plain-metadata.config,
+        # like in HAP-NodeJS. The plist only provides ValidValues (below).
 
         entry["Permissions"] = perms
         if admin_only:
@@ -318,20 +283,23 @@ def generate_characteristics(
                     entry[key] = value
         catalog[name] = entry
 
-    if sim_chars:
-        # Apply ValidValues conversion on the overlay entries.
-        for name, entry in catalog.items():
-            sim = sim_chars.get(entry["UUID"].upper())
-            if sim and "ValidValues" in (sim.get("Constraints") or {}):
-                c = {
-                    "ValidValues": sim["Constraints"]["ValidValues"],
-                    "Format": entry["Format"],
-                }
-                fix_valid_values(c)
-                entry["ValidValues"] = c["ValidValues"]
-    else:
-        # No simulator: inherit ValidValues from the previous catalog.
-        for name, entry in catalog.items():
+    # ValidValues: from the simulator plist when present (Apple encodes them
+    # as {value: state}; reverse to the {state: value} form HAP-python uses).
+    # Characteristics the simulator does not know about inherit ValidValues
+    # from the previously generated catalog.
+    for name, entry in catalog.items():
+        sim = sim_chars.get(entry["UUID"].upper())
+        sim_vv = (sim.get("Constraints") or {}).get("ValidValues") if sim else None
+        if sim_vv is not None:
+            valid_values = {}
+            for value, state in sim_vv.items():
+                if "int" in entry["Format"] or entry["Format"].startswith("uint"):
+                    value = int(value)
+                elif entry["Format"] == "float":
+                    value = float(value)
+                valid_values[state.replace(" ", "")] = value
+            entry["ValidValues"] = valid_values
+        else:
             prev = existing_chars.get(name)
             if prev and prev.get("UUID") == entry["UUID"] and "ValidValues" in prev:
                 entry["ValidValues"] = prev["ValidValues"]
@@ -481,7 +449,8 @@ def main():
         "--simulator-plist",
         type=Path,
         default=SIMULATOR_PLIST,
-        help="Path to the HomeKit Accessory Simulator default.metadata.plist",
+        help="Path to the HomeKit Accessory Simulator default.metadata.plist "
+             "(autodetected from the usual install locations)",
     )
     parser.add_argument(
         "--manual-overrides",
