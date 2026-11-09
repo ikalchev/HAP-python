@@ -1,7 +1,8 @@
 """Test fictures and mocks."""
 
 import asyncio
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
+import pathlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
@@ -10,7 +11,10 @@ import pytest
 
 from pyhap import hksv3
 from pyhap.accessory_driver import AccessoryDriver
+from pyhap.camera import Camera
+from pyhap.camera_multi_tier import MultiTierDelegate
 from pyhap.camera_stream import StreamController, StreamSession
+from pyhap.camera_webrtc import WebRTCDelegate
 from pyhap.loader import Loader
 
 
@@ -75,6 +79,26 @@ STREAM_SENSOR = hksv3.SensorConfiguration(
         hksv3.VideoStreamCapability(UUID(int=3), 4, 640, 360, 15, 180, 190),
     ],
 )
+STREAM_CAMERA_AID = 2
+# The classic RTP stream management service the 17.99 services need.
+STREAM_VIDEO = {
+    "codec": {"profiles": [b"\x01"], "levels": [b"\x02"]},
+    "resolutions": [[640, 360, 30]],
+}
+STREAM_AUDIO = {"codecs": [{"type": "OPUS", "samplerate": 24}]}
+
+
+@pytest.fixture(name="stream_driver")
+async def stream_driver_fixture(
+    tmp_path: pathlib.Path,
+) -> AsyncIterator[AccessoryDriver]:
+    """A driver on the running loop for HKSV 17.99 stream tests."""
+    with patch("pyhap.accessory_driver.AccessoryDriver.async_persist"):
+        yield AccessoryDriver(
+            loop=asyncio.get_running_loop(),
+            listen_address="127.0.0.1",
+            persist_file=str(tmp_path / "accessory.state"),
+        )
 
 
 @pytest.fixture
@@ -124,3 +148,51 @@ def add_session(
         return session
 
     return _add
+
+
+@pytest.fixture
+def multi_tier_delegate() -> AsyncMock:
+    """A multi-tier delegate whose hooks succeed."""
+    return AsyncMock(spec=MultiTierDelegate)
+
+
+@pytest.fixture
+def webrtc_delegate() -> AsyncMock:
+    """A WebRTC delegate that offers with SFrame and answers reoffers."""
+    delegate = AsyncMock(spec=WebRTCDelegate)
+    delegate.handle_solicit_offer.return_value = hksv3.WebRTCOffer(
+        "v=0\r\n", hksv3.SFrameKey(bytes(32), 7)
+    )
+    delegate.handle_reoffer.return_value = hksv3.WebRTCReofferAnswer(
+        "v=0\r\na=answer\r\n"
+    )
+    return delegate
+
+
+@pytest.fixture
+def stream_camera(
+    stream_driver: AccessoryDriver,
+    multi_tier_delegate: AsyncMock,
+    webrtc_delegate: AsyncMock,
+) -> Callable[..., Camera]:
+    """Build a camera with the multi-tier and WebRTC services and delegates."""
+
+    def _make(**options: Any) -> Camera:
+        return Camera(
+            {
+                "address": "127.0.0.1",
+                "video": STREAM_VIDEO,
+                "audio": STREAM_AUDIO,
+                "sensors": [STREAM_SENSOR],
+                "global_operating_mode": ["ManuallyDisabled"],
+                "recording": True,
+                "multi_tier": {"delegate": multi_tier_delegate},
+                "webrtc": {"delegate": webrtc_delegate},
+                **options,
+            },
+            stream_driver,
+            "Cam",
+            aid=STREAM_CAMERA_AID,
+        )
+
+    return _make
