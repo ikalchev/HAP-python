@@ -62,6 +62,14 @@ By default the script runs as a DRY RUN: it prints a report of what would be
 added/removed/changed relative to the committed JSON files. Pass --write to
 actually rewrite them. Always review the diff before committing.
 
+The simulator overlay is REQUIRED by default: without it, ValidValues for newly
+added Apple characteristics would be silently missing and permissions fall
+back to the coarser bitmask. If the HomeKit Accessory Simulator is not
+installed, the script errors out - pass --allow-missing-simulator to proceed
+explicitly (existing characteristics are still covered by field inheritance
+from the previously generated files, but review the report for entries
+missing ValidValues).
+
 The old version of this script parsed ONLY the HomeKit Accessory Simulator plist;
 it has been rewritten because that plist lags far behind (163 characteristics
 vs 242+ in plain-metadata.config at the time of writing) and requires Xcode.
@@ -456,6 +464,10 @@ def main():
                         help="Path to hap_manual_overrides.json")
     parser.add_argument("--write", action="store_true",
                         help="Write the generated files (default is a dry-run report)")
+    parser.add_argument("--allow-missing-simulator", action="store_true",
+                        help="Proceed without the HomeKit Accessory Simulator "
+                             "plist (ValidValues for new characteristics will be "
+                             "missing; permissions use the bitmask).")
     args = parser.parse_args()
 
     if not args.plain_metadata.exists():
@@ -472,9 +484,18 @@ def main():
     if args.simulator_plist.exists():
         sim_chars = load_simulator_plist(args.simulator_plist)
         print(f"simulator plist: {len(sim_chars)} characteristics (overlay enabled)")
+    elif args.allow_missing_simulator:
+        print("WARNING: simulator plist not found - proceeding without the "
+              "overlay (--allow-missing-simulator). ValidValues for newly added "
+              "characteristics will be missing; permissions use the coarser "
+              "bitmask.", file=sys.stderr)
     else:
-        print("simulator plist: not found - using bitmask permissions and "
-              "inherited ValidValues")
+        sys.exit(
+            f"Simulator plist not found at {args.simulator_plist}.\n"
+            "Without it, ValidValues for newly added characteristics are missing "
+            "and permissions fall back to the coarser bitmask.\n"
+            "Install Xcode's HomeKit Accessory Simulator, or pass "
+            "--allow-missing-simulator to proceed explicitly.")
 
     existing_chars = json.loads(CHAR_OUT_FILE.read_text())
     existing_services = json.loads(SERVICE_OUT_FILE.read_text())
