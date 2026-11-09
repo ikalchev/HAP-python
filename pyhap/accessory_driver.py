@@ -581,6 +581,15 @@ class AccessoryDriver:
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
         self.prepared_writes.pop(client, None)
+        accessory = self.accessory
+        if accessory is None:
+            return
+        try:
+            accessory.client_disconnected(client)
+        except Exception:
+            logger.exception(
+                "%s failed to handle a closed connection", accessory.display_name
+            )
 
     def publish(
         self,

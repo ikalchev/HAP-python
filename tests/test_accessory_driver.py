@@ -1441,3 +1441,47 @@ def test_prepare_bounds_prepared_writes(driver: AccessoryDriver) -> None:
     # The earliest-registered pids were evicted, the latest kept.
     assert 0 not in pending
     assert MAX_PREPARED_WRITES_PER_CLIENT + 4 in pending
+
+
+CLIENT = ("1.2.3.4", 5)
+
+
+def test_connection_lost_tells_the_accessory(driver: AccessoryDriver) -> None:
+    """Test the accessory hears about a closed connection."""
+    acc = Accessory(driver, "TestAcc")
+    driver.add_accessory(acc)
+    with patch.object(acc, "client_disconnected") as disconnected:
+        driver.connection_lost(CLIENT)
+    disconnected.assert_called_once_with(CLIENT)
+
+
+def test_connection_lost_logs_accessory_errors(
+    driver: AccessoryDriver, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test a failing accessory does not break the connection cleanup."""
+    acc = Accessory(driver, "TestAcc")
+    driver.add_accessory(acc)
+    driver.prepared_writes[CLIENT] = {}
+    with patch.object(acc, "client_disconnected", side_effect=RuntimeError):
+        driver.connection_lost(CLIENT)
+    assert CLIENT not in driver.prepared_writes
+    assert "TestAcc failed to handle a closed connection" in caplog.text
+
+
+def test_bridge_tells_each_accessory(
+    driver: AccessoryDriver, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test a bridge passes a closed connection on, despite failing accessories."""
+    bridge = Bridge(driver, "TestBridge")
+    first = Accessory(driver, "First")
+    second = Accessory(driver, "Second")
+    bridge.add_accessory(first)
+    bridge.add_accessory(second)
+    driver.add_accessory(bridge)
+    with (
+        patch.object(first, "client_disconnected", side_effect=RuntimeError),
+        patch.object(second, "client_disconnected") as disconnected,
+    ):
+        driver.connection_lost(CLIENT)
+    disconnected.assert_called_once_with(CLIENT)
+    assert "First failed to handle a closed connection" in caplog.text
