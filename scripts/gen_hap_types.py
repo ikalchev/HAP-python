@@ -6,8 +6,7 @@ HOW THE PROCESS WORKS
 
 This script keeps HAP-python's characteristic/service catalog in sync with Apple's
 official HomeKit definitions without hand-editing JSON files. It mirrors the
-approach used by HAP-NodeJS (homebridge/HAP-NodeJS, `src/lib/definitions/
-generate-definitions.ts`).
+approach used by HAP-NodeJS.
 
 Sources, in order of increasing precedence:
 
@@ -17,9 +16,11 @@ Sources, in order of increasing precedence:
    This file ships WITH macOS and is updated with every OS release, so it does not
    require Xcode or the HomeKit Accessory Simulator to be installed. It is a plain
    binary plist and contains, under PlistDictionary -> HAP:
-     - Characteristics:  "<slug>" -> { DefaultDescription, Format, Properties (bitmask),
-                                    ShortUUID, MinValue/MaxValue/StepValue, Units, ... }
-     - Services:        "<slug>" -> { Characteristics: {Required: [...], Optional: [...]},
+     - Characteristics:  "<slug>" -> { DefaultDescription, Format,
+                                    Properties (bitmask), ShortUUID,
+                                    MinValue/MaxValue/StepValue, Units, ... }
+     - Services:        "<slug>" -> { Characteristics: {Required and
+                                      Optional characteristic slug lists},
                                       ShortUUID, DefaultDescription }
      - Units, Properties (bit position legend for the Properties bitmask), Base UUID.
 
@@ -45,13 +46,16 @@ Sources, in order of increasing precedence:
    ONCE, here, instead of re-parsing the PDF guide every time. When Apple eventually
    ships them in plain-metadata.config, the manual entry can simply be deleted.
    The overrides file supports:
-     characteristicNameOverrides  slug -> HAP-python name (when the derived name is wrong)
-     characteristicAdditions       new characteristics, same schema as characteristics.json
-     characteristicOverrides       full replacement of a generated characteristic entry;
-                                     also carries deliberate corrections of Apple metadata
-                                     quirks (mirroring HAP-NodeJS's CharacteristicOverriding)
-     serviceAdditions              new services, same schema as services.json
-     serviceOverrides              full replacement of a generated service entry
+     characteristicNameOverrides  slug -> HAP-python name (when the
+                                   derived name is wrong)
+     characteristicAdditions     new characteristics, same schema
+                                   as characteristics.json
+     characteristicOverrides      full replacement of a generated entry;
+                                 also carries deliberate corrections of Apple
+                                 metadata quirks (mirroring HAP-NodeJS's
+                                 CharacteristicOverriding)
+     serviceAdditions            new services, same schema as services.json
+     serviceOverrides            full replacement of a generated entry
 
 4. Previously generated output  (FIELD INHERITANCE)
    Some fields cannot be derived from plain-metadata.config at all (most
@@ -100,6 +104,7 @@ import json
 from pathlib import Path
 import plistlib
 import sys
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Source locations
@@ -114,13 +119,18 @@ PLAIN_METADATA_PATH = Path(
 # of the "Additional Tools for Xcode" download) is installed. The app may be
 # dropped either into /Applications or into Xcode's nested Applications folder.
 SIMULATOR_PLIST_CANDIDATES = [
-    Path("/Applications/Xcode.app/Contents/Applications/HomeKit Accessory Simulator.app"
-         "/Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"),
-    Path("/Applications/HomeKit Accessory Simulator.app"
-         "/Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"),
+    Path(
+        "/Applications/Xcode.app/Contents/Applications/HomeKit Accessory Simulator.app"
+        "/Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"
+    ),
+    Path(
+        "/Applications/HomeKit Accessory Simulator.app"
+        "/Contents/Frameworks/HAPAccessoryKit.framework/Versions/A/Resources/default.metadata.plist"
+    ),
 ]
-SIMULATOR_PLIST = next((p for p in SIMULATOR_PLIST_CANDIDATES if p.exists()),
-                       SIMULATOR_PLIST_CANDIDATES[0])
+SIMULATOR_PLIST = next(
+    (p for p in SIMULATOR_PLIST_CANDIDATES if p.exists()), SIMULATOR_PLIST_CANDIDATES[0]
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CHAR_OUT_FILE = REPO_ROOT / "pyhap/resources/characteristics.json"
@@ -153,11 +163,26 @@ METADATA_FIELDS_MAP = {
 }
 
 # ---------------------------------------------------------------------------
+# Types
+# ---------------------------------------------------------------------------
+
+# A single entry of the generated characteristics.json / services.json.
+CharEntry = dict[str, Any]
+ServiceEntry = dict[str, Any]
+# The generated catalogs, keyed by the HAP-python characteristic/service name.
+CharCatalog = dict[str, CharEntry]
+ServiceCatalog = dict[str, ServiceEntry]
+# Raw Apple metadata structures, keyed by the Apple slug (plain-metadata.config)
+# or by the full UUID (simulator plist).
+AppleDefs = dict[str, dict[str, Any]]
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def to_hap_name(description):
+def to_hap_name(description: str) -> str:
     """Convert a human-readable description to the HAP-python catalog name.
 
     Apple metadata uses e.g. "Current Ambient Light Level" or "PM2.5 Density",
@@ -168,12 +193,14 @@ def to_hap_name(description):
     return description.replace(" ", "").replace("-", "")
 
 
-def long_uuid(short_uuid, base_uuid="-0000-1000-8000-0026BB765291"):
+def long_uuid(short_uuid: str, base_uuid: str = "-0000-1000-8000-0026BB765291") -> str:
     """Expand a short UUID (e.g. "000000B0") into the full HAP UUID form."""
     return f"{short_uuid}{base_uuid}"
 
 
-def perms_from_bitmask(properties, hap_properties):
+def perms_from_bitmask(
+    properties: int, hap_properties: dict[str, dict[str, Any]]
+) -> tuple[list[str], bool]:
     """Decode the plain-metadata Properties bitmask into HAP-python permissions.
 
     `properties` is the integer bitmask; `hap_properties` is the HAP.Properties
@@ -182,7 +209,7 @@ def perms_from_bitmask(properties, hap_properties):
     "AdminOnlyAccess": ["write"] in the output, mirroring HAP-NodeJS; HAP-python
     does not enforce this, it is informational.
     """
-    perms = []
+    perms: list[str] = []
     admin_only = False
     for name, info in hap_properties.items():
         if not properties & (1 << info["Position"]):
@@ -202,7 +229,9 @@ def perms_from_bitmask(properties, hap_properties):
 # ---------------------------------------------------------------------------
 
 
-def load_plain_metadata(path):
+def load_plain_metadata(
+    path: Path,
+) -> tuple[AppleDefs, AppleDefs, dict[str, Any], dict[str, dict[str, Any]]]:
     """Parse plain-metadata.config and return (characteristics, services, legend).
 
     Returns raw Apple dicts keyed by slug:
@@ -222,7 +251,7 @@ def load_plain_metadata(path):
     )
 
 
-def load_simulator_plist(path):
+def load_simulator_plist(path: Path) -> AppleDefs:
     """Parse the HomeKit Accessory Simulator plist (optional overlay).
 
     Returns {UUID -> char entry} with Name, Format, Permissions, Constraints.
@@ -231,7 +260,7 @@ def load_simulator_plist(path):
     """
     with path.open("rb") as fp:
         data = plistlib.load(fp)
-    chars = {}
+    chars: AppleDefs = {}
     for char in data.get("Characteristics", []):
         chars[char["UUID"].upper()] = char
     return chars
@@ -243,8 +272,13 @@ def load_simulator_plist(path):
 
 
 def generate_characteristics(
-    meta_chars, units, hap_properties, sim_chars, manual, existing_chars, name_overrides
-):
+    meta_chars: AppleDefs,
+    hap_properties: dict[str, dict[str, Any]],
+    sim_chars: AppleDefs,
+    manual: dict[str, Any],
+    existing_chars: CharCatalog,
+    name_overrides: dict[str, str],
+) -> tuple[CharCatalog, dict[str, str]]:
     """Build the HAP-python characteristics catalog.
 
     Steps:
@@ -257,15 +291,15 @@ def generate_characteristics(
     definitions reference characteristics by slug, so this map is required to
     resolve them to names that actually exist in the catalog.
     """
-    catalog = {}
-    slug_to_final = {}
+    catalog: CharCatalog = {}
+    slug_to_final: dict[str, str] = {}
 
     # Names: prefer the name already used in the committed catalog for a given
     # UUID so that regenerating never renames an existing characteristic
     # (Apple's descriptions drift over time, e.g. "CarbonDioxideDetected" vs
     # "Carbon dioxide Detected"). New UUIDs get a name derived from the
     # description, with any manual override taking precedence.
-    uuid_to_name = {}
+    uuid_to_name: dict[str, str] = {}
     for prev_name, prev in existing_chars.items():
         uuid_to_name.setdefault(prev.get("UUID", "").upper(), prev_name)
     for slug, info in meta_chars.items():
@@ -276,22 +310,20 @@ def generate_characteristics(
             or to_hap_name(info["DefaultDescription"])
         )
         slug_to_final[slug] = name
-        entry = {
+
+        # NOTE: the simulator plist does NOT contribute permissions or numeric
+        # constraints - those come exclusively from plain-metadata.config,
+        # like in HAP-NodeJS. The plist only provides ValidValues (below).
+        perms, admin_only = perms_from_bitmask(info["Properties"], hap_properties)
+        entry: CharEntry = {
             "Format": info["Format"],
-            "Permissions": None,  # filled below
-            "UUID": long_uuid(info["ShortUUID"]),
+            "Permissions": perms,
+            "UUID": uuid,
         }
         for meta_key, out_key in METADATA_FIELDS_MAP.items():
             if meta_key in info:
                 entry[out_key] = info[meta_key]
 
-        perms, admin_only = perms_from_bitmask(info["Properties"], hap_properties)
-
-        # NOTE: the simulator plist does NOT contribute permissions or numeric
-        # constraints - those come exclusively from plain-metadata.config,
-        # like in HAP-NodeJS. The plist only provides ValidValues (below).
-
-        entry["Permissions"] = perms
         if admin_only:
             entry["AdminOnlyAccess"] = ["write"]
 
@@ -312,12 +344,15 @@ def generate_characteristics(
         sim = sim_chars.get(entry["UUID"].upper())
         sim_vv = (sim.get("Constraints") or {}).get("ValidValues") if sim else None
         if sim_vv is not None:
-            valid_values = {}
-            for value, state in sim_vv.items():
+            valid_values: dict[str, int | float] = {}
+            for raw_value, state in sim_vv.items():
+                value: int | float
                 if "int" in entry["Format"] or entry["Format"].startswith("uint"):
-                    value = int(value)
+                    value = int(raw_value)
                 elif entry["Format"] == "float":
-                    value = float(value)
+                    value = float(raw_value)
+                else:
+                    value = raw_value  # non-numeric: keep the plist value as is
                 valid_values[state.replace(" ", "")] = value
             entry["ValidValues"] = valid_values
         else:
@@ -345,33 +380,37 @@ def generate_characteristics(
 
 
 def generate_services(
-    meta_services, characteristics, manual, name_overrides, existing_services
-):
+    meta_services: AppleDefs,
+    characteristics: CharCatalog,
+    manual: dict[str, Any],
+    name_overrides: dict[str, str],
+    slug_to_name: dict[str, str],
+    existing_services: ServiceCatalog,
+) -> ServiceCatalog:
     """Build the HAP-python services catalog from plain-metadata + manual files.
 
     plain-metadata references characteristics by slug; each slug is translated
     to the catalog name computed in generate_characteristics(). Slugs that are
     unknown (dropped from Apple metadata) are reported and skipped.
     """
-    catalog = {}
+    catalog: ServiceCatalog = {}
+
+    # Resolve the characteristic slugs referenced by the services into
+    # catalog names: manual name overrides first, then the slug -> name map
+    # built during generation (with a description-derived fallback for legacy
+    # slugs Apple no longer ships as characteristic entries).
+    def resolve(slug_c: str) -> str | None:
+        return name_overrides.get(slug_c) or slug_to_name.get(slug_c)
 
     # Same UUID-based naming rule as for characteristics: services keep the
     # name already used in the committed catalog (e.g. "Slat" instead of
     # Apple's newer "Slats" description for UUID 0x000000B9).
-    uuid_to_name = {}
+    uuid_to_name: dict[str, str] = {}
     for prev_name, prev in existing_services.items():
         uuid_to_name.setdefault(prev.get("UUID", "").upper(), prev_name)
-    for slug, info in meta_services.items():
+    for _slug, info in meta_services.items():
         uuid = long_uuid(info["ShortUUID"])
         name = uuid_to_name.get(uuid.upper()) or to_hap_name(info["DefaultDescription"])
-
-        # Resolve the characteristic slugs referenced by the service into
-        # catalog names using the slug -> name table (name_overrides["_slug_to_name"]
-        # plus any manual name overrides).
-        def resolve(slug_c):
-            return name_overrides.get(slug_c) or name_overrides.get(
-                "_slug_to_name", {}
-            ).get(slug_c)
 
         req_opt = info["Characteristics"]
         entry = {
@@ -379,7 +418,7 @@ def generate_services(
             "RequiredCharacteristics": [],
             "UUID": long_uuid(info["ShortUUID"]),
         }
-        unknown = []
+        unknown: list[str] = []
         for slug_c in req_opt.get("Optional", []):
             cname = resolve(slug_c)
             if cname and cname in characteristics:
@@ -443,7 +482,9 @@ def generate_services(
 # ---------------------------------------------------------------------------
 
 
-def diff_report(old, new, label):
+def diff_report(
+    old: dict[str, CharEntry], new: dict[str, CharEntry], label: str
+) -> tuple[list[str], list[str], list[str]]:
     added = sorted(set(new) - set(old))
     removed = sorted(set(old) - set(new))
     changed = sorted(k for k in set(new) & set(old) if new[k] != old[k])
@@ -458,7 +499,7 @@ def diff_report(old, new, label):
     return added, removed, changed
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument(
         "--plain-metadata",
@@ -471,7 +512,7 @@ def main():
         type=Path,
         default=SIMULATOR_PLIST,
         help="Path to the HomeKit Accessory Simulator default.metadata.plist "
-             "(autodetected from the usual install locations)",
+        "(autodetected from the usual install locations)",
     )
     parser.add_argument(
         "--manual-overrides",
@@ -509,7 +550,7 @@ def main():
         f"{len(meta_services)} services"
     )
 
-    sim_chars = {}
+    sim_chars: AppleDefs = {}
     if args.simulator_plist.exists():
         sim_chars = load_simulator_plist(args.simulator_plist)
         print(f"simulator plist: {len(sim_chars)} characteristics (overlay enabled)")
@@ -534,31 +575,33 @@ def main():
     existing_services = json.loads(SERVICE_OUT_FILE.read_text())
 
     # slug -> HAP-python name, used to resolve the characteristic references
-    # inside service definitions.
-    # Base slug -> name table from descriptions. Used for legacy slugs that
-    # Apple still references in service definitions but no longer ships as
-    # characteristic entries (e.g. "on" when the UUID 0x25 entry is now
-    # described as "PowerState"). The FINAL names recorded during generation
-    # (below) take precedence over this description-derived fallback.
+    # inside service definitions. Base table derived from descriptions, used
+    # for legacy slugs that Apple still references in service definitions but
+    # no longer ships as characteristic entries (e.g. "on" when the UUID 0x25
+    # entry is now described as "PowerState"). The FINAL names recorded during
+    # generation (below) take precedence over this description-derived fallback.
     slug_to_name = {
         slug: to_hap_name(info["DefaultDescription"])
         for slug, info in meta_chars.items()
     }
-    name_overrides = dict(manual.get("characteristicNameOverrides", {}))
-    name_overrides["_slug_to_name"] = slug_to_name
+    name_overrides: dict[str, str] = dict(manual.get("characteristicNameOverrides", {}))
 
     new_chars, slug_to_final = generate_characteristics(
         meta_chars,
-        _units,
         hap_properties,
         sim_chars,
         manual,
         existing_chars,
         name_overrides,
     )
-    name_overrides["_slug_to_name"].update(slug_to_final)
+    slug_to_name.update(slug_to_final)
     new_services = generate_services(
-        meta_services, new_chars, manual, name_overrides, existing_services
+        meta_services,
+        new_chars,
+        manual,
+        name_overrides,
+        slug_to_name,
+        existing_services,
     )
 
     print()
