@@ -115,20 +115,11 @@ def is_allowed_sender(addr: tuple[str, int], controller_address: str | None) -> 
     if controller_address is None:
         return True
     source = addr[0]
-    if type(source) is str and type(controller_address) is str:
-        if source == controller_address:
-            # The same spelling always names the same address; skip parsing.
-            return True
-        is_ipv6 = ":" in source
-        if is_ipv6 != (":" in controller_address):
-            # Only IPv6 literals contain ":", and IPv4 never equals IPv6.
-            return False
-        # Both are of one family, so parse with that class alone.
-        parse = ipaddress.IPv6Address if is_ipv6 else ipaddress.IPv4Address
-    else:
-        parse = ipaddress.ip_address
+    if (":" in source) ^ (":" in controller_address):
+        # Only IPv6 literals contain ":", and IPv4 never equals IPv6.
+        return False
     try:
-        return parse(source) == parse(controller_address)
+        return ipaddress.ip_address(source) == ipaddress.ip_address(controller_address)
     except ValueError:
         # Not an IP literal (e.g. a hostname); fall back to string comparison.
         return source == controller_address
