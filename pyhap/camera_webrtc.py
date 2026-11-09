@@ -15,19 +15,24 @@ the HAP side.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import logging
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
+from uuid import UUID, uuid4
 
 from pyhap import hksv3
 from pyhap.camera_stream import (
     DEFAULT_HOOK_TIMEOUT,
+    HookFailed,
+    SessionState,
     StreamController,
     StreamSession,
     check_hook_timeout,
     config_from_option,
+    failure_status,
 )
+from pyhap.util import base64_to_bytes, to_base64_str
 
 if TYPE_CHECKING:
     from pyhap.camera import Camera
@@ -45,6 +50,9 @@ logger = logging.getLogger(__name__)
 
 # WebRTC sessions per sensor the guide requires at least.
 WEBRTC_MIN_SESSIONS = 6
+
+_R = TypeVar("_R")
+_STATUS = hksv3.WebRTCStreamingStatus
 
 
 @dataclass(eq=False, kw_only=True)
@@ -125,7 +133,8 @@ class WebRTCConfig:
     ``max_sessions`` per sensor is at least six, as the guide requires.
     ``max_sessions_per_connection`` limits one connection, by default to
     ``max_sessions``, since remote viewers share the home hub's connection. A
-    delegate hook gets ``hook_timeout`` seconds. The offer
+    delegate hook gets ``hook_timeout`` seconds. A session the controller
+    did not answer within ``answer_timeout`` seconds ends. The offer
     advertises the sensor's video tier of ``remote_quality``, the lowest tier
     if it has none. Medium keeps 4K off the remote path; the Scrypted HomeKit
     plugin offers the first tier.
@@ -135,6 +144,7 @@ class WebRTCConfig:
     max_sessions: int = WEBRTC_MIN_SESSIONS
     max_sessions_per_connection: int | None = None
     hook_timeout: float = DEFAULT_HOOK_TIMEOUT
+    answer_timeout: float = 30.0
     remote_quality: hksv3.VideoQuality | int = hksv3.VideoQuality.MEDIUM
 
     @classmethod
@@ -156,6 +166,8 @@ class WebRTCConfig:
             raise ValueError(
                 "webrtc max_sessions_per_connection must be 1 to max_sessions"
             )
+        if self.answer_timeout <= 0:
+            raise ValueError("webrtc answer_timeout must be positive")
         if self.remote_quality not in set(hksv3.VideoQuality):
             raise ValueError(f"Unknown webrtc remote_quality {self.remote_quality}")
 
@@ -166,6 +178,20 @@ def remote_tier(
     """The smallest tier of ``quality``, else the smallest tier."""
     matching = [tier for tier in tiers if tier.quality == quality] or tiers
     return min(matching, key=lambda tier: (tier.width * tier.height, tier.identifier))
+
+
+def _decode(name: str, decode: Callable[[bytes], _R], value: str) -> _R | None:
+    try:
+        request = decode(base64_to_bytes(value))
+    except ValueError as ex:
+        logger.warning("Ignoring a malformed WebRTC %s write: %s", name, ex)
+        return None
+    logger.debug("WebRTC %s for %s", name, getattr(request, "session_id", None))
+    return request
+
+
+def _status(session_id: UUID | None, status: hksv3.WebRTCStreamingStatus) -> str:
+    return to_base64_str(hksv3.WebRTCSessionStatus(session_id, status).encode())
 
 
 class WebRTCController(StreamController[WebRTCSession]):
@@ -207,6 +233,13 @@ class WebRTCController(StreamController[WebRTCSession]):
             value = multi_tier.service.get_characteristic(source).value
             service.configure_char(name, value=value)
         self.streaming_enabled = service.configure_char("StreamingEnabled", value=True)
+        self._session_count = service.get_characteristic("WebRTCNumberOfActiveSessions")
+        for name, setter in (
+            ("WebRTCSolicitOffer", self._set_solicit_offer),
+            ("WebRTCProvideAnswer", self._set_provide_answer),
+            ("WebRTCStreamingControl", self._set_streaming_control),
+        ):
+            service.configure_char(name, setter_callback=setter)
 
     def refusal(self) -> hksv3.WebRTCSolicitOfferStatus | None:
         """Why the sensor may not stream now, None if it may."""
@@ -221,6 +254,17 @@ class WebRTCController(StreamController[WebRTCSession]):
         if self.refusal() is not None:
             self._end_sessions("streaming was turned off")
 
+    def _session_ended(self, session: WebRTCSession, previous: SessionState) -> None:
+        if previous is SessionState.ACTIVE:
+            self._update_session_count()
+
+    def _update_session_count(self) -> None:
+        """Set and notify Number of Active Sessions, answered sessions count."""
+        count = sum(
+            session.state is SessionState.ACTIVE for session in self._sessions.values()
+        )
+        self._session_count.set_value(min(count, 255))
+
     @property
     def _delegate(self) -> WebRTCDelegate:
         # Only a controller with a delegate has sessions.
@@ -228,3 +272,131 @@ class WebRTCController(StreamController[WebRTCSession]):
 
     async def _release_hook(self, session: WebRTCSession) -> None:
         await self._delegate.handle_end(session)
+
+    async def _set_solicit_offer(
+        self, value: str, sender_client_addr: Any = None
+    ) -> str:
+        deadline = self._deadline()
+        request = _decode("Solicit Offer", hksv3.WebRTCSolicitOffer.decode, value)
+        if request is None:
+            response = hksv3.WebRTCSolicitOfferResponse(
+                hksv3.WebRTCSolicitOfferStatus.ERROR
+            )
+        else:
+            response = await self._solicit_offer(
+                request.options, sender_client_addr, deadline
+            )
+        logger.debug(
+            "[%s] WebRTC Solicit Offer: %s", response.session_id, response.status
+        )
+        return to_base64_str(response.encode())
+
+    async def _solicit_offer(
+        self, options: hksv3.WebRTCOfferOptions, client_addr: Any, deadline: float
+    ) -> hksv3.WebRTCSolicitOfferResponse:
+        error = hksv3.WebRTCSolicitOfferStatus.ERROR
+        refusal = self.refusal()
+        if refusal is not None:
+            logger.info("Refusing a WebRTC offer, streaming is off: %s", refusal)
+            return hksv3.WebRTCSolicitOfferResponse(refusal)
+        # The guide has no Busy for an offer.
+        if no_room := self._no_room(client_addr):
+            logger.warning("%s, refusing an offer", no_room)
+            return hksv3.WebRTCSolicitOfferResponse(error)
+        if self.delegate is None:
+            logger.warning("No WebRTC delegate, refusing an offer")
+            return hksv3.WebRTCSolicitOfferResponse(error)
+        session = WebRTCSession(
+            id=uuid4(),
+            sensor=self.sensor,
+            client_addr=client_addr,
+            sframe=options.sframe_enabled is not False,
+            video_tier=self.video_tier,
+            audio_tier=self.audio_tier,
+        )
+        self._add(session)
+        self._set_timer(
+            session,
+            self.config.answer_timeout,
+            "No WebRTC answer in time",
+            SessionState.NEW,
+            SessionState.SOLICITED,
+            SessionState.ANSWERING,
+        )
+        hook = self.delegate.handle_solicit_offer(
+            session, session.video_tier, session.audio_tier
+        )
+        try:
+            offer = await self._run_hook(
+                session,
+                "solicit offer",
+                hook,
+                deadline,
+                end_on_failure=True,
+                first=True,
+            )
+        except HookFailed as err:
+            return hksv3.WebRTCSolicitOfferResponse(
+                failure_status(hksv3.WebRTCSolicitOfferStatus, err.status, error)
+            )
+        if (offer.sframe is not None) != session.sframe:
+            logger.error("[%s] The offer's SFrame key does not fit", session.id)
+            self._end(session, "the offer's SFrame key does not fit")
+            return hksv3.WebRTCSolicitOfferResponse(error)
+        session.state = SessionState.SOLICITED
+        return hksv3.WebRTCSolicitOfferResponse(
+            hksv3.WebRTCSolicitOfferStatus.SUCCESS,
+            session.id,
+            offer.sdp,
+            [],
+            offer.sframe,
+        )
+
+    async def _set_provide_answer(
+        self, value: str, sender_client_addr: Any = None
+    ) -> str:
+        deadline = self._deadline()
+        request = _decode("Provide Answer", hksv3.WebRTCProvideAnswer.decode, value)
+        if request is None:
+            return _status(None, _STATUS.ERROR)
+        session = self._owned(request.session_id, sender_client_addr)
+        if session is None:
+            return _status(request.session_id, _STATUS.UNKNOWN_SESSION)
+        if session.state is SessionState.ANSWERING:
+            # Another answer is being applied.
+            return _status(session.id, _STATUS.BUSY)
+        if session.state is not SessionState.SOLICITED:
+            # Answered already.
+            return _status(session.id, _STATUS.ERROR)
+        session.state = SessionState.ANSWERING
+        hook = self._delegate.handle_answer(
+            session, request.sdp_answer, request.candidates
+        )
+        try:
+            await self._run_hook(session, "answer", hook, deadline, end_on_failure=True)
+        except HookFailed as err:
+            return _status(
+                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
+            )
+        # Only now, the expiry ends a session whose answer did not apply.
+        self._cancel_timer(session)
+        session.state = SessionState.ACTIVE
+        self._update_session_count()
+        return _status(session.id, _STATUS.SUCCESS)
+
+    async def _set_streaming_control(
+        self, value: str, sender_client_addr: Any = None
+    ) -> str:
+        deadline = self._deadline()
+        request = _decode(
+            "Streaming Control", hksv3.WebRTCStreamingControl.decode, value
+        )
+        if request is None:
+            return _status(None, _STATUS.ERROR)
+        session = self._owned(request.session_id, sender_client_addr)
+        if session is None:
+            return _status(request.session_id, _STATUS.UNKNOWN_SESSION)
+        if request.command != hksv3.WebRTCStreamingCommand.END:
+            return _status(session.id, _STATUS.ERROR)
+        ended = await self._end_by_request(session, deadline)
+        return _status(session.id, _STATUS.SUCCESS if ended else _STATUS.ERROR)
