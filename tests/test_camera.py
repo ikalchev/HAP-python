@@ -420,3 +420,170 @@ async def test_start_stream_rejects_argument_injection(mock_driver: Any) -> None
     ):
         assert await acc.start_stream(session_info, safe_config) is True
         exec_mock.assert_called_once()
+
+
+_SESSION_ID = UUID("acccc6cc-1505-6345-158d-a974b4509006")
+
+
+async def test_start_stream_formats_each_argument(mock_driver: Any) -> None:
+    """Test the default command formats each template argument on its own.
+
+    A non-string value whose text has a space stays one argument.
+    """
+    acc = camera.Camera(
+        {**_OPTIONS, "start_stream_cmd": "ffmpeg -i x srtp://{address}:{v_port}"},
+        mock_driver,
+        "Camera",
+    )
+    with patch.object(
+        asyncio, "create_subprocess_exec", return_value=Mock(pid=42)
+    ) as exec_mock:
+        assert await acc.start_stream(
+            {"id": _SESSION_ID}, {"address": "192.168.1.114", "v_port": (1, 2)}
+        )
+    assert exec_mock.call_args.args == (
+        "ffmpeg",
+        "-i",
+        "x",
+        "srtp://192.168.1.114:(1, 2)",
+    )
+
+
+def _address_tlv(address: bytes, is_ipv6: bool) -> bytes:
+    """Encode the address info of a Setup Endpoints write."""
+    return tlv.encode(
+        camera.SETUP_ADDR_INFO["ADDRESS_VER"],
+        struct.pack("?", is_ipv6),
+        camera.SETUP_ADDR_INFO["ADDRESS"],
+        address,
+        camera.SETUP_ADDR_INFO["VIDEO_RTP_PORT"],
+        struct.pack("<H", 50000),
+        camera.SETUP_ADDR_INFO["AUDIO_RTP_PORT"],
+        struct.pack("<H", 50002),
+    )
+
+
+def _setup_request(address: bytes, is_ipv6: bool) -> str:
+    """Build a Setup Endpoints write for the controller address."""
+    return _setup_request_with(_address_tlv(address, is_ipv6))
+
+
+def _setup_request_with(address_tlv: bytes, crypto: bytes = b"\x00") -> str:
+    """Build a Setup Endpoints write with the given address info."""
+    srtp = tlv.encode(
+        camera.SETUP_SRTP_PARAM["CRYPTO"],
+        crypto,
+        camera.SETUP_SRTP_PARAM["MASTER_KEY"],
+        bytes(16),
+        camera.SETUP_SRTP_PARAM["MASTER_SALT"],
+        bytes(14),
+    )
+    return tlv.encode(
+        camera.SETUP_TYPES["SESSION_ID"],
+        _SESSION_ID.bytes,
+        camera.SETUP_TYPES["ADDRESS"],
+        address_tlv,
+        camera.SETUP_TYPES["VIDEO_SRTP_PARAM"],
+        srtp,
+        camera.SETUP_TYPES["AUDIO_SRTP_PARAM"],
+        srtp,
+        to_base64=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("address", "is_ipv6"),
+    [
+        (b"192.168.1.114", False),
+        (b"fd00::1", True),
+    ],
+)
+def test_setup_endpoints_accepts_addresses(
+    mock_driver: Any, address: bytes, is_ipv6: bool
+) -> None:
+    """Test canonical addresses of the announced version are accepted."""
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    management.get_characteristic("SetupEndpoints").client_update_value(
+        _setup_request(address, is_ipv6)
+    )
+    assert acc.sessions[_SESSION_ID]["address"] == address.decode()
+
+
+@pytest.mark.parametrize(
+    ("address", "is_ipv6"),
+    [
+        (b"192.168.1.114 x", False),
+        (b"192.168.1.114\n", False),
+        (b"fe80::1%en0", True),
+        (b"FD00::1", True),
+        (b"fd00:0:0:0:0:0:0:1", True),
+        (b"192.168.1.114", True),
+        (b"fd00::1", False),
+        (b"::ffff:192.168.1.114", False),
+        (b"\xff", False),
+        (b"", False),
+    ],
+)
+def test_setup_endpoints_refuses_addresses(
+    mock_driver: Any, address: bytes, is_ipv6: bool
+) -> None:
+    """Test other addresses answer an error and set up no session."""
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    setup_endpoints = management.get_characteristic("SetupEndpoints")
+    response = setup_endpoints.client_update_value(_setup_request(address, is_ipv6))
+    assert acc.sessions == {}
+    assert tlv.decode(response, from_base64=True) == {
+        camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
+        camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
+    }
+    assert setup_endpoints.get_value() == response
+
+
+@pytest.mark.parametrize(
+    "request_value",
+    [
+        _setup_request_with(
+            tlv.encode(
+                camera.SETUP_ADDR_INFO["ADDRESS_VER"],
+                struct.pack("?", False),
+                camera.SETUP_ADDR_INFO["ADDRESS"],
+                b"192.168.1.114",
+                camera.SETUP_ADDR_INFO["VIDEO_RTP_PORT"],
+                struct.pack("<H", 50000),
+            )
+        ),
+        _setup_request_with(
+            tlv.encode(
+                camera.SETUP_ADDR_INFO["ADDRESS_VER"],
+                struct.pack("?", False),
+                camera.SETUP_ADDR_INFO["ADDRESS"],
+                b"192.168.1.114",
+                camera.SETUP_ADDR_INFO["VIDEO_RTP_PORT"],
+                b"\x01",
+                camera.SETUP_ADDR_INFO["AUDIO_RTP_PORT"],
+                struct.pack("<H", 50002),
+            )
+        ),
+        _setup_request_with(_address_tlv(b"192.168.1.114", False), crypto=b""),
+    ],
+    ids=["missing_audio_port", "short_video_port", "empty_crypto"],
+)
+def test_setup_endpoints_refuses_malformed(
+    mock_driver: Any, request_value: str
+) -> None:
+    """Test a malformed write answers an error and sets up no session."""
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    setup_endpoints = management.get_characteristic("SetupEndpoints")
+    response = setup_endpoints.client_update_value(request_value)
+    assert acc.sessions == {}
+    assert tlv.decode(response, from_base64=True) == {
+        camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
+        camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
+    }
+    assert setup_endpoints.get_value() == response
