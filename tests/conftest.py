@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator, Callable, Iterator
 import pathlib
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
@@ -196,3 +196,36 @@ def stream_camera(
         )
 
     return _make
+
+
+class _FFmpegProcess:
+    """An ffmpeg process that runs until it is terminated or exits."""
+
+    def __init__(self, *lines: bytes) -> None:
+        self.pid = 42
+        self.returncode: int | None = None
+        self._exited = asyncio.Event()
+        self.stderr = self._stderr(lines)
+        self.terminate = MagicMock(side_effect=lambda: self.exit(-15))
+        self.kill = MagicMock(side_effect=lambda: self.exit(-9))
+
+    async def _stderr(self, lines: tuple[bytes, ...]) -> AsyncIterator[bytes]:
+        for line in lines:
+            yield line
+        await self._exited.wait()
+
+    def exit(self, code: int) -> None:
+        self.returncode = code
+        self._exited.set()
+
+    async def wait(self) -> int:
+        await self._exited.wait()
+        return cast(int, self.returncode)
+
+
+@pytest.fixture
+def ffmpeg_process() -> _FFmpegProcess:
+    """A running ffmpeg process, its output has a frame and an input line."""
+    return _FFmpegProcess(
+        b"frame=1\n", b"Input #0, rtsp, from 'rtsp://user:secret@cam/stream-token':\n"
+    )

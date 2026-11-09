@@ -2,9 +2,10 @@
 
 import asyncio
 from collections.abc import Callable
+import logging
 import struct
 from typing import Any, cast
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
@@ -12,9 +13,12 @@ import pytest
 from pyhap import hksv3, tlv
 from pyhap.camera import SETUP_ADDR_INFO, SETUP_SRTP_PARAM, SETUP_TYPES, Camera
 from pyhap.camera_multi_tier import (
+    FFmpegMultiTierDelegate,
     MultiTierController,
     MultiTierSession,
     RtcpMonitor,
+    _redact_command,
+    _redact_urls,
     open_rtcp_monitor,
 )
 from pyhap.camera_stream import SessionState, StreamError
@@ -951,3 +955,235 @@ async def test_driver_local_address(
     stream_driver.http_server.connections[CLIENT] = connection
     assert stream_driver.local_address(CLIENT, ipv6) == expected
     assert stream_driver.local_address(OTHER, ipv6) is None
+
+
+# The ffmpeg delegate
+
+FFMPEG_INPUT = ["-i", "rtsp://user:secret@cam/stream-token"]
+
+
+async def _ffmpeg_session(
+    stream_camera: Callable[..., Camera], request: str | None = None, **options: Any
+) -> tuple[Camera, MultiTierSession, FFmpegMultiTierDelegate]:
+    delegate = FFmpegMultiTierDelegate(FFMPEG_INPUT)
+    camera = stream_camera(multi_tier={"delegate": delegate, **options})
+    await _setup(camera, request)
+    return camera, _session(camera), delegate
+
+
+async def test_ffmpeg_command(stream_camera: Callable[..., Camera]) -> None:
+    """Test the command is an argument list with video and audio outputs."""
+    camera, session, delegate = await _ffmpeg_session(stream_camera)
+
+    cmd = delegate.command(session, HIGH, hksv3.DEFAULT_AUDIO_TIER)
+    await camera.stop()
+
+    assert cmd[:3] == ["ffmpeg", *FFMPEG_INPUT]
+    assert cmd[cmd.index("-ssrc") + 1] == str(session.video_ssrc)
+    assert cmd[cmd.index("-srtp_out_params") + 1] == to_base64_str(KEY + SALT)
+    assert cmd[cmd.index("-payload_type") + 1] == "99"
+    assert cmd[cmd.index("-b:a") + 1] == "24k"
+    assert cmd[cmd.index("libopus") - 3 : cmd.index("libopus")] == [
+        "-map",
+        "0:a:0",
+        "-c:a",
+    ]
+    assert cmd[-1] == (
+        "srtp://192.168.1.114:50002?rtcpport=50002&localrtpport=50002&pkt_size=188"
+    )
+    assert "srtp://192.168.1.114:50000?rtcpport=50000&pkt_size=1190" in cmd
+
+
+async def test_ffmpeg_command_video_only(
+    stream_camera: Callable[..., Camera],
+) -> None:
+    """Test a stream without audio has no audio output."""
+    camera, session, delegate = await _ffmpeg_session(stream_camera)
+    cmd = delegate.command(session, HIGH, None)
+    await camera.stop()
+    assert "libopus" not in cmd
+    assert cmd[-1].startswith("srtp://192.168.1.114:50000?")
+
+
+async def test_ffmpeg_command_input_without_audio(
+    stream_camera: Callable[..., Camera],
+) -> None:
+    """Test audio=False streams video only even when the controller wants audio."""
+    camera, session, delegate = await _ffmpeg_session(stream_camera)
+    video_only = FFmpegMultiTierDelegate(FFMPEG_INPUT, audio=False)
+
+    cmd = video_only.command(session, HIGH, hksv3.DEFAULT_AUDIO_TIER)
+    await camera.stop()
+
+    assert cmd == delegate.command(session, HIGH, None)
+    assert "0:a:0" not in cmd
+
+
+async def test_ffmpeg_command_ipv6(stream_camera: Callable[..., Camera]) -> None:
+    """Test an IPv6 controller is bracketed in the URLs."""
+    with patch(
+        "pyhap.accessory_driver.AccessoryDriver.local_address", return_value="fd00::10"
+    ):
+        camera, session, delegate = await _ffmpeg_session(
+            stream_camera, _setup_request(b"fd00::1", True)
+        )
+    await camera.stop()
+    assert delegate.command(session, HIGH, None)[-1].startswith("srtp://[fd00::1]:")
+
+
+async def test_ffmpeg_start_and_stop(
+    stream_camera: Callable[..., Camera],
+    ffmpeg_process: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test ffmpeg starts once, keeps running on a tier change and stops."""
+    camera, session, delegate = await _ffmpeg_session(stream_camera)
+    expected = delegate.command(session, HIGH, hksv3.DEFAULT_AUDIO_TIER)
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=ffmpeg_process) as start,
+        caplog.at_level(logging.DEBUG, logger="pyhap.camera_multi_tier"),
+    ):
+        assert await _streaming_control(camera) == 0
+        assert await _streaming_control(camera, video_tier=2) == 0
+        assert await _streaming_control(camera, command=1) == 0
+
+    start.assert_called_once_with(*expected, stdin=ANY, stdout=ANY, stderr=ANY)
+    ffmpeg_process.terminate.assert_called_once()
+    assert "frame=1" in caplog.text
+    assert "from 'rtsp://cam/<redacted>'" in caplog.text
+    assert to_base64_str(KEY + SALT) not in caplog.text
+    assert "secret" not in caplog.text
+    assert "stream-token" not in caplog.text
+    assert "exited" not in caplog.text
+
+
+async def test_ffmpeg_exit_ends_the_session(
+    stream_camera: Callable[..., Camera],
+    ffmpeg_process: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test the session ends when ffmpeg exits on its own."""
+    camera, _, _ = await _ffmpeg_session(stream_camera)
+    with patch("asyncio.create_subprocess_exec", return_value=ffmpeg_process):
+        assert await _streaming_control(camera) == 0
+
+    ffmpeg_process.exit(1)
+    await asyncio.sleep(0.01)
+
+    assert _controller(camera).sessions == {}
+    assert "Stream process exited with 1" in caplog.text
+    await camera.stop()
+
+
+async def test_ffmpeg_announces_the_rtcp_monitor(
+    stream_camera: Callable[..., Camera],
+) -> None:
+    """Test the answer announces the port the RTCP monitor bound."""
+    camera = stream_camera(
+        multi_tier={"delegate": FFmpegMultiTierDelegate(FFMPEG_INPUT)}
+    )
+
+    answer = await _setup(camera)
+
+    monitor = _session(camera).data["rtcp_monitor"]
+    assert tlv.decode(answer[SETUP_TYPES["ADDRESS"]])[
+        SETUP_ADDR_INFO["VIDEO_RTP_PORT"]
+    ] == struct.pack("<H", monitor.port)
+    assert not monitor.closed
+    await camera.stop()
+    assert monitor.closed
+
+
+async def test_ffmpeg_session_ends_without_rtcp(
+    stream_camera: Callable[..., Camera], ffmpeg_process: Any
+) -> None:
+    """Test a running ffmpeg does not keep a session alive without RTCP."""
+    camera, session, _ = await _ffmpeg_session(stream_camera, idle_timeout=0.05)
+    monitor = session.data["rtcp_monitor"]
+    with patch("asyncio.create_subprocess_exec", return_value=ffmpeg_process):
+        assert await _streaming_control(camera) == 0
+        await asyncio.sleep(0.2)
+
+    assert session.ended
+    assert _controller(camera).sessions == {}
+    ffmpeg_process.terminate.assert_called_once()
+    assert monitor.closed
+    await camera.stop()
+
+
+async def test_ffmpeg_rtcp_keeps_the_session_alive(
+    stream_camera: Callable[..., Camera], ffmpeg_process: Any
+) -> None:
+    """Test the controller's RTCP keeps a running ffmpeg session alive."""
+    camera, session, _ = await _ffmpeg_session(
+        stream_camera, _setup_request(b"127.0.0.1")
+    )
+    with patch("asyncio.create_subprocess_exec", return_value=ffmpeg_process):
+        assert await _streaming_control(camera) == 0
+    timer = session._timer
+
+    await _send_rtcp(session.data["rtcp_monitor"], "127.0.0.1")
+
+    assert timer is not None
+    assert timer.cancelled()
+    assert session.state is SessionState.STARTED
+    await camera.stop()
+
+
+async def test_ffmpeg_start_fails(stream_camera: Callable[..., Camera]) -> None:
+    """Test a missing ffmpeg answers an error."""
+    camera, _, _ = await _ffmpeg_session(stream_camera)
+    with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
+        assert await _streaming_control(camera) == 4
+    await camera.stop()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("rtsps://cam:7441/token?enableSrtp", "rtsps://cam:7441/<redacted>"),
+        (
+            "from 'rtsp://u:p@[fd00::1]:554/s':",
+            "from 'rtsp://[fd00::1]:554/<redacted>':",
+        ),
+        ("rtsp://u:p@cam", "rtsp://cam"),
+        ("rtsp://admin:abc/def@cam/s", "rtsp://cam/<redacted>"),
+        ("rtsp://admin:p#w@cam/s", "rtsp://cam/<redacted>"),
+        ("from 'rtsp://admin:pa'ss@cam/s'", "from 'rtsp://cam/<redacted>'"),
+        ("srtp://192.168.1.114:50000", "srtp://192.168.1.114:50000"),
+        ("frame=1 fps=30", "frame=1 fps=30"),
+    ],
+)
+def test_redact_urls(text: str, expected: str) -> None:
+    """Test URLs keep only their scheme, host and port."""
+    assert _redact_urls(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("cmd", "expected"),
+    [
+        (
+            ["ffmpeg", "-i", "rtsp://admin:my pass@cam/s"],
+            "ffmpeg -i rtsp://cam/<redacted>",
+        ),
+        (
+            ["ffmpeg", "-i", "rtsp://admin:my\npass@cam/s"],
+            "ffmpeg -i rtsp://cam/<redacted>",
+        ),
+        (
+            ["ffmpeg", "-i", "rtsps://u:p@w@cam:7441/s?token"],
+            "ffmpeg -i rtsps://cam:7441/<redacted>",
+        ),
+        (
+            ["ffmpeg", "-srtp_out_params", "secret", "srtp://192.168.1.114:50000"],
+            "ffmpeg -srtp_out_params <redacted> srtp://192.168.1.114:50000",
+        ),
+        (
+            ["ffmpeg", "-f", "tee", "[f=rtsp]rtsp://u:p@cam/s"],
+            "ffmpeg -f tee [f=rtsp]rtsp://cam/<redacted>",
+        ),
+    ],
+)
+def test_redact_command(cmd: list[str], expected: str) -> None:
+    """Test each URL argument of a command is redacted as a whole."""
+    assert _redact_command(cmd) == expected
