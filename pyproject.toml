@@ -27,7 +27,9 @@ dependencies = [
     "orjson>=3.7.2",
     "zeroconf>=0.36.2",
     "h11",
+    "ifaddr>=0.2",
     "pylibsrtp",
+    "pyOpenSSL>=24.3",
 ]
 dynamic = ["version"]
 

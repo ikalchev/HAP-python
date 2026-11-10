@@ -1,14 +1,15 @@
 """Media sources shared by the sessions of a camera channel.
 
-:class:`SourcePool` gives each multi-tier session or recording a
+:class:`SourcePool` gives each WebRTC or multi-tier session a
 :class:`ChannelLease` on the media source of its camera channel. All
 sessions of a channel share one source and one media pull
 (:class:`ChannelPull`, for example an ffmpeg process), so N sessions cost one
 camera connection. Sources live in a
 :class:`~pyhap.media.worker.MediaWorker`, or in process without one;
-a lease creates its recorder in the same place.
+a lease creates its session's sender in the same place.
 
-A multi-tier sender binds its ports before the controller picks a tier, so
+A WebRTC sender is created by its lease (:meth:`ChannelLease.create_sender`);
+a multi-tier sender binds its ports before the controller picks a tier, so
 it is created by the pool (:meth:`SourcePool.create_multi_tier_sender`) and
 started with a lease's source later.
 
@@ -20,7 +21,7 @@ last one; the source is closed with the last lease.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Coroutine, Hashable
+from collections.abc import Awaitable, Callable, Coroutine, Hashable, Iterable
 from dataclasses import dataclass, field
 from functools import partial
 import inspect
@@ -54,6 +55,34 @@ class MediaSourceLike(Protocol):
 
     def close(self, reason: str = "closed") -> Awaitable[None] | None:
         """Release the ports and end every session on the source."""
+
+
+class MediaSender(Protocol):
+    """A :class:`~pyhap.media.sender.WebRTCSender` or its worker proxy."""
+
+    on_closed: Callable[[str], None] | None
+    on_connected: Callable[[], None] | None
+    on_keyframe_request: Callable[[float | None, float | None], None] | None
+    on_audio: Callable[[bytes, int], None] | None
+
+    async def create_offer(self) -> str:
+        """Bind the transport and return the offer SDP."""
+
+    async def apply_answer(
+        self, answer_sdp: str, candidates: Iterable[Any] = ()
+    ) -> None:
+        """Accept the controller's answer."""
+
+    async def reoffer(self, offer_sdp: str) -> str:
+        """Answer a controller re-offer."""
+
+    async def update_receive_keys(
+        self, add: Iterable[Any] = (), remove: Iterable[int] = ()
+    ) -> None:
+        """Install and remove the controller's SFrame keys."""
+
+    async def close(self) -> None:
+        """End the session."""
 
 
 class MultiTierMediaSender(Protocol):
@@ -111,7 +140,7 @@ class ChannelPull(Protocol):
         """Stop sending; called once after a successful :meth:`start`."""
 
     def keyframe_requested(self, age: float | None, gop: float | None) -> None:
-        """A session needs an IRAP picture."""
+        """A session needs an IRAP picture, see ``WebRTCSender``."""
 
 
 class SourceLease(Protocol):
@@ -120,6 +149,9 @@ class SourceLease(Protocol):
     @property
     def source(self) -> MediaSourceLike:
         """The shared source."""
+
+    def create_sender(self, **options: Any) -> MediaSender:
+        """Create the session's sender on the source, where the source runs."""
 
     async def activate(self) -> None:
         """The session was answered: the channel must be pulled now."""
@@ -163,6 +195,20 @@ class ChannelLease:
     def channel(self) -> str:
         """The channel's name."""
         return self._channel.name
+
+    def create_sender(self, **options: Any) -> MediaSender:
+        """Create a sender on the channel's source, in the pool's worker if any.
+
+        ``options`` are those of :class:`~pyhap.media.sender.WebRTCSender`
+        except ``source``.
+        """
+        worker = self._pool.worker
+        source: Any = self.source
+        if worker is not None:
+            return worker.create_sender(source=source, **options)
+        from .sender import WebRTCSender  # noqa: PLC0415
+
+        return cast(MediaSender, WebRTCSender(source=source, **options))
 
     async def open_recorder(
         self, *, prebuffer: float, audio: bool = True
@@ -217,8 +263,8 @@ class SourcePool:
 
         ``options`` are those of
         :class:`~pyhap.media.multi_tier.MultiTierSender`. Start it with the
-        source of a lease of this pool. Unlike recorders, which a lease
-        creates on its source, the pool creates it: its ports
+        source of a lease of this pool. Unlike WebRTC senders and recorders,
+        which a lease creates on its source, the pool creates it: its ports
         are announced in Setup Endpoints, before the controller picks the
         tier, i.e. the lease.
         """

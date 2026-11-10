@@ -1,11 +1,10 @@
 """Run media sources, senders and recorders in a worker process.
 
-SRTP and pacing cost CPU for every packet of every session. In an
+SFrame, SRTP and pacing cost CPU for every packet of every session. In an
 application that also runs other work on its event loop (Home Assistant runs
 HAP signalling on its main loop) the media path therefore runs in a separate
 process. Only the signalling stays on the caller's loop: the proxies here
-have the async API of :class:`~pyhap.media.multi_tier.MultiTierSender`,
-:class:`~pyhap.media.recording.Recorder` and
+have the async API of :class:`~pyhap.media.sender.WebRTCSender` and
 :class:`~pyhap.media.source.MediaSource`, and their events are called on the
 caller's loop.
 
@@ -19,21 +18,22 @@ and source of it ends with a reason, and the next use starts a new one.
 
 The worker talks over its stdin and stdout pipes in length-prefixed frames:
 a 4-byte JSON length, a 4-byte binary length, a JSON object and raw bytes
-(recording data). Nothing is pickled. The worker moves its own stdout aside
+(talkback audio). Nothing is pickled. The worker moves its own stdout aside
 so stray prints cannot corrupt the stream, and forwards the records of its
 ``pyhap`` loggers to the parent's loggers, at the parent's
 levels.
 
 Fan-out: register a source per camera channel with
 :meth:`MediaWorker.open_source`, point the media pull at its
-``rtp_input`` and start each sender or recorder of that channel with it.
-The source reassembles H.265 once; SRTP runs per session.
+``rtp_input`` and pass it to each :meth:`MediaWorker.create_sender` of
+that channel. The source reassembles H.265 once; SFrame and SRTP run per
+session. A sender without a source gets its own, closed with the session.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
 import contextlib
 import itertools
 import logging
@@ -45,7 +45,7 @@ from typing import Any
 import orjson
 
 from . import MediaError
-from .sdp import AudioParams, VideoParams
+from .sdp import AudioParams, IceCandidateLike, VideoParams
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,156 @@ class RemoteMediaSource:
             return
         self._closed = True
         _call(self.on_closed, reason)
+
+
+class RemoteWebRTCSender:
+    """A :class:`~pyhap.media.sender.WebRTCSender` in the worker process.
+
+    Same methods and callbacks; ``on_closed(reason)`` also fires when the
+    worker exits.
+    """
+
+    def __init__(
+        self,
+        worker: MediaWorker,
+        session_id: int,
+        source: RemoteMediaSource | None,
+        config: dict[str, Any],
+    ) -> None:
+        """Use :meth:`MediaWorker.create_sender`."""
+        self.on_closed: Callable[[str], None] | None = None
+        self.on_connected: Callable[[], None] | None = None
+        self.on_keyframe_request: (
+            Callable[[float | None, float | None], None] | None
+        ) = None
+        self.on_audio: Callable[[bytes, int], None] | None = None
+        self.id = session_id
+        self.rtp_input: tuple[str, int, int] = ("", 0, 0)
+        self._worker = worker
+        self._source = source
+        self._config = config
+        self._generation: int | None = None
+        self._state = "new"
+        self._settled = asyncio.Event()
+
+    @property
+    def connected(self) -> bool:
+        """Whether media flows."""
+        return self._state == "connected"
+
+    @property
+    def closed(self) -> bool:
+        """Whether the session ended."""
+        return self._state == "closed"
+
+    async def create_offer(self) -> str:
+        """Create the session in the worker and return the offer SDP."""
+        if self._state != "new":
+            raise MediaWorkerError("Offer already created")
+        self._state = "offering"
+        source = self._source
+        try:
+            if source is not None:
+                generation = source._generation
+                if source.closed:
+                    raise MediaWorkerError("Media source is closed")
+            else:
+                generation = await self._worker.start()
+            if self._state == "closed":
+                raise MediaWorkerError("WebRTC session closed")
+            self._generation = generation
+            result = await self._worker._request(
+                "offer",
+                generation,
+                session=self.id,
+                source=source.id if source else None,
+                config=self._config,
+            )
+        except BaseException:
+            await self.close()
+            raise
+        if self._state == "closed":
+            # Closed while the worker made the offer: end it there too.
+            with contextlib.suppress(MediaWorkerError):
+                await self._worker._request("close", generation, session=self.id)
+            raise MediaWorkerError("WebRTC session closed")
+        self._worker._handles[self.id] = self
+        self._state = "offered"
+        self.rtp_input = tuple(result["rtp_input"])  # type: ignore[assignment]
+        return str(result["sdp"])
+
+    async def apply_answer(
+        self, answer_sdp: str, candidates: Iterable[IceCandidateLike] = ()
+    ) -> None:
+        """Accept the controller's answer; the worker connects in the background."""
+        await self._session_request(
+            "answer",
+            sdp=answer_sdp,
+            candidates=[
+                [c.candidate, c.sdp_mid, c.sdp_mline_index] for c in candidates
+            ],
+        )
+
+    async def reoffer(self, offer_sdp: str) -> str:
+        """Answer a controller re-offer."""
+        result = await self._session_request("reoffer", sdp=offer_sdp)
+        return str(result["sdp"])
+
+    async def update_receive_keys(
+        self, add: Iterable[Any] = (), remove: Iterable[int] = ()
+    ) -> None:
+        """Install and remove the controller's SFrame receive keys."""
+        await self._session_request(
+            "update_keys",
+            add=[[bytes(k.key).hex(), str(k.kid)] for k in add],
+            remove=[str(kid) for kid in remove],
+        )
+
+    async def wait_connected(self, timeout: float | None = None) -> None:
+        """Wait until ICE and DTLS are up; raises if the session ends first."""
+        await asyncio.wait_for(self._settled.wait(), timeout)
+        if not self.connected:
+            raise MediaWorkerError("WebRTC session closed")
+
+    async def close(self) -> None:
+        """End the session without calling ``on_closed``."""
+        if self._state == "closed":
+            return
+        generation = self._generation
+        self._ended(None)
+        if generation is not None:
+            with contextlib.suppress(MediaWorkerError):
+                await self._worker._request("close", generation, session=self.id)
+
+    async def _session_request(self, op: str, **fields: Any) -> Any:
+        if self._state in ("new", "offering", "closed") or self._generation is None:
+            raise MediaWorkerError("No WebRTC session in the worker")
+        return await self._worker._request(
+            op, self._generation, session=self.id, **fields
+        )
+
+    def _event(self, event: str, message: dict[str, Any], blob: bytes) -> None:
+        if self._state == "closed":
+            return
+        if event == "connected":
+            self._state = "connected"
+            self._settled.set()
+            _call(self.on_connected)
+        elif event == "keyframe_request":
+            _call(self.on_keyframe_request, message.get("age"), message.get("gop"))
+        elif event == "audio":
+            _call(self.on_audio, blob, int(message["timestamp"]))
+        elif event == "closed":
+            self._ended(str(message.get("reason", "closed")))
+
+    def _ended(self, reason: str | None) -> None:
+        if self._state == "closed":
+            return
+        self._state = "closed"
+        self._settled.set()
+        self._worker._handles.pop(self.id, None)
+        if reason is not None:
+            _call(self.on_closed, reason)
 
 
 class RemoteMultiTierSender:
@@ -376,7 +526,9 @@ class MediaWorker:
         self._stopping = False
         self._ids = itertools.count(1)
         self._pending: dict[int, asyncio.Future[Any]] = {}
-        self._handles: dict[int, RemoteMultiTierSender | RemoteRecorder] = {}
+        self._handles: dict[
+            int, RemoteWebRTCSender | RemoteMultiTierSender | RemoteRecorder
+        ] = {}
         self._sources: dict[int, RemoteMediaSource] = {}
 
     @property
@@ -458,6 +610,42 @@ class MediaWorker:
             raise
         source.rtp_input = tuple(result["rtp_input"])  # type: ignore[assignment]
         return source
+
+    def create_sender(
+        self,
+        *,
+        video: VideoParams,
+        audio: AudioParams | None = None,
+        sframe: Any | None,
+        source: RemoteMediaSource | None = None,
+        host_addresses: Sequence[str] | None = None,
+        use_ipv6: bool = True,
+        rtp_input_host: str = "127.0.0.1",
+        **options: float,
+    ) -> RemoteWebRTCSender:
+        """Create a sender proxy; the session starts with ``create_offer``.
+
+        The arguments are those of :class:`~pyhap.media.sender.WebRTCSender`;
+        ``options`` are its numeric ones (timeouts, ``max_payload``,
+        ``pacing_factor``, ``max_queue_delay``, ``keyframe_request_interval``).
+        """
+        if source is not None and source._worker is not self:
+            raise ValueError("The source belongs to another worker")
+        unknown = set(options) - _NUMERIC_OPTIONS
+        if unknown:
+            raise TypeError(f"Unknown sender options: {sorted(unknown)}")
+        config = {
+            "video": _fields(video),
+            "audio": _fields(audio) if audio else None,
+            "sframe": None
+            if sframe is None
+            else [bytes(sframe.key).hex(), str(sframe.kid)],
+            "host_addresses": None if host_addresses is None else list(host_addresses),
+            "use_ipv6": use_ipv6,
+            "rtp_input_host": rtp_input_host,
+            "options": options,
+        }
+        return RemoteWebRTCSender(self, next(self._ids), source, config)
 
     def create_multi_tier_sender(
         self,
@@ -642,6 +830,16 @@ class MediaWorker:
             source._ended(reason)
         _call(self.on_exit, reason)
 
+
+_NUMERIC_OPTIONS = {
+    "offer_timeout",
+    "negotiation_timeout",
+    "idle_timeout",
+    "max_payload",
+    "pacing_factor",
+    "max_queue_delay",
+    "keyframe_request_interval",
+}
 
 _MULTI_TIER_OPTIONS = {
     "video_payload_type",
