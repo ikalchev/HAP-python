@@ -1368,13 +1368,16 @@ class AccessoryDriver:
             # client_update_value stored the request as the value, so put
             # back the former one unless the setter set a value of its own.
             # Whatever the setter of a read back characteristic leaves in the
-            # value is an answer for the writer only, e.g. from a subclass that
-            # still sets the Setup Endpoints answer itself.
+            # value is an answer for the writer only, e.g. the Setup Endpoints
+            # answer of a subclass that calls super() and returns nothing.
+            # Neither the former value of a refused write nor the request the
+            # setter left alone is an answer.
             if private_write:
                 own_value = char.value
                 if char.read_back_response:
-                    if set_result_value is None and own_value != _stored_value(
-                        char, value
+                    if set_result_value is None and own_value not in (
+                        previous_value,
+                        _stored_value(char, value),
                     ):
                         set_result_value = own_value
                     char.value = previous_value
@@ -1543,10 +1546,10 @@ class AccessoryDriver:
         characteristic is readable, only the connection that wrote reads the
         response back, until it closes, and it wins over the getter and a later
         ``set_value``. Other connections read the characteristic's own value,
-        which the write leaves as it was, also for a write without ``r``. A
-        characteristic that also has ``ev`` notifies the written value as any
-        write does. A read back characteristic keeps the response the same
-        way, without a write response.
+        which the write leaves as it was. A write without ``r`` stays readable
+        for everyone and notifies ``ev`` subscribers as any write does, unless
+        the characteristic has ``read_back_response``, which keeps the response
+        the same way without a write response.
         """
         readable = HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
         try:
