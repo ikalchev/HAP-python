@@ -1678,16 +1678,14 @@ class Camera(Accessory):
         session_id = UUID(bytes=objs[SETUP_TYPES["SESSION_ID"]])
         if not self.streaming_allowed:
             logger.info("[%s] Streaming is turned off, refusing it", session_id)
-            self._management[stream_idx].get_characteristic("SetupEndpoints").set_value(
-                tlv.encode(
-                    SETUP_TYPES["SESSION_ID"],
-                    session_id.bytes,
-                    SETUP_TYPES["STATUS"],
-                    SETUP_STATUS["ERROR"],
-                    to_base64=True,
-                )
+            # Like an answer, the refusal is only for the writer.
+            return tlv.encode(
+                SETUP_TYPES["SESSION_ID"],
+                session_id.bytes,
+                SETUP_TYPES["STATUS"],
+                SETUP_STATUS["ERROR"],
+                to_base64=True,
             )
-            return
 
         # Extract address info
         address_tlv = objs[SETUP_TYPES["ADDRESS"]]
