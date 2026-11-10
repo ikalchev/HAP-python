@@ -100,13 +100,13 @@ def test_prepared_write_is_applied(
 
 @pytest.mark.parametrize(
     ("write_pid", "delay"),
-    [(8, 0.0), (7, 2.6)],
-    ids=["unknown_pid", "expired_pid"],
+    [(8, 0.0), (7, 2.6), ([7], 0.0)],
+    ids=["unknown_pid", "expired_pid", "unhashable_pid"],
 )
 def test_unprepared_write_is_ignored(
     driver: AccessoryDriver,
     door: WritableChar,
-    write_pid: int,
+    write_pid: Any,
     delay: float,
 ) -> None:
     """Test a write with an unknown or expired pid is ignored as a whole."""
