@@ -622,6 +622,50 @@ def test_setup_endpoints_refuses_malformed(
     }
 
 
+@pytest.mark.parametrize(
+    ("address", "camera_active"),
+    [
+        (b"192.168.1.114 x", 1),
+        (b"192.168.1.114", 0),
+    ],
+    ids=["invalid_address", "streaming_off"],
+)
+def test_setup_endpoints_refusal_read_back_by_writer_only(
+    driver: Any, address: bytes, camera_active: int
+) -> None:
+    """Test only the controller whose write was refused reads the refusal."""
+    acc = camera.Camera({**_OPTIONS, "global_operating_mode": []}, driver, "Camera")
+    driver.add_accessory(acc)
+    operating_mode = acc.get_service("CameraGlobalOperatingMode")
+    assert operating_mode is not None
+    operating_mode.get_characteristic("HomeKitCameraActive").client_update_value(
+        camera_active
+    )
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    char = management.get_characteristic("SetupEndpoints")
+    iid = acc.iid_manager.get_iid(char)
+    request = _setup_request(address, False)
+    query = {"characteristics": [{"aid": acc.aid, "iid": iid, "value": request}]}
+
+    assert driver.set_characteristics(query, ("192.168.1.114", 50000)) is None
+
+    char_id = f"{acc.aid}.{iid}"
+    (writer,) = driver.get_characteristics([char_id], ("192.168.1.114", 50000))[
+        "characteristics"
+    ]
+    (other,) = driver.get_characteristics([char_id], ("192.168.1.115", 50000))[
+        "characteristics"
+    ]
+    assert acc.sessions == {}
+    assert tlv.decode(writer["value"], from_base64=True) == {
+        camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
+        camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
+    }
+    assert other["value"] == ""
+    assert char.value == ""
+
+
 def test_setup_endpoints_set_by_subclass_read_back_by_writer_only(
     driver: Any,
 ) -> None:
