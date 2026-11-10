@@ -17,6 +17,7 @@ from typing import Any
 
 from . import MediaError
 from .multi_tier import MultiTierSender
+from .recording import Recorder
 from .source import MediaSource
 from .worker import FORWARDED_LOGGERS, encode_message, read_message
 
@@ -46,7 +47,7 @@ class _LogForwarder(logging.Handler):
 class _Server:
     def __init__(self, output: asyncio.WriteTransport) -> None:
         self._output = output
-        self._sessions: dict[int, MultiTierSender] = {}
+        self._sessions: dict[int, MultiTierSender | Recorder] = {}
         self._sources: dict[int, MediaSource] = {}
         self._tasks: set[asyncio.Task[None]] = set()
         self.stopping = asyncio.Event()
@@ -152,6 +153,41 @@ class _Server:
 
     async def _op_mt_switch(self, message: dict[str, Any]) -> None:
         await self._multi_tier(message).switch(self._source(message))
+
+    async def _op_rec_open(self, message: dict[str, Any]) -> None:
+        session_id = int(message["session"])
+        recorder = Recorder(
+            self._source(message),
+            prebuffer=float(message["prebuffer"]),
+            audio=bool(message["audio"]),
+        )
+        recorder.on_data = lambda chunk: self.send(
+            {"event": "rec_data", "session": session_id}, chunk
+        )
+        recorder.on_ended = lambda error: self.send(
+            {"event": "rec_ended", "session": session_id, "error": error}
+        )
+
+        def closed(reason: str) -> None:
+            self._sessions.pop(session_id, None)
+            self.send({"event": "closed", "session": session_id, "reason": reason})
+
+        recorder.on_closed = closed
+        self._sessions[session_id] = recorder
+
+    def _recorder(self, message: dict[str, Any]) -> Recorder:
+        recorder = self._sessions.get(int(message["session"]))
+        if not isinstance(recorder, Recorder):
+            raise MediaError("Unknown recorder")
+        return recorder
+
+    async def _op_rec_start(self, message: dict[str, Any]) -> None:
+        await self._recorder(message).start(
+            [str(arg) for arg in message["command"]], float(message["prebuffer"])
+        )
+
+    async def _op_rec_stop(self, message: dict[str, Any]) -> None:
+        await self._recorder(message).stop()
 
     async def _op_close(self, message: dict[str, Any]) -> None:
         sender = self._sessions.pop(int(message["session"]), None)

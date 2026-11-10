@@ -1,10 +1,11 @@
-"""Run media sources and senders in a worker process.
+"""Run media sources, senders and recorders in a worker process.
 
 SRTP and pacing cost CPU for every packet of every session. In an
 application that also runs other work on its event loop (Home Assistant runs
 HAP signalling on its main loop) the media path therefore runs in a separate
 process. Only the signalling stays on the caller's loop: the proxies here
-have the async API of :class:`~pyhap.media.multi_tier.MultiTierSender` and
+have the async API of :class:`~pyhap.media.multi_tier.MultiTierSender`,
+:class:`~pyhap.media.recording.Recorder` and
 :class:`~pyhap.media.source.MediaSource`, and their events are called on the
 caller's loop.
 
@@ -17,15 +18,15 @@ can still create several workers. The process starts on first use (or with
 and source of it ends with a reason, and the next use starts a new one.
 
 The worker talks over its stdin and stdout pipes in length-prefixed frames:
-a 4-byte JSON length, a 4-byte binary length, a JSON object and raw bytes.
-Nothing is pickled. The worker moves its own stdout aside
+a 4-byte JSON length, a 4-byte binary length, a JSON object and raw bytes
+(recording data). Nothing is pickled. The worker moves its own stdout aside
 so stray prints cannot corrupt the stream, and forwards the records of its
 ``pyhap`` loggers to the parent's loggers, at the parent's
 levels.
 
 Fan-out: register a source per camera channel with
 :meth:`MediaWorker.open_source`, point the media pull at its
-``rtp_input`` and start each sender of that channel with it.
+``rtp_input`` and start each sender or recorder of that channel with it.
 The source reassembles H.265 once; SRTP runs per session.
 """
 
@@ -247,8 +248,113 @@ class RemoteMultiTierSender:
             _call(self.on_closed, reason)
 
 
+class RemoteRecorder:
+    """A :class:`~pyhap.media.recording.Recorder` in the worker process.
+
+    Same methods and callbacks; ``on_closed(reason)`` also fires when the
+    worker exits, after ``on_ended`` for a running recording.
+    """
+
+    def __init__(
+        self, worker: MediaWorker, recorder_id: int, source: RemoteMediaSource
+    ) -> None:
+        """Use :meth:`MediaWorker.open_recorder`."""
+        self.on_data: Callable[[bytes], None] | None = None
+        self.on_ended: Callable[[str | None], None] | None = None
+        self.on_closed: Callable[[str], None] | None = None
+        self.id = recorder_id
+        self._worker = worker
+        self._source = source
+        self._generation = source._generation
+        self._recording = False
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """Whether the recorder, its source or its worker ended."""
+        return self._closed
+
+    @property
+    def recording(self) -> bool:
+        """Whether a recording runs."""
+        return self._recording
+
+    async def open(self, prebuffer: float, audio: bool) -> None:
+        """Attach the recorder to its source in the worker."""
+        self._worker._handles[self.id] = self
+        try:
+            await self._worker._request(
+                "rec_open",
+                self._generation,
+                session=self.id,
+                source=self._source.id,
+                prebuffer=prebuffer,
+                audio=audio,
+            )
+        except BaseException:
+            self._worker._handles.pop(self.id, None)
+            self._closed = True
+            raise
+
+    async def start(self, command: list[str], prebuffer: float) -> None:
+        """Run the transcoder on the buffer and the live media."""
+        if self._closed:
+            raise MediaWorkerError("Recorder is closed")
+        await self._worker._request(
+            "rec_start",
+            self._generation,
+            session=self.id,
+            command=command,
+            prebuffer=prebuffer,
+        )
+        self._recording = True
+
+    async def stop(self) -> None:
+        """End the running recording without calling ``on_ended``."""
+        if not self._recording or self._closed:
+            self._recording = False
+            return
+        self._recording = False
+        with contextlib.suppress(MediaWorkerError):
+            await self._worker._request("rec_stop", self._generation, session=self.id)
+
+    async def close(self) -> None:
+        """Stop recording and buffering."""
+        if self._closed:
+            return
+        self._closed = True
+        self._recording = False
+        self._worker._handles.pop(self.id, None)
+        with contextlib.suppress(MediaWorkerError):
+            await self._worker._request("close", self._generation, session=self.id)
+
+    def _event(self, event: str, message: dict[str, Any], blob: bytes) -> None:
+        if self._closed:
+            return
+        if event == "rec_data":
+            _call(self.on_data, blob)
+        elif event == "rec_ended":
+            if self._recording:
+                self._recording = False
+                error = message.get("error")
+                _call(self.on_ended, None if error is None else str(error))
+        elif event == "closed":
+            self._ended(str(message.get("reason", "closed")))
+
+    def _ended(self, reason: str | None) -> None:
+        if self._closed:
+            return
+        if self._recording:
+            self._recording = False
+            _call(self.on_ended, f"media source ended: {reason}")
+        self._closed = True
+        self._worker._handles.pop(self.id, None)
+        if reason is not None:
+            _call(self.on_closed, reason)
+
+
 class MediaWorker:
-    """A worker process running media sources and senders."""
+    """A worker process running media sources, senders and recorders."""
 
     def __init__(
         self,
@@ -270,7 +376,7 @@ class MediaWorker:
         self._stopping = False
         self._ids = itertools.count(1)
         self._pending: dict[int, asyncio.Future[Any]] = {}
-        self._handles: dict[int, RemoteMultiTierSender] = {}
+        self._handles: dict[int, RemoteMultiTierSender | RemoteRecorder] = {}
         self._sources: dict[int, RemoteMediaSource] = {}
 
     @property
@@ -384,6 +490,18 @@ class MediaWorker:
             **options,
         }
         return RemoteMultiTierSender(self, next(self._ids), config)
+
+    async def open_recorder(
+        self, source: RemoteMediaSource, *, prebuffer: float, audio: bool = True
+    ) -> RemoteRecorder:
+        """Buffer ``source`` in the worker for recordings, see ``Recorder``."""
+        if source._worker is not self:
+            raise ValueError("The source belongs to another worker")
+        if source.closed:
+            raise MediaWorkerError("Media source is closed")
+        recorder = RemoteRecorder(self, next(self._ids), source)
+        await recorder.open(prebuffer, audio)
+        return recorder
 
     async def close(self) -> None:
         """End every session and stop the worker."""
