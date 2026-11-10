@@ -248,9 +248,9 @@ class WebRTCSender:
         self._transport.on_rtp = self._on_remote_rtp
         self._transport.on_rtcp = self._on_remote_rtcp
         self._transport.on_closed = self._on_transport_closed
-        self._video = rtp.OutboundStream(video.payload_type, sdp.VIDEO_CLOCK_RATE)
+        self._video = rtp.OutboundStream(video.payload_type, rtp.VIDEO_CLOCK_RATE)
         self._audio = (
-            rtp.OutboundStream(audio.payload_type, sdp.AUDIO_CLOCK_RATE)
+            rtp.OutboundStream(audio.payload_type, rtp.AUDIO_CLOCK_RATE)
             if audio
             else None
         )
@@ -399,7 +399,7 @@ class WebRTCSender:
             raise MediaError(f"Invalid answer: {err}") from err
         if not media.ice_ufrag or not media.ice_pwd or not media.fingerprints:
             raise MediaError("Answer lacks ICE credentials or a fingerprint")
-        video_pt = video.payload_type_for("H265", sdp.VIDEO_CLOCK_RATE)
+        video_pt = video.payload_type_for("H265", rtp.VIDEO_CLOCK_RATE)
         if video_pt is None:
             raise MediaError("Answer has no H.265 payload type")
         self._video.payload_type = video_pt
@@ -431,7 +431,7 @@ class WebRTCSender:
         accessory's own for an answer to a re-offer.
         """
         audio = next((m for m in answer.media if m.kind == "audio" and m.port), None)
-        pt = audio.payload_type_for("opus", sdp.AUDIO_CLOCK_RATE, 2) if audio else None
+        pt = audio.payload_type_for("opus", rtp.AUDIO_CLOCK_RATE, 2) if audio else None
         self._set_audio(pt, audio.direction if audio else None, sending)
 
     def _set_audio(

@@ -27,15 +27,15 @@ from pyhap.media.pool import SourcePool
 from pyhap.media.worker import MediaWorker
 from pyhap.util import base64_to_bytes, to_base64_str
 
-from .test_media_multi_tier import AUDIO_KEY, VIDEO_KEY, Controller as SrtpController
-from .webrtc_hap import (
+from .media_hap import (
     SyntheticPull,
     answer,
     bridged,
     connect_and_receive,
     solicit,
 )
-from .webrtc_peer import KEYFRAME, TRAIL, Controller, wait_until
+from .media_peer import KEYFRAME, TRAIL, Controller, wait_until
+from .test_media_multi_tier import AUDIO_KEY, VIDEO_KEY, Controller as SrtpController
 
 pytestmark = pytest.mark.timeout(30)
 
@@ -181,12 +181,15 @@ async def test_multi_tier_session_end_to_end(
     assert {p.ssrc for p in peer.video_packets} == {response.video_ssrc}
     assert provider.pool.counts() == {"medium": (1, 1)}
 
+    peer.poll()
+    received = len(peer.units)
     assert await control(camera, 2, tier_of(camera, hksv3.VideoQuality.LOW)) == 0
     assert provider.pool.counts() == {"low": (1, 1)}
     assert provider.pulls["medium"].stops == 1
-    received = len(peer.units)
-    await frames(peer, received + 2)
-    assert peer.units[received] == KEYFRAME
+    # The new channel's pull is asked for a keyframe right away.
+    assert provider.pulls["low"].keyframe_requests
+    await frames(peer, received + 3)
+    assert KEYFRAME in peer.units[received:]
 
     assert await control(camera, 1) == 0
     assert provider.pool.counts() == {}
@@ -314,6 +317,10 @@ class _FakeLease:
         self.source = object()
         self.fail = fail
         self.released = 0
+        self.keyframes: list[tuple[float | None, float | None]] = []
+
+    def keyframe_requested(self, age: float | None, gop: float | None) -> None:
+        self.keyframes.append((age, gop))
 
     async def activate(self) -> None:
         if self.fail:
@@ -421,5 +428,16 @@ async def test_cancelled_tier_change_releases_the_new_lease() -> None:
         await change
     assert new.released == 1
     assert old.released == 0
+    # The session keeps the old lease after the failed change.
+    delegate._keyframe_requested(delegate._media[session], 1.0, 2.0)
+    assert old.keyframes == [(1.0, 2.0)]
     await delegate.handle_end(session)
     assert old.released == 1
+
+
+def test_unknown_sender_options_are_refused() -> None:
+    """Verify a typo in sender_options fails when the delegate is made."""
+    with pytest.raises(TypeError, match="idle_timout"):
+        MultiTierMediaDelegate(
+            Provider(SourcePool()), SourcePool(), sender_options={"idle_timout": 1}
+        )

@@ -49,6 +49,11 @@ if TYPE_CHECKING:
     from pyhap.camera_multi_tier import MultiTierController
     from pyhap.camera_webrtc import WebRTCController
 
+# Seconds before arming a recording delegate is tried again, doubling up to
+# the maximum while it keeps failing.
+RECORDING_ARM_RETRY = 1.0
+MAX_RECORDING_ARM_RETRY = 60.0
+
 SETUP_TYPES = {
     "SESSION_ID": b"\x01",
     "STATUS": b"\x02",
@@ -691,11 +696,6 @@ class Camera(Accessory):
         self._hds_connections = set()
         self._recording_stream = None
         recording = options.get("recording")
-        if "recording_delegate" in options:
-            logger.warning(
-                'The "recording_delegate" option is ignored, '
-                'use "recording": {"delegate": ...}'
-            )
         self._recording_media: hds_recording.RecordingProducer | None = (
             recording.get("delegate") if isinstance(recording, dict) else None
         )
@@ -703,6 +703,8 @@ class Camera(Accessory):
         # What the delegate was last armed to; one task reconciles it.
         self._recording_media_armed = False
         self._recording_media_task: asyncio.Task[None] | None = None
+        # Set to cut a retry delay short when the wanted state changes.
+        self._recording_media_wake = asyncio.Event()
         self._homekit_camera_active_char: Characteristic | None = None
         self._motion_status_active_char = None
         self._global_operating_mode: Service | None = None
@@ -902,7 +904,9 @@ class Camera(Accessory):
         for controller in self._stream_controllers():
             controller.update_status()
 
-    def stream_address_for(self, client_addr: Any, is_ipv6: bool) -> str | None:
+    def stream_address_for(
+        self, client_addr: tuple[str, int] | None, is_ipv6: bool
+    ) -> str | None:
         """The address to stream from to a controller, in the given IP version.
 
         The accessory's address on the controller's connection, else the
@@ -2065,7 +2069,11 @@ class Camera(Accessory):
 
     def _arm_recording_media(self) -> None:
         """Keep the recording delegate armed exactly while recording may run."""
-        if self._recording_media is None or self._recording_media_task is not None:
+        if self._recording_media is None:
+            return
+        if self._recording_media_task is not None:
+            # A task reconciles already; it rechecks now if it waits to retry.
+            self._recording_media_wake.set()
             return
         if self._recording_media_wanted() == self._recording_media_armed:
             return
@@ -2079,17 +2087,30 @@ class Camera(Accessory):
         """Arm or disarm until the delegate matches what the camera wants."""
         delegate = self._recording_media
         assert delegate is not None  # noqa: S101 - only started with a delegate
+        failures = 0
         try:
             while (wanted := self._recording_media_wanted()) != (
                 self._recording_media_armed
             ):
+                self._recording_media_wake.clear()
                 try:
                     await delegate.set_armed(wanted)
-                except Exception as err:  # noqa: BLE001 - the next change retries
-                    # A recording still opens the channel on demand.
-                    logger.warning("Could not arm the recording: %s", err)
+                except Exception as err:  # noqa: BLE001 - retried with a backoff
+                    # Meanwhile a recording still opens the channel on demand.
                     self._recording_media_armed = False
-                    return
+                    delay = min(
+                        RECORDING_ARM_RETRY * 2**failures, MAX_RECORDING_ARM_RETRY
+                    )
+                    failures += 1
+                    logger.warning(
+                        "Could not arm the recording, retrying in %.0f s: %s",
+                        delay,
+                        err,
+                    )
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(self._recording_media_wake.wait(), delay)
+                    continue
+                failures = 0
                 self._recording_media_armed = wanted
         finally:
             self._recording_media_task = None
@@ -2124,6 +2145,7 @@ class Camera(Accessory):
         self._recording_media_running = False
         if self._recording_media is not None:
             if (task := self._recording_media_task) is not None:
+                self._recording_media_wake.set()
                 await asyncio.gather(task, return_exceptions=True)
             self._recording_media_armed = False
             await self._recording_media.close()

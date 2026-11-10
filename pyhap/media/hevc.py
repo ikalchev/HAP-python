@@ -33,6 +33,7 @@ NAL_HEADER_SIZE = 2
 NAL_VPS = 32
 NAL_SPS = 33
 NAL_PPS = 34
+NAL_AUD = 35
 NAL_AP = 48
 NAL_FU = 49
 IRAP_FIRST = 16
@@ -115,6 +116,12 @@ class AccessUnit:
     def keyframe(self) -> bool:
         """Whether the access unit contains an IRAP picture."""
         return any(is_irap(nal) for nal in self.nals)
+
+    @property
+    def self_contained(self) -> bool:
+        """Whether a decoder can start here: IRAP with VPS, SPS and PPS."""
+        kinds = {nal_type(nal) for nal in self.nals}
+        return self.keyframe and all(kind in kinds for kind in PARAMETER_SETS)
 
     def to_bytes(self) -> bytes:
         """Return the 4-byte length-prefixed SFrame plaintext."""
@@ -256,7 +263,9 @@ class HevcDepacketizer:
             for kind in PARAMETER_SETS
             if kind not in present and kind in self.parameter_sets
         ]
-        return missing + nals
+        # An access unit delimiter stays the first NAL unit (H.265 7.4.2.4.4).
+        lead = 1 if nals and nal_type(nals[0]) == NAL_AUD else 0
+        return nals[:lead] + missing + nals[lead:]
 
     def _drop(self) -> None:
         if self._nals or self._fragment is not None or self._damaged:

@@ -24,7 +24,8 @@ from pyhap.media.sframe import (
     SFrameSuite,
 )
 
-from .webrtc_helpers import blob, load_vectors, plaintext, seeded_bytes
+from .media_helpers import blob, seeded_bytes
+from .webrtc_helpers import load_vectors, plaintext
 
 RFC = load_vectors("sframe_rfc9605_vectors.json")
 SCRYPTED = load_vectors("sframe_scrypted_vectors.json")

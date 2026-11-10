@@ -16,7 +16,7 @@ from pyhap.media import AudioParams, MediaError, VideoParams
 from pyhap.media.delegate import WebRTCMediaDelegate
 from pyhap.media.pool import SourcePool
 
-from .webrtc_fakes import (
+from .media_fakes import (
     AUDIO,
     FAKE_OFFER,
     FAKE_REOFFER_ANSWER,

@@ -120,10 +120,14 @@ class MpegTsMuxer:
         """One access unit as a PES packet in Annex B, with tables at IRAPs.
 
         Starts with an access unit delimiter, which HEVC in MPEG-TS requires
-        (ISO/IEC 13818-1 2.17), unless the unit has one.
+        (ISO/IEC 13818-1 2.17): the unit's own one moved to the front, else a
+        new one.
         """
         nals = list(nals)
-        if not nals or (nals[0][0] >> 1) & 0x3F != NAL_AUD:
+        auds = [nal for nal in nals if (nal[0] >> 1) & 0x3F == NAL_AUD]
+        if auds:
+            nals = [auds[0], *(nal for nal in nals if nal not in auds)]
+        else:
             nals.insert(0, _aud(nals))
         payload = b"".join(START_CODE + nal for nal in nals)
         pes = self._pes(STREAM_ID_VIDEO, payload, pts, bounded=False, aligned=True)

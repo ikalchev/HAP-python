@@ -24,11 +24,13 @@ from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Protocol
 
-VIDEO_CLOCK_RATE = 90000
-AUDIO_CLOCK_RATE = 48000
-# The payload types HAP uses for the WebRTC stream tiers.
-DEFAULT_VIDEO_PAYLOAD_TYPE = 99
-DEFAULT_AUDIO_PAYLOAD_TYPE = 110
+from .rtp import (
+    AUDIO_CLOCK_RATE,
+    DEFAULT_AUDIO_PAYLOAD_TYPE,
+    DEFAULT_VIDEO_PAYLOAD_TYPE,
+    VIDEO_CLOCK_RATE,
+)
+
 OPUS_PTIME = 20
 VIDEO_MID = "0"
 AUDIO_MID = "1"

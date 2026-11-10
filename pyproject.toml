@@ -28,7 +28,7 @@ dependencies = [
     "zeroconf>=0.36.2",
     "h11",
     "ifaddr>=0.2",
-    "pylibsrtp",
+    "pylibsrtp>=0.10",
     "pyOpenSSL>=24.3",
 ]
 dynamic = ["version"]

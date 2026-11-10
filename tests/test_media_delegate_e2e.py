@@ -20,7 +20,7 @@ from pyhap.media.delegate import WebRTCMediaDelegate
 from pyhap.media.pool import SourcePool
 from pyhap.media.worker import MediaWorker
 
-from .webrtc_hap import (
+from .media_hap import (
     SyntheticPull,
     answer,
     bridged,
@@ -28,7 +28,7 @@ from .webrtc_hap import (
     end,
     solicit,
 )
-from .webrtc_peer import KEYFRAME, TRAIL, Controller, wait_until
+from .media_peer import KEYFRAME, TRAIL, Controller, wait_until
 
 pytestmark = pytest.mark.timeout(30)
 

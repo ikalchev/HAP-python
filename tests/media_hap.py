@@ -14,8 +14,8 @@ from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 from pyhap.util import base64_to_bytes, to_base64_str
 
+from .media_peer import KEY, KEYFRAME, TRAIL, Controller, Source, video_count
 from .webrtc_helpers import SFrameKey
-from .webrtc_peer import KEY, KEYFRAME, TRAIL, Controller, Source, video_count
 
 WEBRTC = "CameraWebRTCStreamManagement"
 CLIENT = ("127.0.0.1", 50000)
@@ -31,6 +31,8 @@ class SyntheticPull:
         """Not running yet."""
         self.starts = 0
         self.stops = 0
+        self.keyframe_requests: list[tuple[float | None, float | None]] = []
+        self.frames = 0
         self._task: asyncio.Task[None] | None = None
 
     async def start(self, rtp_input: tuple[str, int, int]) -> None:
@@ -44,6 +46,7 @@ class SyntheticPull:
             while True:
                 source.send_video(KEYFRAME if frame % GOP_FRAMES == 0 else [TRAIL])
                 frame += 1
+                self.frames += 1
                 await asyncio.sleep(FRAME_INTERVAL)
         finally:
             source.close()
@@ -57,7 +60,8 @@ class SyntheticPull:
                 await self._task
 
     def keyframe_requested(self, age: float | None, gop: float | None) -> None:
-        """The next GOP brings one."""
+        """Record the request; the next GOP brings a keyframe."""
+        self.keyframe_requests.append((age, gop))
 
 
 def bridged(driver: AccessoryDriver, camera: Camera) -> Camera:

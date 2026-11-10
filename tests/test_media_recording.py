@@ -23,7 +23,7 @@ from pyhap.media.recording import (
 )
 from pyhap.media.source import MediaSource
 
-from .webrtc_peer import KEYFRAME, TRAIL, Source, wait_until
+from .media_peer import KEYFRAME, TRAIL, Source, wait_until
 
 FFMPEG = shutil.which("ffmpeg")
 # Copies stdin to stdout, standing in for the transcoder.
@@ -148,6 +148,14 @@ def test_video_keeps_an_existing_delimiter() -> None:
     data = mpegts.MpegTsMuxer().video([AUD, TRAIL], 0, keyframe=False)
     (pes,) = pes_payloads(data, mpegts.VIDEO_PID)
     assert pes[14:].count(AUD) == 1
+
+
+def test_video_moves_a_later_delimiter_to_the_front() -> None:
+    """Verify a delimiter behind parameter sets is moved, not doubled."""
+    data = mpegts.MpegTsMuxer().video([*KEYFRAME[:3], AUD, KEYFRAME[3]], 0, True)
+    (pes,) = pes_payloads(data, mpegts.VIDEO_PID)
+    assert pes[14:].count(AUD) == 1
+    assert pes[14:].startswith(mpegts.START_CODE + AUD)
 
 
 def test_video_delimiter_has_the_temporal_id_of_the_unit() -> None:
@@ -368,9 +376,10 @@ async def test_recorder_reports_the_transcoder_exit() -> None:
     ended: list[str | None] = []
     recorder.on_ended = ended.append
     try:
-        await recorder.start([sys.executable, "-c", "raise SystemExit(3)"], 4.0)
+        script = "import sys; sys.stderr.write('No such encoder: x\\n'); sys.exit(3)"
+        await recorder.start([sys.executable, "-c", script], 4.0)
         await wait_until(lambda: bool(ended))
-        assert ended == ["ffmpeg exited with 3"]
+        assert ended == ["ffmpeg exited with 3: No such encoder: x"]
         assert not recorder.recording
         assert not recorder.closed
     finally:

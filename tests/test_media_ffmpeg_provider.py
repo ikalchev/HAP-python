@@ -24,7 +24,7 @@ from pyhap.media.ffmpeg import (
     redact_urls,
 )
 
-from .webrtc_fakes import (
+from .media_fakes import (
     AUDIO,
     LOW,
     MEDIUM,
@@ -393,6 +393,24 @@ async def test_ffmpeg_pull_backs_off_failed_starts(
     assert all(message.startswith("could not start") for message in errors[1:])
     assert pull._failures == len(errors)
     assert pull.restarts == 0
+
+
+async def test_failed_first_start_reaches_on_error(tmp_path: Path) -> None:
+    """Verify a missing ffmpeg raises and is reported to on_error."""
+    errors: list[tuple[str, str]] = []
+    pull = FFmpegPull(
+        lambda _rtp_input: [str(tmp_path / "missing-ffmpeg")],
+        "medium",
+        10.0,
+        restart_delay=0.01,
+        on_error=lambda name, message: errors.append((name, message)),
+    )
+    with pytest.raises(OSError):
+        await pull.start(("127.0.0.1", 1, 2))
+    assert errors and errors[0][0] == "medium"
+    assert errors[0][1].startswith("could not start")
+    assert pull.last_error == errors[0][1]
+    assert pull.pid is None
 
 
 @pytest.mark.parametrize(

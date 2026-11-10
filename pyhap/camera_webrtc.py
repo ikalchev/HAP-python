@@ -24,13 +24,13 @@ from uuid import UUID, uuid4
 from pyhap import hksv3
 from pyhap.camera_stream import (
     DEFAULT_HOOK_TIMEOUT,
-    HookFailed,
     SessionState,
     StreamController,
     StreamSession,
-    check_hook_timeout,
-    config_from_option,
-    failure_status,
+    _check_hook_timeout,
+    _config_from_option,
+    _failure_status,
+    _HookFailed,
 )
 from pyhap.util import base64_to_bytes, to_base64_str
 
@@ -76,6 +76,11 @@ class WebRTCDelegate(Protocol):
     Each hook may raise :class:`pyhap.camera_stream.StreamError` to answer
     with a status, any other exception answers with an error. A hook that
     takes longer than ``hook_timeout`` is cancelled and its session ends.
+
+    An answered session has no timeout of its own: remote viewers share the
+    home hub's connection, so its close ends nothing. The delegate must call
+    ``session.end()`` when the media connection fails, e.g. on ICE or consent
+    failure, or the session keeps one of the sensor's slots.
     """
 
     async def handle_solicit_offer(
@@ -153,10 +158,10 @@ class WebRTCConfig:
 
         :raises ValueError: For an unknown key.
         """
-        return config_from_option(cls, value, "webrtc")
+        return _config_from_option(cls, value, "webrtc")
 
     def __post_init__(self) -> None:
-        check_hook_timeout(self.hook_timeout)
+        _check_hook_timeout(self.hook_timeout)
         if self.max_sessions < WEBRTC_MIN_SESSIONS:
             raise ValueError(
                 f"webrtc max_sessions must be at least {WEBRTC_MIN_SESSIONS}"
@@ -276,7 +281,7 @@ class WebRTCController(StreamController[WebRTCSession]):
         await self._delegate.handle_end(session)
 
     async def _set_solicit_offer(
-        self, value: str, sender_client_addr: Any = None
+        self, value: str, sender_client_addr: tuple[str, int] | None = None
     ) -> str:
         deadline = self._deadline()
         request = _decode("Solicit Offer", hksv3.WebRTCSolicitOffer.decode, value)
@@ -294,7 +299,10 @@ class WebRTCController(StreamController[WebRTCSession]):
         return to_base64_str(response.encode())
 
     async def _solicit_offer(
-        self, options: hksv3.WebRTCOfferOptions, client_addr: Any, deadline: float
+        self,
+        options: hksv3.WebRTCOfferOptions,
+        client_addr: tuple[str, int] | None,
+        deadline: float,
     ) -> hksv3.WebRTCSolicitOfferResponse:
         error = hksv3.WebRTCSolicitOfferStatus.ERROR
         refusal = self.refusal()
@@ -337,9 +345,9 @@ class WebRTCController(StreamController[WebRTCSession]):
                 end_on_failure=True,
                 first=True,
             )
-        except HookFailed as err:
+        except _HookFailed as err:
             return hksv3.WebRTCSolicitOfferResponse(
-                failure_status(hksv3.WebRTCSolicitOfferStatus, err.status, error)
+                _failure_status(hksv3.WebRTCSolicitOfferStatus, err.status, error)
             )
         if (offer.sframe is not None) != session.sframe:
             logger.error("[%s] The offer's SFrame key does not fit", session.id)
@@ -355,7 +363,7 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
 
     async def _set_provide_answer(
-        self, value: str, sender_client_addr: Any = None
+        self, value: str, sender_client_addr: tuple[str, int] | None = None
     ) -> str:
         deadline = self._deadline()
         request = _decode("Provide Answer", hksv3.WebRTCProvideAnswer.decode, value)
@@ -376,9 +384,9 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
         try:
             await self._run_hook(session, "answer", hook, deadline, end_on_failure=True)
-        except HookFailed as err:
+        except _HookFailed as err:
             return _status(
-                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
+                session.id, _failure_status(_STATUS, err.status, _STATUS.ERROR)
             )
         # Only now, the expiry ends a session whose answer did not apply.
         self._cancel_timer(session)
@@ -387,7 +395,7 @@ class WebRTCController(StreamController[WebRTCSession]):
         return _status(session.id, _STATUS.SUCCESS)
 
     async def _set_streaming_control(
-        self, value: str, sender_client_addr: Any = None
+        self, value: str, sender_client_addr: tuple[str, int] | None = None
     ) -> str:
         deadline = self._deadline()
         request = _decode(
@@ -404,7 +412,7 @@ class WebRTCController(StreamController[WebRTCSession]):
         return _status(session.id, _STATUS.SUCCESS if ended else _STATUS.ERROR)
 
     def _active_session(
-        self, session_id: UUID, client_addr: Any
+        self, session_id: UUID, client_addr: tuple[str, int] | None
     ) -> WebRTCSession | hksv3.WebRTCStreamingStatus:
         """The session to renegotiate or update, else the status to answer."""
         session = self._owned(session_id, client_addr)
@@ -416,7 +424,9 @@ class WebRTCController(StreamController[WebRTCSession]):
             return _STATUS.BUSY
         return session
 
-    async def _set_reoffer(self, value: str, sender_client_addr: Any = None) -> str:
+    async def _set_reoffer(
+        self, value: str, sender_client_addr: tuple[str, int] | None = None
+    ) -> str:
         deadline = self._deadline()
         request = _decode("Reoffer", hksv3.WebRTCReoffer.decode, value)
         if request is None:
@@ -426,7 +436,10 @@ class WebRTCController(StreamController[WebRTCSession]):
         return to_base64_str(response.encode())
 
     async def _reoffer(
-        self, request: hksv3.WebRTCReoffer, client_addr: Any, deadline: float
+        self,
+        request: hksv3.WebRTCReoffer,
+        client_addr: tuple[str, int] | None,
+        deadline: float,
     ) -> hksv3.WebRTCReofferResponse:
         session = self._active_session(request.session_id, client_addr)
         if not isinstance(session, WebRTCSession):
@@ -436,16 +449,21 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
         try:
             answer = await self._run_hook(session, "reoffer", hook, deadline)
-        except HookFailed as err:
+        except _HookFailed as err:
             return hksv3.WebRTCReofferResponse(
-                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
+                session.id, _failure_status(_STATUS, err.status, _STATUS.ERROR)
             )
+        if answer.sframe is not None and not session.sframe:
+            logger.error(
+                "[%s] The reoffer answer's SFrame key does not fit", session.id
+            )
+            return hksv3.WebRTCReofferResponse(session.id, _STATUS.ERROR)
         return hksv3.WebRTCReofferResponse(
             session.id, _STATUS.SUCCESS, answer.sdp, answer.sframe
         )
 
     async def _set_update_session(
-        self, value: str, sender_client_addr: Any = None
+        self, value: str, sender_client_addr: tuple[str, int] | None = None
     ) -> str:
         deadline = self._deadline()
         request = _decode("Update Session", hksv3.WebRTCUpdateSession.decode, value)
@@ -459,8 +477,8 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
         try:
             await self._run_hook(session, "update session", hook, deadline)
-        except HookFailed as err:
+        except _HookFailed as err:
             return _status(
-                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
+                session.id, _failure_status(_STATUS, err.status, _STATUS.ERROR)
             )
         return _status(session.id, _STATUS.SUCCESS)

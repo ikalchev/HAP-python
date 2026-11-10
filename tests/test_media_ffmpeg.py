@@ -18,7 +18,7 @@ import pytest
 
 from pyhap.media import AudioParams  # noqa: E402
 
-from .webrtc_peer import Controller, make_sender, negotiate  # noqa: E402
+from .media_peer import Controller, make_sender, negotiate  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 FRAMES = 45

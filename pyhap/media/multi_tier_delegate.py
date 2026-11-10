@@ -65,6 +65,19 @@ class PooledSourceProvider(Protocol):
     pool: SourcePool
 
 
+# MultiTierSender options a delegate user may set; the session sets the rest.
+_SENDER_OPTIONS = frozenset(
+    {
+        "local_video_port",
+        "local_audio_port",
+        "max_payload",
+        "idle_timeout",
+        "keyframe_request_interval",
+        "rtcp_notify_interval",
+    }
+)
+
+
 @dataclass(eq=False)
 class _Media:
     """What the delegate holds for one session."""
@@ -104,6 +117,8 @@ class MultiTierMediaDelegate:
         self.source_provider = source_provider
         self.pool = pool
         self.sender_options = dict(sender_options or {})
+        if unknown := sorted(set(self.sender_options) - _SENDER_OPTIONS):
+            raise TypeError(f"Unknown sender_options: {', '.join(unknown)}")
         self._media: dict[MultiTierSession, _Media] = {}
 
     @property
@@ -212,16 +227,19 @@ class MultiTierMediaDelegate:
             await lease.release()
             logger.debug("[%s] Tier %s uses the same source", session.id, video_tier)
             return
+        # The switch asks the new source for a keyframe at once, through the
+        # session's lease: it must already be the new one.
+        media.lease = lease
         try:
             await lease.activate()
             await media.sender.switch(lease.source)
         except BaseException as err:
             # Also when the hook is cancelled, e.g. on a timeout.
+            media.lease = old
             await lease.release()
             if not isinstance(err, Exception):
                 raise
             raise StreamError(_ERROR, f"Tier not changed: {err}") from err
-        media.lease = lease
         if old is not None:
             await old.release()
         logger.debug("[%s] Multi-tier stream moved to %s", session.id, video_tier)

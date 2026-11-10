@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -12,14 +13,14 @@ import pytest
 from pyhap import hksv3
 from pyhap.camera_stream import (
     MAX_HOOK_TIMEOUT,
-    HookFailed,
     SessionState,
     StreamController,
     StreamError,
     StreamSession,
-    check_hook_timeout,
-    config_from_option,
-    failure_status,
+    _check_hook_timeout,
+    _config_from_option,
+    _failure_status,
+    _HookFailed,
 )
 
 CLIENT = ("192.168.1.114", 50000)
@@ -79,7 +80,7 @@ async def test_hook_timeout_ends_the_session(
     session = add_session(CLIENT)
     deadline = session_controller._deadline()
 
-    with pytest.raises(HookFailed) as failed:
+    with pytest.raises(_HookFailed) as failed:
         await session_controller._run_hook(
             session, "test", _never(), deadline, first=True
         )
@@ -109,7 +110,7 @@ async def test_hook_errors(
     """Test a delegate's status is kept, other errors have none."""
     session = add_session(CLIENT)
 
-    with pytest.raises(HookFailed) as failed:
+    with pytest.raises(_HookFailed) as failed:
         await session_controller._run_hook(
             session, "test", _raise(error), session_controller._deadline()
         )
@@ -126,7 +127,7 @@ async def test_failed_hook_may_end_the_session(
     """Test a failed first hook ends the session and still releases it."""
     session = add_session(CLIENT)
 
-    with pytest.raises(HookFailed):
+    with pytest.raises(_HookFailed):
         await session_controller._run_hook(
             session,
             "test",
@@ -192,7 +193,7 @@ async def test_end_waits_for_cancelled_hooks(
     assert await session_controller.end_session(session.id) is True
 
     session_release.assert_awaited_once_with(session)
-    with pytest.raises(HookFailed):
+    with pytest.raises(_HookFailed):
         await hook
 
 
@@ -243,7 +244,7 @@ async def test_hook_of_ended_session(
     session_controller._end(session, "test")
     hook = _hook()
 
-    with pytest.raises(HookFailed):
+    with pytest.raises(_HookFailed):
         await session_controller._run_hook(
             session, "test", hook, session_controller._deadline()
         )
@@ -288,6 +289,7 @@ async def test_ownership(
 ) -> None:
     """Test only the connection that set a session up finds it."""
     session = add_session(CLIENT)
+    caplog.set_level(logging.DEBUG, logger="pyhap.camera_stream")
 
     assert session_controller._owned(session.id, CLIENT) is session
     assert session_controller._owned(session.id, OTHER) is None
@@ -365,19 +367,19 @@ async def test_end_by_request_waits_until_the_deadline(
 def test_hook_timeout_leaves_time_to_answer(hook_timeout: float) -> None:
     """Test hooks must end before the HAP response timeout."""
     with pytest.raises(ValueError, match="hook_timeout"):
-        check_hook_timeout(hook_timeout)
+        _check_hook_timeout(hook_timeout)
 
 
 def test_config_from_option() -> None:
     """Test options build a config, a config is taken as it is."""
     config = _Config(max_sessions=6)
 
-    assert config_from_option(_Config, config, "multi_tier") is config
-    assert config_from_option(_Config, {"max_sessions": 6}, "x") == config
+    assert _config_from_option(_Config, config, "multi_tier") is config
+    assert _config_from_option(_Config, {"max_sessions": 6}, "x") == config
     with pytest.raises(ValueError, match="Unknown multi_tier option: start"):
-        config_from_option(_Config, {"start": 1}, "multi_tier")
+        _config_from_option(_Config, {"start": 1}, "multi_tier")
     with pytest.raises(ValueError, match="must be a dict"):
-        config_from_option(_Config, [], "multi_tier")
+        _config_from_option(_Config, [], "multi_tier")
 
 
 @pytest.mark.parametrize(
@@ -387,7 +389,7 @@ def test_config_from_option() -> None:
 def test_failure_status(status: int | None, expected: int) -> None:
     """Test a delegate picks a known failure status, else the error."""
     error = hksv3.RTPStreamingStatus.ERROR
-    assert failure_status(hksv3.RTPStreamingStatus, status, error) == expected
+    assert _failure_status(hksv3.RTPStreamingStatus, status, error) == expected
 
 
 async def test_session_end(
@@ -447,7 +449,7 @@ async def test_release_after_a_stuck_hook(
     assert not finished.is_set()
     assert "while 1 cancelled hooks still run" in caplog.text
     session_release.assert_awaited_once_with(session)
-    with pytest.raises(HookFailed):
+    with pytest.raises(_HookFailed):
         await request
     await finished.wait()
 

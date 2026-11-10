@@ -27,8 +27,7 @@ from pyhap.media import (  # noqa: E402
 from pyhap.media.sender import _Pacer  # noqa: E402
 from pyhap.media.transport import DtlsSrtpTransport  # noqa: E402
 
-from .webrtc_helpers import SFrameKey  # noqa: E402
-from .webrtc_peer import (  # noqa: E402
+from .media_peer import (  # noqa: E402
     AUDIO_PT,
     CONTROLLER_SSRC,
     IDR,
@@ -51,6 +50,7 @@ from .webrtc_peer import (  # noqa: E402
     video_count,
     wait_until,
 )
+from .webrtc_helpers import SFrameKey  # noqa: E402
 
 pytestmark = pytest.mark.timeout(5)
 

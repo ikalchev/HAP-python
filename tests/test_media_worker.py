@@ -21,8 +21,7 @@ from pyhap.media.worker import (  # noqa: E402
     read_message,
 )
 
-from .webrtc_helpers import SFrameKey  # noqa: E402
-from .webrtc_peer import (  # noqa: E402
+from .media_peer import (  # noqa: E402
     KEYFRAME,
     TALKBACK_KEY,
     TRAIL,
@@ -34,6 +33,7 @@ from .webrtc_peer import (  # noqa: E402
     video_count,
     wait_until,
 )
+from .webrtc_helpers import SFrameKey  # noqa: E402
 
 pytestmark = pytest.mark.timeout(30)
 
@@ -374,17 +374,27 @@ async def test_oversized_request_is_refused(
 class Output:
     """Collects what the worker side writes to its output pipe."""
 
-    def __init__(self) -> None:
-        """Start empty."""
+    def __init__(self, buffered: int = 0) -> None:
+        """Start empty, with ``buffered`` bytes the parent has not read."""
         self.data = b""
+        self.buffered = buffered
+        self.closed = False
 
     def is_closing(self) -> bool:
-        """The pipe stays open."""
-        return False
+        """Whether the pipe was closed."""
+        return self.closed
+
+    def get_write_buffer_size(self) -> int:
+        """The bytes the parent has not read."""
+        return self.buffered
 
     def write(self, data: bytes) -> None:
         """Keep the frame."""
         self.data += data
+
+    def close(self) -> None:
+        """Close the pipe."""
+        self.closed = True
 
 
 async def unserializable(message: dict[str, Any]) -> dict[str, Any]:
@@ -401,3 +411,44 @@ async def test_unencodable_answer_becomes_an_error() -> None:
     message, _blob = await read_message(reader_of(output.data))
     assert message["id"] == 7
     assert message["error"].startswith("Answer not sent")
+
+
+async def test_slow_parent_loses_log_records_first() -> None:
+    """Verify a backed up pipe drops log records but still sends events."""
+    output = Output(buffered=_worker.LOG_DROP_BUFFER + 1)
+    server = _worker._Server(output)  # ty: ignore[invalid-argument-type]
+    server.send({"event": "log", "level": 30, "name": "pyhap", "message": "x"})
+    assert output.data == b""
+    server.send({"event": "source_closed", "source": 1, "reason": "x"})
+    message, _blob = await read_message(reader_of(output.data))
+    assert message["event"] == "source_closed"
+
+
+async def test_stalled_parent_stops_the_worker() -> None:
+    """Verify the worker gives up on a parent that stopped reading."""
+    output = Output(buffered=_worker.MAX_OUTPUT_BUFFER + 1)
+    server = _worker._Server(output)  # ty: ignore[invalid-argument-type]
+    server.send({"event": "source_closed", "source": 1, "reason": "x"})
+    assert output.data == b""
+    assert output.closed
+    assert server.stopping.is_set()
+
+
+async def test_worker_crash_ends_its_sources(worker: MediaWorker) -> None:
+    """Verify a crashed worker closes its sources and the next use restarts it."""
+    source = await worker.open_source()
+    reasons: list[str] = []
+    source.on_closed = reasons.append
+    pid = worker.pid
+
+    kill(worker)
+    for _ in range(200):
+        if reasons:
+            break
+        await asyncio.sleep(0.01)
+
+    assert source.closed
+    assert len(reasons) == 1
+    again = await worker.open_source()
+    assert worker.pid != pid
+    assert not again.closed
