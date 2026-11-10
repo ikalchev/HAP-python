@@ -131,11 +131,6 @@ def _to_enum(enum_type: type[_E], data: bytes) -> _E | int:
         return value
 
 
-def _to_uuid(data: bytes) -> UUID:
-    # UUID raises ValueError for anything but 16 bytes.
-    return UUID(bytes=data)
-
-
 @dataclass
 class VideoStreamCapability:
     """A video encoding the camera can produce from a sensor, bit rates in kbps."""
@@ -453,7 +448,7 @@ class RTPStreamingControl:
     def decode(cls, data: bytes) -> RTPStreamingControl:
         fields = _fields(data)
         return cls(
-            _to_uuid(_required(fields, 1)),
+            UUID(bytes=_required(fields, 1)),
             _to_enum(RTPStreamingCommand, _required(fields, 2)),
             _optional_int(fields, 3),
             _optional_int(fields, 4),
@@ -576,7 +571,7 @@ class SetupEndpoints:
     def decode(cls, data: bytes) -> SetupEndpoints:
         fields = _fields(data)
         return cls(
-            _to_uuid(_required(fields, 1)),
+            UUID(bytes=_required(fields, 1)),
             EndpointAddress.decode(_required(fields, 3)),
             SRTPParameters.decode(_required(fields, 4)),
             SRTPParameters.decode(_required(fields, 5)),
@@ -624,7 +619,7 @@ class SetupEndpointsResponse:
     def decode(cls, data: bytes) -> SetupEndpointsResponse:
         fields = _fields(data)
         return cls(
-            _optional(fields, 1, _to_uuid),
+            _optional(fields, 1, lambda data: UUID(bytes=data)),
             _to_enum(SetupEndpointsStatus, _required(fields, 2)),
             _optional(fields, 3, EndpointAddress.decode),
             _optional(fields, 4, SRTPParameters.decode),
@@ -944,7 +939,7 @@ class WebRTCSolicitOfferResponse:
         fields = _fields(data)
         return cls(
             _to_enum(WebRTCSolicitOfferStatus, _required(fields, 4)),
-            _optional(fields, 1, _to_uuid),
+            _optional(fields, 1, lambda data: UUID(bytes=data)),
             _optional(fields, 2, _to_str),
             _candidates(fields),
             _optional(fields, 5, SFrameKey.decode),
@@ -970,7 +965,7 @@ class WebRTCProvideAnswer:
     def decode(cls, data: bytes) -> WebRTCProvideAnswer:
         fields = _fields(data)
         return cls(
-            _to_uuid(_required(fields, 1)),
+            UUID(bytes=_required(fields, 1)),
             _to_sdp(_required(fields, 2)),
             _candidates(fields),
         )
@@ -994,7 +989,7 @@ class WebRTCSessionStatus:
     def decode(cls, data: bytes) -> WebRTCSessionStatus:
         fields = _fields(data)
         return cls(
-            _optional(fields, 1, _to_uuid),
+            _optional(fields, 1, lambda data: UUID(bytes=data)),
             _to_enum(WebRTCStreamingStatus, _required(fields, 2)),
         )
 
@@ -1015,7 +1010,7 @@ class WebRTCStreamingControl:
     def decode(cls, data: bytes) -> WebRTCStreamingControl:
         fields = _fields(data)
         return cls(
-            _to_uuid(_required(fields, 1)),
+            UUID(bytes=_required(fields, 1)),
             _to_enum(WebRTCStreamingCommand, _required(fields, 2)),
         )
 
@@ -1039,7 +1034,7 @@ class WebRTCReoffer:
     def decode(cls, data: bytes) -> WebRTCReoffer:
         fields = _fields(data)
         return cls(
-            _to_uuid(_required(fields, 1)),
+            UUID(bytes=_required(fields, 1)),
             _to_sdp(_required(fields, 2)),
             _options(fields, 3),
         )
@@ -1071,7 +1066,7 @@ class WebRTCReofferResponse:
     def decode(cls, data: bytes) -> WebRTCReofferResponse:
         fields = _fields(data)
         return cls(
-            _optional(fields, 1, _to_uuid),
+            _optional(fields, 1, lambda data: UUID(bytes=data)),
             _to_enum(WebRTCStreamingStatus, _required(fields, 3)),
             _optional(fields, 2, _to_str),
             _optional(fields, 4, SFrameKey.decode),
@@ -1106,7 +1101,7 @@ class WebRTCUpdateSession:
                 f" at most {MAX_SFRAME_KEY_CHANGES} each"
             )
         return cls(
-            _to_uuid(_required(fields, 1)),
+            UUID(bytes=_required(fields, 1)),
             [SFrameKey.decode(key) for key in keys],
             [_to_int(_required(_fields(kid), 1)) for kid in kids],
         )
