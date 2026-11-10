@@ -24,13 +24,13 @@ from uuid import UUID, uuid4
 from pyhap import hksv3
 from pyhap.camera_stream import (
     DEFAULT_HOOK_TIMEOUT,
+    HookFailed,
     SessionState,
     StreamController,
     StreamSession,
-    _check_hook_timeout,
-    _config_from_option,
-    _failure_status,
-    _HookFailed,
+    check_hook_timeout,
+    config_from_option,
+    failure_status,
 )
 from pyhap.util import base64_to_bytes, to_base64_str
 
@@ -158,10 +158,10 @@ class WebRTCConfig:
 
         :raises ValueError: For an unknown key.
         """
-        return _config_from_option(cls, value, "webrtc")
+        return config_from_option(cls, value, "webrtc")
 
     def __post_init__(self) -> None:
-        _check_hook_timeout(self.hook_timeout)
+        check_hook_timeout(self.hook_timeout)
         if self.max_sessions < WEBRTC_MIN_SESSIONS:
             raise ValueError(
                 f"webrtc max_sessions must be at least {WEBRTC_MIN_SESSIONS}"
@@ -177,7 +177,7 @@ class WebRTCConfig:
             raise ValueError(f"Unknown webrtc remote_quality {self.remote_quality}")
 
 
-def remote_tier(
+def _remote_tier(
     tiers: list[hksv3.VideoStreamTier], quality: hksv3.VideoQuality | int
 ) -> hksv3.VideoStreamTier:
     """The smallest tier of ``quality``, else the smallest tier."""
@@ -222,7 +222,7 @@ class WebRTCController(StreamController[WebRTCSession]):
         self.config = config
         self.delegate = config.delegate
         self.audio_tier = multi_tier.config.audio
-        self.video_tier = remote_tier(multi_tier.tiers, config.remote_quality)
+        self.video_tier = _remote_tier(multi_tier.tiers, config.remote_quality)
         service = self.service = camera.add_preload_service(
             "CameraWebRTCStreamManagement", unique_id=str(self.sensor.sensor_uuid)
         )
@@ -345,9 +345,9 @@ class WebRTCController(StreamController[WebRTCSession]):
                 end_on_failure=True,
                 first=True,
             )
-        except _HookFailed as err:
+        except HookFailed as err:
             return hksv3.WebRTCSolicitOfferResponse(
-                _failure_status(hksv3.WebRTCSolicitOfferStatus, err.status, error)
+                failure_status(hksv3.WebRTCSolicitOfferStatus, err.status, error)
             )
         if (offer.sframe is not None) != session.sframe:
             logger.error("[%s] The offer's SFrame key does not fit", session.id)
@@ -384,9 +384,9 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
         try:
             await self._run_hook(session, "answer", hook, deadline, end_on_failure=True)
-        except _HookFailed as err:
+        except HookFailed as err:
             return _status(
-                session.id, _failure_status(_STATUS, err.status, _STATUS.ERROR)
+                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
             )
         # Only now, the expiry ends a session whose answer did not apply.
         self._cancel_timer(session)
@@ -449,9 +449,9 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
         try:
             answer = await self._run_hook(session, "reoffer", hook, deadline)
-        except _HookFailed as err:
+        except HookFailed as err:
             return hksv3.WebRTCReofferResponse(
-                session.id, _failure_status(_STATUS, err.status, _STATUS.ERROR)
+                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
             )
         if answer.sframe is not None and not session.sframe:
             logger.error(
@@ -477,8 +477,8 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
         try:
             await self._run_hook(session, "update session", hook, deadline)
-        except _HookFailed as err:
+        except HookFailed as err:
             return _status(
-                session.id, _failure_status(_STATUS, err.status, _STATUS.ERROR)
+                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
             )
         return _status(session.id, _STATUS.SUCCESS)

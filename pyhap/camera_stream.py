@@ -134,7 +134,7 @@ class StreamSession:
             controller._loop.call_soon(controller._end, self, reason)
 
 
-class _HookFailed(Exception):
+class HookFailed(Exception):
     """A hook failed, ``status`` is the one the delegate asked for, if any.
 
     Raised by :meth:`StreamController._run_hook` to the stream services.
@@ -145,7 +145,7 @@ class _HookFailed(Exception):
         self.status = status
 
 
-def _failure_status(status_type: type[_E], status: int | None, error: _E) -> _E:
+def failure_status(status_type: type[_E], status: int | None, error: _E) -> _E:
     """The status a failed request answers, ``error`` unless the delegate chose."""
     try:
         chosen = status_type(status)
@@ -154,13 +154,13 @@ def _failure_status(status_type: type[_E], status: int | None, error: _E) -> _E:
     return chosen if chosen else error
 
 
-def _check_hook_timeout(hook_timeout: float) -> None:
+def check_hook_timeout(hook_timeout: float) -> None:
     """Make sure a hook leaves time to answer within the HAP response timeout."""
     if not 0 < hook_timeout <= MAX_HOOK_TIMEOUT:
         raise ValueError(f"hook_timeout must be above 0 and at most {MAX_HOOK_TIMEOUT}")
 
 
-def _config_from_option(config_type: type[_C], value: Any, name: str) -> _C:
+def config_from_option(config_type: type[_C], value: Any, name: str) -> _C:
     """Build a config dataclass from an option dict, or take it as it is.
 
     :raises ValueError: For an unknown key or a value of another type.
@@ -188,7 +188,7 @@ class StreamController(Generic[_S]):
         max_sessions: int,
         max_sessions_per_connection: int,
     ) -> None:
-        _check_hook_timeout(hook_timeout)
+        check_hook_timeout(hook_timeout)
         self.camera = camera
         self.sensor = sensor
         self.hook_timeout = hook_timeout
@@ -262,12 +262,12 @@ class StreamController(Generic[_S]):
         ``first`` marks the hook that introduces the session to the delegate,
         which then releases it when it ends.
 
-        :raises _HookFailed: If the hook failed or took too long, or the
+        :raises HookFailed: If the hook failed or took too long, or the
             session ended meanwhile.
         """
         if session.ended:
             hook.close()
-            raise _HookFailed
+            raise HookFailed
         if first:
             session._delegated = True
         task = self._loop.create_task(hook)
@@ -284,9 +284,9 @@ class StreamController(Generic[_S]):
         if not done:
             logger.warning("[%s] The %s hook timed out", session.id, name)
             self._end(session, f"the {name} hook timed out")
-            raise _HookFailed
+            raise HookFailed
         if task.cancelled() or session.ended:
-            raise _HookFailed
+            raise HookFailed
         error = task.exception()
         if error is None:
             return task.result()
@@ -298,7 +298,7 @@ class StreamController(Generic[_S]):
             logger.error("[%s] The %s hook failed", session.id, name, exc_info=error)
         if end_on_failure:
             self._end(session, f"the {name} hook failed")
-        raise _HookFailed(error.status if isinstance(error, StreamError) else None)
+        raise HookFailed(error.status if isinstance(error, StreamError) else None)
 
     def _background(self, coro: Coroutine[Any, Any, _T]) -> asyncio.Task[_T]:
         task = self._loop.create_task(coro)

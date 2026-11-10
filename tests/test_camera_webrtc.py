@@ -11,7 +11,7 @@ import pytest
 from pyhap import hksv3
 from pyhap.camera import Camera
 from pyhap.camera_stream import SessionState, StreamError
-from pyhap.camera_webrtc import WebRTCController, WebRTCSession, remote_tier
+from pyhap.camera_webrtc import WebRTCController, WebRTCSession, _remote_tier
 from pyhap.util import base64_to_bytes, to_base64_str
 
 WEBRTC = "CameraWebRTCStreamManagement"
@@ -102,8 +102,8 @@ async def _hang(*_args: object) -> None:
 def test_remote_tier(stream_sensor: hksv3.SensorConfiguration) -> None:
     """Test the remote tier is the smallest of a quality, else the smallest."""
     tiers = hksv3.tiers_from_sensor(stream_sensor)
-    assert remote_tier(tiers, hksv3.VideoQuality.MEDIUM) == MEDIUM
-    assert remote_tier(tiers, hksv3.VideoQuality.HIGHEST) == LOW
+    assert _remote_tier(tiers, hksv3.VideoQuality.MEDIUM) == MEDIUM
+    assert _remote_tier(tiers, hksv3.VideoQuality.HIGHEST) == LOW
 
 
 async def test_solicit_offer(
@@ -440,7 +440,7 @@ async def test_sessions_end(
     webrtc_delegate.handle_end.assert_awaited_once_with(session)
 
 
-async def test_camera_ends_a_session(
+async def test_controller_ends_a_session(
     stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
 ) -> None:
     """Test the integrator ends a session and all of them."""
@@ -448,9 +448,9 @@ async def test_camera_ends_a_session(
     first = await _active(camera)
     second = await _session(camera)
 
-    assert await camera.end_session(first.id) is True
-    assert await camera.end_session(first.id) is False
-    await camera.end_all_sessions()
+    assert await _controller(camera).end_session(first.id) is True
+    assert await _controller(camera).end_session(first.id) is False
+    await _controller(camera).end_all_sessions()
 
     assert second.state is SessionState.ENDED
     assert webrtc_delegate.handle_end.await_count == 2

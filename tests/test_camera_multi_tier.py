@@ -169,54 +169,18 @@ async def test_streaming_enabled_persisted(
 async def test_camera_forwards_to_controllers(
     stream_camera: Callable[..., Camera],
 ) -> None:
-    """Test the camera's session actions reach each controller."""
+    """Test the camera's stop and disconnect reach each controller."""
     camera = stream_camera()
-    controllers = [
-        *camera.multi_tier_controllers.values(),
-        *camera.webrtc_controllers.values(),
-    ]
     with (
         patch.object(MultiTierController, "close") as close,
+        patch.object(WebRTCController, "close") as webrtc_close,
         patch.object(MultiTierController, "client_disconnected") as disconnected,
-        patch.object(MultiTierController, "end_session", return_value=True) as end,
-        patch.object(MultiTierController, "end_all_sessions") as end_all,
     ):
         await camera.stop()
         camera.client_disconnected(CLIENT)
-        assert await camera.end_session(SESSION) is True
-        await camera.end_all_sessions()
     close.assert_awaited_once()
+    webrtc_close.assert_awaited_once()
     disconnected.assert_called_once_with(CLIENT)
-    end.assert_awaited_once_with(SESSION)
-    end_all.assert_awaited_once()
-    assert len(controllers) == 2
-
-
-@pytest.mark.parametrize(
-    ("multi_tier_ended", "webrtc_ended", "expected"),
-    [(True, True, True), (False, True, True), (False, False, False)],
-)
-async def test_camera_ends_the_id_in_each_controller(
-    stream_camera: Callable[..., Camera],
-    multi_tier_ended: bool,
-    webrtc_ended: bool,
-    expected: bool,
-) -> None:
-    """Test the camera ends a session ID in every controller, not the first only."""
-    camera = stream_camera()
-    with (
-        patch.object(
-            MultiTierController, "end_session", return_value=multi_tier_ended
-        ) as multi_tier_end,
-        patch.object(
-            WebRTCController, "end_session", return_value=webrtc_ended
-        ) as webrtc_end,
-    ):
-        assert await camera.end_session(SESSION) is expected
-    await camera.stop()
-
-    multi_tier_end.assert_awaited_once_with(SESSION)
-    webrtc_end.assert_awaited_once_with(SESSION)
 
 
 # Sessions

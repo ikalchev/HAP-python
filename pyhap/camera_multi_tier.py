@@ -23,13 +23,13 @@ from pyhap import hksv3
 from pyhap.camera import parse_setup_address
 from pyhap.camera_stream import (
     DEFAULT_HOOK_TIMEOUT,
+    HookFailed,
     SessionState,
     StreamController,
     StreamSession,
-    _check_hook_timeout,
-    _config_from_option,
-    _failure_status,
-    _HookFailed,
+    check_hook_timeout,
+    config_from_option,
+    failure_status,
 )
 from pyhap.util import base64_to_bytes, to_base64_str
 
@@ -52,6 +52,7 @@ MULTI_TIER_MIN_SESSIONS = 5
 # Seconds a started session lives without keep_alive().
 DEFAULT_IDLE_TIMEOUT = 30.0
 _SRTP_SUITE = hksv3.SRTPCryptoSuite.AES_CM_128_HMAC_SHA1_80
+_STATUS = hksv3.RTPStreamingStatus
 
 
 @dataclass(eq=False, kw_only=True)
@@ -94,7 +95,7 @@ class MultiTierSession(StreamSession):
         """
         controller = self._controller
         if isinstance(controller, MultiTierController):
-            controller.keep_alive(self)
+            controller._keep_alive(self)
 
 
 class MultiTierDelegate(Protocol):
@@ -181,10 +182,10 @@ class MultiTierConfig:
 
         :raises ValueError: For an unknown key.
         """
-        return _config_from_option(cls, value, "multi_tier")
+        return config_from_option(cls, value, "multi_tier")
 
     def __post_init__(self) -> None:
-        _check_hook_timeout(self.hook_timeout)
+        check_hook_timeout(self.hook_timeout)
         if self.max_sessions < MULTI_TIER_MIN_SESSIONS:
             raise ValueError(
                 f"multi_tier max_sessions must be at least {MULTI_TIER_MIN_SESSIONS}"
@@ -202,14 +203,14 @@ class MultiTierConfig:
             raise ValueError("multi_tier timeouts must be positive")
 
 
-def supported_audio_tiers(audio: hksv3.AudioStreamTier) -> bytes:
+def _supported_audio_tiers(audio: hksv3.AudioStreamTier) -> bytes:
     """The Supported Audio Stream Tiers value, exactly one Opus tier."""
     return hksv3.SupportedAudioStreamTiers(
         hksv3.AudioCodec.OPUS, hksv3.AUDIO_PAYLOAD_TYPE, [audio]
     ).encode()
 
 
-def supported_video_tiers(tiers: list[hksv3.VideoStreamTier]) -> bytes:
+def _supported_video_tiers(tiers: list[hksv3.VideoStreamTier]) -> bytes:
     """The Supported Video Stream Tiers value, H.265 only."""
     return hksv3.SupportedVideoStreamTiers(
         hksv3.VideoCodec.H265, hksv3.VIDEO_PAYLOAD_TYPE, tiers
@@ -242,8 +243,8 @@ class MultiTierController(StreamController[MultiTierSession]):
         )
         for name, value in (
             ("SensorUUID", sensor.sensor_uuid.bytes),
-            ("SupportedVideoStreamTiers", supported_video_tiers(self.tiers)),
-            ("SupportedAudioStreamTiers", supported_audio_tiers(config.audio)),
+            ("SupportedVideoStreamTiers", _supported_video_tiers(self.tiers)),
+            ("SupportedAudioStreamTiers", _supported_audio_tiers(config.audio)),
         ):
             service.configure_char(name, value=to_base64_str(value))
         # The guide allows AES_CM_128_HMAC_SHA1_80 only.
@@ -273,7 +274,7 @@ class MultiTierController(StreamController[MultiTierSession]):
         if not active:
             self._end_sessions("streaming was turned off")
 
-    def keep_alive(self, session: MultiTierSession) -> None:
+    def _keep_alive(self, session: MultiTierSession) -> None:
         """Restart the ``idle_timeout`` of a started session.
 
         A former session with the same ID keeps nothing alive. See
@@ -409,8 +410,8 @@ class MultiTierController(StreamController[MultiTierSession]):
                 end_on_failure=True,
                 first=True,
             )
-        except _HookFailed as err:
-            return _failure_status(hksv3.SetupEndpointsStatus, err.status, error)
+        except HookFailed as err:
+            return failure_status(hksv3.SetupEndpointsStatus, err.status, error)
         session.state = SessionState.PREPARED
         self._set_timer(
             session,
@@ -429,7 +430,7 @@ class MultiTierController(StreamController[MultiTierSession]):
             request = hksv3.RTPStreamingControl.decode(base64_to_bytes(value))
         except ValueError:
             logger.warning("Ignoring a malformed RTP Streaming Control write")
-            status = hksv3.encode_streaming_status(None, hksv3.RTPStreamingStatus.ERROR)
+            status = hksv3.encode_streaming_status(None, _STATUS.ERROR)
             return to_base64_str(status)
         logger.debug("RTP Streaming Control: %s", request)
         result = await self._streaming_control(request, sender_client_addr, deadline)
@@ -442,26 +443,25 @@ class MultiTierController(StreamController[MultiTierSession]):
         client_addr: tuple[str, int] | None,
         deadline: float,
     ) -> hksv3.RTPStreamingStatus:
-        status = hksv3.RTPStreamingStatus
         session = self._owned(request.session_id, client_addr)
         if session is None:
-            return status.UNKNOWN_SESSION
+            return _STATUS.UNKNOWN_SESSION
         if request.command == hksv3.RTPStreamingCommand.END:
             if session.state is not SessionState.STARTED:
                 self._end(session, "ended before it started")
-                return status.NO_SUCH_STREAM
+                return _STATUS.NO_SUCH_STREAM
             ended = await self._end_by_request(session, deadline)
-            return status.SUCCESS if ended else status.ERROR
+            return _STATUS.SUCCESS if ended else _STATUS.ERROR
         if request.command != hksv3.RTPStreamingCommand.START:
-            return status.ERROR
+            return _STATUS.ERROR
         if session.state is SessionState.NEW or session.busy:
-            return status.BUSY
+            return _STATUS.BUSY
         if not self.active:
             logger.warning("[%s] Streaming is turned off, refusing it", session.id)
-            return status.ERROR
+            return _STATUS.ERROR
         tiers = self._tiers(request)
         if tiers is None:
-            return status.ERROR
+            return _STATUS.ERROR
         previous_ssrcs = session.controller_video_ssrc, session.controller_audio_ssrc
         session.controller_video_ssrc = request.video_ssrc
         session.controller_audio_ssrc = request.audio_ssrc
@@ -476,7 +476,7 @@ class MultiTierController(StreamController[MultiTierSession]):
             await self._run_hook(
                 session, "reconfigure" if started else "start", hook, deadline
             )
-        except _HookFailed as err:
+        except HookFailed as err:
             session.controller_video_ssrc, session.controller_audio_ssrc = (
                 previous_ssrcs
             )
@@ -487,11 +487,11 @@ class MultiTierController(StreamController[MultiTierSession]):
                     "Not started in time",
                     SessionState.PREPARED,
                 )
-            return _failure_status(status, err.status, status.ERROR)
+            return failure_status(_STATUS, err.status, _STATUS.ERROR)
         session.video_tier, session.audio_tier = tiers
         session.state = SessionState.STARTED
-        self.keep_alive(session)
-        return status.SUCCESS
+        self._keep_alive(session)
+        return _STATUS.SUCCESS
 
     def _tiers(
         self, request: hksv3.RTPStreamingControl

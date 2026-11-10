@@ -896,30 +896,6 @@ class Camera(Accessory):
             return str(self.stream_address)
         return None
 
-    async def end_session(self, session_id: UUID) -> bool:
-        """End a multi-tier or WebRTC session (17.99) on the camera's side.
-
-        E.g. when its media source stopped. Ends the sessions with that ID of
-        every sensor and service and waits until their delegates released
-        them. Returns False if there is no such session.
-        """
-        ended = await asyncio.gather(
-            *(
-                controller.end_session(session_id)
-                for controller in self._stream_controllers()
-            )
-        )
-        return any(ended)
-
-    async def end_all_sessions(self) -> None:
-        """End every multi-tier and WebRTC session (17.99) and wait for them."""
-        await asyncio.gather(
-            *(
-                controller.end_all_sessions()
-                for controller in self._stream_controllers()
-            )
-        )
-
     def client_disconnected(self, client_addr: tuple[str, int]) -> None:
         """End the multi-tier and WebRTC sessions of the connection."""
         for controller in self._stream_controllers():
