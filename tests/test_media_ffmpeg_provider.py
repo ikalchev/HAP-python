@@ -23,7 +23,7 @@ from pyhap.media.ffmpeg import (
     redact_urls,
 )
 
-from .webrtc_fakes import (
+from .media_fakes import (
     AUDIO,
     LOW,
     MEDIUM,

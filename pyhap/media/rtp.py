@@ -9,6 +9,13 @@ import secrets
 import struct
 import time
 
+# RTP clock rates of H.265 video and Opus audio (RFC 7798, RFC 7587).
+VIDEO_CLOCK_RATE = 90000
+AUDIO_CLOCK_RATE = 48000
+# Dynamic payload types the HomeKit streams use for H.265 and Opus.
+DEFAULT_VIDEO_PAYLOAD_TYPE = 99
+DEFAULT_AUDIO_PAYLOAD_TYPE = 110
+
 # Shortest interval between keyframe requests to a source.
 KEYFRAME_REQUEST_INTERVAL = 1.0
 # An audio gap this long starts a new talkspurt (RTP marker bit).
