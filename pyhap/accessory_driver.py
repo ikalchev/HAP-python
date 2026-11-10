@@ -31,7 +31,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
@@ -172,9 +172,13 @@ def _wrap_service_setter(service: Any, chars: Any, client_addr: Any) -> Any:
     return HAP_SERVER_STATUS.SUCCESS
 
 
-# A characteristic write whose setter is a coroutine: the result entry to
-# complete, the coroutine, whether a write response was asked for and the char.
-_PendingWrite = tuple[dict[str, Any], Coroutine[Any, Any, Any], bool, Characteristic]
+class _PendingWrite(NamedTuple):
+    """A characteristic write whose setter returned a coroutine."""
+
+    result: dict[str, Any]  # The result entry to complete.
+    coro: Coroutine[Any, Any, Any]
+    write_response: bool  # Whether the controller asked for a write response.
+    char: Characteristic
 
 
 def _set_characteristics_response(
@@ -1256,7 +1260,7 @@ class AccessoryDriver:
             # Only characteristics with the write response permission answer
             # a write with a value, and only when the controller asks for it.
             write_response = (
-                query.get(HAP_REPR_WRITE_RESPONSE, False)
+                query.get(HAP_REPR_WRITE_RESPONSE) is True
                 and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
             )
             # A new write replaces a former response of this connection. The
@@ -1288,7 +1292,9 @@ class AccessoryDriver:
 
             result: dict[str, Any] = {HAP_REPR_STATUS: set_result}
             if inspect.iscoroutine(set_result_value):
-                pending.append((result, set_result_value, write_response, char))
+                pending.append(
+                    _PendingWrite(result, set_result_value, write_response, char)
+                )
             elif set_result_value is not None and write_response:
                 result[HAP_REPR_VALUE] = self._store_write_response(
                     char, set_result_value, client_addr
@@ -1334,10 +1340,7 @@ class AccessoryDriver:
         timeout: float,
     ) -> dict[str, Any] | None:
         """Wait for the coroutine setters, then build the response."""
-        tasks = {
-            asyncio.ensure_future(coro): (result, write_response, char)
-            for result, coro, write_response, char in pending
-        }
+        tasks = {asyncio.ensure_future(write.coro): write for write in pending}
         try:
             done, not_done = await asyncio.wait(tasks, timeout=timeout)
         except asyncio.CancelledError:
@@ -1346,32 +1349,32 @@ class AccessoryDriver:
             raise
         for task in not_done:
             task.cancel()
-            result, _, char = tasks[task]
+            write = tasks[task]
             logger.warning(
                 "%s: Timed out setting characteristic %s",
                 client_addr,
-                char.display_name,
+                write.char.display_name,
             )
-            result[HAP_REPR_STATUS] = HAP_SERVER_STATUS.OPERATION_TIMED_OUT
+            write.result[HAP_REPR_STATUS] = HAP_SERVER_STATUS.OPERATION_TIMED_OUT
         for task in done:
-            result, write_response, char = tasks[task]
+            write = tasks[task]
             try:
                 outcome = task.result()
             except (Exception, asyncio.CancelledError):
                 logger.exception(
                     "%s: Error while setting characteristic %s",
                     client_addr,
-                    char.display_name,
+                    write.char.display_name,
                 )
-                result[HAP_REPR_STATUS] = (
+                write.result[HAP_REPR_STATUS] = (
                     HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
                 )
                 continue
-            if outcome is not None and write_response:
+            if outcome is not None and write.write_response:
                 # A response queued when the connection closes is dropped by
                 # the deferred cleanup in connection_lost.
-                result[HAP_REPR_VALUE] = self._store_write_response(
-                    char, outcome, client_addr
+                write.result[HAP_REPR_VALUE] = self._store_write_response(
+                    write.char, outcome, client_addr
                 )
         return _set_characteristics_response(results)
 
