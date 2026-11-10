@@ -115,7 +115,10 @@ def _wrap_char_setter(
 ) -> tuple[int, Any]:
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
-        response = char.client_update_value(value, client_addr, notify=notify)
+        # The driver finishes the update of a coroutine setter once it is done.
+        response = char.client_update_value(
+            value, client_addr, notify=notify, defer_notify=True
+        )
     except Exception:
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
@@ -1149,9 +1152,17 @@ class AccessoryDriver:
         self, write: _PendingWrite, client_addr: tuple[str, int]
     ) -> None:
         """Run a coroutine setter of a direct call, then tell subscribers."""
-        await write.coro
-        write.char._client_update_finished(  # noqa: SLF001
-            write.previous_value, client_addr, write.notify
+        try:
+            await write.coro
+        except Exception:
+            logger.exception(
+                "%s: Error while setting characteristic %s",
+                client_addr,
+                write.char.display_name,
+            )
+            return
+        write.char.client_update_finished(
+            write.previous_value, client_addr, notify=write.notify
         )
 
     def _set_characteristics_for_controller(
@@ -1374,7 +1385,10 @@ class AccessoryDriver:
         try:
             done, not_done = await asyncio.wait(tasks, timeout=timeout)
         except asyncio.CancelledError:
-            for task in tasks:
+            for task, write in tasks.items():
+                if task.done():
+                    self._finish_done_write(task, write, client_addr)
+                    continue
                 task.cancel()
                 task.add_done_callback(_retrieve_late_result)
             raise
@@ -1402,8 +1416,8 @@ class AccessoryDriver:
                     HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
                 )
                 continue
-            write.char._client_update_finished(  # noqa: SLF001
-                write.previous_value, client_addr, write.notify
+            write.char.client_update_finished(
+                write.previous_value, client_addr, notify=write.notify
             )
             if outcome is not None and write.write_response:
                 # A response queued when the connection closes is dropped by
@@ -1412,6 +1426,25 @@ class AccessoryDriver:
                     write.char, outcome, client_addr
                 )
         return _set_characteristics_response(results)
+
+    @staticmethod
+    def _finish_done_write(
+        task: asyncio.Future[Any], write: _PendingWrite, client_addr: tuple[str, int]
+    ) -> None:
+        """Tell subscribers about a setter done before the write was cancelled."""
+        if task.cancelled():
+            return
+        if (err := task.exception()) is not None:
+            logger.error(
+                "%s: Error while setting characteristic %s",
+                client_addr,
+                write.char.display_name,
+                exc_info=err,
+            )
+            return
+        write.char.client_update_finished(
+            write.previous_value, client_addr, notify=write.notify
+        )
 
     def _take_prepared_write(self, pid: Any, client_addr: tuple[str, int]) -> bool:
         """Consume the prepared write ``pid`` and return whether it is still valid."""

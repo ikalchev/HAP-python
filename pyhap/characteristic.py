@@ -403,15 +403,17 @@ class Characteristic:
         sender_client_addr: tuple[str, int] | None = None,
         *,
         notify: bool = True,
+        defer_notify: bool = False,
     ) -> Any:
         """Called from broker for value change in Home app.
 
         Change self.value to value and call callback. Returns what the callback
-        returned. A coroutine the callback returns is for the caller to await,
-        then the caller finishes the update with ``_client_update_finished``,
-        so subscribers only learn the value once the setter succeeded. With
-        ``notify`` False, subscribers are not told about the written value,
-        e.g. for a request that only the writing connection may read back.
+        returned. With ``notify`` False, subscribers are not told about the
+        written value, e.g. for a request that only the writing connection may
+        read back. With ``defer_notify``, a coroutine the callback returns is
+        for the caller to await, and the caller then calls
+        :meth:`client_update_finished`, so subscribers only learn the value
+        once the setter succeeded.
         """
         original_value = value
         if not self._always_null or original_value is not None:
@@ -433,17 +435,24 @@ class Characteristic:
                 response = self.setter_callback(value, sender_client_addr)
             else:
                 response = self.setter_callback(value)
-        if not inspect.iscoroutine(response):
-            self._client_update_finished(previous_value, sender_client_addr, notify)
+        if not (defer_notify and inspect.iscoroutine(response)):
+            self.client_update_finished(
+                previous_value, sender_client_addr, notify=notify
+            )
         return response
 
-    def _client_update_finished(
+    def client_update_finished(
         self,
         previous_value: Any,
         sender_client_addr: tuple[str, int] | None,
-        notify: bool,
+        *,
+        notify: bool = True,
     ) -> None:
-        """Tell subscribers about a client's write once its setter is done."""
+        """Finish a client's write, e.g. after awaiting its coroutine setter.
+
+        Tells subscribers about the new value if it differs from
+        ``previous_value``, see :meth:`client_update_value`.
+        """
         if notify and self._value != previous_value:
             self.notify(sender_client_addr)
         if self._always_null:
