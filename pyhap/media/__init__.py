@@ -1,11 +1,12 @@
-"""Media of HomeKit cameras: multi-tier RTP live view and recordings.
+"""Media of HomeKit camera live view: WebRTC (remote) and multi-tier RTP (local).
 
-:class:`MultiTierSender` and :class:`MediaSource` import their transport
-(``pylibsrtp``) on first use; :class:`MediaWorker` runs them in a worker
-process. :class:`MultiTierMediaDelegate` runs them for the multi-tier
-sessions of :class:`pyhap.camera.Camera` from a :class:`SourcePool`;
-:class:`RecordingMediaDelegate` records classic HomeKit Secure Video clips
-with a prebuffer from the same pool.
+:class:`WebRTCSender`, :class:`MultiTierSender` and :class:`MediaSource`
+import their transport (``pyOpenSSL``, ``pylibsrtp``) on first use;
+:class:`MediaWorker` runs them in a worker process.
+:class:`WebRTCMediaDelegate` and :class:`MultiTierMediaDelegate` run them for
+the WebRTC and multi-tier sessions of :class:`pyhap.camera.Camera`, from one
+:class:`SourcePool`; :class:`RecordingMediaDelegate` records classic HomeKit
+Secure Video clips with a prebuffer from the same pool.
 """
 
 from __future__ import annotations
@@ -20,12 +21,14 @@ class MediaError(Exception):
 
 
 if TYPE_CHECKING:
+    from .delegate import WebRTCMediaDelegate
     from .ffmpeg import FFmpegInput, FFmpegSourceProvider
     from .multi_tier import MultiTierSender
     from .multi_tier_delegate import MultiTierMediaDelegate
     from .pool import (
         ChannelLease,
         ChannelPull,
+        MediaSender,
         MediaSourceLike,
         MultiTierMediaSender,
         RecorderLike,
@@ -34,12 +37,14 @@ if TYPE_CHECKING:
     )
     from .recording import Recorder
     from .recording_delegate import RecordingError, RecordingMediaDelegate
+    from .sender import SFrameKeyLike, WebRTCSender
     from .source import MediaSource
     from .worker import (
         MediaWorker,
         RemoteMediaSource,
         RemoteMultiTierSender,
         RemoteRecorder,
+        RemoteWebRTCSender,
     )
 
 __all__ = [
@@ -49,6 +54,7 @@ __all__ = [
     "FFmpegInput",
     "FFmpegSourceProvider",
     "IceCandidateLike",
+    "MediaSender",
     "MediaSource",
     "MediaSourceLike",
     "MultiTierMediaDelegate",
@@ -61,11 +67,15 @@ __all__ = [
     "RemoteMediaSource",
     "RemoteMultiTierSender",
     "RemoteRecorder",
+    "RemoteWebRTCSender",
+    "SFrameKeyLike",
     "SourceLease",
     "SourcePool",
     "VideoParams",
     "MediaError",
+    "WebRTCMediaDelegate",
     "MediaWorker",
+    "WebRTCSender",
 ]
 
 _LAZY = {
@@ -73,6 +83,7 @@ _LAZY = {
     "ChannelPull": "pool",
     "FFmpegInput": "ffmpeg",
     "FFmpegSourceProvider": "ffmpeg",
+    "MediaSender": "pool",
     "MediaSourceLike": "pool",
     "MultiTierMediaDelegate": "multi_tier_delegate",
     "MultiTierMediaSender": "pool",
@@ -83,10 +94,14 @@ _LAZY = {
     "RecordingMediaDelegate": "recording_delegate",
     "SourceLease": "pool",
     "SourcePool": "pool",
+    "WebRTCMediaDelegate": "delegate",
     "MediaSource": "source",
+    "SFrameKeyLike": "sender",
+    "WebRTCSender": "sender",
     "RemoteMediaSource": "worker",
     "RemoteMultiTierSender": "worker",
     "RemoteRecorder": "worker",
+    "RemoteWebRTCSender": "worker",
     "MediaWorker": "worker",
 }
 

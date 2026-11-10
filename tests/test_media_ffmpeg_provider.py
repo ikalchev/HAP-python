@@ -16,6 +16,7 @@ import pytest
 from pyhap import hksv3
 from pyhap.camera_stream import StreamError
 from pyhap.media import ffmpeg as ffmpeg_module
+from pyhap.media.delegate import WebRTCMediaDelegate
 from pyhap.media.ffmpeg import (
     FFmpegInput,
     FFmpegPull,
@@ -34,6 +35,7 @@ from .webrtc_fakes import (
 
 pytestmark = pytest.mark.timeout(5)
 
+ANSWER = "v=0\r\na=answer\r\n"
 TIER_ONE = hksv3.VideoStreamTier(1, 3, 1, 1, 1, 1)
 DEFAULTS = ("0:v:0", "0:a:0", True, 2.0)
 INPUTS: dict[int | hksv3.VideoQuality | str, list[str] | FFmpegInput] = {
@@ -262,6 +264,38 @@ def test_cut_keeps_a_complete_url() -> None:
     (cut,) = ffmpeg_module.StderrLines().feed(line + b"\n")
 
     assert cut.endswith(b" rtsp://cam1/a [truncated]")
+
+
+async def test_ffmpeg_provider_pulls_once(
+    fake_ffmpeg: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify two answered sessions of a channel run one ffmpeg until both end."""
+    caplog.set_level(logging.DEBUG, "pyhap.media.ffmpeg")
+    worker = FakeWorker()
+    provider = FFmpegSourceProvider(
+        INPUTS, worker=cast(Any, worker), ffmpeg=str(fake_ffmpeg)
+    )
+    delegate = WebRTCMediaDelegate(provider)
+    first, second = make_session(), make_session()
+    await delegate.handle_solicit_offer(first, MEDIUM, AUDIO)
+    await delegate.handle_solicit_offer(second, MEDIUM, AUDIO)
+    await delegate.handle_answer(first, ANSWER, [])
+    await delegate.handle_answer(second, ANSWER, [])
+    starts = fake_ffmpeg.parent / "starts.log"
+    await wait_until(lambda: "404" in caplog.text)
+
+    await delegate.handle_end(first)
+    await delegate.handle_end(second)
+    await provider.close()
+
+    (line,) = starts.read_text().splitlines()
+    assert line.startswith("-hide_banner -nostdin -loglevel warning -nostats -i medium")
+    assert "rtp://127.0.0.1:5000" in line
+    assert "-b:a 24000" in line
+    assert worker.senders[0].options["source"] is worker.sources[0]
+    assert provider.pool.counts() == {}
+    assert "rtsps://192.168.1.1:7441/<redacted> 404" in caplog.text
+    assert "T0k3n" not in caplog.text
 
 
 async def test_ffmpeg_provider_without_audio(fake_ffmpeg: Path) -> None:

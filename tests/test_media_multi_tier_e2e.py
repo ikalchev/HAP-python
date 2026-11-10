@@ -2,7 +2,8 @@
 
 A loopback controller writes Setup Endpoints and RTP Streaming Control and
 decrypts the SRTP of a synthetic camera channel; once with the senders in
-process, once in the media worker.
+process, once in the media worker. A WebRTC session on the same channel
+shares its source and pull.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 from pyhap.camera_multi_tier import MultiTierController
 from pyhap.camera_stream import StreamError
+from pyhap.media.delegate import WebRTCMediaDelegate
 from pyhap.media.multi_tier_delegate import MultiTierMediaDelegate
 from pyhap.media.pool import SourcePool
 from pyhap.media.worker import MediaWorker
@@ -28,9 +30,12 @@ from pyhap.util import base64_to_bytes, to_base64_str
 from .test_media_multi_tier import AUDIO_KEY, VIDEO_KEY, Controller as SrtpController
 from .webrtc_hap import (
     SyntheticPull,
+    answer,
     bridged,
+    connect_and_receive,
+    solicit,
 )
-from .webrtc_peer import KEYFRAME, TRAIL, wait_until
+from .webrtc_peer import KEYFRAME, TRAIL, Controller, wait_until
 
 pytestmark = pytest.mark.timeout(30)
 
@@ -95,14 +100,19 @@ async def camera(
     stream_camera: Callable[..., Camera],
     provider: Provider,
 ) -> AsyncIterator[Camera]:
-    """A camera whose multi-tier sessions lease from the provider."""
+    """A camera whose multi-tier and WebRTC sessions share the provider."""
     multi_tier = MultiTierMediaDelegate(provider, sender_options={"idle_timeout": 1.0})
+    webrtc = WebRTCMediaDelegate(
+        provider, sender_options={"host_addresses": ["127.0.0.1"], "use_ipv6": False}
+    )
     accessory = bridged(
-        stream_driver, stream_camera(multi_tier={"delegate": multi_tier})
+        stream_driver,
+        stream_camera(multi_tier={"delegate": multi_tier}, webrtc={"delegate": webrtc}),
     )
     yield accessory
     await accessory.stop()
     await multi_tier.close()
+    await webrtc.close()
 
 
 def _controller(camera: Camera) -> MultiTierController:
@@ -209,6 +219,26 @@ async def test_controller_rtcp_keeps_the_session(
     peer.send_pli(response.address.video_port)
     await wait_until(lambda: bool(calls))
     assert await control(camera, 1) == 0
+    peer.close()
+
+
+async def test_shared_with_webrtc(camera: Camera, provider: Provider) -> None:
+    """Verify a WebRTC and a multi-tier session pull one channel once."""
+    peer = SrtpController()
+    await setup(camera, peer)
+    assert await control(camera, 2, tier_of(camera, hksv3.VideoQuality.MEDIUM)) == 0
+    await frames(peer, 1)
+
+    remote = Controller(sframe=False)
+    offer = await solicit(camera, False)
+    await answer(camera, remote, offer)
+    await connect_and_receive(remote, 2)
+    assert provider.pool.counts() == {"medium": (2, 2)}
+    assert provider.pulls["medium"].starts == 1
+
+    assert await control(camera, 1) == 0
+    assert provider.pool.counts() == {"medium": (1, 1)}
+    await remote.close()
     peer.close()
 
 

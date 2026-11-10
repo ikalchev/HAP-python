@@ -3,8 +3,9 @@
 :class:`MultiTierMediaDelegate` is a
 :class:`pyhap.camera_multi_tier.MultiTierDelegate` with one
 :class:`~pyhap.media.multi_tier.MultiTierSender` per session. It leases
-sources from a provider and its pool, which the camera's other sessions can
-share, so a camera channel is pulled once for all of them::
+sources from the same provider and pool as
+:class:`~pyhap.media.delegate.WebRTCMediaDelegate`, so a camera channel is
+pulled once for all local and remote sessions::
 
     worker = MediaWorker()
     provider = FFmpegSourceProvider({"high": [...], "medium": [...]}, worker=worker)
@@ -12,6 +13,7 @@ share, so a camera channel is pulled once for all of them::
         {
             ...,
             "multi_tier": {"delegate": MultiTierMediaDelegate(provider)},
+            "webrtc": {"delegate": WebRTCMediaDelegate(provider)},
         },
         driver,
         "Camera",
