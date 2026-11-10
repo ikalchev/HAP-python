@@ -447,14 +447,23 @@ class RTPStreamingControl:
     @classmethod
     def decode(cls, data: bytes) -> RTPStreamingControl:
         fields = _fields(data)
+        video_ssrc = _optional_ssrc(fields, 4)
+        audio_ssrc = _optional_ssrc(fields, 6)
         return cls(
             UUID(bytes=_required(fields, 1)),
             _to_enum(RTPStreamingCommand, _required(fields, 2)),
             _optional_int(fields, 3),
-            _optional_int(fields, 4),
+            video_ssrc,
             _optional_int(fields, 5),
-            _optional_int(fields, 6),
+            audio_ssrc,
         )
+
+
+def _optional_ssrc(fields: dict[int, list[bytes]], tag: int) -> int | None:
+    ssrc = _optional_int(fields, tag)
+    if ssrc is not None and ssrc > 0xFFFFFFFF:
+        raise ValueError(f"SSRC {ssrc} is out of range")
+    return ssrc
 
 
 def encode_streaming_status(
@@ -650,16 +659,17 @@ def tiers_from_sensor(sensor: SensorConfiguration) -> list[VideoStreamTier]:
 
 DEFAULT_AUDIO_TIER = AudioStreamTier(1, 24000, AudioSampleRate.KHZ_48)
 
-# Average and maximum kbps of the guide's bit rate table, by the short side
-# of the frame; the aspect ratio does not matter. A frame between two rows
+# Average and maximum kbps of the guide's bit rate table, by pixel count:
+# each row is keyed by the largest frame of its class in the guide's table of
+# resolutions, whatever the aspect ratio. 2880x2880 counts as 4K, 2048x1536
+# as 2K and 1440x1080 as 720p, as in that table. A frame between two rows
 # takes the larger one.
 _GUIDE_BITRATES = {
-    2160: (4500, 5000),
-    1440: (2800, 3000),
-    1080: (1700, 1800),
-    720: (768, 800),
-    360: (180, 190),
-    240: (180, 190),
+    3840 * 2160: (4500, 5000),
+    2560 * 1440: (2800, 3000),
+    1920 * 1080: (1700, 1800),
+    1440 * 1080: (768, 800),
+    640 * 480: (180, 190),
 }
 
 
@@ -704,8 +714,8 @@ def check_video_tiers(sensor: SensorConfiguration) -> list[str]:
             raise ValueError(f"{name}: peak bit rate below the average")
         if (stream.peak_bitrate - stream.average_bitrate) * 10 > stream.peak_bitrate:
             warnings.append(f"{name}: average more than 10 % below the peak")
-        short_side = min(stream.width, stream.height)
-        rows = [row for row in sorted(_GUIDE_BITRATES) if row >= short_side]
+        pixels = stream.width * stream.height
+        rows = [row for row in sorted(_GUIDE_BITRATES) if row >= pixels]
         if not rows:
             warnings.append(f"{name}: larger than the guide's 4K bit rate table")
             continue
@@ -871,10 +881,10 @@ class WebRTCOffer:
     This, :class:`WebRTCReofferAnswer`, :class:`IceCandidate` and
     :class:`SFrameKey` are the types WebRTC media and the HAP side share.
 
-    ``sdp`` carries all ICE candidates, HAP has no trickle ICE; the candidate
-    list of the Solicit Offer answer stays empty, as in the Scrypted HomeKit
-    plugin. ``sframe`` is the key the accessory sends with, see
-    :func:`generate_sframe_key`; None for a session without SFrame.
+    ``sdp`` carries all ICE candidates because HAP has no trickle ICE. The
+    candidate list of the Solicit Offer answer stays empty, as in the Scrypted
+    HomeKit plugin. ``sframe`` is the key the accessory sends with, see
+    :func:`generate_sframe_key`, or None for a session without SFrame.
     """
 
     sdp: str

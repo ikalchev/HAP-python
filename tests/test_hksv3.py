@@ -497,10 +497,12 @@ def test_rtp_streaming_control_unknown_values() -> None:
         "0104aabbccdd 020102",
         "0110" + SESSION.hex + "020102 0300",
         "0110" + SESSION.hex + "0201",
+        "0110" + SESSION.hex + "020102 04050000000001",
+        "0110" + SESSION.hex + "020102 06050000000001",
     ],
 )
 def test_rtp_streaming_control_invalid(data: str) -> None:
-    """Test missing fields, bad lengths and truncated data raise."""
+    """Test missing fields, bad lengths, truncated data and wide SSRCs raise."""
     with pytest.raises(ValueError):
         RTPStreamingControl.decode(bytes.fromhex(data))
 
@@ -578,6 +580,55 @@ GUIDE_360 = (4, 640, 360, 180, 190)
 def test_check_video_tiers_guide_table() -> None:
     """Test the guide's own bit rates give no warning."""
     assert hksv3.check_video_tiers(_sensor(GUIDE_4K, GUIDE_1080, GUIDE_360)) == []
+
+
+@pytest.mark.parametrize(
+    "streams",
+    [
+        ((2, 2880, 2160, 4500, 5000), (3, 1600, 1200, 1700, 1800), GUIDE_360),
+        ((2, 2400, 3200, 4500, 5000), (3, 1200, 1600, 1700, 1800), GUIDE_360),
+        ((2, 2880, 2880, 4500, 5000), (3, 1440, 1440, 1700, 1800), GUIDE_360),
+        ((2, 2560, 1440, 2800, 3000), GUIDE_1080, (4, 640, 480, 180, 190)),
+        ((2, 2048, 1536, 2800, 3000), (3, 1600, 1200, 1700, 1800), GUIDE_360),
+        ((2, 1536, 2048, 2800, 3000), (3, 1200, 1600, 1700, 1800), GUIDE_360),
+        ((2, 1920, 1920, 2800, 3000), (3, 1440, 1440, 1700, 1800), GUIDE_360),
+        (GUIDE_1080, (3, 1280, 720, 768, 800), (4, 426, 240, 180, 190)),
+        (GUIDE_1080, (3, 1440, 1080, 768, 800), (4, 640, 480, 180, 190)),
+        (
+            (2, 1200, 1600, 1700, 1800),
+            (3, 960, 1280, 768, 800),
+            (4, 480, 640, 180, 190),
+        ),
+        (
+            (2, 1440, 1440, 1700, 1800),
+            (3, 1080, 1080, 768, 800),
+            (4, 480, 480, 180, 190),
+        ),
+    ],
+)
+def test_check_video_tiers_guide_resolutions(
+    streams: tuple[tuple[int, int, int, int, int], ...],
+) -> None:
+    """Test every resolution of the guide at its class's bit rates gives no warning."""
+    assert hksv3.check_video_tiers(_sensor(*streams)) == []
+
+
+@pytest.mark.parametrize(
+    ("stream", "warning"),
+    [
+        ((3, 2048, 1536, 2800, 3100), "peak above the guide's 3000 kbps"),
+        ((3, 1920, 1920, 2800, 3100), "peak above the guide's 3000 kbps"),
+        ((3, 1440, 1440, 1750, 1900), "peak above the guide's 1800 kbps"),
+        ((3, 1440, 1080, 768, 850), "peak above the guide's 800 kbps"),
+        ((3, 640, 480, 180, 200), "peak above the guide's 190 kbps"),
+    ],
+)
+def test_check_video_tiers_class_by_pixels(
+    stream: tuple[int, int, int, int, int], warning: str
+) -> None:
+    """Test a frame takes the row of its class in the guide, not of its short side."""
+    (found,) = hksv3.check_video_tiers(_sensor(GUIDE_4K, stream, GUIDE_360))
+    assert warning in found
 
 
 @pytest.mark.parametrize(
