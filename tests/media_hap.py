@@ -9,7 +9,7 @@ from pyhap.accessory import Bridge
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 
-from .webrtc_peer import KEYFRAME, TRAIL, Source
+from .media_peer import KEYFRAME, TRAIL, Source
 
 CLIENT = ("127.0.0.1", 50000)
 # A synthetic camera: an IRAP picture every GOP_FRAMES frames.
@@ -24,6 +24,7 @@ class SyntheticPull:
         """Not running yet."""
         self.starts = 0
         self.stops = 0
+        self.keyframe_requests: list[tuple[float | None, float | None]] = []
         self._task: asyncio.Task[None] | None = None
 
     async def start(self, rtp_input: tuple[str, int, int]) -> None:
@@ -50,7 +51,8 @@ class SyntheticPull:
                 await self._task
 
     def keyframe_requested(self, age: float | None, gop: float | None) -> None:
-        """The next GOP brings one."""
+        """Record the request; the next GOP brings a keyframe."""
+        self.keyframe_requests.append((age, gop))
 
 
 def bridged(driver: AccessoryDriver, camera: Camera) -> Camera:

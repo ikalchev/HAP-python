@@ -117,6 +117,12 @@ class AccessUnit:
         """Whether the access unit contains an IRAP picture."""
         return any(is_irap(nal) for nal in self.nals)
 
+    @property
+    def self_contained(self) -> bool:
+        """Whether a decoder can start here: IRAP with VPS, SPS and PPS."""
+        kinds = {nal_type(nal) for nal in self.nals}
+        return self.keyframe and all(kind in kinds for kind in PARAMETER_SETS)
+
     def to_bytes(self) -> bytes:
         """Return the 4-byte length-prefixed SFrame plaintext."""
         return length_prefixed(self.nals)

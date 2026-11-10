@@ -28,12 +28,14 @@ Session flow, mapped to the HAP operations:
 * End: :meth:`MultiTierSender.close`.
 
 The controller sends its RTCP to the accessory's ports. Each datagram from
-the controller's address calls ``on_rtcp`` (at most once per
+the controller's address that decrypts with the session key and does not
+carry the accessory's own SSRC calls ``on_rtcp`` (at most once per
 ``rtcp_notify_interval``), which keeps the HAP session alive; a picture loss
-indication or full intra request that decrypts with the session key asks
-for a keyframe. The sender ends on its own, calling ``on_closed(reason)``,
-when no video arrives for ``idle_timeout``, sending fails or the source is
-closed.
+indication or full intra request among them asks for a keyframe. The sender
+ends on its own, calling ``on_closed(reason)``, when no video arrives for
+``idle_timeout``, SRTP fails or the source is closed. A session starts, and
+continues after a switch, with an IRAP picture that carries its parameter
+sets.
 """
 
 from __future__ import annotations
@@ -78,6 +80,11 @@ class _Port(asyncio.DatagramProtocol):
             self._on_datagram(data, addr)
         except Exception:
             logger.exception("Error handling a multi-tier RTCP packet")
+
+    def error_received(self, exc: Exception) -> None:
+        # asyncio reports send errors here, e.g. ICMP unreachable; the idle
+        # timeout ends a session whose controller is gone.
+        logger.debug("Multi-tier port error: %s", exc)
 
     @property
     def port(self) -> int:
@@ -126,20 +133,30 @@ class _SrtpStream:
         )
 
     def unprotect_rtcp(self, data: bytes) -> bytes | None:
+        """The controller's RTCP, None unless it is SRTCP from another SSRC.
+
+        Both directions share the key, so the accessory's own packets sent
+        back would decrypt too; they carry the accessory's SSRC.
+        """
         try:
-            return self._inbound.unprotect_rtcp(data)
+            rtcp = self._inbound.unprotect_rtcp(data)
         except pylibsrtp.Error:
             return None
+        if len(rtcp) < 8 or int.from_bytes(rtcp[4:8], "big") == self.rtp.ssrc:
+            return None
+        return rtcp
 
     def authentic(self, data: bytes) -> bool:
-        """Whether ``data`` is SRTCP or SRTP under the session's key."""
+        """Whether ``data`` is the controller's SRTCP or SRTP under the key."""
         if self.unprotect_rtcp(data) is not None:
             return True
         try:
-            self._inbound.unprotect(data)
+            packet = self._inbound.unprotect(data)
         except pylibsrtp.Error:
             return False
-        return True
+        return len(packet) >= 12 and int.from_bytes(packet[8:12], "big") != (
+            self.rtp.ssrc
+        )
 
 
 class MultiTierSender:
@@ -297,6 +314,8 @@ class MultiTierSender:
             return
         self._attach(source)
         self._started_at = time.monotonic()
+        # The new source needs its own request, however recent the last one.
+        self._last_keyframe_request = -self._keyframe_request_interval
         self._request_keyframe()
 
     def _attach(self, source: MediaSource) -> None:
@@ -306,6 +325,9 @@ class MultiTierSender:
             self._source.detach(self)
         self._source = source
         self._waiting_for_keyframe = True
+        # Another source has its own timestamps; the stream goes on smoothly.
+        self._video.rtp.rebase()
+        self._audio.rtp.rebase()
         source.attach(self)
 
     async def close(self) -> None:
@@ -332,8 +354,10 @@ class MultiTierSender:
         tasks = [task for task in self._tasks if task is not current]
         for task in tasks:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        self._close_ports()
+        try:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            self._close_ports()
         if reason is not None and self.on_closed:
             try:
                 self.on_closed(reason)
@@ -375,7 +399,8 @@ class MultiTierSender:
         """Send one access unit, starting with an IRAP picture."""
         if not self.started:
             return
-        if self._waiting_for_keyframe and not unit.keyframe:
+        if self._waiting_for_keyframe and not unit.self_contained:
+            # Start where a decoder can: an IRAP picture with its parameters.
             return
         self._waiting_for_keyframe = False
         timestamp = self._video.rtp.timestamp(ssrc, unit.timestamp)
@@ -385,7 +410,7 @@ class MultiTierSender:
             for index, payload in enumerate(payloads):
                 packet = self._video.packet(timestamp, index == last, payload)
                 self._send(self._video_port, packet, 0)
-        except (OSError, pylibsrtp.Error) as err:
+        except pylibsrtp.Error as err:
             self._close_soon(f"send failed: {err!r}")
 
     def on_source_audio(self, packet: rtp.RtpPacket) -> None:
@@ -399,7 +424,7 @@ class MultiTierSender:
         try:
             data = self._audio.packet(timestamp, marker, packet.payload)
             self._send(self._audio_port, data, 1)
-        except (OSError, pylibsrtp.Error) as err:
+        except pylibsrtp.Error as err:
             self._close_soon(f"send failed: {err!r}")
 
     def _from_controller(self, addr: tuple[Any, ...]) -> bool:
