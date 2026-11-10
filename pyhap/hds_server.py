@@ -174,7 +174,7 @@ class HDSConnection(asyncio.Protocol):
         """
         try:
             await asyncio.wait_for(self._can_write.wait(), _DRAIN_TIMEOUT)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.info("Aborting HDS connection: peer stopped reading")
             self.abort()
             # connection_lost wakes us and cancels the recording streams, so a

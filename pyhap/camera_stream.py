@@ -338,7 +338,7 @@ class StreamController(Generic[_S]):
                 )
         try:
             await asyncio.wait_for(self._release_hook(session), self.hook_timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("[%s] Releasing the session timed out", session.id)
             return False
         # The delegate may fail in many ways, the session is gone anyway.
