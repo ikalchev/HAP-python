@@ -24,6 +24,7 @@ from pyhap.service import Service
 
 CLIENT = ("1.2.3.4", 5000)
 NOW = 1000.0
+REJECTED = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
 
 
 class WritableChar(NamedTuple):
@@ -100,8 +101,8 @@ def test_prepared_write_is_applied(
 
 @pytest.mark.parametrize(
     ("write_pid", "delay"),
-    [(8, 0.0), (7, 2.6), ([7], 0.0)],
-    ids=["unknown_pid", "expired_pid", "unhashable_pid"],
+    [(8, 0.0), (1, 2.6), ([1], 0.0), (True, 0.0)],
+    ids=["unknown_pid", "expired_pid", "unhashable_pid", "bool_pid"],
 )
 def test_unprepared_write_is_ignored(
     driver: AccessoryDriver,
@@ -111,7 +112,7 @@ def test_unprepared_write_is_ignored(
 ) -> None:
     """Test a write with an unknown or expired pid is ignored as a whole."""
     with patch("pyhap.accessory_driver.time.monotonic", return_value=NOW) as now:
-        driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 7}, CLIENT)
+        driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 1}, CLIENT)
         now.return_value = NOW + delay
         response = driver.set_characteristics(
             _write(door.aid, door.iid, write_pid), CLIENT
@@ -128,6 +129,76 @@ def test_unprepared_write_is_ignored(
     }
     door.setter.assert_not_called()
     assert get_topic(door.aid, door.iid) not in driver.topics
+
+
+def test_prepared_write_is_kept_until_its_ttl_ends(
+    driver: AccessoryDriver,
+    door: WritableChar,
+) -> None:
+    """Test a later prepare at the last moment of a TTL keeps that write."""
+    with patch("pyhap.accessory_driver.time.monotonic", return_value=NOW) as now:
+        driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 7}, CLIENT)
+        now.return_value = NOW + 2.5
+        driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 8}, CLIENT)
+        assert driver.set_characteristics(_write(door.aid, door.iid, 7), CLIENT) is None
+
+    door.setter.assert_called_once_with(1)
+
+
+def test_unprepared_write_ignores_every_characteristic(
+    driver: AccessoryDriver,
+    chars: dict[str, WritableChar],
+) -> None:
+    """Test a write with an unknown pid writes none of its characteristics."""
+    door, camera = chars["TargetDoorState"], chars["HomeKitCameraActive"]
+    query = {
+        HAP_REPR_PID: 8,
+        HAP_REPR_CHARS: [
+            {HAP_REPR_AID: door.aid, HAP_REPR_IID: door.iid, HAP_REPR_VALUE: 1},
+            {HAP_REPR_AID: camera.aid, HAP_REPR_IID: camera.iid, HAP_REPR_VALUE: 0},
+        ],
+    }
+
+    response = driver.set_characteristics(query, CLIENT)
+
+    assert _statuses(response) == [REJECTED, REJECTED]
+    door.setter.assert_not_called()
+    camera.setter.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "prepare_query",
+    [
+        {HAP_REPR_TTL: 2500, HAP_REPR_PID: "7"},
+        {HAP_REPR_TTL: 2500, HAP_REPR_PID: 1.5},
+        {HAP_REPR_TTL: 2500, HAP_REPR_PID: True},
+        {HAP_REPR_TTL: "2500", HAP_REPR_PID: 7},
+        {HAP_REPR_TTL: 2500.0, HAP_REPR_PID: 7},
+        {HAP_REPR_TTL: 10**400, HAP_REPR_PID: 7},
+        {HAP_REPR_PID: 7},
+        {HAP_REPR_TTL: 2500},
+        [2500, 7],
+        None,
+    ],
+    ids=[
+        "str_pid",
+        "float_pid",
+        "bool_pid",
+        "str_ttl",
+        "float_ttl",
+        "overflowing_ttl",
+        "missing_ttl",
+        "missing_pid",
+        "list",
+        "null",
+    ],
+)
+def test_prepare_refuses_non_integers(
+    driver: AccessoryDriver, prepare_query: Any
+) -> None:
+    """Test a prepare that is no object or lacks an integer ttl or pid is refused."""
+    assert driver.prepare(prepare_query, CLIENT) == {HAP_REPR_STATUS: REJECTED}
+    assert driver.prepared_writes.get(CLIENT, {}) == {}
 
 
 def test_prepared_pid_is_used_once(
@@ -165,15 +236,9 @@ def test_prepared_pid_belongs_to_its_connection(
     door.setter.assert_not_called()
 
 
-def _rejection(char: WritableChar, status: int | None) -> dict[str, Any] | None:
-    """Return the expected write response, None for a plain success."""
-    if status is None:
-        return None
-    return {
-        HAP_REPR_CHARS: [
-            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_STATUS: status}
-        ]
-    }
+def _statuses(response: dict[str, Any] | None) -> list[int]:
+    """Return the statuses of a write response, none for a plain success."""
+    return [char[HAP_REPR_STATUS] for char in (response or {}).get(HAP_REPR_CHARS, [])]
 
 
 def _highest_level(records: list[logging.LogRecord]) -> int:
@@ -181,24 +246,25 @@ def _highest_level(records: list[logging.LogRecord]) -> int:
     return max((record.levelno for record in records), default=0)
 
 
-REJECTED = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
-
-
 @pytest.mark.parametrize(
-    ("enforce", "name", "request_extra", "status", "calls", "logged"),
+    ("enforce", "name", "request_extra", "value", "statuses", "calls", "logged"),
     [
-        (True, "HomeKitCameraActive", {}, REJECTED, 0, 0),
-        (True, "HomeKitCameraActive", {HAP_REPR_PID: 7}, None, 1, 0),
-        (True, "TargetDoorState", {}, None, 1, 0),
-        (False, "HomeKitCameraActive", {}, None, 1, 1),
-        (False, "HomeKitCameraActive", {HAP_REPR_PID: 7}, None, 1, 0),
-        (False, "TargetDoorState", {}, None, 1, 0),
+        (True, "HomeKitCameraActive", {}, 0, [REJECTED], 0, 0),
+        (True, "HomeKitCameraActive", {HAP_REPR_PID: 7}, 0, [], 1, 0),
+        (True, "HomeKitCameraActive", {}, None, [REJECTED], 0, 0),
+        (True, "TargetDoorState", {}, 0, [], 1, 0),
+        (False, "HomeKitCameraActive", {}, 0, [], 1, 1),
+        (False, "HomeKitCameraActive", {}, None, [REJECTED], 0, 0),
+        (False, "HomeKitCameraActive", {HAP_REPR_PID: 7}, 0, [], 1, 0),
+        (False, "TargetDoorState", {}, 0, [], 1, 0),
     ],
     ids=[
         "enforced_plain_write",
         "enforced_timed_write",
+        "enforced_null_value",
         "enforced_plain_write_without_tw",
         "lenient_plain_write",
+        "lenient_null_value",
         "lenient_timed_write",
         "lenient_plain_write_without_tw",
     ],
@@ -210,7 +276,8 @@ def test_timed_write_permission(
     enforce: bool,
     name: str,
     request_extra: dict[str, Any],
-    status: int | None,
+    value: int | None,
+    statuses: list[int],
     calls: int,
     logged: int,
 ) -> None:
@@ -221,14 +288,14 @@ def test_timed_write_permission(
     driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 7}, CLIENT)
     query = {
         HAP_REPR_CHARS: [
-            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_VALUE: 0}
+            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_VALUE: value}
         ],
         **request_extra,
     }
 
     response = driver.set_characteristics(query, CLIENT)
 
-    assert response == _rejection(char, status)
+    assert _statuses(response) == statuses
     assert char.setter.call_count == calls
     assert caplog.text.count("requires a timed write") == logged
     # Lenient mode must not warn, hubs write these values all the time.

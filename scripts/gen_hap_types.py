@@ -206,8 +206,8 @@ def perms_from_bitmask(
     `properties` is the integer bitmask; `hap_properties` is the HAP.Properties
     legend (name -> {"Position": n}) from the same file.
     Admin-only characteristics (the "adminOnly" bit) are recorded separately in
-    "AdminOnlyAccess": ["write"] in the output, mirroring HAP-NodeJS; HAP-python
-    does not enforce this, it is informational.
+    "AdminOnlyAccess": ["write"] in the output, mirroring HAP-NodeJS. The
+    AccessoryDriver refuses such writes from controllers that are no admins.
     """
     perms: list[str] = []
     admin_only = False

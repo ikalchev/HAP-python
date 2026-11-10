@@ -391,8 +391,8 @@ class MultiTierController(StreamController[MultiTierSession]):
         endpoint = request.address
         error = hksv3.SetupEndpointsStatus.ERROR
         try:
-            address = parse_setup_address(
-                endpoint.address.encode("utf-8"), endpoint.is_ipv6
+            address = str(
+                parse_setup_address(endpoint.address.encode("utf-8"), endpoint.is_ipv6)
             )
             _check_srtp(request.video_srtp)
             _check_srtp(request.audio_srtp)
