@@ -9,6 +9,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID
 
+import pylibsrtp
 import pytest
 
 from pyhap import camera, tlv
@@ -289,8 +290,6 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver: Any) -> No
     client would during a live view session) is decrypted, RTP-parsed, and
     dispatched to ``talkback_audio_received`` with the raw codec payload.
     """
-    pylibsrtp = pytest.importorskip("pylibsrtp")
-
     mock_driver.loop = asyncio.get_running_loop()
 
     received = []
