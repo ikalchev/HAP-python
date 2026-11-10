@@ -426,7 +426,7 @@ async def test_prepare_sets_invalid_address(
 
     assert answer[SETUP_TYPES["STATUS"]] == b"\x02"
     assert sessions == {}
-    assert "The prepare hook set an invalid address" in caplog.text
+    assert "The accessory address" in caplog.text
     multi_tier_delegate.handle_end.assert_awaited_once()
 
 
@@ -443,13 +443,19 @@ async def test_prepare_sets_ipv6_address(
     assert address[SETUP_ADDR_INFO["ADDRESS"]] == b"fd00::20"
 
 
-async def test_prepare_sets_ipv4_address_on_ipv6(
+@pytest.mark.parametrize(
+    "address",
+    ["192.168.1.20", "fe80::20%eth0", "::ffff:192.168.1.20"],
+    ids=["ipv4", "scope-id", "ipv4-mapped"],
+)
+async def test_prepare_sets_invalid_address_on_ipv6(
     stream_camera: Callable[..., Camera],
     multi_tier_delegate: AsyncMock,
     caplog: pytest.LogCaptureFixture,
+    address: str,
 ) -> None:
-    """Test an IPv4 address from the prepare hook fails an IPv6 session."""
-    multi_tier_delegate.handle_prepare.side_effect = _prepare_address("192.168.1.20")
+    """Test an address from the prepare hook that is no plain IPv6 address fails."""
+    multi_tier_delegate.handle_prepare.side_effect = _prepare_address(address)
     camera = stream_camera()
     with patch.object(camera.driver, "_local_address", return_value="fd00::10"):
         answer = await _setup(camera, _setup_request(b"fd00::1", True))
@@ -457,7 +463,7 @@ async def test_prepare_sets_ipv4_address_on_ipv6(
     await camera.stop()
     assert answer[SETUP_TYPES["STATUS"]] == b"\x02"
     assert sessions == {}
-    assert "The prepare hook set an invalid address" in caplog.text
+    assert "The accessory address" in caplog.text
 
 
 async def test_prepare_sets_edge_ports(

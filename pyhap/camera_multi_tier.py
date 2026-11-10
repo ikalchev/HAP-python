@@ -429,11 +429,11 @@ class MultiTierController(StreamController[MultiTierSession]):
             return error
         if not _valid_address(session.accessory_address, session.is_ipv6):
             logger.error(
-                "[%s] The prepare hook set an invalid address %r",
+                "[%s] The accessory address %r is invalid",
                 session_id,
                 session.accessory_address,
             )
-            self._end(session, "the prepare hook set an invalid address")
+            self._end(session, "the accessory address is invalid")
             return error
         session.state = SessionState.PREPARED
         self._set_timer(
@@ -539,14 +539,18 @@ def _valid_port(port: object) -> bool:
 
 
 def _valid_address(address: object, is_ipv6: bool) -> bool:
-    """Whether ``address`` is an IP address string of the session's family."""
+    """Whether ``address`` is a plain IP address string of the session's family.
+
+    Like the controller's address, it must not carry an IPv6 scope ID. An
+    IPv4-mapped IPv6 address does not count as IPv6.
+    """
     if not isinstance(address, str):
         return False
     try:
-        parsed = ipaddress.ip_address(address)
+        parsed = parse_setup_address(address.encode("utf-8"), is_ipv6)
     except ValueError:
         return False
-    return parsed.version == (6 if is_ipv6 else 4)
+    return not (isinstance(parsed, ipaddress.IPv6Address) and parsed.ipv4_mapped)
 
 
 def _ssrc() -> int:
