@@ -29,7 +29,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, TypeGuard
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
@@ -94,7 +94,7 @@ MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
 
 
-def _is_hap_int(value: Any) -> bool:
+def _is_hap_int(value: Any) -> TypeGuard[int]:
     """Whether ``value`` is a JSON integer, not a bool."""
     return isinstance(value, int) and not isinstance(value, bool)
 
@@ -1308,11 +1308,13 @@ class AccessoryDriver:
 
         :type prepare_query: dict
         """
+        if not isinstance(prepare_query, dict):
+            return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
+        ttl = prepare_query.get(HAP_REPR_TTL)
+        pid = prepare_query.get(HAP_REPR_PID)
+        if not (_is_hap_int(ttl) and _is_hap_int(pid)):
+            return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
         try:
-            ttl = prepare_query[HAP_REPR_TTL]
-            pid = prepare_query[HAP_REPR_PID]
-            if not (_is_hap_int(ttl) and _is_hap_int(pid)):
-                raise TypeError("ttl and pid must be integers")
             now = time.monotonic()
             pending = self.prepared_writes.setdefault(client_addr, {})
             # Prune expired entries and cap the number of pending writes so a
@@ -1327,7 +1329,7 @@ class AccessoryDriver:
             if len(pending) >= MAX_PREPARED_WRITES_PER_CLIENT:
                 del pending[min(pending, key=pending.get)]
             pending[pid] = now + min(ttl / 1000, MAX_PREPARED_WRITE_TTL_SECONDS)
-        except (KeyError, TypeError, ValueError, OverflowError):
+        except OverflowError:
             return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
 
         return {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}

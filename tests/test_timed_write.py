@@ -101,8 +101,8 @@ def test_prepared_write_is_applied(
 
 @pytest.mark.parametrize(
     ("write_pid", "delay"),
-    [(8, 0.0), (7, 2.6), ([7], 0.0)],
-    ids=["unknown_pid", "expired_pid", "unhashable_pid"],
+    [(8, 0.0), (1, 2.6), ([1], 0.0), (True, 0.0)],
+    ids=["unknown_pid", "expired_pid", "unhashable_pid", "bool_pid"],
 )
 def test_unprepared_write_is_ignored(
     driver: AccessoryDriver,
@@ -112,7 +112,7 @@ def test_unprepared_write_is_ignored(
 ) -> None:
     """Test a write with an unknown or expired pid is ignored as a whole."""
     with patch("pyhap.accessory_driver.time.monotonic", return_value=NOW) as now:
-        driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 7}, CLIENT)
+        driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 1}, CLIENT)
         now.return_value = NOW + delay
         response = driver.set_characteristics(
             _write(door.aid, door.iid, write_pid), CLIENT
@@ -129,6 +129,20 @@ def test_unprepared_write_is_ignored(
     }
     door.setter.assert_not_called()
     assert get_topic(door.aid, door.iid) not in driver.topics
+
+
+def test_prepared_write_is_kept_until_its_ttl_ends(
+    driver: AccessoryDriver,
+    door: WritableChar,
+) -> None:
+    """Test a later prepare at the last moment of a TTL keeps that write."""
+    with patch("pyhap.accessory_driver.time.monotonic", return_value=NOW) as now:
+        driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 7}, CLIENT)
+        now.return_value = NOW + 2.5
+        driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 8}, CLIENT)
+        assert driver.set_characteristics(_write(door.aid, door.iid, 7), CLIENT) is None
+
+    door.setter.assert_called_once_with(1)
 
 
 def test_unprepared_write_ignores_every_characteristic(
@@ -159,14 +173,30 @@ def test_unprepared_write_ignores_every_characteristic(
         {HAP_REPR_TTL: 2500, HAP_REPR_PID: 1.5},
         {HAP_REPR_TTL: 2500, HAP_REPR_PID: True},
         {HAP_REPR_TTL: "2500", HAP_REPR_PID: 7},
+        {HAP_REPR_TTL: 2500.0, HAP_REPR_PID: 7},
         {HAP_REPR_TTL: 10**400, HAP_REPR_PID: 7},
+        {HAP_REPR_PID: 7},
+        {HAP_REPR_TTL: 2500},
+        [2500, 7],
+        None,
     ],
-    ids=["str_pid", "float_pid", "bool_pid", "str_ttl", "overflowing_ttl"],
+    ids=[
+        "str_pid",
+        "float_pid",
+        "bool_pid",
+        "str_ttl",
+        "float_ttl",
+        "overflowing_ttl",
+        "missing_ttl",
+        "missing_pid",
+        "list",
+        "null",
+    ],
 )
 def test_prepare_refuses_non_integers(
-    driver: AccessoryDriver, prepare_query: dict[str, Any]
+    driver: AccessoryDriver, prepare_query: Any
 ) -> None:
-    """Test a prepare whose ttl or pid is not an integer is refused."""
+    """Test a prepare that is no object or lacks an integer ttl or pid is refused."""
     assert driver.prepare(prepare_query, CLIENT) == {HAP_REPR_STATUS: REJECTED}
     assert driver.prepared_writes.get(CLIENT, {}) == {}
 
