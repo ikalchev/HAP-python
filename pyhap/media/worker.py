@@ -299,14 +299,19 @@ class RemoteRecorder:
         """Run the transcoder on the buffer and the live media."""
         if self._closed:
             raise MediaWorkerError("Recorder is closed")
-        await self._worker._request(
-            "rec_start",
-            self._generation,
-            session=self.id,
-            command=command,
-            prebuffer=prebuffer,
-        )
+        # Set first: the end of a short recording may arrive with the answer.
         self._recording = True
+        try:
+            await self._worker._request(
+                "rec_start",
+                self._generation,
+                session=self.id,
+                command=command,
+                prebuffer=prebuffer,
+            )
+        except BaseException:
+            self._recording = False
+            raise
 
     async def stop(self) -> None:
         """End the running recording without calling ``on_ended``."""

@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from pyhap import hksv3, hksv_recording as hr
+from pyhap import camera as camera_module, hksv3, hksv_recording as hr
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 from pyhap.hds_recording import RecordingPacket
@@ -19,7 +19,7 @@ from pyhap.media.recording_delegate import RecordingError, RecordingMediaDelegat
 from pyhap.media.worker import MediaWorker
 from pyhap.util import base64_to_bytes, to_base64_str
 
-from .media_hap import SyntheticPull, bridged
+from .media_hap import GOP_FRAMES, SyntheticPull, bridged
 from .media_peer import KEYFRAME, wait_until
 from .test_media_recording import selected
 
@@ -97,7 +97,8 @@ async def test_recording_starts_with_the_buffer(
     await delegate.arm()
     assert delegate.armed
     assert provider.pulls["medium"].starts == 1
-    await asyncio.sleep(1.2)
+    # Two GOPs buffered, the recording starts with an IRAP picture.
+    await wait_until(lambda: provider.pulls["medium"].frames > 2 * GOP_FRAMES)
     packets: list[RecordingPacket] = []
     stream = delegate.record(selected(), audio=True)
     async for packet in stream:
@@ -270,6 +271,35 @@ async def test_camera_arms_and_records_with_the_delegate(
     assert fake.closed
 
 
+async def test_camera_retries_a_failed_arm(
+    stream_driver: AccessoryDriver,
+    stream_camera: Callable[..., Camera],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an arm that fails, e.g. while the camera is offline, is retried."""
+    monkeypatch.setattr(camera_module, "RECORDING_ARM_RETRY", 0.01)
+    fake = FakeDelegate()
+    failures = [OSError("offline"), OSError("offline")]
+    original = fake.set_armed
+
+    async def flaky(armed: bool) -> None:
+        if armed and failures:
+            fake.calls.append(armed)
+            raise failures.pop(0)
+        await original(armed)
+
+    fake.set_armed = flaky  # type: ignore[method-assign]
+    camera = bridged(stream_driver, stream_camera(recording={"delegate": fake}))
+    service = camera.get_service("CameraRecordingManagement")
+    assert service is not None
+    await camera.start_recording_transport()
+    service.get_characteristic("Active").client_update_value(1)
+    await wait_until(lambda: fake.armed)
+    assert fake.calls == [True, True, True]
+    await camera.stop()
+    assert fake.closed
+
+
 async def test_camera_without_delegate_records_nothing(
     stream_driver: AccessoryDriver, stream_camera: Callable[..., Camera]
 ) -> None:
@@ -290,6 +320,31 @@ def test_warns_about_hds_recordings_with_multi_tier(
     stream_camera(**options)
     warnings = [r for r in caplog.records if "do not upload HDS" in r.getMessage()]
     assert len(warnings) == (1 if delegate else 0)
+
+
+async def test_buffer_comes_back_after_its_source_ends(
+    pool: SourcePool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify an armed delegate buffers again when its channel ends, e.g. a crash."""
+    monkeypatch.setattr(delegate_module, "REOPEN_DELAY", 0.01)
+    delegate = RecordingMediaDelegate(Provider(pool), MEDIUM, prebuffer_ms=1000)
+    await delegate.arm()
+    first = delegate._recorder
+    assert first is not None and delegate._lease is not None
+    source = delegate._lease.source
+    result = source.close("worker exited")
+    if asyncio.iscoroutine(result):
+        await result
+    await wait_until(
+        lambda: (
+            delegate._recorder is not None
+            and delegate._recorder is not first
+            and not delegate._recorder.closed
+        )
+    )
+    assert delegate.buffering
+    await delegate.close()
+    assert delegate._recorder is None
 
 
 async def test_failed_arm_disarms(pool: SourcePool) -> None:

@@ -150,6 +150,14 @@ def test_video_keeps_an_existing_delimiter() -> None:
     assert pes[14:].count(AUD) == 1
 
 
+def test_video_moves_a_later_delimiter_to_the_front() -> None:
+    """Verify a delimiter behind parameter sets is moved, not doubled."""
+    data = mpegts.MpegTsMuxer().video([*KEYFRAME[:3], AUD, KEYFRAME[3]], 0, True)
+    (pes,) = pes_payloads(data, mpegts.VIDEO_PID)
+    assert pes[14:].count(AUD) == 1
+    assert pes[14:].startswith(mpegts.START_CODE + AUD)
+
+
 def test_video_delimiter_has_the_temporal_id_of_the_unit() -> None:
     """Verify the inserted delimiter takes the TemporalId of the VCL NAL unit."""
     trail = bytes([1 << 1, 0x03]) + TRAIL[2:]
@@ -368,9 +376,10 @@ async def test_recorder_reports_the_transcoder_exit() -> None:
     ended: list[str | None] = []
     recorder.on_ended = ended.append
     try:
-        await recorder.start([sys.executable, "-c", "raise SystemExit(3)"], 4.0)
+        script = "import sys; sys.stderr.write('No such encoder: x\\n'); sys.exit(3)"
+        await recorder.start([sys.executable, "-c", script], 4.0)
         await wait_until(lambda: bool(ended))
-        assert ended == ["ffmpeg exited with 3"]
+        assert ended == ["ffmpeg exited with 3: No such encoder: x"]
         assert not recorder.recording
         assert not recorder.closed
     finally:

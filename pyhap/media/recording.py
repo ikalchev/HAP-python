@@ -330,6 +330,9 @@ class Recorder:
         self._source = source
         self._process: asyncio.subprocess.Process | None = None
         self._tasks: list[asyncio.Task[None]] = []
+        # The last transcoder lines, the newest says why it failed.
+        self._stderr_tail: deque[str] = deque(maxlen=3)
+        self._stderr_done: asyncio.Task[None] | None = None
         # Stops started from callbacks, kept so they are not collected.
         self._stops: set[asyncio.Task[None]] = set()
         self._truncated = False
@@ -412,10 +415,12 @@ class Recorder:
         logger.info("Recording transcoder started, pid %d", self._process.pid)
         process = self._process
         loop = asyncio.get_running_loop()
+        self._stderr_tail.clear()
+        self._stderr_done = loop.create_task(_log_stderr(process, self._stderr_tail))
         self._tasks = [
             loop.create_task(self._write(process, queue)),
             loop.create_task(self._read(process)),
-            loop.create_task(_log_stderr(process)),
+            self._stderr_done,
         ]
 
     async def _write(
@@ -439,12 +444,23 @@ class Recorder:
         assert stdout is not None  # noqa: S101
         while chunk := await stdout.read(OUTPUT_CHUNK):
             if self.on_data is not None:
-                self.on_data(chunk)
+                try:
+                    self.on_data(chunk)
+                except Exception as err:
+                    logger.exception("Error handling the recording output")
+                    if self._process is process:
+                        self._finish(f"recording output failed: {err!r}")
+                    return
         code = await process.wait()
         if self._process is not process:
             return
         if code != 0:
-            self._finish(f"ffmpeg exited with {code}")
+            # The last line usually says why; wait briefly for it.
+            if self._stderr_done is not None:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(self._stderr_done), 1.0)
+            reason = f": {self._stderr_tail[-1]}" if self._stderr_tail else ""
+            self._finish(f"ffmpeg exited with {code}{reason}")
         elif self._truncated:
             self._finish("the transcoder fell behind, the recording was cut short")
         else:
@@ -502,19 +518,20 @@ class Recorder:
             self.on_closed(reason)
 
 
-async def _log_stderr(process: asyncio.subprocess.Process) -> None:
+async def _log_stderr(process: asyncio.subprocess.Process, tail: deque[str]) -> None:
     stream = process.stderr
     if stream is None:
         return
     lines = StderrLines()
     while chunk := await stream.read(4096):
         for line in lines.feed(chunk):
-            _log_line(line)
+            _log_line(line, tail)
     for line in lines.end():
-        _log_line(line)
+        _log_line(line, tail)
 
 
-def _log_line(line: bytes) -> None:
-    text = line.decode(errors="replace").rstrip()
+def _log_line(line: bytes, tail: deque[str]) -> None:
+    text = redact_urls(line.decode(errors="replace").rstrip())
     if text:
-        logger.debug("Recording ffmpeg: %s", redact_urls(text))
+        tail.append(text)
+        logger.debug("Recording ffmpeg: %s", text)

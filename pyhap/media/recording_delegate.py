@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, Callable, Sequence
+from functools import partial
 import logging
 from typing import Protocol
 
@@ -48,6 +49,10 @@ from .recording import recording_ffmpeg_args
 logger = logging.getLogger(__name__)
 
 DEFAULT_PREBUFFER_MS = 0
+# Seconds before a buffered channel whose recorder ended is opened again,
+# doubling up to the maximum while it keeps failing.
+REOPEN_DELAY = 1.0
+MAX_REOPEN_DELAY = 60.0
 # The fragmented MP4 a recording may hold while the hub reads it.
 MAX_PENDING_OUTPUT = 16 * 1024 * 1024
 
@@ -143,6 +148,7 @@ class RecordingMediaDelegate:
         self._recorder: RecorderLike | None = None
         self._armed = False
         self._lock = asyncio.Lock()
+        self._reopening: asyncio.Task[None] | None = None
 
     @property
     def armed(self) -> bool:
@@ -184,7 +190,10 @@ class RecordingMediaDelegate:
             await self._release()
 
     async def close(self) -> None:
-        """Disarm for good."""
+        """Disarm and release the channel, e.g. on shutdown.
+
+        The delegate may be armed again afterwards.
+        """
         await self.disarm()
 
     async def _open(self) -> RecorderLike:
@@ -203,10 +212,45 @@ class RecordingMediaDelegate:
             await lease.release()
             raise
         self._lease, self._recorder = lease, recorder
+        recorder.on_closed = partial(self._recorder_closed, recorder)
         logger.debug("Recording channel %s buffered", lease.channel)
         return recorder
 
+    def _recorder_closed(self, recorder: RecorderLike, reason: str) -> None:
+        """The recorder ended on its own, e.g. its worker exited."""
+        if self._recorder is not recorder or not self.buffering:
+            return
+        logger.warning("Recording channel ended, buffering again: %s", reason)
+        if self._reopening is None or self._reopening.done():
+            self._reopening = asyncio.ensure_future(self._reopen())
+
+    async def _reopen(self) -> None:
+        """Buffer again while armed, with a growing delay between failures."""
+        delay = REOPEN_DELAY
+        while True:
+            async with self._lock:
+                recorder = self._recorder
+                if not self.buffering or (recorder and not recorder.closed):
+                    return
+                try:
+                    await self._open()
+                except Exception as err:  # noqa: BLE001 - retried below
+                    logger.warning(
+                        "Could not buffer the recording channel, retrying in"
+                        " %.0f s: %s",
+                        delay,
+                        err,
+                    )
+                else:
+                    return
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, MAX_REOPEN_DELAY)
+
     async def _release(self) -> None:
+        reopening = self._reopening
+        if reopening is not None and reopening is not asyncio.current_task():
+            self._reopening = None
+            reopening.cancel()
         recorder, self._recorder = self._recorder, None
         lease, self._lease = self._lease, None
         if recorder is not None:
