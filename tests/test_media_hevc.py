@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from pyhap.media import sframe
 from pyhap.media.hevc import (
     AccessUnit,
     HevcDepacketizer,
@@ -18,8 +19,11 @@ from pyhap.media.hevc import (
     split_aggregation_packet,
     split_length_prefixed,
 )
+from pyhap.media.sframe import SFrameSender
 
-from .webrtc_helpers import blob, scrypted_input
+from .webrtc_helpers import blob, load_vectors, scrypted_input
+
+SCRYPTED = load_vectors("sframe_scrypted_vectors.json")
 
 
 def nal(kind: int, size: int, seed: str = "", layer: int = 0, tid: int = 1) -> bytes:
@@ -87,12 +91,52 @@ def max_payload_size(nals: list[bytes], max_payload: int) -> int:
     return max(len(p) for p in HevcPacketizer(max_payload).packetize(nals))
 
 
+def scrypted_pipeline(case: dict[str, Any]) -> list[dict[str, Any]]:
+    """Run the vector's RTP input through depacketizer, SFrame and packetizer."""
+    depacketizer = HevcDepacketizer()
+    sender = SFrameSender(
+        bytes.fromhex(case["key"]), int(case["kid"]), case["ssrc"], case["suite"]
+    )
+    out = []
+    for sequence, timestamp, marker, payload in scrypted_input(case):
+        unit = depacketizer.push(sequence, timestamp, marker, payload)
+        if unit is None:
+            continue
+        payloads = sframe.packetize(
+            sender.protect(unit.to_bytes()), case["max_payload"]
+        )
+        out += [
+            {
+                "timestamp": unit.timestamp,
+                "marker": index == len(payloads) - 1,
+                "payload": blob(payload),
+            }
+            for index, payload in enumerate(payloads)
+        ]
+    return out
+
+
 def input_description(case: dict[str, Any]) -> list[dict[str, Any]]:
     """Describe the rebuilt RTP input the way the vector stores it."""
     return [
         {"sequence": seq, "timestamp": ts, "marker": marker, "payload": blob(data)}
         for seq, ts, marker, data in scrypted_input(case)
     ]
+
+
+def test_scrypted_video_input() -> None:
+    """Verify the rebuilt HEVC RTP input is the one Scrypted was fed."""
+    case = SCRYPTED["repacketized"][0]
+    assert input_description(case) == case["input"]
+
+
+def test_scrypted_video_pipeline() -> None:
+    """Verify HEVC RTP in, SFrame RTP out is byte-identical to Scrypted.
+
+    Output sequence numbers are the sender's own and are not compared.
+    """
+    case = SCRYPTED["repacketized"][0]
+    assert scrypted_pipeline(case) == case["output"]
 
 
 @pytest.mark.parametrize(

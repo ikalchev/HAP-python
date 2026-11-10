@@ -49,12 +49,10 @@ import pylibsrtp
 
 from . import MediaError, rtp, sdp
 from .hevc import AccessUnit, HevcPacketizer
+from .sframe import DEFAULT_MAX_PAYLOAD
 from .source import MediaSource
 
 logger = logging.getLogger(__name__)
-
-# Keeps every RTP packet below a typical path MTU.
-DEFAULT_MAX_PAYLOAD = 1200
 
 DEFAULT_IDLE_TIMEOUT = 10.0
 RTCP_INTERVAL = 1.0
