@@ -31,7 +31,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypeGuard
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
@@ -94,6 +94,11 @@ PAIRING_LOCKOUT_SECONDS = 60
 # grow ``prepared_writes`` without bound.
 MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
+
+
+def _is_hap_int(value: Any) -> TypeGuard[int]:
+    """Whether ``value`` is a JSON integer, not a bool."""
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _stored_value(char: Characteristic, value: HAPValue) -> HAPValue:
@@ -353,11 +358,9 @@ class AccessoryDriver:
 
         :param enforce_timed_writes: Whether to reject a plain write to a
             characteristic with the timed write ("tw") permission with -70410,
-            as the HAP specification requires. When False, such a write is
-            applied and only logged at debug level: a Home hub has been seen
-            writing HomeKit Camera Active without a timed write, and the HomeKit
-            Secure Video guide gives Streaming Enabled and Motion Enabled tw too,
-            so enforcing it would break HKSV with such hubs.
+            as the HAP specification requires. Off by default, because Home
+            hubs write some tw characteristics, e.g. HomeKit Camera Active,
+            without a timed write.
         :type enforce_timed_writes: bool
         """
         if loop is None:
@@ -1378,10 +1381,10 @@ class AccessoryDriver:
                 )
         return _set_characteristics_response(results)
 
-    def _take_prepared_write(self, pid: int, client_addr: tuple[str, int]) -> bool:
+    def _take_prepared_write(self, pid: Any, client_addr: tuple[str, int]) -> bool:
         """Consume the prepared write ``pid`` and return whether it is still valid."""
-        if not isinstance(pid, int):
-            # Controller input; a list or dict is not even hashable.
+        if not _is_hap_int(pid):
+            # Controller input. A list or dict is not even hashable.
             return False
         expires_at = self.prepared_writes.get(client_addr, {}).pop(pid, None)
         return expires_at is not None and time.monotonic() <= expires_at
@@ -1436,9 +1439,13 @@ class AccessoryDriver:
 
         :type prepare_query: dict
         """
+        if not isinstance(prepare_query, dict):
+            return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
+        ttl = prepare_query.get(HAP_REPR_TTL)
+        pid = prepare_query.get(HAP_REPR_PID)
+        if not (_is_hap_int(ttl) and _is_hap_int(pid)):
+            return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
         try:
-            ttl = prepare_query[HAP_REPR_TTL]
-            pid = prepare_query[HAP_REPR_PID]
             now = time.monotonic()
             pending = self.prepared_writes.setdefault(client_addr, {})
             # Prune expired entries and cap the number of pending writes so a
@@ -1447,13 +1454,13 @@ class AccessoryDriver:
             for stale_pid in [
                 prepared_pid
                 for prepared_pid, expires_at in pending.items()
-                if expires_at <= now
+                if expires_at < now
             ]:
                 del pending[stale_pid]
             if len(pending) >= MAX_PREPARED_WRITES_PER_CLIENT:
                 del pending[min(pending, key=pending.get)]
             pending[pid] = now + min(ttl / 1000, MAX_PREPARED_WRITE_TTL_SECONDS)
-        except (KeyError, TypeError, ValueError):
+        except OverflowError:
             return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
 
         return {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
