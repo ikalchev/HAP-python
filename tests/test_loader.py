@@ -7,7 +7,6 @@ import pytest
 
 from pyhap import CHARACTERISTICS_FILE, SERVICES_FILE
 from pyhap.characteristic import (
-    PROP_ADMIN_ONLY_ACCESS,
     PROP_FORMAT,
     PROP_MAX_VALUE,
     PROP_MIN_VALUE,
@@ -84,16 +83,6 @@ def test_get_loader() -> None:
     assert loader.serv_types == loader2.serv_types
 
     assert get_loader() == loader
-
-
-def test_loader_admin_only_not_advertised() -> None:
-    """Test the admin only marker stays out of the HAP representation."""
-    char = Loader().get_char("StreamingEnabled")
-    assert char.properties[PROP_ADMIN_ONLY_ACCESS] == ["write"]
-    with patch.object(char, "broker") as mock_broker:
-        mock_broker.iid_manager.get_iid.return_value = 2
-        hap_repr = char.to_HAP()
-    assert PROP_ADMIN_ONLY_ACCESS not in hap_repr
 
 
 # Accesses only admin controllers may use, not part of the HAP representation.

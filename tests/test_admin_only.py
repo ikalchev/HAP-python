@@ -4,14 +4,14 @@ from collections.abc import Callable, Iterator
 import io
 import json
 from typing import Any, NamedTuple
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 from uuid import UUID
 
 import pytest
 
 from pyhap import hap_handler
-from pyhap.accessory import Accessory
+from pyhap.accessory import Accessory, get_topic
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.characteristic import (
     HAP_FORMAT_BOOL,
@@ -22,6 +22,7 @@ from pyhap.characteristic import (
     Characteristic,
 )
 from pyhap.const import (
+    HAP_PERMISSION_NOTIFY,
     HAP_PERMISSION_WRITE,
     HAP_PERMISSIONS,
     HAP_REPR_AID,
@@ -85,9 +86,9 @@ def chars(driver: AccessoryDriver) -> Iterator[dict[str, SensorChar]]:
     """Add a motion sensor and pair an admin and a regular controller.
 
     Motion Enabled may only be written by admins. Secret is a made-up
-    characteristic that only admins may read. Open is a made-up characteristic
-    anyone may read and write. Sealed is made up, write only and readable only
-    by admins, Locked is made up, read only and writable only by admins.
+    characteristic whose restriction lists read, which is not enforced. Open is
+    a made-up characteristic anyone may read and write. Locked is made up, read
+    only and writable only by admins.
     """
     acc = Accessory(driver, "Sensor")
     service = driver.loader.get_service("MotionSensor")
@@ -111,15 +112,6 @@ def chars(driver: AccessoryDriver) -> Iterator[dict[str, SensorChar]]:
             },
         ),
         Characteristic(
-            "Sealed",
-            UUID("2d7f7c38-1d4c-4e0b-9d0e-4c1f1d2c7a12"),
-            {
-                PROP_FORMAT: HAP_FORMAT_BOOL,
-                PROP_PERMISSIONS: [HAP_PERMISSION_WRITE],
-                PROP_ADMIN_ONLY_ACCESS: ["read"],
-            },
-        ),
-        Characteristic(
             "Locked",
             UUID("2d7f7c38-1d4c-4e0b-9d0e-4c1f1d2c7a13"),
             {
@@ -138,7 +130,6 @@ def chars(driver: AccessoryDriver) -> Iterator[dict[str, SensorChar]]:
             "MotionEnabled": _with_setter(acc, service, "MotionEnabled"),
             "Open": _with_setter(acc, service, "Open"),
             "Secret": _with_setter(acc, service, "Secret"),
-            "Sealed": _with_setter(acc, service, "Sealed"),
             "Locked": _with_setter(acc, service, "Locked"),
         }
 
@@ -221,40 +212,56 @@ def test_legacy_state_pairs_everyone_as_admin(
     char.setter.assert_called_once_with(True)
 
 
-@pytest.mark.parametrize(
-    ("name", "client_uuid", "expected"),
-    [
-        ("Secret", ADMIN, {HAP_REPR_STATUS: 0, HAP_REPR_VALUE: False}),
-        ("Secret", USER, {HAP_REPR_STATUS: REFUSED}),
-        ("Secret", None, {HAP_REPR_STATUS: REFUSED}),
-        ("MotionEnabled", USER, {HAP_REPR_STATUS: 0, HAP_REPR_VALUE: False}),
-        ("MotionEnabled", None, {HAP_REPR_STATUS: 0, HAP_REPR_VALUE: False}),
-    ],
-    ids=[
-        "admin",
-        "user",
-        "unknown_controller",
-        "write_restricted_user",
-        "write_restricted_unknown_controller",
-    ],
-)
-def test_admin_only_read(
+@pytest.mark.parametrize("name", ["Secret", "MotionEnabled"])
+@pytest.mark.parametrize("client_uuid", [ADMIN, USER], ids=["admin", "user"])
+def test_admin_only_read_not_refused(
     driver: AccessoryDriver,
     chars: dict[str, SensorChar],
     name: str,
-    client_uuid: UUID | None,
-    expected: dict[str, Any],
+    client_uuid: UUID,
 ) -> None:
-    """Test reads are only refused when the restriction lists read."""
+    """Test reads are not restricted, also not when the restriction lists read."""
     char = chars[name]
+    handler = hap_handler.HAPServerHandler(driver, CLIENT)
+    handler.is_encrypted = True
+    handler.client_uuid = client_uuid
+    handler.response = hap_handler.HAPResponse()
+    handler.parsed_url = urlparse(f"/characteristics?id={char.aid}.{char.iid}")
 
-    response = driver.get_characteristics(
-        [f"{char.aid}.{char.iid}"], client_uuid=client_uuid
-    )
+    handler.handle_get_characteristics()
 
-    assert response == {
-        HAP_REPR_CHARS: [{HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, **expected}]
+    assert handler.response.status_code == 200
+    assert json.loads(handler.response.body) == {
+        HAP_REPR_CHARS: [
+            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_VALUE: False}
+        ]
     }
+
+
+@pytest.mark.parametrize(
+    "client_uuid", [ADMIN, USER, None], ids=["admin", "user", "unknown"]
+)
+def test_admin_only_event_subscription_allowed(
+    driver: AccessoryDriver, chars: dict[str, SensorChar], client_uuid: UUID | None
+) -> None:
+    """Test a write without a value only subscribes, whoever sends it."""
+    char = chars["MotionEnabled"]
+    query = {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: char.aid,
+                HAP_REPR_IID: char.iid,
+                HAP_PERMISSION_NOTIFY: True,
+            }
+        ]
+    }
+
+    with patch.object(driver, "async_subscribe_client_topic") as subscribe:
+        response = driver.set_characteristics(query, CLIENT, client_uuid=client_uuid)
+
+    assert response is None
+    subscribe.assert_called_once_with(CLIENT, get_topic(char.aid, char.iid), True)
+    char.setter.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -280,124 +287,40 @@ def test_admin_only_write_refused_before_read_only(
     char.setter.assert_not_called()
 
 
-@pytest.mark.parametrize(
-    ("client_uuid", "status"),
-    [
-        (USER, REFUSED),
-        (ADMIN, HAP_SERVER_STATUS.WRITE_ONLY_CHARACTERISTIC),
-    ],
-    ids=["user", "admin"],
-)
-def test_admin_only_read_refused_before_write_only(
-    driver: AccessoryDriver,
-    chars: dict[str, SensorChar],
-    client_uuid: UUID,
-    status: int,
-) -> None:
-    """Test a read of a write only admin char is refused for privileges first."""
-    char = chars["Sealed"]
-
-    response = driver.get_characteristics(
-        [f"{char.aid}.{char.iid}"], CLIENT, client_uuid=client_uuid
-    )
-
-    assert response == {
-        HAP_REPR_CHARS: [
-            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_STATUS: status}
-        ]
-    }
-
-
-@pytest.mark.parametrize(
-    ("client_uuid", "status"),
-    [
-        (USER, REFUSED),
-        (ADMIN, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE),
-    ],
-    ids=["user", "admin"],
-)
-def test_admin_only_read_refused_before_availability(
-    driver: AccessoryDriver,
-    chars: dict[str, SensorChar],
-    client_uuid: UUID,
-    status: int,
-) -> None:
-    """Test a read of an unavailable admin char is refused for privileges first."""
-    char = chars["Secret"]
-
-    with patch.object(
-        Accessory, "available", new_callable=PropertyMock, return_value=False
-    ):
-        response = driver.get_characteristics(
-            [f"{char.aid}.{char.iid}"], CLIENT, client_uuid=client_uuid
-        )
-
-    assert response == {
-        HAP_REPR_CHARS: [
-            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_STATUS: status}
-        ]
-    }
-
-
-@pytest.mark.parametrize(
-    ("client_uuid", "status_code", "body"),
-    [
-        (ADMIN, 204, b""),
-        (USER, 207, b'{"characteristics":[{"status":-70401,"aid":1,"iid":10}]}'),
-    ],
-    ids=["admin", "user"],
-)
-def test_handler_passes_the_controller_on_write(
-    driver: AccessoryDriver,
-    chars: dict[str, SensorChar],
-    client_uuid: UUID,
-    status_code: int,
-    body: bytes,
-) -> None:
-    """Test the HAP handler writes as the controller of its session."""
-    char = chars["MotionEnabled"]
+def _write_through_handler(
+    driver: AccessoryDriver, char: SensorChar, client_uuid: UUID
+) -> hap_handler.HAPResponse:
+    """Write True to ``char`` through a HAP handler of ``client_uuid``."""
     handler = hap_handler.HAPServerHandler(driver, CLIENT)
     handler.is_encrypted = True
     handler.client_uuid = client_uuid
     handler.response = hap_handler.HAPResponse()
-    handler.request_body = json.dumps(
-        {
-            HAP_REPR_CHARS: [
-                {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_VALUE: True}
-            ]
-        }
-    ).encode()
-
+    handler.request_body = json.dumps(_write(char)).encode()
     handler.handle_set_characteristics()
-
-    assert handler.response.status_code == status_code
-    assert handler.response.body == body
+    return handler.response
 
 
-@pytest.mark.parametrize(
-    ("client_uuid", "status_code", "body"),
-    [
-        (ADMIN, 200, b'{"characteristics":[{"aid":1,"iid":12,"value":false}]}'),
-        (USER, 207, b'{"characteristics":[{"aid":1,"iid":12,"status":-70401}]}'),
-    ],
-    ids=["admin", "user"],
-)
-def test_handler_passes_the_controller_on_read(
-    driver: AccessoryDriver,
-    chars: dict[str, SensorChar],
-    client_uuid: UUID,
-    status_code: int,
-    body: bytes,
+def test_handler_writes_as_admin(
+    driver: AccessoryDriver, chars: dict[str, SensorChar]
 ) -> None:
-    """Test the HAP handler reads as the controller of its session."""
-    char = chars["Secret"]
-    handler = hap_handler.HAPServerHandler(driver, CLIENT)
-    handler.is_encrypted = True
-    handler.client_uuid = client_uuid
-    handler.response = hap_handler.HAPResponse()
-    handler.parsed_url = urlparse(f"/characteristics?id={char.aid}.{char.iid}")
+    """Test the HAP handler writes as the admin controller of its session."""
+    char = chars["MotionEnabled"]
 
-    handler.handle_get_characteristics()
+    response = _write_through_handler(driver, char, ADMIN)
 
-    assert handler.response.status_code == status_code
-    assert handler.response.body == body
+    assert response.status_code == 204
+    assert response.body == b""
+    char.setter.assert_called_once_with(True)
+
+
+def test_handler_writes_as_user(
+    driver: AccessoryDriver, chars: dict[str, SensorChar]
+) -> None:
+    """Test the HAP handler writes as the regular controller of its session."""
+    char = chars["MotionEnabled"]
+
+    response = _write_through_handler(driver, char, USER)
+
+    assert response.status_code == 207
+    assert json.loads(response.body) == _response(char, REFUSED)
+    char.setter.assert_not_called()
