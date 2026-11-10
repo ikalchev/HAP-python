@@ -439,3 +439,23 @@ async def test_stop_stream_process_already_exited(mock_driver: Any) -> None:
     process.terminate.assert_called_once_with()
     process.communicate.assert_awaited_once_with()
     process.kill.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_kill_after_process_exited(mock_driver: Any) -> None:
+    """Verify the kill fallback tolerates a process that exited meanwhile."""
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    process = Mock()
+    process.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+    process.kill.side_effect = ProcessLookupError
+    process.wait = AsyncMock(return_value=0)
+    session_info = {
+        "id": UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1"),
+        "process": process,
+    }
+
+    await acc.stop_stream(session_info)
+
+    process.terminate.assert_called_once_with()
+    process.kill.assert_called_once_with()
+    process.wait.assert_awaited_once_with()
