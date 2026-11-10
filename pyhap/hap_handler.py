@@ -716,6 +716,7 @@ class HAPServerHandler:
             requested_chars,
             cast("tuple[str, int]", self.client_address),
             RESPONSE_TIMEOUT,
+            client_uuid=self.client_uuid,
         )
         assert self.response is not None  # noqa: S101
         if inspect.isawaitable(result):

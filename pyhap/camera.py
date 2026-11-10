@@ -271,6 +271,95 @@ PERSISTED_GLOBAL_OPERATING_MODE_CHARS = (
 )
 
 
+def parse_setup_address(
+    value: bytes, is_ipv6: bool
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Return the controller address of a Setup Endpoints write.
+
+    The address must be an IP address of the announced version, without an
+    IPv6 scope ID. ``str()`` gives its canonical form, e.g. ``fd00::1`` for
+    ``FD00:0::1``.
+
+    :raises ValueError: If the address is anything else.
+    """
+    try:
+        address = value.decode("utf-8")
+        parsed = ipaddress.ip_address(address)
+    except ValueError as ex:
+        raise ValueError(f"invalid address {value!r}") from ex
+    if isinstance(parsed, ipaddress.IPv6Address) and parsed.scope_id is not None:
+        raise ValueError(f"address {address!r} has a scope ID")
+    if parsed.version != (6 if is_ipv6 else 4):
+        raise ValueError(f"address {address!r} does not match its IP version")
+    return parsed
+
+
+def _decode_setup_endpoints(
+    session_id: UUID, objs: dict[bytes, Any]
+) -> tuple[str, bool, int, int, tuple[bytes, bytes], tuple[bytes, bytes]]:
+    """Decode a Setup Endpoints write.
+
+    Returns the controller address, whether it is IPv6, its video and audio
+    ports and the video and audio SRTP master key and salt.
+
+    :raises ValueError: If the address is not a valid IP address.
+    :raises KeyError: If a field is missing.
+    :raises struct.error: If a field is too short.
+    :raises IndexError: If a crypto suite is empty.
+    """
+    address_info = tlv.decode(objs[SETUP_TYPES["ADDRESS"]])
+    is_ipv6 = struct.unpack("?", address_info[SETUP_ADDR_INFO["ADDRESS_VER"]])[0]
+    address = str(
+        parse_setup_address(bytes(address_info[SETUP_ADDR_INFO["ADDRESS"]]), is_ipv6)
+    )
+    video_port, audio_port = (
+        int(struct.unpack("<H", address_info[SETUP_ADDR_INFO[key]])[0])
+        for key in ("VIDEO_RTP_PORT", "AUDIO_RTP_PORT")
+    )
+    video = tlv.decode(objs[SETUP_TYPES["VIDEO_SRTP_PARAM"]])
+    audio = tlv.decode(objs[SETUP_TYPES["AUDIO_SRTP_PARAM"]])
+    # Do not log the SRTP key material: debug logs may end up in less
+    # trusted log collections, and the keys live for the whole session.
+    logger.debug(
+        "Received endpoint configuration:"
+        "\nsession_id: %s\naddress: %s\nis_ipv6: %s"
+        "\ntarget_video_port: %s\ntarget_audio_port: %s"
+        "\nvideo_crypto_suite: %s\naudio_crypto_suite: %s",
+        session_id,
+        address,
+        is_ipv6,
+        video_port,
+        audio_port,
+        video[SETUP_SRTP_PARAM["CRYPTO"]][0],
+        audio[SETUP_SRTP_PARAM["CRYPTO"]][0],
+    )
+    return (
+        address,
+        is_ipv6,
+        video_port,
+        audio_port,
+        (
+            bytes(video[SETUP_SRTP_PARAM["MASTER_KEY"]]),
+            bytes(video[SETUP_SRTP_PARAM["MASTER_SALT"]]),
+        ),
+        (
+            bytes(audio[SETUP_SRTP_PARAM["MASTER_KEY"]]),
+            bytes(audio[SETUP_SRTP_PARAM["MASTER_SALT"]]),
+        ),
+    )
+
+
+def _setup_endpoints_status(session_id: UUID, status: bytes) -> Any:
+    """Encode a Setup Endpoints answer that has only a status."""
+    return tlv.encode(
+        SETUP_TYPES["SESSION_ID"],
+        session_id.bytes,
+        SETUP_TYPES["STATUS"],
+        status,
+        to_base64=True,
+    )
+
+
 class Camera(Accessory):
     """An Accessory that can negotiate camera stream settings with a HAP client
     (e.g. iOS) and start a stream.
@@ -1664,6 +1753,7 @@ class Camera(Accessory):
 
         Called when iOS sets the SetupEndpoints ``Characteristic``. The endpoint
         information for the camera should be set as the current value of SetupEndpoints.
+        A refused write sets the error answer.
 
         :param value: The base64-encoded stream session details in TLV format.
         :param value: ``str``
@@ -1673,6 +1763,22 @@ class Camera(Accessory):
 
         objs = tlv.decode(value, from_base64=True)
         session_id = UUID(bytes=objs[SETUP_TYPES["SESSION_ID"]])
+        try:
+            (
+                address,
+                is_ipv6,
+                target_video_port,
+                target_audio_port,
+                (video_master_key, video_master_salt),
+                (audio_master_key, audio_master_salt),
+            ) = _decode_setup_endpoints(session_id, objs)
+        except (IndexError, KeyError, ValueError, struct.error) as ex:
+            logger.warning("[%s] Refusing the endpoints: %s", session_id, ex)
+            self._management[stream_idx].get_characteristic("SetupEndpoints").set_value(
+                _setup_endpoints_status(session_id, SETUP_STATUS["ERROR"])
+            )
+            return
+
         if not self.streaming_allowed:
             logger.info("[%s] Streaming is turned off, refusing it", session_id)
             self._management[stream_idx].get_characteristic("SetupEndpoints").set_value(
@@ -1685,53 +1791,6 @@ class Camera(Accessory):
                 )
             )
             return
-
-        # Extract address info
-        address_tlv = objs[SETUP_TYPES["ADDRESS"]]
-        address_info_objs = tlv.decode(address_tlv)
-        is_ipv6 = struct.unpack("?", address_info_objs[SETUP_ADDR_INFO["ADDRESS_VER"]])[
-            0
-        ]
-        address = address_info_objs[SETUP_ADDR_INFO["ADDRESS"]].decode("utf8")
-        target_video_port = struct.unpack(
-            "<H", address_info_objs[SETUP_ADDR_INFO["VIDEO_RTP_PORT"]]
-        )[0]
-        target_audio_port = struct.unpack(
-            "<H", address_info_objs[SETUP_ADDR_INFO["AUDIO_RTP_PORT"]]
-        )[0]
-
-        # Video SRTP Params
-        video_srtp_tlv = objs[SETUP_TYPES["VIDEO_SRTP_PARAM"]]
-        video_info_objs = tlv.decode(video_srtp_tlv)
-        video_crypto_suite = video_info_objs[SETUP_SRTP_PARAM["CRYPTO"]][0]
-        video_master_key = video_info_objs[SETUP_SRTP_PARAM["MASTER_KEY"]]
-        video_master_salt = video_info_objs[SETUP_SRTP_PARAM["MASTER_SALT"]]
-
-        # Audio SRTP Params
-        audio_srtp_tlv = objs[SETUP_TYPES["AUDIO_SRTP_PARAM"]]
-        audio_info_objs = tlv.decode(audio_srtp_tlv)
-        audio_crypto_suite = audio_info_objs[SETUP_SRTP_PARAM["CRYPTO"]][0]
-        audio_master_key = audio_info_objs[SETUP_SRTP_PARAM["MASTER_KEY"]]
-        audio_master_salt = audio_info_objs[SETUP_SRTP_PARAM["MASTER_SALT"]]
-
-        # Do not log the SRTP key material: debug logs may end up in less
-        # trusted log collections, and the keys live for the whole session.
-        logger.debug(
-            "Received endpoint configuration:"
-            "\nsession_id: %s\naddress: %s\nis_ipv6: %s"
-            "\ntarget_video_port: %s\ntarget_audio_port: %s"
-            "\nvideo_crypto_suite: %s\nvideo_master_key_len: %s"
-            "\naudio_crypto_suite: %s\naudio_master_key_len: %s",
-            session_id,
-            address,
-            is_ipv6,
-            target_video_port,
-            target_audio_port,
-            video_crypto_suite,
-            len(video_master_key) + len(video_master_salt),
-            audio_crypto_suite,
-            len(audio_master_key) + len(audio_master_salt),
-        )
 
         # Configure the SetupEndpoints response
 
@@ -1948,7 +2007,7 @@ class Camera(Accessory):
             )
             return False
 
-        cmd = self.start_stream_cmd.format(**stream_config).split()
+        cmd = [arg.format(**stream_config) for arg in self.start_stream_cmd.split()]
         logger.debug('Executing start stream command: "%s"', " ".join(cmd))
         try:
             process = await asyncio.create_subprocess_exec(
@@ -1976,13 +2035,10 @@ class Camera(Accessory):
     def _validate_stream_config(stream_config: dict[str, Any]) -> None:
         """Reject controller-supplied values unsafe to format into a command.
 
-        The default start stream command is built by formatting the negotiated
-        configuration into a template and splitting it on whitespace before
-        exec, so a controller-supplied string containing whitespace could
-        inject additional command-line arguments into the streaming process.
-        The stream address must be a valid IP address (per the HAP spec that is
-        all a controller may send) and no formatted string value may contain
-        whitespace.
+        The default start stream command formats each argument of its
+        template with the negotiated configuration. The stream address must
+        be a valid IP address (per the HAP spec that is all a controller may
+        send) and no formatted string value may contain whitespace.
 
         :raises ValueError: If any value is unsafe.
         """
