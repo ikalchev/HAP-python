@@ -480,6 +480,15 @@ def test_rtp_streaming_control_end() -> None:
     assert request == RTPStreamingControl(SESSION, RTPStreamingCommand.END, 3)
 
 
+def test_rtp_streaming_control_largest_ssrc() -> None:
+    """Test the largest 32-bit SSRC still decodes for video and audio."""
+    request = RTPStreamingControl.decode(
+        bytes.fromhex("0110" + SESSION.hex + "020102 0404ffffffff 0604ffffffff")
+    )
+    assert request.video_ssrc == 0xFFFFFFFF
+    assert request.audio_ssrc == 0xFFFFFFFF
+
+
 def test_rtp_streaming_control_unknown_values() -> None:
     """Test unknown commands and types are kept and skipped."""
     request = RTPStreamingControl.decode(
@@ -613,6 +622,12 @@ def test_check_video_tiers_guide_resolutions(
     assert hksv3.check_video_tiers(_sensor(*streams)) == []
 
 
+def test_check_video_tiers_above_4k() -> None:
+    """Test a frame above 4K, here DCI 4K, is held to the guide's 4K row."""
+    dci_4k = (2, 4096, 2160, 4500, 5000)
+    assert hksv3.check_video_tiers(_sensor(dci_4k, GUIDE_1080, GUIDE_360)) == []
+
+
 @pytest.mark.parametrize(
     ("stream", "warning"),
     [
@@ -638,7 +653,7 @@ def test_check_video_tiers_class_by_pixels(
         ((3, 1920, 1080, 1800, 1900), "peak above the guide's 1800 kbps"),
         ((3, 1080, 1920, 1800, 1900), "1080x1920@30: peak above the guide's 1800"),
         ((3, 1280, 600, 900, 950), "1280x600@30: peak above the guide's 800 kbps"),
-        ((3, 7680, 4320, 9000, 9500), "larger than the guide's 4K bit rate table"),
+        ((3, 7680, 4320, 9000, 9500), "7680x4320@30: peak above the guide's 5000"),
     ],
 )
 def test_check_video_tiers_warnings(
