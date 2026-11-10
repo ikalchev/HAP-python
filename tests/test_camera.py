@@ -761,7 +761,7 @@ async def test_stop_stream_kill_after_process_exited(mock_driver: Any) -> None:
     """Verify the kill fallback tolerates a process that exited meanwhile."""
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
     process = Mock()
-    process.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+    process.communicate = AsyncMock(side_effect=TimeoutError)
     process.kill.side_effect = ProcessLookupError
     process.wait = AsyncMock(return_value=0)
     session_info = {
