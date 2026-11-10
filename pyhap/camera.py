@@ -862,7 +862,9 @@ class Camera(Accessory):
         for controller in self._stream_controllers():
             controller.update_status()
 
-    def stream_address_for(self, client_addr: Any, is_ipv6: bool) -> str | None:
+    def stream_address_for(
+        self, client_addr: tuple[str, int] | None, is_ipv6: bool
+    ) -> str | None:
         """The address to stream from to a controller, in the given IP version.
 
         The accessory's address on the controller's connection, else the

@@ -32,7 +32,6 @@ from typing import Protocol
 
 from . import rtp
 from .hevc import AccessUnit, HevcDepacketizer, payload_starts_irap
-from .sdp import VIDEO_CLOCK_RATE
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +166,7 @@ class MediaSource:
         previous, self._keyframe_timestamp = self._keyframe_timestamp, packet.timestamp
         if previous is None or previous == packet.timestamp:
             return
-        interval = ((packet.timestamp - previous) & 0xFFFFFFFF) / VIDEO_CLOCK_RATE
+        interval = ((packet.timestamp - previous) & 0xFFFFFFFF) / rtp.VIDEO_CLOCK_RATE
         if interval > MAX_GOP:
             return
         self.gop = (

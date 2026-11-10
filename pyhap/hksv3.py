@@ -740,6 +740,9 @@ MAX_SDP_SIZE = 32 * 1024
 MAX_ICE_CANDIDATES = 64
 MAX_ICE_CANDIDATE_SIZE = 1024
 MAX_SFRAME_KEY_CHANGES = 16
+# Key sizes of an SFrame key: AES-128 to AES-256 with room for HMAC keys.
+MIN_SFRAME_KEY_SIZE = 16
+MAX_SFRAME_KEY_SIZE = 64
 
 
 def _to_str(data: bytes) -> str:
@@ -813,11 +816,10 @@ class IceCandidate:
                 f"ICE candidate of {len(data)} bytes, at most {MAX_ICE_CANDIDATE_SIZE}"
             )
         fields = _fields(data)
-        return cls(
-            _to_str(_required(fields, 1)),
-            _optional(fields, 2, _to_str),
-            _optional_int(fields, 3),
-        )
+        index = _optional_int(fields, 3)
+        if index is not None and index > 0xFFFF:
+            raise ValueError(f"SDP m-line index {index} is out of range")
+        return cls(_to_str(_required(fields, 1)), _optional(fields, 2, _to_str), index)
 
 
 def _encode_candidates(candidates: Iterable[IceCandidate]) -> bytes:
@@ -849,7 +851,13 @@ class SFrameKey:
     @classmethod
     def decode(cls, data: bytes) -> SFrameKey:
         fields = _fields(data)
-        return cls(_required(fields, 1), _to_int(_required(fields, 2)))
+        key = _required(fields, 1)
+        if not MIN_SFRAME_KEY_SIZE <= len(key) <= MAX_SFRAME_KEY_SIZE:
+            raise ValueError(
+                f"SFrame key of {len(key)} bytes, {MIN_SFRAME_KEY_SIZE} to"
+                f" {MAX_SFRAME_KEY_SIZE}"
+            )
+        return cls(key, _to_int(_required(fields, 2)))
 
 
 def generate_sframe_key() -> SFrameKey:

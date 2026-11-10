@@ -47,7 +47,7 @@ from typing import Any, cast
 
 import pylibsrtp
 
-from . import MediaError, rtp, sdp
+from . import MediaError, rtp
 from .hevc import AccessUnit, HevcPacketizer
 from .source import MediaSource
 
@@ -165,8 +165,8 @@ class MultiTierSender:
         audio_key: bytes,
         video_ssrc: int,
         audio_ssrc: int,
-        video_payload_type: int = sdp.DEFAULT_VIDEO_PAYLOAD_TYPE,
-        audio_payload_type: int = sdp.DEFAULT_AUDIO_PAYLOAD_TYPE,
+        video_payload_type: int = rtp.DEFAULT_VIDEO_PAYLOAD_TYPE,
+        audio_payload_type: int = rtp.DEFAULT_AUDIO_PAYLOAD_TYPE,
         local_video_port: int = 0,
         local_audio_port: int = 0,
         is_ipv6: bool | None = None,
@@ -191,10 +191,10 @@ class MultiTierSender:
         self._destination = (video_port, audio_port)
         self._local = (local_video_port, local_audio_port)
         self._video = _SrtpStream(
-            video_ssrc, video_payload_type, sdp.VIDEO_CLOCK_RATE, video_key
+            video_ssrc, video_payload_type, rtp.VIDEO_CLOCK_RATE, video_key
         )
         self._audio = _SrtpStream(
-            audio_ssrc, audio_payload_type, sdp.AUDIO_CLOCK_RATE, audio_key
+            audio_ssrc, audio_payload_type, rtp.AUDIO_CLOCK_RATE, audio_key
         )
         self._cname = f"pyhap-{video_ssrc:08x}"
         self._packetizer = HevcPacketizer(max_payload)

@@ -13,6 +13,7 @@ import pytest
 from pyhap import hksv3, tlv
 from pyhap.camera import SETUP_ADDR_INFO, SETUP_SRTP_PARAM, SETUP_TYPES, Camera
 from pyhap.camera_multi_tier import (
+    FFMPEG_GLOBAL_OPTIONS,
     FFmpegMultiTierDelegate,
     MultiTierController,
     MultiTierSession,
@@ -718,6 +719,46 @@ async def test_start_fails(
     assert _session(camera).state is state
 
 
+async def test_failed_start_keeps_the_former_ssrcs(
+    stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
+) -> None:
+    """Test a failed start leaves the controller SSRCs as they were."""
+    multi_tier_delegate.handle_start.side_effect = StreamError(3)
+    camera = stream_camera()
+    await _setup(camera)
+    assert await _streaming_control(camera) == 3
+    session = _session(camera)
+    assert session.controller_video_ssrc is None
+    assert session.controller_audio_ssrc is None
+    await camera.stop()
+
+
+async def test_setup_timer_waits_for_a_running_start(
+    stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
+) -> None:
+    """Test the setup timeout does not end a session while it starts."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _start(*_args: object) -> None:
+        started.set()
+        await release.wait()
+
+    multi_tier_delegate.handle_start.side_effect = _start
+    camera = stream_camera(
+        multi_tier={"delegate": multi_tier_delegate, "setup_timeout": 0.01}
+    )
+    await _setup(camera)
+    start = asyncio.ensure_future(_streaming_control(camera))
+    await started.wait()
+    await asyncio.sleep(0.03)
+    release.set()
+
+    assert await start == 0
+    assert _session(camera).state is SessionState.STARTED
+    await camera.stop()
+
+
 async def test_start_while_preparing(
     stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
 ) -> None:
@@ -978,7 +1019,8 @@ async def test_ffmpeg_command(stream_camera: Callable[..., Camera]) -> None:
     cmd = delegate.command(session, HIGH, hksv3.DEFAULT_AUDIO_TIER)
     await camera.stop()
 
-    assert cmd[:3] == ["ffmpeg", *FFMPEG_INPUT]
+    assert cmd[:7] == ["ffmpeg", *FFMPEG_GLOBAL_OPTIONS, *FFMPEG_INPUT]
+    assert "-nostats" in cmd
     assert cmd[cmd.index("-ssrc") + 1] == str(session.video_ssrc)
     assert cmd[cmd.index("-srtp_out_params") + 1] == to_base64_str(KEY + SALT)
     assert cmd[cmd.index("-payload_type") + 1] == "99"
@@ -989,7 +1031,8 @@ async def test_ffmpeg_command(stream_camera: Callable[..., Camera]) -> None:
         "-c:a",
     ]
     assert cmd[-1] == (
-        "srtp://192.168.1.114:50002?rtcpport=50002&localrtpport=50002&pkt_size=188"
+        "srtp://192.168.1.114:50002?rtcpport=50002"
+        f"&localrtpport={session.accessory_audio_port}&pkt_size=188"
     )
     assert "srtp://192.168.1.114:50000?rtcpport=50000&pkt_size=1190" in cmd
 
@@ -1072,6 +1115,36 @@ async def test_ffmpeg_exit_ends_the_session(
 
     assert _controller(camera).sessions == {}
     assert "Stream process exited with 1" in caplog.text
+    await camera.stop()
+
+
+async def test_ffmpeg_status_lines_keep_the_pipe_drained(
+    stream_camera: Callable[..., Camera],
+    ffmpeg_process_factory: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test more than 64 KiB of carriage return status lines are read."""
+    status = b"".join(b"frame=%d fps=30\r" % i for i in range(5000))
+    process = ffmpeg_process_factory(status, b"last\n")
+    assert len(status) > 65536
+    camera, _, _ = await _ffmpeg_session(stream_camera)
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=process),
+        caplog.at_level(logging.DEBUG, logger="pyhap.camera_multi_tier"),
+    ):
+        assert await _streaming_control(camera) == 0
+        while process.stderr._data:
+            await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+    assert "frame=4999 fps=30" in caplog.text
+    assert "last" in caplog.text
+    process.exit(1)
+    for _ in range(100):
+        if not _controller(camera).sessions:
+            break
+        await asyncio.sleep(0)
+    assert _controller(camera).sessions == {}
     await camera.stop()
 
 
