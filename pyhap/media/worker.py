@@ -1,11 +1,12 @@
-"""Run media sources in a worker process.
+"""Run media sources and senders in a worker process.
 
 SRTP and pacing cost CPU for every packet of every session. In an
 application that also runs other work on its event loop (Home Assistant runs
 HAP signalling on its main loop) the media path therefore runs in a separate
 process. Only the signalling stays on the caller's loop: the proxies here
-have the async API of :class:`~pyhap.media.source.MediaSource`, and their
-events are called on the caller's loop.
+have the async API of :class:`~pyhap.media.multi_tier.MultiTierSender` and
+:class:`~pyhap.media.source.MediaSource`, and their events are called on the
+caller's loop.
 
 One :class:`MediaWorker` is one process with one asyncio loop, shared by
 all cameras of the application. A process per camera would cost a Python
@@ -136,8 +137,118 @@ class RemoteMediaSource:
         _call(self.on_closed, reason)
 
 
+class RemoteMultiTierSender:
+    """A :class:`~pyhap.media.multi_tier.MultiTierSender` in the worker process.
+
+    Same methods and callbacks; ``on_closed(reason)`` also fires when the
+    worker exits.
+    """
+
+    def __init__(
+        self, worker: MediaWorker, session_id: int, config: dict[str, Any]
+    ) -> None:
+        """Use :meth:`MediaWorker.create_multi_tier_sender`."""
+        self.on_closed: Callable[[str], None] | None = None
+        self.on_keyframe_request: (
+            Callable[[float | None, float | None], None] | None
+        ) = None
+        self.on_rtcp: Callable[[], None] | None = None
+        self.id = session_id
+        self.ports: tuple[int, int] = (0, 0)
+        self._worker = worker
+        self._config = config
+        self._generation: int | None = None
+        self._state = "new"
+
+    @property
+    def started(self) -> bool:
+        """Whether media flows."""
+        return self._state == "started"
+
+    @property
+    def closed(self) -> bool:
+        """Whether the session ended."""
+        return self._state == "closed"
+
+    async def bind(self) -> tuple[int, int]:
+        """Create the session in the worker and bind the accessory's ports."""
+        if self._state != "new":
+            raise MediaWorkerError("Multi-tier session already bound")
+        self._state = "binding"
+        try:
+            generation = await self._worker.start()
+            if self._state == "closed":
+                raise MediaWorkerError("Multi-tier session closed")
+            self._generation = generation
+            result = await self._worker._request(
+                "mt_bind", generation, session=self.id, config=self._config
+            )
+        except BaseException:
+            await self.close()
+            raise
+        if self._state == "closed":
+            with contextlib.suppress(MediaWorkerError):
+                await self._worker._request("close", generation, session=self.id)
+            raise MediaWorkerError("Multi-tier session closed")
+        self._worker._handles[self.id] = self
+        self._state = "bound"
+        self.ports = (int(result["ports"][0]), int(result["ports"][1]))
+        return self.ports
+
+    async def start(self, source: RemoteMediaSource, audio: bool = True) -> None:
+        """Send ``source`` to the controller, with its audio if ``audio``."""
+        await self._session_request("mt_start", source, audio=audio)
+        if self._state == "bound":
+            self._state = "started"
+
+    async def switch(self, source: RemoteMediaSource) -> None:
+        """Continue the stream from another source of the same worker."""
+        await self._session_request("mt_switch", source)
+
+    async def close(self) -> None:
+        """End the session without calling ``on_closed``."""
+        if self._state == "closed":
+            return
+        generation = self._generation
+        self._ended(None)
+        if generation is not None:
+            with contextlib.suppress(MediaWorkerError):
+                await self._worker._request("close", generation, session=self.id)
+
+    async def _session_request(
+        self, op: str, source: RemoteMediaSource, **fields: Any
+    ) -> Any:
+        if self._state not in ("bound", "started") or self._generation is None:
+            raise MediaWorkerError("No multi-tier session in the worker")
+        if source._worker is not self._worker or source._generation != self._generation:
+            raise MediaWorkerError("The source belongs to another worker")
+        if source.closed:
+            raise MediaWorkerError("Media source is closed")
+        return await self._worker._request(
+            op, self._generation, session=self.id, source=source.id, **fields
+        )
+
+    def _event(self, event: str, message: dict[str, Any], blob: bytes) -> None:
+        if self._state == "closed":
+            return
+        if event == "rtcp":
+            _call(self.on_rtcp)
+        elif event == "keyframe_request":
+            _call(self.on_keyframe_request, message.get("age"), message.get("gop"))
+        elif event == "closed":
+            self._ended(str(message.get("reason", "closed")))
+
+    def _ended(self, reason: str | None) -> None:
+        if self._state == "closed":
+            return
+        self._state = "closed"
+        self._worker._handles.pop(self.id, None)
+        if reason is not None:
+            _call(self.on_closed, reason)
+
+
 class MediaWorker:
-    """A worker process running media sources."""
+    """A worker process running media sources and senders."""
 
     def __init__(
         self,
@@ -159,8 +270,7 @@ class MediaWorker:
         self._stopping = False
         self._ids = itertools.count(1)
         self._pending: dict[int, asyncio.Future[Any]] = {}
-        # The session proxies of the senders that run in the worker.
-        self._handles: dict[int, Any] = {}
+        self._handles: dict[int, RemoteMultiTierSender] = {}
         self._sources: dict[int, RemoteMediaSource] = {}
 
     @property
@@ -242,6 +352,38 @@ class MediaWorker:
             raise
         source.rtp_input = tuple(result["rtp_input"])  # type: ignore[assignment]
         return source
+
+    def create_multi_tier_sender(
+        self,
+        *,
+        address: str,
+        video_port: int,
+        audio_port: int,
+        video_key: bytes,
+        audio_key: bytes,
+        video_ssrc: int,
+        audio_ssrc: int,
+        **options: Any,
+    ) -> RemoteMultiTierSender:
+        """Create a multi-tier sender proxy; :meth:`RemoteMultiTierSender.bind`.
+
+        The arguments are those of
+        :class:`~pyhap.media.multi_tier.MultiTierSender`.
+        """
+        unknown = set(options) - _MULTI_TIER_OPTIONS
+        if unknown:
+            raise TypeError(f"Unknown multi-tier sender options: {sorted(unknown)}")
+        config = {
+            "address": address,
+            "video_port": video_port,
+            "audio_port": audio_port,
+            "video_key": bytes(video_key).hex(),
+            "audio_key": bytes(audio_key).hex(),
+            "video_ssrc": video_ssrc,
+            "audio_ssrc": audio_ssrc,
+            **options,
+        }
+        return RemoteMultiTierSender(self, next(self._ids), config)
 
     async def close(self) -> None:
         """End every session and stop the worker."""
@@ -381,6 +523,19 @@ class MediaWorker:
         for source in sources.values():
             source._ended(reason)
         _call(self.on_exit, reason)
+
+
+_MULTI_TIER_OPTIONS = {
+    "video_payload_type",
+    "audio_payload_type",
+    "local_video_port",
+    "local_audio_port",
+    "is_ipv6",
+    "max_payload",
+    "idle_timeout",
+    "keyframe_request_interval",
+    "rtcp_notify_interval",
+}
 
 
 def _log_levels() -> list[int]:
