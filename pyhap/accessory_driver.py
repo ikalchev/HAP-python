@@ -32,6 +32,7 @@ import tempfile
 import threading
 import time
 from typing import Any, NamedTuple, TypeGuard
+from uuid import UUID
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
@@ -39,6 +40,8 @@ from zeroconf.asyncio import AsyncZeroconf
 from pyhap import util
 from pyhap.accessory import Accessory, Bridge, get_topic
 from pyhap.characteristic import (
+    ADMIN_ONLY_WRITE,
+    PROP_ADMIN_ONLY_ACCESS,
     PROP_PERMISSIONS,
     Characteristic,
     CharacteristicError,
@@ -1111,7 +1114,11 @@ class AccessoryDriver:
         return connection.derive_key(salt, info)
 
     def set_characteristics(
-        self, chars_query: dict[str, Any], client_addr: tuple[str, int]
+        self,
+        chars_query: dict[str, Any],
+        client_addr: tuple[str, int],
+        *,
+        client_uuid: UUID | None = None,
     ) -> dict[str, Any] | None:
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.
 
@@ -1142,8 +1149,15 @@ class AccessoryDriver:
            }
 
         :type chars_query: dict
+
+        :param client_uuid: The paired controller that sent the request. Writes
+            to characteristics restricted to admins are refused with -70401
+            unless it is an admin.
+        :type client_uuid: uuid.UUID or None
         """
-        results, pending = self._apply_characteristic_writes(chars_query, client_addr)
+        results, pending = self._apply_characteristic_writes(
+            chars_query, client_addr, client_uuid
+        )
         for write in pending:
             self.add_job(self._finish_pending_write(write, client_addr))
         return _set_characteristics_response(results)
@@ -1170,6 +1184,8 @@ class AccessoryDriver:
         chars_query: dict[str, Any],
         client_addr: tuple[str, int],
         timeout: float,
+        *,
+        client_uuid: UUID | None = None,
     ) -> dict[str, Any] | None | Awaitable[dict[str, Any] | None]:
         """Apply a controller's write, waiting for coroutine setters.
 
@@ -1179,7 +1195,9 @@ class AccessoryDriver:
         cancelled and its characteristic answers -70408. Cancelling the
         awaitable, e.g. because the connection closed, cancels the setters.
         """
-        results, pending = self._apply_characteristic_writes(chars_query, client_addr)
+        results, pending = self._apply_characteristic_writes(
+            chars_query, client_addr, client_uuid
+        )
         if pending:
             return self._async_finish_set_characteristics(
                 results, pending, client_addr, timeout
@@ -1187,12 +1205,17 @@ class AccessoryDriver:
         return _set_characteristics_response(results)
 
     def _apply_characteristic_writes(
-        self, chars_query: dict[str, Any], client_addr: tuple[str, int]
+        self,
+        chars_query: dict[str, Any],
+        client_addr: tuple[str, int],
+        client_uuid: UUID | None,
     ) -> tuple[dict[int, dict[int, dict[str, Any]]], list[_PendingWrite]]:
         """Run the setters of a write and collect the per-characteristic results."""
         pending: list[_PendingWrite] = []
         try:
-            return self._run_characteristic_writes(chars_query, client_addr, pending)
+            return self._run_characteristic_writes(
+                chars_query, client_addr, client_uuid, pending
+            )
         except BaseException:
             # A malformed later entry must not leave a setter coroutine
             # un-awaited.
@@ -1204,6 +1227,7 @@ class AccessoryDriver:
         self,
         chars_query: dict[str, Any],
         client_addr: tuple[str, int],
+        client_uuid: UUID | None,
         pending: list[_PendingWrite],
     ) -> tuple[dict[int, dict[int, dict[str, Any]]], list[_PendingWrite]]:
         queries: list[dict[str, Any]] = chars_query[HAP_REPR_CHARS]
@@ -1240,6 +1264,7 @@ class AccessoryDriver:
                 HAP_REPR_STATUS: HAP_SERVER_STATUS.NOTIFICATION_NOT_SUPPORTED
             }
 
+        is_admin = self.state.is_admin(client_uuid)
         for query in queries:
             aid = query[HAP_REPR_AID]
             iid = query[HAP_REPR_IID]
@@ -1264,6 +1289,17 @@ class AccessoryDriver:
                 continue
             char = acc.get_characteristic(aid, iid)
             if char is None:
+                continue
+
+            # Privileges are checked before the permissions, so a controller
+            # that may not write the characteristic learns nothing else.
+            # Also for an explicit null, so no setter sees the characteristic.
+            if not is_admin and ADMIN_ONLY_WRITE in char.properties.get(
+                PROP_ADMIN_ONLY_ACCESS, ()
+            ):
+                results[aid][iid] = {
+                    HAP_REPR_STATUS: HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
+                }
                 continue
 
             if (
