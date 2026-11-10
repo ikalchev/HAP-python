@@ -47,6 +47,9 @@ def _setter_wants_client_addr(setter: Callable[..., Any]) -> bool:
 
 
 # ### HAP Format ###
+# A characteristic value as HAP JSON carries it.
+HAPValue = bool | int | float | str | None
+
 HAP_FORMAT_BOOL = "bool"
 HAP_FORMAT_INT = "int"
 HAP_FORMAT_FLOAT = "float"
@@ -201,7 +204,9 @@ class Characteristic:
         self._value = self._get_default_value()
         self.getter_callback: Callable[[], Any] | None = None
         # Setters may take just the value or (value, sender_client_addr); see
-        # ``_setter_wants_addr``. The return value is used for write responses.
+        # ``_setter_wants_addr``. The return value is sent back as the write
+        # response when the characteristic has the "wr" permission and the
+        # controller asked for one.
         self.setter_callback: Callable[..., Any] | None = None
         # Cache of whether ``setter_callback`` opts into the client address,
         # recomputed only when the setter object itself changes.
@@ -392,11 +397,17 @@ class Characteristic:
             self.value = None
 
     def client_update_value(
-        self, value: Any, sender_client_addr: tuple[str, int] | None = None
+        self,
+        value: Any,
+        sender_client_addr: tuple[str, int] | None = None,
+        *,
+        notify: bool = True,
     ) -> Any:
         """Called from broker for value change in Home app.
 
-        Change self.value to value and call callback.
+        Change self.value to value and call callback. With ``notify`` False,
+        subscribers are not told about the written value, e.g. for a request
+        that only the writing connection may read back.
         """
         original_value = value
         if not self._always_null or original_value is not None:
@@ -419,7 +430,7 @@ class Characteristic:
             else:
                 response = self.setter_callback(value)
         changed = self._value != previous_value
-        if changed:
+        if changed and notify:
             self.notify(sender_client_addr)
         if self._always_null:
             self.value = None
