@@ -7,8 +7,8 @@ When a HAP client (e.g. iOS) wants to start a video stream it does the following
 [0. Read the current streaming status]
 1. Sets the SetupEndpoints characteristic to notify the camera about its IP address,
 selected security parameters, etc.
-2. The camera responds to the above by setting the SetupEndpoints with its IP address,
-etc.
+2. The camera answers the write with its IP address, etc., and the client reads the
+answer back from SetupEndpoints.
 3. The client sets the SelectedRTPStreamConfiguration characteristic to notify the
 camera of its prefered audio and video configuration and to initiate the start of the
 streaming.
@@ -354,7 +354,7 @@ def _decode_setup_endpoints(
     )
 
 
-def _setup_endpoints_status(session_id: UUID, status: bytes) -> Any:
+def _setup_endpoints_status(session_id: UUID, status: bytes) -> str:
     """Encode a Setup Endpoints answer that has only a status."""
     return tlv.encode(
         SETUP_TYPES["SESSION_ID"],
@@ -1926,15 +1926,22 @@ class Camera(Accessory):
         self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
         self._management[stream_idx].get_characteristic("StreamingStatus").notify()
 
-    def set_endpoints(self, value: str, stream_idx: int | None = None) -> Any:
+    def set_endpoints(self, value: str, stream_idx: int | None = None) -> str:
         """Configure streaming endpoints.
 
-        Called when iOS sets the SetupEndpoints ``Characteristic``. Returns the
-        endpoint information of the camera, which only the connection that
-        wrote reads back.
+        Called when iOS sets the SetupEndpoints ``Characteristic``. Sets the
+        endpoint information of the camera, or a refusal, as the value of
+        SetupEndpoints and returns it. A subclass that calls ``super()`` and
+        returns nothing still answers. For a controller's write the driver
+        keeps the answer for the connection that wrote and puts the former
+        value back. An async setter must return the answer and must not set
+        the value itself, a value it sets is shared with every controller. A
+        direct ``client_update_value`` leaves the answer as the value.
 
         :param value: The base64-encoded stream session details in TLV format.
         :param value: ``str``
+        :return: The base64-encoded answer in TLV format.
+        :rtype: ``str``
         """
         if stream_idx is None:
             stream_idx = 0
@@ -1953,11 +1960,15 @@ class Camera(Accessory):
         except (IndexError, KeyError, ValueError, struct.error) as ex:
             logger.warning("[%s] Refusing the endpoints: %s", session_id, ex)
             # Like an answer, the refusal is only for the writer.
-            return _setup_endpoints_status(session_id, SETUP_STATUS["ERROR"])
+            return self._answer_endpoints(
+                stream_idx, _setup_endpoints_status(session_id, SETUP_STATUS["ERROR"])
+            )
 
         if not self.streaming_allowed:
             logger.info("[%s] Streaming is turned off, refusing it", session_id)
-            return _setup_endpoints_status(session_id, SETUP_STATUS["ERROR"])
+            return self._answer_endpoints(
+                stream_idx, _setup_endpoints_status(session_id, SETUP_STATUS["ERROR"])
+            )
 
         # Configure the SetupEndpoints response
 
@@ -2055,7 +2066,14 @@ class Camera(Accessory):
             "audio_backchannel": audio_backchannel,
         }
 
-        return response_tlv
+        return self._answer_endpoints(stream_idx, response_tlv)
+
+    def _answer_endpoints(self, stream_idx: int, answer: str) -> str:
+        """Set the Setup Endpoints answer as the value and return it."""
+        self._management[stream_idx].get_characteristic("SetupEndpoints").set_value(
+            answer, should_notify=False
+        )
+        return answer
 
     async def run(self) -> None:
         """Start the HDS listener when recording transport is available."""
