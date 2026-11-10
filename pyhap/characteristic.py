@@ -60,12 +60,15 @@ class CharacteristicWrite(_CharacteristicWriteTarget, total=False):
     """One characteristic of a write, as HAP JSON carries it.
 
     ``value`` is the value to write, ``ev`` subscribes or unsubscribes and
-    ``r`` asks for a write response.
+    ``r`` asks for a write response. ``authData`` and ``remote`` are part of
+    the HAP request too, the driver does not read them.
     """
 
     value: HAPValue
     ev: bool
     r: bool
+    authData: str
+    remote: bool
 
 
 HAP_FORMAT_BOOL = "bool"
