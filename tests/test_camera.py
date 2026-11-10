@@ -6,7 +6,7 @@ import logging
 import socket
 import struct
 from typing import Any, cast
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID
 
 import pytest
@@ -585,3 +585,75 @@ def test_setup_endpoints_refuses_malformed(
         camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
         camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
     }
+
+
+@pytest.mark.parametrize(
+    ("address", "message"),
+    [
+        (b"192.168.1.114 x", "Refusing the endpoints"),
+        (b"192.168.1.114", "Streaming is turned off"),
+    ],
+)
+def test_setup_endpoints_refuses_address_before_streaming_off(
+    mock_driver: Any,
+    caplog: pytest.LogCaptureFixture,
+    address: bytes,
+    message: str,
+) -> None:
+    """Test an invalid address is refused first, then streaming turned off."""
+    acc = camera.Camera(
+        {**_OPTIONS, "global_operating_mode": []}, mock_driver, "Camera"
+    )
+    operating_mode = acc.get_service("CameraGlobalOperatingMode")
+    assert operating_mode is not None
+    operating_mode.get_characteristic("HomeKitCameraActive").client_update_value(0)
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    setup_endpoints = management.get_characteristic("SetupEndpoints")
+    with caplog.at_level(logging.INFO):
+        setup_endpoints.client_update_value(_setup_request(address, False))
+    assert message in caplog.text
+    assert acc.sessions == {}
+    assert tlv.decode(setup_endpoints.get_value(), from_base64=True) == {
+        camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
+        camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_process_already_exited(mock_driver: Any) -> None:
+    """Verify stopping a stream whose ffmpeg already exited does not raise."""
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    process = Mock()
+    process.terminate.side_effect = ProcessLookupError
+    process.communicate = AsyncMock(return_value=(b"", b""))
+    session_info = {
+        "id": UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1"),
+        "process": process,
+    }
+
+    await acc.stop_stream(session_info)
+
+    process.terminate.assert_called_once_with()
+    process.communicate.assert_awaited_once_with()
+    process.kill.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_kill_after_process_exited(mock_driver: Any) -> None:
+    """Verify the kill fallback tolerates a process that exited meanwhile."""
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    process = Mock()
+    process.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+    process.kill.side_effect = ProcessLookupError
+    process.wait = AsyncMock(return_value=0)
+    session_info = {
+        "id": UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1"),
+        "process": process,
+    }
+
+    await acc.stop_stream(session_info)
+
+    process.terminate.assert_called_once_with()
+    process.kill.assert_called_once_with()
+    process.wait.assert_awaited_once_with()
