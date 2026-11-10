@@ -271,8 +271,45 @@ PERSISTED_GLOBAL_OPERATING_MODE_CHARS = (
 
 
 class Camera(Accessory):
-    """An Accessory that can negotiated camera stream settings with iOS and start a
-    stream.
+    """An Accessory that can negotiate camera stream settings with a HAP client
+    (e.g. iOS) and start a stream.
+
+    The Camera accessory implements the HomeKit Protocol for negotiating stream
+    settings, such as the picture width and height, number of audio channels and
+    others. Starting a video and/or audio stream, however, is very platform
+    specific. Because of this, you need to figure out what video and audio
+    settings your camera supports and set them in the ``options`` parameter that
+    is passed to the constructor - see the documentation of :meth:`__init__` for
+    the settings you need to specify.
+
+    By default, HAP-python will execute the :data:`FFMPEG_CMD` command with the
+    negotiated parameters when a stream should be started and will terminate the
+    started process when the stream should be stopped. If the default command is
+    not supported or correctly formatted for your platform, the streaming can
+    fail. For these cases, HAP-python has hooks so that you can insert your own
+    command or implement the logic for starting or stopping the stream:
+
+    1. Pass your own command that will be executed when the stream should be
+       started. You pass the command as a value to the key ``start_stream_cmd``
+       in the ``options`` parameter to the constructor of the ``Camera``
+       Accessory. The command is formatted using the negotiated stream
+       configuration parameters. For example, if the negotiated width is 640 and
+       you pass ``foo start -width {width}``, the command will be formatted as
+       ``foo start -width 640``. The full list of negotiated stream configuration
+       parameters can be found in the documentation for the
+       :meth:`start_stream` method.
+
+    2. Implement your own logic to start, stop and reconfigure the stream. If
+       you need more flexibility in managing streams, you can directly override
+       the :meth:`start_stream`, :meth:`stop_stream` and
+       :meth:`reconfigure_stream` methods. Each will be called when the stream
+       should be respectively started, stopped or reconfigured. The start and
+       reconfigure methods are given the negotiated stream configuration
+       parameters.
+
+    Finally, if you can take snapshots from the camera, you may want to
+    implement the :meth:`get_snapshot` method. By default, this serves a stock
+    photo.
     """
 
     category = CATEGORY_CAMERA
