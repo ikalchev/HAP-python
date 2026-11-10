@@ -279,8 +279,9 @@ PERSISTED_GLOBAL_OPERATING_MODE_CHARS = (
 def parse_setup_address(value: bytes, is_ipv6: bool) -> str:
     """Return the controller address of a Setup Endpoints write.
 
-    Only the canonical IP of the announced version is accepted, without an
-    IPv6 scope ID.
+    The address must be an IP address of the announced version, without an
+    IPv6 scope ID. It is returned in canonical form, e.g. ``fd00::1`` for
+    ``FD00:0::1``.
 
     :raises ValueError: If the address is anything else.
     """
@@ -291,11 +292,9 @@ def parse_setup_address(value: bytes, is_ipv6: bool) -> str:
         raise ValueError(f"invalid address {value!r}") from ex
     if isinstance(parsed, ipaddress.IPv6Address) and parsed.scope_id is not None:
         raise ValueError(f"address {address!r} has a scope ID")
-    if str(parsed) != address:
-        raise ValueError(f"address {address!r} is not in canonical form")
     if parsed.version != (6 if is_ipv6 else 4):
         raise ValueError(f"address {address!r} does not match its IP version")
-    return address
+    return str(parsed)
 
 
 def _decode_setup_endpoints(
@@ -1940,11 +1939,6 @@ class Camera(Accessory):
 
         objs = tlv.decode(value, from_base64=True)
         session_id = UUID(bytes=objs[SETUP_TYPES["SESSION_ID"]])
-        if not self.streaming_allowed:
-            logger.info("[%s] Streaming is turned off, refusing it", session_id)
-            # Like an answer, the refusal is only for the writer.
-            return _setup_endpoints_status(session_id, SETUP_STATUS["ERROR"])
-
         try:
             (
                 address,
@@ -1956,6 +1950,11 @@ class Camera(Accessory):
             ) = _decode_setup_endpoints(session_id, objs)
         except (IndexError, KeyError, ValueError, struct.error) as ex:
             logger.warning("[%s] Refusing the endpoints: %s", session_id, ex)
+            return _setup_endpoints_status(session_id, SETUP_STATUS["ERROR"])
+
+        if not self.streaming_allowed:
+            logger.info("[%s] Streaming is turned off, refusing it", session_id)
+            # Like an answer, the refusal is only for the writer.
             return _setup_endpoints_status(session_id, SETUP_STATUS["ERROR"])
 
         # Configure the SetupEndpoints response

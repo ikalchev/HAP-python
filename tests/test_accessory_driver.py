@@ -2681,6 +2681,20 @@ async def test_async_read_back_response(driver: AccessoryDriver) -> None:
 CLIENT = ("1.2.3.4", 5)
 
 
+async def test_connection_lost_without_accessory(driver: AccessoryDriver) -> None:
+    """Test a closed connection before an accessory was added is cleaned up."""
+    driver.loop = asyncio.get_running_loop()
+    assert driver.accessory is None
+    driver.prepared_writes[CLIENT] = {1: 0.0}
+    driver._write_responses[CLIENT] = {}
+
+    driver.connection_lost(CLIENT)
+    await asyncio.sleep(0)
+
+    assert CLIENT not in driver.prepared_writes
+    assert CLIENT not in driver._write_responses
+
+
 def test_connection_lost_tells_the_accessory(driver: AccessoryDriver) -> None:
     """Test the accessory hears about a closed connection."""
     acc = Accessory(driver, "TestAcc")
