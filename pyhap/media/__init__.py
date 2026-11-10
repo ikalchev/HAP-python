@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .sdp import AudioParams, IceCandidateLike, VideoParams
-
 
 class MediaError(Exception):
     """A media session cannot do what was asked."""
@@ -43,12 +41,10 @@ if TYPE_CHECKING:
     )
 
 __all__ = [
-    "AudioParams",
     "ChannelLease",
     "ChannelPull",
     "FFmpegInput",
     "FFmpegSourceProvider",
-    "IceCandidateLike",
     "MediaSource",
     "MediaSourceLike",
     "MultiTierMediaDelegate",
@@ -63,7 +59,6 @@ __all__ = [
     "RemoteRecorder",
     "SourceLease",
     "SourcePool",
-    "VideoParams",
     "MediaError",
     "MediaWorker",
 ]

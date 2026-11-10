@@ -19,9 +19,9 @@ from pyhap.media.recording_delegate import RecordingError, RecordingMediaDelegat
 from pyhap.media.worker import MediaWorker
 from pyhap.util import base64_to_bytes, to_base64_str
 
+from .media_hap import SyntheticPull, bridged
+from .media_peer import KEYFRAME, wait_until
 from .test_media_recording import selected
-from .webrtc_hap import SyntheticPull, bridged
-from .webrtc_peer import KEYFRAME, wait_until
 
 pytestmark = pytest.mark.timeout(30)
 

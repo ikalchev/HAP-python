@@ -19,7 +19,7 @@ from pyhap.media.hevc import (
     split_length_prefixed,
 )
 
-from .webrtc_helpers import blob, scrypted_input
+from .media_helpers import blob, scrypted_input
 
 
 def nal(kind: int, size: int, seed: str = "", layer: int = 0, tid: int = 1) -> bytes:
@@ -152,6 +152,20 @@ def test_parameter_sets_inserted_before_irap() -> None:
     )
     assert nals_of(units) == [[VPS, SPS, PPS, IDR], [TRAIL], [VPS, SPS, PPS, IDR]]
     assert keyframes_of(units) == [True, False, True]
+
+
+def test_parameter_sets_go_after_an_access_unit_delimiter() -> None:
+    """Verify an AUD stays the first NAL unit of an IRAP access unit."""
+    packetizer = HevcPacketizer()
+    aud = nal(35, 3)
+    units = feed(
+        HevcDepacketizer(),
+        [
+            packetizer.packetize([VPS, SPS, PPS, IDR]),
+            packetizer.packetize([aud, IDR]),
+        ],
+    )
+    assert units[-1].nals == [aud, VPS, SPS, PPS, IDR]
 
 
 def test_updated_parameter_sets_are_used() -> None:

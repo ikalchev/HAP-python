@@ -23,7 +23,7 @@ from pyhap.media.recording import (
 )
 from pyhap.media.source import MediaSource
 
-from .webrtc_peer import KEYFRAME, TRAIL, Source, wait_until
+from .media_peer import KEYFRAME, TRAIL, Source, wait_until
 
 FFMPEG = shutil.which("ffmpeg")
 # Copies stdin to stdout, standing in for the transcoder.

@@ -45,7 +45,6 @@ from typing import Any
 import orjson
 
 from . import MediaError
-from .sdp import AudioParams, VideoParams
 
 logger = logging.getLogger(__name__)
 
@@ -662,7 +661,3 @@ def _log_levels() -> list[int]:
         logging.getLogger(name).getEffectiveLevel()
         for name in FORWARDED_LOGGERS.values()
     ]
-
-
-def _fields(params: VideoParams | AudioParams) -> dict[str, Any]:
-    return dict(vars(params))

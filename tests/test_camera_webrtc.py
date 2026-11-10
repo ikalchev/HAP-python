@@ -537,6 +537,23 @@ async def test_reoffer(
     )
 
 
+async def test_reoffer_answer_with_unexpected_sframe_key(
+    stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
+) -> None:
+    """Test an SFrame key in the answer of a session without SFrame fails."""
+    camera = stream_camera()
+    session = await _active(camera)
+    session.sframe = False
+    webrtc_delegate.handle_reoffer.return_value = hksv3.WebRTCReofferAnswer(
+        "v=0\r\n", KEY
+    )
+
+    response = await _reoffer(camera, session.id)
+
+    assert response == hksv3.WebRTCReofferResponse(session.id, 3)
+    assert session.state is SessionState.ACTIVE
+
+
 async def test_update_session(
     stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
 ) -> None:

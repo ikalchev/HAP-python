@@ -2,38 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
-import json
-from pathlib import Path
 import struct
 from typing import Any
 
 from pyhap.media.hevc import NAL_AP, fragment
-
-DATA = Path(__file__).parent / "data"
-
-
-@dataclass
-class IceCandidate:
-    """Stands in for pyhap.hksv3.IceCandidate: the same fields."""
-
-    candidate: str
-    sdp_mid: str | None = None
-    sdp_mline_index: int | None = None
-
-
-@dataclass
-class SFrameKey:
-    """Stands in for pyhap.hksv3.SFrameKey: the same fields."""
-
-    key: bytes
-    kid: int
-
-
-def load_vectors(name: str) -> Any:
-    """Load a JSON vector file from tests/data."""
-    return json.loads((DATA / name).read_text())
 
 
 def seeded_bytes(seed: str, length: int) -> bytes:
@@ -44,11 +17,6 @@ def seeded_bytes(seed: str, length: int) -> bytes:
         out += hashlib.sha256(f"{seed}:{counter}".encode()).digest()
         counter += 1
     return out[:length]
-
-
-def plaintext(spec: dict[str, Any]) -> bytes:
-    """Regenerate a plaintext stored as seed and length."""
-    return seeded_bytes(spec["seed"], spec["len"])
 
 
 def blob(value: bytes) -> Any:

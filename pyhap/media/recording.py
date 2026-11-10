@@ -36,7 +36,7 @@ from . import rtp
 from .ffmpeg import FFMPEG_STOP_TIMEOUT, StderrLines, redact_urls
 from .hevc import AccessUnit
 from .mpegts import MpegTsMuxer
-from .sdp import VIDEO_CLOCK_RATE
+from .rtp import VIDEO_CLOCK_RATE
 
 if TYPE_CHECKING:
     from .source import MediaSource

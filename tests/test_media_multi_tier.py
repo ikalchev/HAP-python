@@ -19,7 +19,7 @@ from pyhap.media.pool import SourcePool
 from pyhap.media.source import MediaSource
 from pyhap.media.worker import MediaWorker, MediaWorkerError
 
-from .webrtc_peer import KEYFRAME, TRAIL, Source, wait_until
+from .media_peer import KEYFRAME, TRAIL, Source, wait_until
 
 pytestmark = pytest.mark.timeout(10)
 
@@ -340,6 +340,72 @@ async def test_switch_continues_the_stream(
     second.close()
     await sender.close()
     other.close()
+
+
+async def test_switch_keeps_rtp_time_going_with_the_same_input_ssrc(
+    controller: Controller, source: MediaSource
+) -> None:
+    """Verify RTP time continues after a switch even if the input SSRC repeats."""
+    other = MediaSource()
+    await other.start()
+    sender = make_sender(controller, keyframe_request_interval=60)
+    requests: list[float | None] = []
+    sender.on_keyframe_request = lambda age, _gop: requests.append(age)
+    await sender.start(source)
+    first = Source(source.rtp_input)
+    first.timestamp = 900_000
+    first.send_video(KEYFRAME)
+    await received(controller, lambda: len(controller.units) == 1)
+    before = len(requests)
+    await sender.switch(other)
+    # The switch asks the new source for a keyframe, whatever the rate limit.
+    assert len(requests) == before + 1
+    second = Source(other.rtp_input)
+    second.timestamp = 1000
+    second.send_video(KEYFRAME)
+    await received(controller, lambda: len(controller.units) == 2)
+    stamps = [p.timestamp for p in controller.video_packets]
+    assert stamps[-1] - stamps[0] > 0
+    assert stamps[-1] - stamps[0] < 90000
+    first.close()
+    second.close()
+    await sender.close()
+    other.close()
+
+
+async def test_start_waits_for_parameter_sets(
+    controller: Controller, source: MediaSource
+) -> None:
+    """Verify the stream starts at an IRAP picture that carries VPS, SPS, PPS."""
+    sender = make_sender(controller)
+    await sender.start(source)
+    camera = Source(source.rtp_input)
+    camera.send_video([KEYFRAME[-1]])
+    camera.send_video([TRAIL])
+    await asyncio.sleep(0.05)
+    camera.send_video(KEYFRAME)
+    await received(controller, lambda: len(controller.units) == 1)
+    assert controller.units == [KEYFRAME]
+    camera.close()
+    await sender.close()
+
+
+async def test_own_packets_sent_back_do_not_keep_alive(
+    controller: Controller, source: MediaSource
+) -> None:
+    """Verify the accessory's own SRTCP, reflected back, is not the controller."""
+    sender = make_sender(controller)
+    alive: list[None] = []
+    sender.on_rtcp = lambda: alive.append(None)
+    video_port, _ = await sender.bind()
+    await sender.start(source)
+    own = controller._out.protect_rtcp(rtp.build_pli(VIDEO_SSRC, VIDEO_SSRC))
+    controller.video.sendto(own, ("127.0.0.1", video_port))
+    controller.send_pli(video_port)
+    await wait_until(lambda: bool(alive))
+    await asyncio.sleep(0.05)
+    assert len(alive) == 1
+    await sender.close()
 
 
 async def test_idle_input_ends_the_session(

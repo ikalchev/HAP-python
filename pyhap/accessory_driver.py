@@ -1098,15 +1098,19 @@ class AccessoryDriver:
             return None
         return connection.derive_key(salt, info)
 
-    def local_address(self, client_addr: Any, ipv6: bool) -> str | None:
+    def local_address(
+        self, client_addr: tuple[str, int] | None, ipv6: bool
+    ) -> str | None:
         """The accessory's address on a controller's connection.
 
         Returns None without such a connection or if its address is not of
         the asked IP version. An IPv4 address mapped into IPv6 counts as
         IPv4, a scope ID is dropped.
         """
-        connection = self.http_server.connections.get(client_addr)
-        transport = getattr(connection, "transport", None)
+        connection = (
+            self.http_server.connections.get(client_addr) if client_addr else None
+        )
+        transport = connection.transport if connection else None
         sockname = transport.get_extra_info("sockname") if transport else None
         if not sockname:
             return None

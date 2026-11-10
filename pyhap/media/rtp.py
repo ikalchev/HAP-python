@@ -9,6 +9,13 @@ import secrets
 import struct
 import time
 
+# RTP clock rates of H.265 video and Opus audio (RFC 7798, RFC 7587).
+VIDEO_CLOCK_RATE = 90000
+AUDIO_CLOCK_RATE = 48000
+# Dynamic payload types the HomeKit streams use for H.265 and Opus.
+DEFAULT_VIDEO_PAYLOAD_TYPE = 99
+DEFAULT_AUDIO_PAYLOAD_TYPE = 110
+
 # Shortest interval between keyframe requests to a source.
 KEYFRAME_REQUEST_INTERVAL = 1.0
 # An audio gap this long starts a new talkspurt (RTP marker bit).
@@ -117,17 +124,24 @@ def parse_rtcp(data: bytes) -> list[RtcpMessage]:
     """Parse a compound RTCP packet; stops at the first malformed part.
 
     Every part must be version 2, fit in ``data`` and carry at least the
-    sender SSRC (RFC 3550 section 6.4).
+    sender SSRC (RFC 3550 section 6.4), except a BYE without sources, whose
+    ``sender_ssrc`` is 0.
     """
     messages = []
     offset = 0
-    while offset + 8 <= len(data):
+    while offset + 4 <= len(data):
         first, packet_type, length = struct.unpack_from(">BBH", data, offset)
         end = offset + 4 * (length + 1)
-        if first >> 6 != RTP_VERSION or length == 0 or end > len(data):
+        if first >> 6 != RTP_VERSION or end > len(data):
             break
-        body = data[offset + 4 : end]
-        messages.append(_parse_one(first & 0x1F, packet_type, body))
+        if length == 0:
+            # Only a BYE without sources is just a header (RFC 3550 6.6).
+            if packet_type != RTCP_BYE or first & 0x1F:
+                break
+            messages.append(RtcpMessage(packet_type, 0, 0))
+        else:
+            body = data[offset + 4 : end]
+            messages.append(_parse_one(first & 0x1F, packet_type, body))
         offset = end
     return messages
 
@@ -250,6 +264,10 @@ class OutboundStream:
         self._last_out: int | None = None
         self._last_wall = 0.0
         self.history: OrderedDict[int, bytes] = OrderedDict()
+
+    def rebase(self) -> None:
+        """Continue the timeline from the next input, e.g. of another source."""
+        self._in_base = None
 
     def timestamp(self, ssrc: int, timestamp: int) -> int:
         """Map an input timestamp onto this stream's timeline."""

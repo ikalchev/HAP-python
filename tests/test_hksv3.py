@@ -903,6 +903,21 @@ def test_webrtc_invalid(decode: Callable[[bytes], object], data: str) -> None:
         decode(bytes.fromhex(data))
 
 
+@pytest.mark.parametrize("size", [0, 15, 65])
+def test_sframe_key_size(size: int) -> None:
+    """Test a key outside 16 to 64 bytes is refused."""
+    with pytest.raises(ValueError, match="SFrame key"):
+        SFrameKey.decode(SFrameKey(b"\xaa" * size, 1).encode())
+
+
+def test_ice_candidate_mline_index_range() -> None:
+    """Test the m-line index decodes only what encodes, up to 0xFFFF."""
+    candidate = IceCandidate("a", "0", 0xFFFF)
+    assert IceCandidate.decode(candidate.encode()) == candidate
+    with pytest.raises(ValueError, match="m-line"):
+        IceCandidate.decode(bytes.fromhex("010161 0303 000001"))
+
+
 def test_generate_sframe_key() -> None:
     """Test generated keys have 32 random bytes and a 64-bit key ID."""
     first = hksv3.generate_sframe_key()

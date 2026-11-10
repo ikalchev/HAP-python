@@ -39,7 +39,11 @@ RTP_HEADER_LEN = 12
 
 
 def talkback_available() -> bool:
-    """Whether talkback is supported, always since pylibsrtp is a dependency."""
+    """Whether talkback is supported, always since pylibsrtp is a dependency.
+
+    Deprecated: kept for callers of the optional dependency check, it will be
+    removed in a future release.
+    """
     return True
 
 

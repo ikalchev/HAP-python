@@ -350,8 +350,12 @@ class FFmpegPull:
         self._running = True
         try:
             await self._spawn()
-        except BaseException:
+        except BaseException as err:
             self._running = False
+            if isinstance(err, OSError):
+                message = f"could not start: {err}"
+                logger.warning("ffmpeg for %s %s", self.name, message)
+                self._report(message)
             raise
         self._watcher = asyncio.ensure_future(self._watch())
 
@@ -406,10 +410,13 @@ class FFmpegPull:
             await asyncio.wait_for(self._restart_now.wait(), delay)
 
     def _error(self, message: str, delay: float) -> None:
-        self.last_error = message
         logger.warning(
             "ffmpeg for %s %s, restarting in %.1f s", self.name, message, delay
         )
+        self._report(message)
+
+    def _report(self, message: str) -> None:
+        self.last_error = message
         if self.on_error is not None:
             try:
                 self.on_error(self.name, message)

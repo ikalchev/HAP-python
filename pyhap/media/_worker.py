@@ -23,6 +23,11 @@ from .worker import FORWARDED_LOGGERS, encode_message, read_message
 
 logger = logging.getLogger(__name__)
 
+# Bytes waiting for the parent above which log records are dropped, and
+# above which the worker gives up on a parent that stopped reading.
+LOG_DROP_BUFFER = 1024 * 1024
+MAX_OUTPUT_BUFFER = 64 * 1024 * 1024
+
 
 class _LogForwarder(logging.Handler):
     def __init__(self, server: _Server) -> None:
@@ -53,8 +58,19 @@ class _Server:
         self.stopping = asyncio.Event()
 
     def send(self, message: dict[str, Any], blob: bytes = b"") -> None:
-        if not self._output.is_closing():
-            self._output.write(encode_message(message, blob))
+        output = self._output
+        if output.is_closing():
+            return
+        buffered = output.get_write_buffer_size()
+        if message.get("event") == "log" and buffered > LOG_DROP_BUFFER:
+            # A parent that reads slowly loses log records, not media events.
+            return
+        if buffered > MAX_OUTPUT_BUFFER:
+            # The parent stopped reading; it sees the worker as gone.
+            output.close()
+            self.stopping.set()
+            return
+        output.write(encode_message(message, blob))
 
     def handle(self, message: dict[str, Any]) -> None:
         task = asyncio.get_running_loop().create_task(self._respond(message))
