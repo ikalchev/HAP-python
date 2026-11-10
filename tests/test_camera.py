@@ -448,7 +448,10 @@ def test_setup_endpoints_read_back_by_writer_only(driver: Any) -> None:
     (other,) = driver.get_characteristics([char_id], ("192.168.1.115", 50000))[
         "characteristics"
     ]
-    assert writer["value"][:20] == "ARCszGzBBWNFFY2pdLRQ"
+    # The writer reads the answer, which carries a status, not its request.
+    answer = tlv.decode(writer["value"], from_base64=True)
+    assert answer[b"\x01"] == tlv.decode(request, from_base64=True)[b"\x01"]
+    assert answer[b"\x02"] == b"\x00"
     assert other["value"] == ""
     assert char.value == ""
 
@@ -523,23 +526,25 @@ def _setup_request_with(address_tlv: bytes, crypto: bytes = b"\x00") -> str:
 
 
 @pytest.mark.parametrize(
-    ("address", "is_ipv6"),
+    ("address", "is_ipv6", "expected"),
     [
-        (b"192.168.1.114", False),
-        (b"fd00::1", True),
+        (b"192.168.1.114", False, "192.168.1.114"),
+        (b"fd00::1", True, "fd00::1"),
+        (b"FD00::1", True, "fd00::1"),
+        (b"fd00:0:0:0:0:0:0:1", True, "fd00::1"),
     ],
 )
 def test_setup_endpoints_accepts_addresses(
-    mock_driver: Any, address: bytes, is_ipv6: bool
+    mock_driver: Any, address: bytes, is_ipv6: bool, expected: str
 ) -> None:
-    """Test canonical addresses of the announced version are accepted."""
+    """Test addresses of the announced version are accepted in canonical form."""
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     management.get_characteristic("SetupEndpoints").client_update_value(
         _setup_request(address, is_ipv6)
     )
-    assert acc.sessions[_SESSION_ID]["address"] == address.decode()
+    assert acc.sessions[_SESSION_ID]["address"] == expected
 
 
 @pytest.mark.parametrize(
@@ -548,8 +553,6 @@ def test_setup_endpoints_accepts_addresses(
         (b"192.168.1.114 x", False),
         (b"192.168.1.114\n", False),
         (b"fe80::1%en0", True),
-        (b"FD00::1", True),
-        (b"fd00:0:0:0:0:0:0:1", True),
         (b"192.168.1.114", True),
         (b"fd00::1", False),
         (b"::ffff:192.168.1.114", False),
@@ -618,6 +621,122 @@ def test_setup_endpoints_refuses_malformed(
     }
 
 
+@pytest.mark.parametrize(
+    ("address", "camera_active"),
+    [
+        (b"192.168.1.114 x", 1),
+        (b"192.168.1.114", 0),
+    ],
+    ids=["invalid_address", "streaming_off"],
+)
+def test_setup_endpoints_refusal_read_back_by_writer_only(
+    driver: Any, address: bytes, camera_active: int
+) -> None:
+    """Test only the controller whose write was refused reads the refusal."""
+    acc = camera.Camera({**_OPTIONS, "global_operating_mode": []}, driver, "Camera")
+    driver.add_accessory(acc)
+    operating_mode = acc.get_service("CameraGlobalOperatingMode")
+    assert operating_mode is not None
+    operating_mode.get_characteristic("HomeKitCameraActive").client_update_value(
+        camera_active
+    )
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    char = management.get_characteristic("SetupEndpoints")
+    iid = acc.iid_manager.get_iid(char)
+    request = _setup_request(address, False)
+    query = {"characteristics": [{"aid": acc.aid, "iid": iid, "value": request}]}
+
+    assert driver.set_characteristics(query, ("192.168.1.114", 50000)) is None
+
+    char_id = f"{acc.aid}.{iid}"
+    (writer,) = driver.get_characteristics([char_id], ("192.168.1.114", 50000))[
+        "characteristics"
+    ]
+    (other,) = driver.get_characteristics([char_id], ("192.168.1.115", 50000))[
+        "characteristics"
+    ]
+    assert acc.sessions == {}
+    assert tlv.decode(writer["value"], from_base64=True) == {
+        camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
+        camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
+    }
+    assert other["value"] == ""
+    assert char.value == ""
+
+
+def test_setup_endpoints_set_by_subclass_read_back_by_writer_only(
+    driver: Any,
+) -> None:
+    """Test an answer a subclass sets as the value stays with the writer."""
+
+    class _Camera(camera.Camera):
+        def set_endpoints(self, value: str, stream_idx: int | None = None) -> None:
+            answer = super().set_endpoints(value, stream_idx)
+            management = self.get_service("CameraRTPStreamManagement")
+            assert management is not None
+            management.get_characteristic("SetupEndpoints").set_value(answer)
+
+    acc = _Camera(_OPTIONS, driver, "Camera")
+    driver.add_accessory(acc)
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    char = management.get_characteristic("SetupEndpoints")
+    iid = acc.iid_manager.get_iid(char)
+    request = (
+        "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
+        "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
+        "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
+    )
+    query = {"characteristics": [{"aid": acc.aid, "iid": iid, "value": request}]}
+
+    assert driver.set_characteristics(query, ("192.168.1.114", 50000)) is None
+
+    char_id = f"{acc.aid}.{iid}"
+    (writer,) = driver.get_characteristics([char_id], ("192.168.1.114", 50000))[
+        "characteristics"
+    ]
+    (other,) = driver.get_characteristics([char_id], ("192.168.1.115", 50000))[
+        "characteristics"
+    ]
+    assert tlv.decode(writer["value"], from_base64=True)[b"\x02"] == b"\x00"
+    assert other["value"] == ""
+    assert char.value == ""
+
+
+@pytest.mark.parametrize(
+    ("address", "message"),
+    [
+        (b"192.168.1.114 x", "Refusing the endpoints"),
+        (b"192.168.1.114", "Streaming is turned off"),
+    ],
+)
+def test_setup_endpoints_refuses_address_before_streaming_off(
+    mock_driver: Any,
+    caplog: pytest.LogCaptureFixture,
+    address: bytes,
+    message: str,
+) -> None:
+    """Test an invalid address is refused first, then streaming turned off."""
+    acc = camera.Camera(
+        {**_OPTIONS, "global_operating_mode": []}, mock_driver, "Camera"
+    )
+    operating_mode = acc.get_service("CameraGlobalOperatingMode")
+    assert operating_mode is not None
+    operating_mode.get_characteristic("HomeKitCameraActive").client_update_value(0)
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    setup_endpoints = management.get_characteristic("SetupEndpoints")
+    with caplog.at_level(logging.INFO):
+        response = setup_endpoints.client_update_value(_setup_request(address, False))
+    assert message in caplog.text
+    assert acc.sessions == {}
+    assert tlv.decode(response, from_base64=True) == {
+        camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
+        camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
+    }
+
+
 @pytest.mark.asyncio
 async def test_stop_stream_process_already_exited(mock_driver: Any) -> None:
     """Verify stopping a stream whose ffmpeg already exited does not raise."""
@@ -635,3 +754,23 @@ async def test_stop_stream_process_already_exited(mock_driver: Any) -> None:
     process.terminate.assert_called_once_with()
     process.communicate.assert_awaited_once_with()
     process.kill.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_kill_after_process_exited(mock_driver: Any) -> None:
+    """Verify the kill fallback tolerates a process that exited meanwhile."""
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    process = Mock()
+    process.communicate = AsyncMock(side_effect=TimeoutError)
+    process.kill.side_effect = ProcessLookupError
+    process.wait = AsyncMock(return_value=0)
+    session_info = {
+        "id": UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1"),
+        "process": process,
+    }
+
+    await acc.stop_stream(session_info)
+
+    process.terminate.assert_called_once_with()
+    process.kill.assert_called_once_with()
+    process.wait.assert_awaited_once_with()

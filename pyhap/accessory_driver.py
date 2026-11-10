@@ -32,14 +32,19 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, NamedTuple
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
 from pyhap.accessory import Accessory, Bridge, get_topic
-from pyhap.characteristic import PROP_PERMISSIONS, Characteristic, CharacteristicError
+from pyhap.characteristic import (
+    PROP_PERMISSIONS,
+    Characteristic,
+    CharacteristicError,
+    HAPValue,
+)
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PERMISSION_READ,
@@ -91,9 +96,6 @@ PAIRING_LOCKOUT_SECONDS = 60
 MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
 
-# A characteristic value as HAP JSON carries it.
-HAPValue = bool | int | float | str | None
-
 
 def _stored_value(char: Characteristic, value: HAPValue) -> HAPValue:
     """Return the value ``client_update_value`` stores for ``value``."""
@@ -104,10 +106,12 @@ def _stored_value(char: Characteristic, value: HAPValue) -> HAPValue:
     return stored
 
 
-def _wrap_char_setter(char: Any, value: Any, client_addr: Any) -> tuple[int, Any]:
+def _wrap_char_setter(
+    char: Any, value: Any, client_addr: Any, notify: bool = True
+) -> tuple[int, Any]:
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
-        response = char.client_update_value(value, client_addr)
+        response = char.client_update_value(value, client_addr, notify=notify)
     except Exception:
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
@@ -169,9 +173,13 @@ def _wrap_service_setter(service: Any, chars: Any, client_addr: Any) -> Any:
     return HAP_SERVER_STATUS.SUCCESS
 
 
-# A characteristic write whose setter is a coroutine: the result entry to
-# complete, the coroutine, whether a write response was asked for and the char.
-_PendingWrite = tuple[dict[str, Any], Coroutine[Any, Any, Any], bool, Characteristic]
+class _PendingWrite(NamedTuple):
+    """A characteristic write whose setter returned a coroutine."""
+
+    result: dict[str, Any]  # The result entry to complete.
+    coro: Coroutine[Any, Any, Any]
+    write_response: bool  # Whether the controller asked for a write response.
+    char: Characteristic
 
 
 def _set_characteristics_response(
@@ -1286,20 +1294,17 @@ class AccessoryDriver:
             # Only characteristics with the write response permission answer
             # a write with a value, and only when the controller asks for it.
             write_response = (
-                query.get(HAP_REPR_WRITE_RESPONSE, False)
+                query.get(HAP_REPR_WRITE_RESPONSE) is True
                 and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
             )
             # A new write replaces a former response of this connection. The
             # request of a readable write response or read back characteristic
-            # is not shared, with or without r and whatever the setter does,
-            # except to ev subscribers.
+            # is not shared, whatever the setter does, also not with ev
+            # subscribers.
             if value is not None:
                 self._write_responses.get(client_addr, {}).pop(char, None)
             private_write = (
-                (
-                    HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
-                    or char.read_back_response
-                )
+                (write_response or char.read_back_response)
                 and value is not None
                 and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
             )
@@ -1310,19 +1315,32 @@ class AccessoryDriver:
 
             if value is not None:
                 set_result, set_result_value = _wrap_char_setter(
-                    char, value, client_addr
+                    char, value, client_addr, notify=not private_write
                 )
             # A write with ``r`` to a readable characteristic is a request,
             # e.g. a Setup Endpoints offer with the writer's SRTP keys. Only
             # the writer reads the answer back, see _store_write_response.
             # client_update_value stored the request as the value, so put
             # back the former one unless the setter set a value of its own.
-            if private_write and char.value == _stored_value(char, value):
-                char.value = previous_value
+            # Whatever the setter of a read back characteristic leaves in the
+            # value is an answer for the writer only, e.g. from a subclass that
+            # still sets the Setup Endpoints answer itself.
+            if private_write:
+                own_value = char.value
+                if char.read_back_response:
+                    if set_result_value is None and own_value != _stored_value(
+                        char, value
+                    ):
+                        set_result_value = own_value
+                    char.value = previous_value
+                elif own_value == _stored_value(char, value):
+                    char.value = previous_value
 
             result: dict[str, Any] = {HAP_REPR_STATUS: set_result}
             if inspect.iscoroutine(set_result_value):
-                pending.append((result, set_result_value, write_response, char))
+                pending.append(
+                    _PendingWrite(result, set_result_value, write_response, char)
+                )
             elif set_result_value is not None:
                 self._keep_response(
                     result, char, set_result_value, write_response, client_addr
@@ -1368,10 +1386,7 @@ class AccessoryDriver:
         timeout: float,
     ) -> dict[str, Any] | None:
         """Wait for the coroutine setters, then build the response."""
-        tasks = {
-            asyncio.ensure_future(coro): (result, write_response, char)
-            for result, coro, write_response, char in pending
-        }
+        tasks = {asyncio.ensure_future(write.coro): write for write in pending}
         try:
             done, not_done = await asyncio.wait(tasks, timeout=timeout)
         except asyncio.CancelledError:
@@ -1380,31 +1395,33 @@ class AccessoryDriver:
             raise
         for task in not_done:
             task.cancel()
-            result, _, char = tasks[task]
+            write = tasks[task]
             logger.warning(
                 "%s: Timed out setting characteristic %s",
                 client_addr,
-                char.display_name,
+                write.char.display_name,
             )
-            result[HAP_REPR_STATUS] = HAP_SERVER_STATUS.OPERATION_TIMED_OUT
+            write.result[HAP_REPR_STATUS] = HAP_SERVER_STATUS.OPERATION_TIMED_OUT
         for task in done:
-            result, write_response, char = tasks[task]
+            write = tasks[task]
             try:
                 outcome = task.result()
             except (Exception, asyncio.CancelledError):
                 logger.exception(
                     "%s: Error while setting characteristic %s",
                     client_addr,
-                    char.display_name,
+                    write.char.display_name,
                 )
-                result[HAP_REPR_STATUS] = (
+                write.result[HAP_REPR_STATUS] = (
                     HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
                 )
                 continue
             if outcome is not None:
                 # A response queued when the connection closes is dropped by
                 # the deferred cleanup in connection_lost.
-                self._keep_response(result, char, outcome, write_response, client_addr)
+                self._keep_response(
+                    write.result, write.char, outcome, write.write_response, client_addr
+                )
         return _set_characteristics_response(results)
 
     def _keep_response(
@@ -1426,8 +1443,11 @@ class AccessoryDriver:
         ):
             self._store_write_response(char, response, client_addr)
 
-    def _take_prepared_write(self, pid: Any, client_addr: tuple[str, int]) -> bool:
+    def _take_prepared_write(self, pid: int, client_addr: tuple[str, int]) -> bool:
         """Consume the prepared write ``pid`` and return whether it is still valid."""
+        if not isinstance(pid, int):
+            # Controller input; a list or dict is not even hashable.
+            return False
         expires_at = self.prepared_writes.get(client_addr, {}).pop(pid, None)
         return expires_at is not None and time.monotonic() <= expires_at
 

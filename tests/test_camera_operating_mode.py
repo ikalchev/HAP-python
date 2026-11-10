@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+import logging
 import pathlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -149,7 +150,7 @@ async def test_writes_call_hook(
 
 
 @pytest.mark.parametrize(
-    ("enabled", "starts", "status", "warnings"),
+    ("enabled", "starts", "status", "refusals"),
     [
         (True, 1, STREAMING_STATUS["STREAMING"], 0),
         (False, 0, STREAMING_STATUS["AVAILABLE"], 1),
@@ -160,10 +161,11 @@ async def test_stream_start_needs_streaming_allowed(
     enabled: bool,
     starts: int,
     status: bytes,
-    warnings: int,
+    refusals: int,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test a stream turned off after its setup does not start."""
+    caplog.set_level(logging.INFO, "pyhap.camera")
     camera = _camera(driver, video=VIDEO, audio=AUDIO, global_operating_mode=[])
     camera.start_stream = AsyncMock(return_value=True)
     camera.sessions[SESSION_ID] = {"id": SESSION_ID, "stream_idx": 0}
@@ -175,7 +177,7 @@ async def test_stream_start_needs_streaming_allowed(
     assert camera.start_stream.await_count == starts
     assert camera.streaming_status == status
     assert (SESSION_ID in camera.sessions) is enabled
-    assert caplog.text.count("Streaming is turned off") == warnings
+    assert caplog.text.count("Streaming is turned off") == refusals
     assert "Failed to start/reconfigure stream" not in caplog.text
 
 
@@ -248,8 +250,12 @@ async def test_global_operating_mode_decides(driver: Any) -> None:
     stream.close.assert_called_once_with(hds_recording.RecordingReason.NOT_ALLOWED)
 
 
-async def test_operating_mode_ignored(driver: Any) -> None:
-    """Test the Camera Operating Mode value is ignored next to the global one."""
+async def test_last_camera_active_write_decides(driver: Any) -> None:
+    """Test the last write to either HomeKit Camera Active decides.
+
+    A hub that only knows the Camera Operating Mode service still turns the
+    camera off, and the other characteristic follows.
+    """
     camera = _camera(driver, recording=True, global_operating_mode=[])
     camera.homekit_camera_active_changed = MagicMock()
     stream = MagicMock()
@@ -258,21 +264,84 @@ async def test_operating_mode_ignored(driver: Any) -> None:
     active = _char(camera, GLOBAL, "HomeKitCameraActive")
     legacy = _char(camera, "CameraOperatingMode", "HomeKitCameraActive")
 
-    # A value left from before must not keep the camera off.
-    active.client_update_value(0)
     legacy.client_update_value(0)
+    assert camera.homekit_camera_active is False
+    assert camera.streaming_allowed is False
+    assert active.get_value() == 0
+    assert status_active.get_value() is False
+    stream.close.assert_called_once_with(hds_recording.RecordingReason.NOT_ALLOWED)
+
     active.client_update_value(1)
-    assert camera.homekit_camera_active_changed.call_count == 2
-    camera.homekit_camera_active_changed.assert_called_with(True)
     assert camera.homekit_camera_active is True
     assert camera.streaming_allowed is True
+    assert legacy.get_value() == 1
     assert status_active.get_value() is True
+    assert camera.homekit_camera_active_changed.call_args_list == [
+        call(False),
+        call(True),
+    ]
 
-    legacy.client_update_value(1)
-    legacy.client_update_value(0)
-    assert camera.homekit_camera_active_changed.call_count == 2
-    assert camera.homekit_camera_active is True
-    stream.close.assert_called_once()
+
+@pytest.mark.parametrize(
+    ("service", "name", "value"),
+    [
+        (GLOBAL, "HomeKitCameraActive", 0),
+        (GLOBAL, "StreamingEnabled", 0),
+        ("CameraOperatingMode", "HomeKitCameraActive", 0),
+    ],
+)
+async def test_turning_streaming_off_ends_streams(
+    driver: Any, service: str, name: str, value: int
+) -> None:
+    """Test running live streams end once streaming is turned off."""
+    camera = _camera(
+        driver, video=VIDEO, audio=AUDIO, recording=True, global_operating_mode=[]
+    )
+    camera.stop_stream = AsyncMock()
+    session_info = {"id": SESSION_ID, "stream_idx": 0}
+    camera.sessions[SESSION_ID] = session_info
+    camera._streaming_status[0] = STREAMING_STATUS["STREAMING"]
+
+    _char(camera, service, name).client_update_value(value)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    camera.stop_stream.assert_awaited_once_with(session_info)
+    assert camera.sessions == {}
+    assert camera.streaming_status == STREAMING_STATUS["AVAILABLE"]
+
+
+async def test_manually_disabled_ends_streams(driver: Any) -> None:
+    """Test turning the camera off on the device ends running live streams."""
+    camera = _camera(
+        driver, video=VIDEO, audio=AUDIO, global_operating_mode=["ManuallyDisabled"]
+    )
+    camera.stop_stream = AsyncMock()
+    camera.sessions[SESSION_ID] = {"id": SESSION_ID, "stream_idx": 0}
+
+    camera.set_manually_disabled(True)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    camera.stop_stream.assert_awaited_once()
+    assert camera.sessions == {}
+
+
+async def test_streams_kept_while_allowed(driver: Any) -> None:
+    """Test other settings leave running live streams alone."""
+    camera = _camera(
+        driver, video=VIDEO, audio=AUDIO, global_operating_mode=["NightVision"]
+    )
+    camera.stop_stream = AsyncMock()
+    camera.sessions[SESSION_ID] = {"id": SESSION_ID, "stream_idx": 0}
+
+    _char(camera, GLOBAL, "NightVision").client_update_value(1)
+    _char(camera, GLOBAL, "HomeKitCameraActive").client_update_value(1)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    camera.stop_stream.assert_not_awaited()
+    assert SESSION_ID in camera.sessions
 
 
 async def test_settings_survive_restart(driver: Any) -> None:
@@ -381,8 +450,7 @@ async def test_unknown_chars(driver: Any, chars: list[str]) -> None:
         _camera(driver, global_operating_mode=chars)
 
 
-@pytest.mark.parametrize("chars", [True, "NightVision"])
-async def test_option_not_a_list(driver: Any, chars: Any) -> None:
-    """Test the option must be a list of names."""
-    with pytest.raises(ValueError, match="must be a list"):
-        _camera(driver, global_operating_mode=chars)
+async def test_option_as_tuple(driver: Any) -> None:
+    """Test the option takes any sequence of names."""
+    camera = _camera(driver, global_operating_mode=("NightVision",))
+    assert _char(camera, GLOBAL, "NightVision").value == 0
