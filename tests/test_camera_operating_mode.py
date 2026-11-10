@@ -215,9 +215,9 @@ async def test_setup_endpoints_needs_streaming_allowed(
     camera = _camera(driver, video=VIDEO, audio=AUDIO, **options)
     _char(camera, service, "HomeKitCameraActive").client_update_value(enabled)
     setup = _char(camera, "CameraRTPStreamManagement", "SetupEndpoints")
-    setup.client_update_value(SETUP_REQUEST)
+    answer = setup.client_update_value(SETUP_REQUEST)
 
-    response = tlv.decode(setup.get_value(), from_base64=True)
+    response = tlv.decode(answer, from_base64=True)
     assert response[SETUP_TYPES["SESSION_ID"]] == SESSION_ID.bytes
     assert response[SETUP_TYPES["STATUS"]] == status
     assert list(camera.sessions) == sessions

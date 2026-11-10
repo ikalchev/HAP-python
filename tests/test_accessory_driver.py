@@ -2613,3 +2613,47 @@ async def test_async_read_back_response(driver: AccessoryDriver) -> None:
     char_id = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
     assert _read(driver, char_id, WRITER) == 1
     assert _read(driver, char_id, OTHER_CONTROLLER) == 0
+
+
+CLIENT = ("1.2.3.4", 5)
+
+
+def test_connection_lost_tells_the_accessory(driver: AccessoryDriver) -> None:
+    """Test the accessory hears about a closed connection."""
+    acc = Accessory(driver, "TestAcc")
+    driver.add_accessory(acc)
+    with patch.object(acc, "client_disconnected") as disconnected:
+        driver.connection_lost(CLIENT)
+    disconnected.assert_called_once_with(CLIENT)
+
+
+def test_connection_lost_logs_accessory_errors(
+    driver: AccessoryDriver, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test a failing accessory does not break the connection cleanup."""
+    acc = Accessory(driver, "TestAcc")
+    driver.add_accessory(acc)
+    driver.prepared_writes[CLIENT] = {}
+    with patch.object(acc, "client_disconnected", side_effect=RuntimeError):
+        driver.connection_lost(CLIENT)
+    assert CLIENT not in driver.prepared_writes
+    assert "TestAcc failed to handle a closed connection" in caplog.text
+
+
+def test_bridge_tells_each_accessory(
+    driver: AccessoryDriver, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test a bridge passes a closed connection on, despite failing accessories."""
+    bridge = Bridge(driver, "TestBridge")
+    first = Accessory(driver, "First")
+    second = Accessory(driver, "Second")
+    bridge.add_accessory(first)
+    bridge.add_accessory(second)
+    driver.add_accessory(bridge)
+    with (
+        patch.object(first, "client_disconnected", side_effect=RuntimeError),
+        patch.object(second, "client_disconnected") as disconnected,
+    ):
+        driver.connection_lost(CLIENT)
+    disconnected.assert_called_once_with(CLIENT)
+    assert "First failed to handle a closed connection" in caplog.text
