@@ -36,7 +36,12 @@ from zeroconf.asyncio import AsyncZeroconf
 
 from pyhap import util
 from pyhap.accessory import Accessory, Bridge, get_topic
-from pyhap.characteristic import PROP_PERMISSIONS, Characteristic, CharacteristicError
+from pyhap.characteristic import (
+    PROP_PERMISSIONS,
+    Characteristic,
+    CharacteristicError,
+    HAPValue,
+)
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PERMISSION_READ,
@@ -88,9 +93,6 @@ PAIRING_LOCKOUT_SECONDS = 60
 MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
 
-# A characteristic value as HAP JSON carries it.
-HAPValue = bool | int | float | str | None
-
 
 def _stored_value(char: Characteristic, value: HAPValue) -> HAPValue:
     """Return the value ``client_update_value`` stores for ``value``."""
@@ -101,10 +103,12 @@ def _stored_value(char: Characteristic, value: HAPValue) -> HAPValue:
     return stored
 
 
-def _wrap_char_setter(char: Any, value: Any, client_addr: Any) -> tuple[int, Any]:
+def _wrap_char_setter(
+    char: Any, value: Any, client_addr: Any, notify: bool = True
+) -> tuple[int, Any]:
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
-        response = char.client_update_value(value, client_addr)
+        response = char.client_update_value(value, client_addr, notify=notify)
     except Exception:
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
@@ -1163,7 +1167,7 @@ class AccessoryDriver:
             )
             # A new write replaces a former response of this connection. The
             # request of a readable write response characteristic is not
-            # shared, whatever the setter does, except to ev subscribers.
+            # shared, whatever the setter does, also not with ev subscribers.
             if value is not None:
                 self._write_responses.get(client_addr, {}).pop(char, None)
             private_write = (
@@ -1178,7 +1182,7 @@ class AccessoryDriver:
 
             if value is not None:
                 set_result, set_result_value = _wrap_char_setter(
-                    char, value, client_addr
+                    char, value, client_addr, notify=not private_write
                 )
             # A write with ``r`` to a readable characteristic is a request,
             # e.g. a Setup Endpoints offer with the writer's SRTP keys. Only
