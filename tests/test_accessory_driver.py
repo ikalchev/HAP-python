@@ -1635,7 +1635,7 @@ def test_send_events(driver: AccessoryDriver) -> None:
 
     # Only client2 and client3 get the event when client1 sent it
     # Read back through the injected fake above, not the typed attribute.
-    pushed = driver.http_server.get_pushed_events()  # ty: ignore[unresolved-attribute]
+    pushed = driver.http_server.get_pushed_events()  # ty: ignore[missing-attribute]
     assert pushed == {
         ("bytedata", "client2"),
         ("bytedata", "client3"),
