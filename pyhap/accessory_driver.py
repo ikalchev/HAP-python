@@ -682,6 +682,15 @@ class AccessoryDriver:
         self.prepared_writes.pop(client, None)
         # Deferred, so a write response that is already on its way is dropped too.
         self.loop.call_soon(self._write_responses.pop, client, None)
+        accessory = self.accessory
+        if accessory is None:
+            return
+        try:
+            accessory.client_disconnected(client)
+        except Exception:
+            logger.exception(
+                "%s failed to handle a closed connection", accessory.display_name
+            )
 
     def publish(
         self,
