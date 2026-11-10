@@ -2959,6 +2959,23 @@ def test_read_back_response_only_for_writer(
     assert acc_rep[HAP_REPR_SERVICES][-1][HAP_REPR_CHARS][0][HAP_REPR_VALUE] == 0
 
 
+def test_read_back_prefers_the_returned_answer(driver: AccessoryDriver) -> None:
+    """The answer a setter returns wins over a value it sets itself."""
+    acc, char = _add_read_back_char(driver)
+
+    def _setter(value: int) -> int:
+        char.set_value(42)
+        return 7
+
+    char.setter_callback = _setter
+
+    assert _write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
+
+    char_id = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
+    assert _read(driver, char_id, WRITER) == 7
+    assert _read(driver, char_id, OTHER_CONTROLLER) == 0
+
+
 @pytest.mark.parametrize(
     ("reader", "expected"),
     [
@@ -2996,6 +3013,26 @@ async def test_async_read_back_response(driver: AccessoryDriver) -> None:
     char_id = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
     assert _read(driver, char_id, WRITER) == 1
     assert _read(driver, char_id, OTHER_CONTROLLER) == 0
+
+
+@pytest.mark.parametrize(
+    ("value", "setter"),
+    [
+        pytest.param("notanint", MagicMock(return_value=None), id="invalid-value"),
+        pytest.param(5, MagicMock(return_value=None), id="setter-does-nothing"),
+    ],
+)
+def test_read_back_without_answer_keeps_nothing_for_writer(
+    driver: AccessoryDriver, value: Any, setter: MagicMock
+) -> None:
+    """Neither the former value nor the request is kept as the writer's answer."""
+    acc, char = _add_read_back_char(driver)
+    char.setter_callback = setter
+
+    _write(driver, acc, char, **{HAP_REPR_VALUE: value})
+    char.set_value(3)
+
+    assert _read(driver, f"{acc.aid}.{acc.iid_manager.get_iid(char)}", WRITER) == 3
 
 
 CLIENT = ("1.2.3.4", 5)
