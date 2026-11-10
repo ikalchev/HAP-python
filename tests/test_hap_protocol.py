@@ -5,15 +5,18 @@ import contextlib
 import time
 from typing import Any, NoReturn, cast
 from unittest.mock import MagicMock, Mock, patch
+from uuid import uuid1
 
 from cryptography.exceptions import InvalidTag
 
 from pyhap import hap_handler, hap_protocol
 from pyhap.accessory import Accessory, Bridge, get_topic
 from pyhap.accessory_driver import AccessoryDriver
+from pyhap.characteristic import Characteristic
 from pyhap.const import HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_VALUE
 from pyhap.hap_crypto import HAPCrypto, hap_hkdf
 from pyhap.hap_handler import HAPResponse
+from pyhap.service import Service
 
 
 class MockTransport(asyncio.Transport):
@@ -923,6 +926,98 @@ async def test_camera_snapshot_timeout_async(driver: AccessoryDriver) -> None:
     assert b"-70402" in b"".join(writelines.call_args_list[0][0])
 
     hap_proto.close()
+
+
+ASYNC_PUT_REQUEST = (
+    b"PUT /characteristics HTTP/1.1\r\n"
+    b"Host: HASS12\\032AD1C22._hap._tcp.local\r\n"
+    b"Content-Length: 58\r\n"
+    b"Content-Type: application/hap+json\r\n"
+    b"\r\n"
+    b'{"characteristics":[{"aid":1,"iid":9,"value":0,"r":true}]}'
+)
+ASYNC_PUT_RESPONSE = (
+    b"HTTP/1.1 207 Multi-Status\r\n"
+    b"Content-Type: application/hap+json\r\n"
+    b"Content-Length: 60\r\n\r\n"
+    b'{"characteristics":[{"status":0,"value":1,"aid":1,"iid":9}]}'
+)
+
+
+def _async_setter_protocol(
+    driver: AccessoryDriver, setter_done: asyncio.Event
+) -> hap_protocol.HAPServerProtocol:
+    """A connection to an accessory whose char 1.9 has an async setter.
+
+    The setter waits for ``setter_done`` and answers 1 in the write response.
+    """
+    transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
+
+    async def _setter(_value: int) -> int:
+        await setter_done.wait()
+        return 1
+
+    acc = Accessory(driver, "TestAcc")
+    service = Service(uuid1(), "Test Service")
+    char = Characteristic(
+        "Value", uuid1(), {"Format": "int", "Permissions": ["pr", "pw", "wr"]}
+    )
+    char.setter_callback = _setter
+    service.add_characteristic(char)
+    acc.add_service(service)
+    driver.add_accessory(acc)
+    assert acc.iid_manager.get_iid(char) == 9
+
+    hap_proto = hap_protocol.HAPServerProtocol(MagicMock(), {}, driver)
+    hap_proto.connection_made(transport)
+    _enable_encryption(hap_proto)
+    return hap_proto
+
+
+async def test_set_characteristics_async_setter_write_response(
+    driver: AccessoryDriver,
+) -> None:
+    """The write response of an async setter is sent once the setter is done."""
+    setter_done = asyncio.Event()
+    hap_proto = _async_setter_protocol(driver, setter_done)
+
+    with patch.object(hap_proto.transport, "writelines") as writelines:
+        hap_proto.data_received(ASYNC_PUT_REQUEST)
+        writelines.assert_not_called()
+        setter_done.set()
+        await _await_response(hap_proto)
+
+    hap_proto.close()
+    assert b"".join(writelines.call_args_list[0][0]) == ASYNC_PUT_RESPONSE
+
+
+async def test_get_pipelined_behind_async_setter(driver: AccessoryDriver) -> None:
+    """A GET behind an async write is answered after the 207, with the new value."""
+    setter_done = asyncio.Event()
+    hap_proto = _async_setter_protocol(driver, setter_done)
+
+    with patch.object(hap_proto.transport, "writelines") as writelines:
+        hap_proto.data_received(
+            ASYNC_PUT_REQUEST
+            + b"GET /characteristics?id=1.9 HTTP/1.1\r\n"
+            + b"Host: HASS12\\032AD1C22._hap._tcp.local\r\n\r\n"
+        )
+        await asyncio.sleep(0)
+        writelines.assert_not_called()
+        setter_done.set()
+        await _await_response(hap_proto)
+        await asyncio.sleep(0)
+
+    hap_proto.close()
+    assert writelines.call_count == 2
+    assert b"".join(writelines.call_args_list[0][0]) == ASYNC_PUT_RESPONSE
+    assert b"".join(writelines.call_args_list[1][0]) == (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Content-Type: application/hap+json\r\n"
+        b"Content-Length: 49\r\n\r\n"
+        b'{"characteristics":[{"aid":1,"iid":9,"value":1}]}'
+    )
 
 
 def test_upgrade_to_encrypted(driver: AccessoryDriver) -> None:

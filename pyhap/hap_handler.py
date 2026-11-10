@@ -6,6 +6,7 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 import asyncio
 from collections.abc import Awaitable
 from http import HTTPStatus
+import inspect
 import logging
 import sys
 from typing import TYPE_CHECKING, Any, cast
@@ -711,16 +712,40 @@ class HAPServerHandler:
             "%s: Set characteristics content: %s", self.client_address, requested_chars
         )
 
-        response = self.accessory_handler.set_characteristics(
-            requested_chars, cast("tuple[str, int]", self.client_address)
+        result = self.accessory_handler._set_characteristics_for_controller(
+            requested_chars,
+            cast("tuple[str, int]", self.client_address),
+            RESPONSE_TIMEOUT,
         )
-        if response is None:
-            self.send_response(HTTPStatus.NO_CONTENT)
+        assert self.response is not None  # noqa: S101
+        if inspect.isawaitable(result):
+            # A setter is still running, answer once it is done. The driver
+            # times out slow setters itself.
+            self.response.task = asyncio.ensure_future(
+                self._async_set_characteristics_body(self.response, result)
+            )
             return
+        self._fill_set_characteristics_response(self.response, result)
 
-        self.send_response(HTTPStatus.MULTI_STATUS)
-        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(to_hap_json(response))
+    def _fill_set_characteristics_response(
+        self, response: HAPResponse, result: dict[str, Any] | None
+    ) -> None:
+        """Fill in the response to a characteristics write."""
+        if result is None:
+            response.status_code = HTTPStatus.NO_CONTENT.value
+            response.reason = HTTPStatus.NO_CONTENT.phrase
+            return
+        response.status_code = HTTPStatus.MULTI_STATUS.value
+        response.reason = HTTPStatus.MULTI_STATUS.phrase
+        response.headers.append(("Content-Type", self.JSON_RESPONSE_TYPE))
+        response.body = to_hap_json(result)
+
+    async def _async_set_characteristics_body(
+        self, response: HAPResponse, result: Awaitable[dict[str, Any] | None]
+    ) -> bytes:
+        """Wait for the pending setters, then fill in the write response."""
+        self._fill_set_characteristics_response(response, await result)
+        return response.body
 
     def handle_prepare(self) -> None:
         """Handles a client request to prepare to write."""
