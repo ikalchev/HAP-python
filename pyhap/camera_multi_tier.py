@@ -20,19 +20,20 @@ from dataclasses import dataclass, field
 import logging
 import re
 import secrets
+import socket
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from pyhap import hksv3
 from pyhap.camera import parse_setup_address
 from pyhap.camera_stream import (
     DEFAULT_HOOK_TIMEOUT,
-    HookFailed,
     SessionState,
     StreamController,
     StreamSession,
-    check_hook_timeout,
-    config_from_option,
-    failure_status,
+    _check_hook_timeout,
+    _config_from_option,
+    _failure_status,
+    _HookFailed,
 )
 from pyhap.util import base64_to_bytes, to_base64_str
 
@@ -167,6 +168,11 @@ class MultiTierDelegate(Protocol):
     Each hook may raise :class:`pyhap.camera_stream.StreamError` to answer
     with a status, any other exception answers with an error. A hook that
     takes longer than ``hook_timeout`` is cancelled and its session ends.
+
+    With the default ``idle_timeout`` a started session ends after 30 s unless
+    the delegate calls :meth:`MultiTierSession.keep_alive`, e.g. for each
+    RTCP packet of the controller; :class:`RtcpMonitor` does that for a
+    delegate that cannot see the controller's RTCP itself.
     """
 
     async def handle_prepare(self, session: MultiTierSession) -> None:
@@ -241,10 +247,10 @@ class MultiTierConfig:
 
         :raises ValueError: For an unknown key.
         """
-        return config_from_option(cls, value, "multi_tier")
+        return _config_from_option(cls, value, "multi_tier")
 
     def __post_init__(self) -> None:
-        check_hook_timeout(self.hook_timeout)
+        _check_hook_timeout(self.hook_timeout)
         if self.max_sessions < MULTI_TIER_MIN_SESSIONS:
             raise ValueError(
                 f"multi_tier max_sessions must be at least {MULTI_TIER_MIN_SESSIONS}"
@@ -359,7 +365,7 @@ class MultiTierController(StreamController[MultiTierSession]):
         await self._delegate.handle_end(session)
 
     async def _set_setup_endpoints(
-        self, value: str, sender_client_addr: Any = None
+        self, value: str, sender_client_addr: tuple[str, int] | None = None
     ) -> Any:
         """Set up a session, only the writing connection reads the answer."""
         deadline = self._deadline()
@@ -378,7 +384,7 @@ class MultiTierController(StreamController[MultiTierSession]):
     async def _setup(
         self,
         request: hksv3.SetupEndpoints,
-        client_addr: Any,
+        client_addr: tuple[str, int] | None,
         deadline: float,
     ) -> MultiTierSession | hksv3.SetupEndpointsStatus:
         session_id = request.session_id
@@ -469,8 +475,8 @@ class MultiTierController(StreamController[MultiTierSession]):
                 end_on_failure=True,
                 first=True,
             )
-        except HookFailed as err:
-            return failure_status(hksv3.SetupEndpointsStatus, err.status, error)
+        except _HookFailed as err:
+            return _failure_status(hksv3.SetupEndpointsStatus, err.status, error)
         session.state = SessionState.PREPARED
         self._set_timer(
             session,
@@ -481,7 +487,7 @@ class MultiTierController(StreamController[MultiTierSession]):
         return session
 
     async def _set_streaming_control(
-        self, value: str, sender_client_addr: Any = None
+        self, value: str, sender_client_addr: tuple[str, int] | None = None
     ) -> str:
         """Start, change or end a stream, the write response is the status."""
         deadline = self._deadline()
@@ -499,7 +505,7 @@ class MultiTierController(StreamController[MultiTierSession]):
     async def _streaming_control(
         self,
         request: hksv3.RTPStreamingControl,
-        client_addr: Any,
+        client_addr: tuple[str, int] | None,
         deadline: float,
     ) -> hksv3.RTPStreamingStatus:
         status = hksv3.RTPStreamingStatus
@@ -522,19 +528,32 @@ class MultiTierController(StreamController[MultiTierSession]):
         tiers = self._tiers(request)
         if tiers is None:
             return status.ERROR
+        previous_ssrcs = session.controller_video_ssrc, session.controller_audio_ssrc
         session.controller_video_ssrc = request.video_ssrc
         session.controller_audio_ssrc = request.audio_ssrc
         started = session.state is SessionState.STARTED
         if started:
             hook = self._delegate.handle_reconfigure(session, *tiers)
         else:
+            # The setup timer must not end the session while it starts.
+            self._cancel_timer(session)
             hook = self._delegate.handle_start(session, *tiers)
         try:
             await self._run_hook(
                 session, "reconfigure" if started else "start", hook, deadline
             )
-        except HookFailed as err:
-            return failure_status(status, err.status, status.ERROR)
+        except _HookFailed as err:
+            session.controller_video_ssrc, session.controller_audio_ssrc = (
+                previous_ssrcs
+            )
+            if not session.ended and session.state is SessionState.PREPARED:
+                self._set_timer(
+                    session,
+                    self.config.setup_timeout,
+                    "Not started in time",
+                    SessionState.PREPARED,
+                )
+            return _failure_status(status, err.status, status.ERROR)
         session.video_tier, session.audio_tier = tiers
         session.state = SessionState.STARTED
         self.keep_alive(session)
@@ -649,8 +668,12 @@ class FFmpegMultiTierDelegate:
         self.audio = audio
 
     async def handle_prepare(self, session: MultiTierSession) -> None:
-        """Listen for the controller's RTCP on the announced video port."""
+        """Listen for the controller's RTCP on the announced video port.
+
+        ffmpeg sends the audio from a free port, which the answer announces.
+        """
         session.data["rtcp_monitor"] = await open_rtcp_monitor(session)
+        session.accessory_audio_port = _free_udp_port(session.is_ipv6)
 
     def command(
         self,
@@ -733,6 +756,18 @@ class FFmpegMultiTierDelegate:
         watcher = session.data.pop("watcher")
         with contextlib.suppress(Exception):
             await watcher
+
+
+def _free_udp_port(ipv6: bool) -> int:
+    """A UDP port that is free now, for ffmpeg to bind.
+
+    Two sessions of controllers that announced the same port would otherwise
+    both bind it.
+    """
+    family = socket.AF_INET6 if ipv6 else socket.AF_INET
+    with socket.socket(family, socket.SOCK_DGRAM) as sock:
+        sock.bind(("::" if ipv6 else "0.0.0.0", 0))  # noqa: S104
+        return int(sock.getsockname()[1])
 
 
 def _redact_command(cmd: list[str]) -> str:

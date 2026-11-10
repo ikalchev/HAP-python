@@ -134,7 +134,7 @@ class StreamSession:
             controller._loop.call_soon(controller._end, self, reason)
 
 
-class HookFailed(Exception):
+class _HookFailed(Exception):
     """A hook failed, ``status`` is the one the delegate asked for, if any.
 
     Raised by :meth:`StreamController._run_hook` to the stream services.
@@ -145,7 +145,7 @@ class HookFailed(Exception):
         self.status = status
 
 
-def failure_status(status_type: type[_E], status: int | None, error: _E) -> _E:
+def _failure_status(status_type: type[_E], status: int | None, error: _E) -> _E:
     """The status a failed request answers, ``error`` unless the delegate chose."""
     try:
         chosen = status_type(status)
@@ -154,13 +154,13 @@ def failure_status(status_type: type[_E], status: int | None, error: _E) -> _E:
     return chosen if chosen else error
 
 
-def check_hook_timeout(hook_timeout: float) -> None:
+def _check_hook_timeout(hook_timeout: float) -> None:
     """Make sure a hook leaves time to answer within the HAP response timeout."""
     if not 0 < hook_timeout <= MAX_HOOK_TIMEOUT:
         raise ValueError(f"hook_timeout must be above 0 and at most {MAX_HOOK_TIMEOUT}")
 
 
-def config_from_option(config_type: type[_C], value: Any, name: str) -> _C:
+def _config_from_option(config_type: type[_C], value: Any, name: str) -> _C:
     """Build a config dataclass from an option dict, or take it as it is.
 
     :raises ValueError: For an unknown key or a value of another type.
@@ -188,7 +188,7 @@ class StreamController(Generic[_S]):
         max_sessions: int,
         max_sessions_per_connection: int,
     ) -> None:
-        check_hook_timeout(hook_timeout)
+        _check_hook_timeout(hook_timeout)
         self.camera = camera
         self.sensor = sensor
         self.hook_timeout = hook_timeout
@@ -221,7 +221,7 @@ class StreamController(Generic[_S]):
         session._controller = self
         self._sessions[session.id] = session
 
-    def _no_room(self, client_addr: Any) -> str | None:
+    def _no_room(self, client_addr: tuple[str, int] | None) -> str | None:
         """Why a new session of ``client_addr`` does not fit, None if it does."""
         if self._closed:
             return f"The {self.kind} service is closed"
@@ -234,14 +234,16 @@ class StreamController(Generic[_S]):
             return f"Too many {self.kind} sessions of the connection"
         return None
 
-    def _owned(self, session_id: UUID, client_addr: Any) -> _S | None:
+    def _owned(
+        self, session_id: UUID, client_addr: tuple[str, int] | None
+    ) -> _S | None:
         """Return the session if ``client_addr`` owns it.
 
         A session of another connection is unknown to it.
         """
         session = self._sessions.get(session_id)
         if session is not None and session.client_addr != client_addr:
-            logger.warning("[%s] Not the controller of the session", session_id)
+            logger.debug("[%s] Not the controller of the session", session_id)
             return None
         return session
 
@@ -260,12 +262,12 @@ class StreamController(Generic[_S]):
         ``first`` marks the hook that introduces the session to the delegate,
         which then releases it when it ends.
 
-        :raises HookFailed: If the hook failed or took too long, or the
+        :raises _HookFailed: If the hook failed or took too long, or the
             session ended meanwhile.
         """
         if session.ended:
             hook.close()
-            raise HookFailed
+            raise _HookFailed
         if first:
             session._delegated = True
         task = self._loop.create_task(hook)
@@ -282,9 +284,9 @@ class StreamController(Generic[_S]):
         if not done:
             logger.warning("[%s] The %s hook timed out", session.id, name)
             self._end(session, f"the {name} hook timed out")
-            raise HookFailed
+            raise _HookFailed
         if task.cancelled() or session.ended:
-            raise HookFailed
+            raise _HookFailed
         error = task.exception()
         if error is None:
             return task.result()
@@ -296,7 +298,7 @@ class StreamController(Generic[_S]):
             logger.error("[%s] The %s hook failed", session.id, name, exc_info=error)
         if end_on_failure:
             self._end(session, f"the {name} hook failed")
-        raise HookFailed(error.status if isinstance(error, StreamError) else None)
+        raise _HookFailed(error.status if isinstance(error, StreamError) else None)
 
     def _background(self, coro: Coroutine[Any, Any, _T]) -> asyncio.Task[_T]:
         task = self._loop.create_task(coro)
