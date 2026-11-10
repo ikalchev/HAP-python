@@ -918,7 +918,7 @@ class AccessoryDriver:
         return {HAP_REPR_ACCS: hap_rep}
 
     def get_characteristics(
-        self, char_ids: Any, client_uuid: UUID | None = None
+        self, char_ids: Any, *, client_uuid: UUID | None = None
     ) -> dict[str, Any]:
         """Returns values for the required characteristics.
 
@@ -975,7 +975,9 @@ class AccessoryDriver:
                         available = False
 
                 # A characteristic IID may resolve to a Service or be unknown;
-                # only a Characteristic can report a value.
+                # only a Characteristic can report a value. Privileges are
+                # checked before availability, so a controller that may not
+                # read the characteristic learns nothing about its accessory.
                 if (
                     isinstance(char, Characteristic)
                     and not is_admin
@@ -1023,6 +1025,7 @@ class AccessoryDriver:
         self,
         chars_query: dict[str, Any],
         client_addr: tuple[str, int],
+        *,
         client_uuid: UUID | None = None,
     ) -> dict[str, Any] | None:
         """Called from ``HAPServerHandler`` when iOS configures the characteristics.

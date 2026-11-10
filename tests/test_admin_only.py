@@ -152,7 +152,7 @@ def test_admin_only_write(
     """Test only admins may write a characteristic restricted to them."""
     char = chars[name]
 
-    response = driver.set_characteristics(_write(char), CLIENT, client_uuid)
+    response = driver.set_characteristics(_write(char), CLIENT, client_uuid=client_uuid)
 
     assert response == _response(char, status)
     assert char.setter.call_count == calls
@@ -175,13 +175,13 @@ def test_admin_change_applies_to_open_session(
     """Test a controller that loses admin is refused on its next write."""
     driver.pair(str(OTHER_ADMIN).encode(), b"other-key", HAP_PERMISSIONS.ADMIN)
     char = chars["MotionEnabled"]
-    assert driver.set_characteristics(_write(char), CLIENT, ADMIN) is None
+    assert driver.set_characteristics(_write(char), CLIENT, client_uuid=ADMIN) is None
 
     change(driver)
 
-    assert driver.set_characteristics(_write(char), CLIENT, ADMIN) == _response(
-        char, REFUSED
-    )
+    assert driver.set_characteristics(
+        _write(char), CLIENT, client_uuid=ADMIN
+    ) == _response(char, REFUSED)
     char.setter.assert_called_once_with(True)
 
 
@@ -196,7 +196,7 @@ def test_legacy_state_pairs_everyone_as_admin(
     AccessoryEncoder.load_into(io.StringIO(json.dumps(legacy)), driver.state)
     char = chars["MotionEnabled"]
 
-    assert driver.set_characteristics(_write(char), CLIENT, USER) is None
+    assert driver.set_characteristics(_write(char), CLIENT, client_uuid=USER) is None
     char.setter.assert_called_once_with(True)
 
 
@@ -227,7 +227,9 @@ def test_admin_only_read(
     """Test reads are only refused when the restriction lists read."""
     char = chars[name]
 
-    response = driver.get_characteristics([f"{char.aid}.{char.iid}"], client_uuid)
+    response = driver.get_characteristics(
+        [f"{char.aid}.{char.iid}"], client_uuid=client_uuid
+    )
 
     assert response == {
         HAP_REPR_CHARS: [{HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, **expected}]
