@@ -24,6 +24,7 @@ from collections.abc import Awaitable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import inspect
+import ipaddress
 import logging
 import os
 import re
@@ -1122,6 +1123,30 @@ class AccessoryDriver:
         if connection is None:
             return None
         return connection.derive_key(salt, info)
+
+    def local_address(
+        self, client_addr: tuple[str, int] | None, ipv6: bool
+    ) -> str | None:
+        """The accessory's address on a controller's connection.
+
+        Returns None without such a connection or if its address is not of
+        the asked IP version. An IPv4 address mapped into IPv6 counts as
+        IPv4, a scope ID is dropped.
+        """
+        connection = (
+            self.http_server.connections.get(client_addr) if client_addr else None
+        )
+        transport = connection.transport if connection else None
+        sockname = transport.get_extra_info("sockname") if transport else None
+        if not sockname:
+            return None
+        try:
+            address = ipaddress.ip_address(str(sockname[0]).split("%", 1)[0])
+        except ValueError:
+            return None
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+            address = address.ipv4_mapped
+        return str(address) if address.version == (6 if ipv6 else 4) else None
 
     def set_characteristics(
         self,

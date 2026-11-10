@@ -1,5 +1,8 @@
 """TLV8 values of the HomeKit Secure Video 17.99 camera services.
 
+Developer Preview: HomeKit Secure Video 17.99 is a preview of the guide, so
+this API is experimental and may change.
+
 Follows the HAP TLV8 list encoding: each item of a list is a TLV of its own,
 and items of the same type are separated by an empty TLV of type 0. Values
 longer than 255 bytes are sent as 255-byte fragments of the same type; a TLV
@@ -12,9 +15,10 @@ and decoder here.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import IntEnum
+import secrets
 from typing import TypeVar
 from uuid import UUID
 
@@ -26,6 +30,7 @@ CAPABILITIES_VERSION = 1
 ZONES_VERSION = 2
 
 _E = TypeVar("_E", bound=IntEnum)
+_T = TypeVar("_T")
 
 
 class SensorType(IntEnum):
@@ -277,3 +282,826 @@ class CameraZones:
         if version != ZONES_VERSION:
             return cls([], version)
         return cls([ZoneData.decode(zone) for zone in fields.get(2, [])], version)
+
+
+class VideoCodec(IntEnum):
+    H264 = 1
+    H265 = 2
+
+
+class AudioCodec(IntEnum):
+    OPUS = 3
+
+
+class AudioSampleRate(IntEnum):
+    KHZ_16 = 1
+    KHZ_24 = 2
+    KHZ_32 = 3
+    KHZ_48 = 4
+
+
+class AudioBitDepth(IntEnum):
+    BITS_8 = 1
+    BITS_16 = 2
+    BITS_24 = 3
+
+
+class RTPStreamingCommand(IntEnum):
+    END = 1
+    START = 2
+
+
+class RTPStreamingStatus(IntEnum):
+    SUCCESS = 0
+    UNKNOWN_SESSION = 1
+    NO_SUCH_STREAM = 2
+    BUSY = 3
+    ERROR = 4
+
+
+# The payload types of the stream tier characteristics. WebRTC media and its
+# SDP use the same ones.
+VIDEO_PAYLOAD_TYPE = 99
+AUDIO_PAYLOAD_TYPE = 110
+
+
+@dataclass(frozen=True)
+class VideoStreamTier:
+    """A video tier a controller can pick for a stream, bit rates in kbps.
+
+    ``peak_bitrate`` is not part of the TLV. :func:`tiers_from_sensor` takes
+    it from the sensor's video encoding, e.g. for the ``max-br`` of a WebRTC
+    offer.
+    """
+
+    identifier: int
+    quality: VideoQuality | int
+    target_bitrate: int
+    width: int
+    height: int
+    frame_rate: int
+    peak_bitrate: int | None = None
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                encode_item(1, _uint(self.identifier, 4)),
+                encode_item(2, _uint(self.quality, 1)),
+                encode_item(3, _uint(self.target_bitrate, 4)),
+                encode_item(4, _uint(self.width, 2)),
+                encode_item(5, _uint(self.height, 2)),
+                encode_item(6, _uint(self.frame_rate, 1)),
+            )
+        )
+
+
+@dataclass(frozen=True)
+class AudioStreamTier:
+    """An audio tier a controller can pick for a stream, bit rate in bps.
+
+    With Opus the guide has the sample rate of the RTP stream, always 48 kHz,
+    whatever the capture rate.
+    """
+
+    identifier: int
+    target_bitrate: int
+    sample_rate: AudioSampleRate | int
+    bit_depth: AudioBitDepth | int = AudioBitDepth.BITS_16
+    packet_time: int = 20
+    channels: int = 1
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                encode_item(1, _uint(self.identifier, 4)),
+                encode_item(2, _uint(self.target_bitrate, 4)),
+                encode_item(3, _uint(self.sample_rate, 1)),
+                encode_item(4, _uint(self.bit_depth, 1)),
+                encode_item(5, _uint(self.packet_time, 1)),
+                encode_item(6, _uint(self.channels, 1)),
+            )
+        )
+
+
+@dataclass
+class SupportedVideoStreamTiers:
+    """Value of the Supported Video Stream Tiers characteristic."""
+
+    codec: VideoCodec | int
+    payload_type: int
+    tiers: list[VideoStreamTier]
+
+    def encode(self) -> bytes:
+        return (
+            encode_item(1, _uint(self.codec, 1))
+            + encode_item(2, _uint(self.payload_type, 1))
+            + encode_list(3, (tier.encode() for tier in self.tiers))
+        )
+
+
+@dataclass
+class SupportedAudioStreamTiers:
+    """Value of the Supported Audio Stream Tiers characteristic."""
+
+    codec: AudioCodec | int
+    payload_type: int
+    tiers: list[AudioStreamTier]
+
+    def encode(self) -> bytes:
+        return (
+            encode_item(1, _uint(self.codec, 1))
+            + encode_item(2, _uint(self.payload_type, 1))
+            + encode_list(3, (tier.encode() for tier in self.tiers))
+        )
+
+
+def _optional_int(fields: dict[int, list[bytes]], tag: int) -> int | None:
+    return _to_int(fields[tag][0]) if tag in fields else None
+
+
+def _optional(
+    fields: dict[int, list[bytes]], tag: int, convert: Callable[[bytes], _T]
+) -> _T | None:
+    return convert(fields[tag][0]) if tag in fields else None
+
+
+def _optional_item(tag: int, value: bytes | None) -> bytes:
+    return b"" if value is None else encode_item(tag, value)
+
+
+@dataclass
+class RTPStreamingControl:
+    """A write to the RTP Streaming Control characteristic.
+
+    Tiers and SSRCs come only with :attr:`RTPStreamingCommand.START`, the
+    audio ones only if the controller wants audio.
+    """
+
+    session_id: UUID
+    command: RTPStreamingCommand | int
+    video_tier: int | None = None
+    video_ssrc: int | None = None
+    audio_tier: int | None = None
+    audio_ssrc: int | None = None
+
+    @classmethod
+    def decode(cls, data: bytes) -> RTPStreamingControl:
+        fields = _fields(data)
+        return cls(
+            UUID(bytes=_required(fields, 1)),
+            _to_enum(RTPStreamingCommand, _required(fields, 2)),
+            _optional_int(fields, 3),
+            _optional_int(fields, 4),
+            _optional_int(fields, 5),
+            _optional_int(fields, 6),
+        )
+
+
+def encode_streaming_status(
+    session_id: UUID | None, status: RTPStreamingStatus | int
+) -> bytes:
+    """Encode the read back value of RTP Streaming Control.
+
+    Without a session, e.g. for a write that did not decode, only the status
+    is sent.
+    """
+    session = b"" if session_id is None else encode_item(1, session_id.bytes)
+    return session + encode_item(2, _uint(status, 1))
+
+
+class SetupEndpointsStatus(IntEnum):
+    SUCCESS = 0
+    BUSY = 1
+    ERROR = 2
+
+
+class SRTPCryptoSuite(IntEnum):
+    AES_CM_128_HMAC_SHA1_80 = 0
+    AES_256_CM_HMAC_SHA1_80 = 1
+    DISABLED = 2
+
+
+def _port(data: bytes) -> int:
+    if len(data) != 2:
+        raise ValueError(f"Invalid port length {len(data)}")
+    return _to_int(data)
+
+
+@dataclass(frozen=True)
+class EndpointAddress:
+    """An address of Setup Endpoints and its RTP ports.
+
+    ``address`` is the text the controller sent. Check it with
+    :func:`pyhap.camera.parse_setup_address` before using it.
+    """
+
+    address: str
+    is_ipv6: bool
+    video_port: int
+    audio_port: int
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                encode_item(1, _uint(self.is_ipv6, 1)),
+                encode_item(2, self.address.encode("utf-8")),
+                encode_item(3, _uint(self.video_port, 2)),
+                encode_item(4, _uint(self.audio_port, 2)),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> EndpointAddress:
+        fields = _fields(data)
+        return cls(
+            _required(fields, 2).decode("utf-8"),
+            bool(_to_int(_required(fields, 1))),
+            _port(_required(fields, 3)),
+            _port(_required(fields, 4)),
+        )
+
+
+@dataclass(frozen=True)
+class SRTPParameters:
+    """The SRTP crypto suite, master key and master salt of a stream."""
+
+    crypto_suite: SRTPCryptoSuite | int
+    master_key: bytes = field(repr=False)
+    master_salt: bytes = field(repr=False)
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                encode_item(1, _uint(self.crypto_suite, 1)),
+                encode_item(2, self.master_key),
+                encode_item(3, self.master_salt),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> SRTPParameters:
+        fields = _fields(data)
+        return cls(
+            _to_enum(SRTPCryptoSuite, _required(fields, 1)),
+            _required(fields, 2),
+            _required(fields, 3),
+        )
+
+
+@dataclass(frozen=True)
+class SetupEndpoints:
+    """A write to Setup Endpoints: where the controller receives, and its keys."""
+
+    session_id: UUID
+    address: EndpointAddress
+    video_srtp: SRTPParameters
+    audio_srtp: SRTPParameters
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                encode_item(1, self.session_id.bytes),
+                encode_item(3, self.address.encode()),
+                encode_item(4, self.video_srtp.encode()),
+                encode_item(5, self.audio_srtp.encode()),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> SetupEndpoints:
+        fields = _fields(data)
+        return cls(
+            UUID(bytes=_required(fields, 1)),
+            EndpointAddress.decode(_required(fields, 3)),
+            SRTPParameters.decode(_required(fields, 4)),
+            SRTPParameters.decode(_required(fields, 5)),
+        )
+
+
+@dataclass(frozen=True)
+class SetupEndpointsResponse:
+    """The read back value of Setup Endpoints.
+
+    Without a session, e.g. for a write that did not decode, only the status
+    is sent. Only a successful one has the accessory's address, keys and
+    SSRCs.
+    """
+
+    session_id: UUID | None
+    status: SetupEndpointsStatus | int
+    address: EndpointAddress | None = None
+    video_srtp: SRTPParameters | None = None
+    audio_srtp: SRTPParameters | None = None
+    video_ssrc: int | None = None
+    audio_ssrc: int | None = None
+
+    def encode(self) -> bytes:
+        def encoded(value: EndpointAddress | SRTPParameters | None) -> bytes | None:
+            return None if value is None else value.encode()
+
+        def ssrc(value: int | None) -> bytes | None:
+            return None if value is None else _uint(value, 4)
+
+        session_id = None if self.session_id is None else self.session_id.bytes
+        return b"".join(
+            (
+                _optional_item(1, session_id),
+                encode_item(2, _uint(self.status, 1)),
+                _optional_item(3, encoded(self.address)),
+                _optional_item(4, encoded(self.video_srtp)),
+                _optional_item(5, encoded(self.audio_srtp)),
+                _optional_item(6, ssrc(self.video_ssrc)),
+                _optional_item(7, ssrc(self.audio_ssrc)),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> SetupEndpointsResponse:
+        fields = _fields(data)
+        return cls(
+            _optional(fields, 1, lambda data: UUID(bytes=data)),
+            _to_enum(SetupEndpointsStatus, _required(fields, 2)),
+            _optional(fields, 3, EndpointAddress.decode),
+            _optional(fields, 4, SRTPParameters.decode),
+            _optional(fields, 5, SRTPParameters.decode),
+            _optional_int(fields, 6),
+            _optional_int(fields, 7),
+        )
+
+
+def tiers_from_sensor(sensor: SensorConfiguration) -> list[VideoStreamTier]:
+    """Offer each video encoding of the sensor as a tier, numbered from 1.
+
+    Tier ``n`` is ``sensor.video_streams[n - 1]``.
+    """
+    return [
+        VideoStreamTier(
+            index,
+            stream.quality,
+            stream.average_bitrate,
+            stream.width,
+            stream.height,
+            stream.frame_rate,
+            stream.peak_bitrate,
+        )
+        for index, stream in enumerate(sensor.video_streams, 1)
+    ]
+
+
+DEFAULT_AUDIO_TIER = AudioStreamTier(1, 24000, AudioSampleRate.KHZ_48)
+
+# Average and maximum kbps of the guide's bit rate table, by the short side
+# of the frame; the aspect ratio does not matter. A frame between two rows
+# takes the larger one.
+_GUIDE_BITRATES = {
+    2160: (4500, 5000),
+    1440: (2800, 3000),
+    1080: (1700, 1800),
+    720: (768, 800),
+    360: (180, 190),
+    240: (180, 190),
+}
+
+
+def check_audio_tier(tier: AudioStreamTier) -> None:
+    """Check an audio tier against the guide.
+
+    :raises ValueError: For anything this revision of the guide does not
+        allow: a packet time other than 20 ms, more than one channel or an
+        unknown sample rate or bit depth.
+    """
+    if tier.packet_time != 20 or tier.channels != 1:
+        raise ValueError("Audio tiers have a 20 ms packet time and one channel")
+    if tier.sample_rate not in set(AudioSampleRate) or tier.bit_depth not in set(
+        AudioBitDepth
+    ):
+        raise ValueError("Unknown audio sample rate or bit depth")
+    if tier.target_bitrate <= 0:
+        raise ValueError("The audio bit rate must be positive")
+
+
+def check_video_tiers(sensor: SensorConfiguration) -> list[str]:
+    """Check the video encodings of a sensor as tiers against the guide.
+
+    Returns warnings for what the guide only recommends: a gap between peak
+    and average of more than 10 % of the peak, peaks above its table and
+    frames larger than 4K, which the table does not cover.
+
+    :raises ValueError: For a sensor without encodings, an unknown quality,
+        Highest without High or a peak below the average.
+    """
+    if not sensor.video_streams:
+        raise ValueError("A sensor needs at least one video encoding")
+    warnings = []
+    qualities = {stream.quality for stream in sensor.video_streams}
+    if not qualities <= set(VideoQuality):
+        raise ValueError(f"Unknown video quality in {sorted(qualities)}")
+    if VideoQuality.HIGHEST in qualities and VideoQuality.HIGH not in qualities:
+        raise ValueError("A Highest video encoding needs a High one")
+    for stream in sensor.video_streams:
+        name = f"{stream.width}x{stream.height}@{stream.frame_rate}"
+        if stream.peak_bitrate < stream.average_bitrate:
+            raise ValueError(f"{name}: peak bit rate below the average")
+        if (stream.peak_bitrate - stream.average_bitrate) * 10 > stream.peak_bitrate:
+            warnings.append(f"{name}: average more than 10 % below the peak")
+        short_side = min(stream.width, stream.height)
+        rows = [row for row in sorted(_GUIDE_BITRATES) if row >= short_side]
+        if not rows:
+            warnings.append(f"{name}: larger than the guide's 4K bit rate table")
+            continue
+        guide = _GUIDE_BITRATES[rows[0]]
+        if stream.peak_bitrate > guide[1]:
+            warnings.append(f"{name}: peak above the guide's {guide[1]} kbps")
+    return warnings
+
+
+class WebRTCSolicitOfferStatus(IntEnum):
+    SUCCESS = 0
+    PRIVACY_MODE_ACTIVE = 1
+    ERROR = 2
+
+
+class WebRTCStreamingStatus(IntEnum):
+    SUCCESS = 0
+    UNKNOWN_SESSION = 1
+    BUSY = 2
+    ERROR = 3
+
+
+class WebRTCStreamingCommand(IntEnum):
+    END = 1
+
+
+# Limits of what a controller may send: the SDP of an answer or reoffer in
+# bytes, the ICE candidates of a write and the bytes of one, and the SFrame
+# keys an Update Session adds or removes. Larger writes do not decode.
+MAX_SDP_SIZE = 32 * 1024
+MAX_ICE_CANDIDATES = 64
+MAX_ICE_CANDIDATE_SIZE = 1024
+MAX_SFRAME_KEY_CHANGES = 16
+# Key sizes of an SFrame key: AES-128 to AES-256 with room for HMAC keys.
+MIN_SFRAME_KEY_SIZE = 16
+MAX_SFRAME_KEY_SIZE = 64
+
+
+def _to_str(data: bytes) -> str:
+    # A UnicodeDecodeError is a ValueError.
+    return data.decode("utf-8")
+
+
+def _to_sdp(data: bytes) -> str:
+    if len(data) > MAX_SDP_SIZE:
+        raise ValueError(f"SDP of {len(data)} bytes, at most {MAX_SDP_SIZE}")
+    return _to_str(data)
+
+
+def _encode_str(value: str | None) -> bytes | None:
+    return None if value is None else value.encode("utf-8")
+
+
+def _session_id(session_id: UUID | None) -> bytes:
+    return b"" if session_id is None else encode_item(1, session_id.bytes)
+
+
+@dataclass
+class WebRTCOfferOptions:
+    """The WebRTC Offer Options of a Solicit Offer or Reoffer write.
+
+    ``sframe_enabled`` is None if the controller left it out.
+    """
+
+    sframe_enabled: bool | None = None
+
+    def encode(self) -> bytes:
+        if self.sframe_enabled is None:
+            return b""
+        return encode_item(1, _uint(self.sframe_enabled, 1))
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCOfferOptions:
+        enabled = _optional_int(_fields(data), 1)
+        return cls(None if enabled is None else bool(enabled))
+
+
+def _options(fields: dict[int, list[bytes]], tag: int) -> WebRTCOfferOptions:
+    if tag not in fields:
+        return WebRTCOfferOptions()
+    return WebRTCOfferOptions.decode(fields[tag][0])
+
+
+@dataclass(frozen=True)
+class IceCandidate:
+    """An ICE candidate as HAP carries it: RFC 8839 string, mid and m-line.
+
+    One of the types shared with WebRTC media, see :class:`WebRTCOffer`.
+    """
+
+    candidate: str
+    sdp_mid: str | None = None
+    sdp_mline_index: int | None = None
+
+    def encode(self) -> bytes:
+        index = self.sdp_mline_index
+        return (
+            encode_item(1, self.candidate.encode("utf-8"))
+            + _optional_item(2, _encode_str(self.sdp_mid))
+            + _optional_item(3, None if index is None else _uint(index, 2))
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> IceCandidate:
+        if len(data) > MAX_ICE_CANDIDATE_SIZE:
+            raise ValueError(
+                f"ICE candidate of {len(data)} bytes, at most {MAX_ICE_CANDIDATE_SIZE}"
+            )
+        fields = _fields(data)
+        index = _optional_int(fields, 3)
+        if index is not None and index > 0xFFFF:
+            raise ValueError(f"SDP m-line index {index} is out of range")
+        return cls(_to_str(_required(fields, 1)), _optional(fields, 2, _to_str), index)
+
+
+def _encode_candidates(candidates: Iterable[IceCandidate]) -> bytes:
+    return encode_list(3, (candidate.encode() for candidate in candidates))
+
+
+def _candidates(fields: dict[int, list[bytes]]) -> list[IceCandidate]:
+    candidates = fields.get(3, [])
+    if len(candidates) > MAX_ICE_CANDIDATES:
+        raise ValueError(
+            f"{len(candidates)} ICE candidates, at most {MAX_ICE_CANDIDATES}"
+        )
+    return [IceCandidate.decode(candidate) for candidate in candidates]
+
+
+@dataclass(frozen=True)
+class SFrameKey:
+    """SFrame Key Data: a key and its 64-bit key ID.
+
+    One of the types shared with WebRTC media, see :class:`WebRTCOffer`.
+    """
+
+    key: bytes = field(repr=False)
+    kid: int
+
+    def encode(self) -> bytes:
+        return encode_item(1, self.key) + encode_item(2, _uint(self.kid, 8))
+
+    @classmethod
+    def decode(cls, data: bytes) -> SFrameKey:
+        fields = _fields(data)
+        key = _required(fields, 1)
+        if not MIN_SFRAME_KEY_SIZE <= len(key) <= MAX_SFRAME_KEY_SIZE:
+            raise ValueError(
+                f"SFrame key of {len(key)} bytes, {MIN_SFRAME_KEY_SIZE} to"
+                f" {MAX_SFRAME_KEY_SIZE}"
+            )
+        return cls(key, _to_int(_required(fields, 2)))
+
+
+def generate_sframe_key() -> SFrameKey:
+    """Make an SFrame key to send with: 32 random bytes and a random key ID."""
+    return SFrameKey(secrets.token_bytes(32), secrets.randbits(64))
+
+
+@dataclass(frozen=True)
+class WebRTCOffer:
+    """The accessory's offer for a new WebRTC session.
+
+    This, :class:`WebRTCReofferAnswer`, :class:`IceCandidate` and
+    :class:`SFrameKey` are the types WebRTC media and the HAP side share.
+
+    ``sdp`` carries all ICE candidates, HAP has no trickle ICE; the candidate
+    list of the Solicit Offer answer stays empty, as in the Scrypted HomeKit
+    plugin. ``sframe`` is the key the accessory sends with, see
+    :func:`generate_sframe_key`; None for a session without SFrame.
+    """
+
+    sdp: str
+    sframe: SFrameKey | None = None
+
+
+@dataclass(frozen=True)
+class WebRTCReofferAnswer:
+    """The accessory's answer to a controller's reoffer, see :class:`WebRTCOffer`.
+
+    ``sframe`` is the key the accessory sends with from now on.
+    """
+
+    sdp: str
+    sframe: SFrameKey | None = None
+
+
+def _encode_sframe(tag: int, sframe: SFrameKey | None) -> bytes:
+    return b"" if sframe is None else encode_item(tag, sframe.encode())
+
+
+@dataclass
+class WebRTCSolicitOffer:
+    """A write to WebRTC Solicit Offer, the controller asks for an offer."""
+
+    options: WebRTCOfferOptions = field(default_factory=WebRTCOfferOptions)
+
+    def encode(self) -> bytes:
+        return encode_item(1, self.options.encode())
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCSolicitOffer:
+        return cls(_options(_fields(data), 1))
+
+
+@dataclass
+class WebRTCSolicitOfferResponse:
+    """The read back value of WebRTC Solicit Offer.
+
+    Only a successful one has a session, an offer and candidates.
+    """
+
+    status: WebRTCSolicitOfferStatus | int
+    session_id: UUID | None = None
+    sdp_offer: str | None = None
+    candidates: list[IceCandidate] = field(default_factory=list)
+    sframe: SFrameKey | None = None
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                _session_id(self.session_id),
+                _optional_item(2, _encode_str(self.sdp_offer)),
+                _encode_candidates(self.candidates),
+                encode_item(4, _uint(self.status, 1)),
+                _encode_sframe(5, self.sframe),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCSolicitOfferResponse:
+        fields = _fields(data)
+        return cls(
+            _to_enum(WebRTCSolicitOfferStatus, _required(fields, 4)),
+            _optional(fields, 1, lambda data: UUID(bytes=data)),
+            _optional(fields, 2, _to_str),
+            _candidates(fields),
+            _optional(fields, 5, SFrameKey.decode),
+        )
+
+
+@dataclass
+class WebRTCProvideAnswer:
+    """A write to WebRTC Provide Answer."""
+
+    session_id: UUID
+    sdp_answer: str
+    candidates: list[IceCandidate] = field(default_factory=list)
+
+    def encode(self) -> bytes:
+        return (
+            encode_item(1, self.session_id.bytes)
+            + encode_item(2, self.sdp_answer.encode("utf-8"))
+            + _encode_candidates(self.candidates)
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCProvideAnswer:
+        fields = _fields(data)
+        return cls(
+            UUID(bytes=_required(fields, 1)),
+            _to_sdp(_required(fields, 2)),
+            _candidates(fields),
+        )
+
+
+@dataclass
+class WebRTCSessionStatus:
+    """The read back value of Provide Answer, Streaming Control and Update Session.
+
+    Without a session, e.g. for a write that did not decode, only the status
+    is sent.
+    """
+
+    session_id: UUID | None
+    status: WebRTCStreamingStatus | int
+
+    def encode(self) -> bytes:
+        return _session_id(self.session_id) + encode_item(2, _uint(self.status, 1))
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCSessionStatus:
+        fields = _fields(data)
+        return cls(
+            _optional(fields, 1, lambda data: UUID(bytes=data)),
+            _to_enum(WebRTCStreamingStatus, _required(fields, 2)),
+        )
+
+
+@dataclass
+class WebRTCStreamingControl:
+    """A write to WebRTC Streaming Control."""
+
+    session_id: UUID
+    command: WebRTCStreamingCommand | int
+
+    def encode(self) -> bytes:
+        return encode_item(1, self.session_id.bytes) + encode_item(
+            2, _uint(self.command, 1)
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCStreamingControl:
+        fields = _fields(data)
+        return cls(
+            UUID(bytes=_required(fields, 1)),
+            _to_enum(WebRTCStreamingCommand, _required(fields, 2)),
+        )
+
+
+@dataclass
+class WebRTCReoffer:
+    """A write to WebRTC Reoffer, the controller renegotiates with an offer."""
+
+    session_id: UUID
+    sdp_offer: str
+    options: WebRTCOfferOptions = field(default_factory=WebRTCOfferOptions)
+
+    def encode(self) -> bytes:
+        return (
+            encode_item(1, self.session_id.bytes)
+            + encode_item(2, self.sdp_offer.encode("utf-8"))
+            + encode_item(3, self.options.encode())
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCReoffer:
+        fields = _fields(data)
+        return cls(
+            UUID(bytes=_required(fields, 1)),
+            _to_sdp(_required(fields, 2)),
+            _options(fields, 3),
+        )
+
+
+@dataclass
+class WebRTCReofferResponse:
+    """The read back value of WebRTC Reoffer.
+
+    Only a successful one has an answer.
+    """
+
+    session_id: UUID | None
+    status: WebRTCStreamingStatus | int
+    sdp_answer: str | None = None
+    sframe: SFrameKey | None = None
+
+    def encode(self) -> bytes:
+        return b"".join(
+            (
+                _session_id(self.session_id),
+                _optional_item(2, _encode_str(self.sdp_answer)),
+                encode_item(3, _uint(self.status, 1)),
+                _encode_sframe(4, self.sframe),
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCReofferResponse:
+        fields = _fields(data)
+        return cls(
+            _optional(fields, 1, lambda data: UUID(bytes=data)),
+            _to_enum(WebRTCStreamingStatus, _required(fields, 3)),
+            _optional(fields, 2, _to_str),
+            _optional(fields, 4, SFrameKey.decode),
+        )
+
+
+@dataclass
+class WebRTCUpdateSession:
+    """A write to WebRTC Update Session, the SFrame keys the controller sends with."""
+
+    session_id: UUID
+    add_keys: list[SFrameKey] = field(default_factory=list)
+    remove_kids: list[int] = field(default_factory=list)
+
+    def encode(self) -> bytes:
+        return (
+            encode_item(1, self.session_id.bytes)
+            + encode_list(2, (key.encode() for key in self.add_keys))
+            + encode_list(
+                3, (encode_item(1, _uint(kid, 8)) for kid in self.remove_kids)
+            )
+        )
+
+    @classmethod
+    def decode(cls, data: bytes) -> WebRTCUpdateSession:
+        fields = _fields(data)
+        keys = fields.get(2, [])
+        kids = fields.get(3, [])
+        if max(len(keys), len(kids)) > MAX_SFRAME_KEY_CHANGES:
+            raise ValueError(
+                f"{len(keys)} keys to add and {len(kids)} to remove,"
+                f" at most {MAX_SFRAME_KEY_CHANGES} each"
+            )
+        return cls(
+            UUID(bytes=_required(fields, 1)),
+            [SFrameKey.decode(key) for key in keys],
+            [_to_int(_required(_fields(kid), 1)) for kid in kids],
+        )

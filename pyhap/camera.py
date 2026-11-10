@@ -17,7 +17,7 @@ streaming.
 """
 
 import asyncio
-from collections.abc import AsyncGenerator, Callable, Iterable, Sequence
+from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequence
 import contextlib
 import functools
 import hashlib
@@ -26,7 +26,8 @@ import logging
 import os
 import struct
 import sys
-from typing import Any
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from pyhap import (
@@ -44,6 +45,10 @@ from pyhap.characteristic import Characteristic
 from pyhap.const import CATEGORY_CAMERA
 from pyhap.service import Service
 from pyhap.util import base64_to_bytes, byte_bool, callback, to_base64_str
+
+if TYPE_CHECKING:
+    from pyhap.camera_multi_tier import MultiTierController
+    from pyhap.camera_webrtc import WebRTCController
 
 if sys.version_info >= (3, 11):
     from asyncio import timeout as async_timeout
@@ -625,6 +630,23 @@ class Camera(Accessory):
                 at least three video encodings. With ``recording``, turning it
                 on for a paired camera changes the instance IDs of the recording
                 services with the default IID manager.
+            - multi_tier - :class:`pyhap.camera_multi_tier.MultiTierConfig`, or a
+                dict of its fields. Developer Preview of HomeKit Secure Video
+                17.99, experimental. Adds a Camera Multi-Tier RTP Stream
+                Management service per sensor, offering the sensor's video
+                encodings as H.265 tiers. Needs ``webrtc``, ``sensors``,
+                ``global_operating_mode``, ``recording``, ``video`` and
+                ``audio``: iOS 27 shows a camera without the classic RTP stream
+                management service as not responding. Its services come before
+                the RTP stream management services, which then get a new
+                ``unique_id``; for a paired camera this changes instance IDs.
+            - webrtc - :class:`pyhap.camera_webrtc.WebRTCConfig`, or a dict of
+                its fields. Developer Preview of HomeKit Secure Video 17.99,
+                experimental. Adds a Camera WebRTC Stream Management service per
+                sensor, linked to its multi-tier service. Controllers view
+                remotely through it: one that streams through the multi-tier
+                service does not fall back to the RTP stream management service.
+                Needs ``multi_tier`` and the options that it needs.
 
         :type options: ``dict``
         """
@@ -689,11 +711,20 @@ class Camera(Accessory):
         self._motion_zones_service: Service | None = None
         self._contributing_sensors_char: Characteristic | None = None
         self._motion_enabled_char: Characteristic | None = None
+        self._multi_tier: dict[UUID, MultiTierController] = {}
+        self._webrtc: dict[UUID, WebRTCController] = {}
+        self._stream_status_scheduled = False
+        if options.get("multi_tier") is not None or options.get("webrtc") is not None:
+            self._setup_stream_controllers(options)
         if options.get("video"):
             self._setup_stream_management(options)
         # Classic HomeKit Secure Video recording (HDS + fragmented MP4).
         if options.get("recording"):
             self._setup_recording_management(options)
+            transport = self.get_service("DataStreamTransportManagement")
+            if transport is not None:
+                for controller in self._stream_controllers():
+                    controller.service.add_linked_service(transport)
         if self._sensors:
             self._setup_camera_capabilities()
         # Last, so the instance IDs of the other services stay the same.
@@ -718,8 +749,11 @@ class Camera(Accessory):
         self, stream_idx: int, options: dict[str, Any]
     ) -> Service:
         """Create a stream management service."""
+        # A new unique_id lets a persistent IID manager place the service
+        # after the multi-tier ones, which come first.
+        unique_id = stream_idx if not self._multi_tier else f"rtp-{stream_idx}"
         management = self.add_preload_service(
-            "CameraRTPStreamManagement", unique_id=stream_idx, chars=["Active"]
+            "CameraRTPStreamManagement", unique_id=unique_id, chars=["Active"]
         )
         # HAP-NodeJS exposes an Active (0x0B0) characteristic on every stream
         # management service (value 1 = active); iOS' camera validation expects
@@ -754,6 +788,142 @@ class Camera(Accessory):
         # The answer has the session's SRTP keys, only its controller reads it.
         setup_endpoints.read_back_response = True
         return management
+
+    def _setup_stream_controllers(self, options: dict[str, Any]) -> None:
+        """Add the multi-tier and WebRTC controllers of each sensor (17.99)."""
+        # Here, not at the top: these modules import this one.
+        from pyhap.camera_multi_tier import (  # noqa: PLC0415
+            MultiTierConfig,
+            MultiTierController,
+        )
+        from pyhap.camera_webrtc import WebRTCConfig, WebRTCController  # noqa: PLC0415
+
+        if options.get("multi_tier") is None or options.get("webrtc") is None:
+            raise ValueError(
+                "multi_tier and webrtc need each other, without WebRTC "
+                "controllers cannot view remotely"
+            )
+        if (
+            not options.get("video")
+            or not options.get("audio")
+            or options.get("stream_count", 1) < 1
+        ):
+            raise ValueError(
+                "multi_tier and webrtc need the video and audio options, iOS 27 "
+                "shows a camera without the classic RTP stream management "
+                "service as not responding"
+            )
+        if (
+            not self._sensors
+            or options.get("global_operating_mode") is None
+            or not options.get("recording")
+        ):
+            raise ValueError(
+                "multi_tier and webrtc need the sensors, global_operating_mode "
+                "and recording options"
+            )
+        multi_tier = MultiTierConfig.from_option(options["multi_tier"])
+        webrtc = WebRTCConfig.from_option(options["webrtc"])
+        for sensor in self._sensors:
+            for warning in hksv3.check_video_tiers(sensor):
+                logger.warning("Sensor %s: %s", sensor.sensor_uuid, warning)
+            controller = MultiTierController(self, sensor, multi_tier)
+            self._multi_tier[sensor.sensor_uuid] = controller
+            self._webrtc[sensor.sensor_uuid] = WebRTCController(
+                self, controller, webrtc
+            )
+        for kind, controllers in (
+            ("multi_tier", self._multi_tier),
+            ("webrtc", self._webrtc),
+        ):
+            for sensor_uuid, controller in controllers.items():
+                self._persist_hksv3_char(
+                    controller.streaming_enabled,
+                    f"{kind}.{sensor_uuid}.streaming_enabled",
+                    self._handle_stream_enabled,
+                )
+
+    def _stream_controllers(
+        self,
+    ) -> "list[MultiTierController | WebRTCController]":
+        return [*self._multi_tier.values(), *self._webrtc.values()]
+
+    @property
+    def multi_tier_controllers(self) -> "Mapping[UUID, MultiTierController]":
+        """The multi-tier RTP controller of each sensor (17.99), by sensor UUID."""
+        return MappingProxyType(self._multi_tier)
+
+    @property
+    def webrtc_controllers(self) -> "Mapping[UUID, WebRTCController]":
+        """The WebRTC controller of each sensor (17.99), by sensor UUID."""
+        return MappingProxyType(self._webrtc)
+
+    def _handle_stream_enabled(self, value: Any) -> None:
+        self._schedule_stream_status()
+
+    def _schedule_stream_status(self) -> None:
+        """Update the stream controllers once the current write is done.
+
+        A controller writes several of the values they depend on in one
+        request, e.g. HomeKit Camera Active and Streaming Enabled.
+        """
+        if self._stream_status_scheduled or not self._multi_tier:
+            return
+        self._stream_status_scheduled = True
+        self.driver.loop.call_soon(self._update_stream_status)
+
+    def _update_stream_status(self) -> None:
+        """Let each stream controller derive whether it may stream now.
+
+        Ends the sessions that may no longer stream.
+        """
+        self._stream_status_scheduled = False
+        for controller in self._stream_controllers():
+            controller.update_status()
+
+    def stream_address_for(
+        self, client_addr: tuple[str, int] | None, is_ipv6: bool
+    ) -> str | None:
+        """The address to stream from to a controller, in the given IP version.
+
+        The accessory's address on the controller's connection, else the
+        ``address`` option if it has that version.
+        """
+        address = self.driver.local_address(client_addr, is_ipv6)
+        if address is not None:
+            return address
+        if (self.stream_address_isv6 == b"\x01") == is_ipv6:
+            return str(self.stream_address)
+        return None
+
+    async def end_session(self, session_id: UUID) -> bool:
+        """End a multi-tier or WebRTC session (17.99) on the camera's side.
+
+        E.g. when its media source stopped. Ends the sessions with that ID of
+        every sensor and service and waits until their delegates released
+        them. Returns False if there is no such session.
+        """
+        ended = await asyncio.gather(
+            *(
+                controller.end_session(session_id)
+                for controller in self._stream_controllers()
+            )
+        )
+        return any(ended)
+
+    async def end_all_sessions(self) -> None:
+        """End every multi-tier and WebRTC session (17.99) and wait for them."""
+        await asyncio.gather(
+            *(
+                controller.end_all_sessions()
+                for controller in self._stream_controllers()
+            )
+        )
+
+    def client_disconnected(self, client_addr: tuple[str, int]) -> None:
+        """End the multi-tier and WebRTC sessions of the connection."""
+        for controller in self._stream_controllers():
+            controller.client_disconnected(client_addr)
 
     def _default_recording_configs(
         self, options: dict[str, Any]
@@ -1160,6 +1330,7 @@ class Camera(Accessory):
         if char is not None:
             char.set_value(bool(disabled))
             self._end_streams_if_not_allowed()
+            self._update_stream_status()
 
     def set_third_party_camera_active(self, active: bool) -> None:
         """Report whether the camera is on for apps outside HomeKit.
@@ -1176,6 +1347,7 @@ class Camera(Accessory):
     def _handle_global_operating_mode(self, name: str, value: Any) -> None:
         if name == "StreamingEnabled":
             self._end_streams_if_not_allowed()
+        self._schedule_stream_status()
         self.global_operating_mode_changed(name, value)
 
     def _end_streams_if_not_allowed(self) -> None:
@@ -1316,6 +1488,8 @@ class Camera(Accessory):
         if self.aid is not None:
             self._load_hksv3_state(self.aid)
         self._hksv3_seen = {char: char.value for char in self._hksv3_defaults}
+        # Restored values bypass the handlers.
+        self._update_stream_status()
 
     def _load_hksv3_state(self, aid: int) -> None:
         stored = self.driver.accessory_state(aid).get(HKSV3_STATE)
@@ -1398,6 +1572,7 @@ class Camera(Accessory):
             self._schedule_recording_save()
         for handler, value in handlers:
             handler(value)
+        self._update_stream_status()
 
     def set_motion_detected(
         self, detected: bool, sensors: Iterable[UUID] | None = None
@@ -1624,6 +1799,7 @@ class Camera(Accessory):
         if not active and self._recording_stream is not None:
             self._recording_stream.close(hds_recording.RecordingReason.NOT_ALLOWED)
         self._end_streams_if_not_allowed()
+        self._schedule_stream_status()
         self.homekit_camera_active_changed(active)
 
     def homekit_camera_active_changed(self, active: bool) -> None:
@@ -1931,9 +2107,17 @@ class Camera(Accessory):
             await listener.stop()
 
     async def stop(self) -> None:
-        """Stop all streaming sessions and the HDS listener."""
+        """Stop all streaming sessions and the HDS listener.
+
+        The HKSV 17.99 stream services stay closed. Create a new accessory to
+        stream on them again.
+        """
         await asyncio.gather(
-            *(self.stop_stream(session_info) for session_info in self.sessions.values())
+            *(
+                self.stop_stream(session_info)
+                for session_info in self.sessions.values()
+            ),
+            *(controller.close() for controller in self._stream_controllers()),
         )
         await self.stop_recording_transport()
 
