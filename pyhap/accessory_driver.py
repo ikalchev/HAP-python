@@ -88,13 +88,17 @@ PAIRING_LOCKOUT_SECONDS = 60
 MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
 
+# A characteristic value as HAP JSON carries it.
+HAPValue = bool | int | float | str | None
 
-def _stored_value(char: Any, value: Any) -> Any:
+
+def _stored_value(char: Characteristic, value: HAPValue) -> HAPValue:
     """Return the value ``client_update_value`` stores for ``value``."""
     try:
-        return char.to_valid_value(value)
+        stored: HAPValue = char.to_valid_value(value)
     except ValueError:
         return value
+    return stored
 
 
 def _wrap_char_setter(char: Any, value: Any, client_addr: Any) -> tuple[int, Any]:
@@ -359,7 +363,9 @@ class AccessoryDriver:
         self.http_server = HAPServer(network_tuple, self)
         self.prepared_writes = {}
         # Write responses of readable characteristics, per client.
-        self._write_responses: dict[tuple[str, int], dict[Characteristic, Any]] = {}
+        self._write_responses: dict[
+            tuple[str, int], dict[Characteristic, HAPValue]
+        ] = {}
 
     def listen_address(self) -> str | list[str]:
         """Return the address, or list of addresses, the HAP server listens on."""
@@ -1151,7 +1157,7 @@ class AccessoryDriver:
 
             # Only characteristics with the write response permission answer
             # a write with a value, and only when the controller asks for it.
-            write_response = bool(
+            write_response = (
                 query.get(HAP_REPR_WRITE_RESPONSE, False)
                 and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
             )
@@ -1174,7 +1180,11 @@ class AccessoryDriver:
                 set_result, set_result_value = _wrap_char_setter(
                     char, value, client_addr
                 )
-            # Put back the former value unless the setter set its own.
+            # A write with ``r`` to a readable characteristic is a request,
+            # e.g. a Setup Endpoints offer with the writer's SRTP keys. Only
+            # the writer reads the answer back, see _store_write_response.
+            # client_update_value stored the request as the value, so put
+            # back the former one unless the setter set a value of its own.
             if private_write and char.value == _stored_value(char, value):
                 char.value = previous_value
 
@@ -1241,9 +1251,9 @@ class AccessoryDriver:
     def _store_write_response(
         self,
         char: Characteristic,
-        response: Any,
+        response: HAPValue,
         client_addr: tuple[str, int] | None,
-    ) -> Any:
+    ) -> HAPValue:
         """Keep the write response and return what to send.
 
         The written value of a write response characteristic, such as an SDP
@@ -1257,7 +1267,7 @@ class AccessoryDriver:
         """
         readable = HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
         try:
-            response = char.to_valid_value(response)
+            valid: HAPValue = char.to_valid_value(response)
         except ValueError:
             logger.debug(
                 "%s: not keeping the write response, it is invalid: %s",
@@ -1267,10 +1277,10 @@ class AccessoryDriver:
             return response
         if readable:
             if client_addr is not None:
-                self._write_responses.setdefault(client_addr, {})[char] = response
+                self._write_responses.setdefault(client_addr, {})[char] = valid
         else:
-            char.value = response
-        return response
+            char.value = valid
+        return valid
 
     def prepare(
         self, prepare_query: dict[str, Any], client_addr: tuple[str, int]
