@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import ipaddress
 import logging
 import socket
 import struct
@@ -657,3 +658,18 @@ async def test_stop_stream_kill_after_process_exited(mock_driver: Any) -> None:
     process.terminate.assert_called_once_with()
     process.kill.assert_called_once_with()
     process.wait.assert_awaited_once_with()
+
+
+@pytest.mark.parametrize(
+    ("value", "is_ipv6", "expected"),
+    [
+        (b"192.168.1.114", False, ipaddress.IPv4Address("192.168.1.114")),
+        (b"FD00:0::1", True, ipaddress.IPv6Address("fd00::1")),
+    ],
+    ids=["ipv4", "ipv6"],
+)
+def test_parse_setup_address_returns_the_address(
+    value: bytes, is_ipv6: bool, expected: ipaddress.IPv4Address | ipaddress.IPv6Address
+) -> None:
+    """Verify the parsed address comes back as an ip_address object."""
+    assert camera.parse_setup_address(value, is_ipv6) == expected
