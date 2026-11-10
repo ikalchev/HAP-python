@@ -1380,6 +1380,34 @@ def test_write_response_keeps_value_set_by_setter(driver: AccessoryDriver) -> No
     assert _read(driver, char_id, OTHER_CONTROLLER) == 42
 
 
+@pytest.mark.parametrize(
+    ("write_response", "notified"),
+    [
+        pytest.param(True, [], id="private"),
+        pytest.param(False, [5], id="plain"),
+    ],
+)
+def test_private_write_not_notified(
+    driver: AccessoryDriver, write_response: bool, notified: list[int]
+) -> None:
+    """Subscribers are not told the request of a write with ``r``."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "ev", "wr"], False)
+    char.getter_callback = None
+    char.setter_callback = MagicMock(return_value=7)
+    published = []
+    with patch.object(
+        acc, "publish", side_effect=lambda value, *_: published.append(value)
+    ):
+        _write(
+            driver,
+            acc,
+            char,
+            **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: write_response},
+        )
+
+    assert published == notified
+
+
 @pytest.mark.parametrize("reader", [WRITER, OTHER_CONTROLLER], ids=["writer", "other"])
 @pytest.mark.parametrize(
     "make_setter",
