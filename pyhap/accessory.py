@@ -422,7 +422,7 @@ class Bridge(Accessory):
 
     # A Bridge serializes one HAP dict per bridged accessory, which
     # legitimately widens the parent's single-dict return type.
-    def to_HAP(  # ty: ignore[invalid-method-override]
+    def to_HAP(  # ty: ignore[incompatible-method-override]
         self, include_value: bool = True
     ) -> list[dict[str, Any]]:
         """Returns a HAP representation of itself and all contained accessories.
