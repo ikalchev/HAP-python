@@ -667,6 +667,23 @@ async def test_reoffer_answer_with_unexpected_sframe_key(
     assert session.state is SessionState.ACTIVE
 
 
+async def test_reoffer_answer_of_wrong_type(
+    stream_camera: Callable[..., Camera],
+    webrtc_delegate: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test a reoffer hook returning no WebRTCReofferAnswer answers an error."""
+    camera = stream_camera()
+    session = await _active(camera)
+    webrtc_delegate.handle_reoffer.return_value = None
+
+    response = await _reoffer(camera, session.id)
+
+    assert response == hksv3.WebRTCReofferResponse(session.id, 3)
+    assert session.state is SessionState.ACTIVE
+    assert "The reoffer answer is not a WebRTCReofferAnswer: None" in caplog.text
+
+
 async def test_update_session(
     stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
 ) -> None:

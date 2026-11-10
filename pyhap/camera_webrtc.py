@@ -463,6 +463,14 @@ class WebRTCController(StreamController[WebRTCSession]):
             return hksv3.WebRTCReofferResponse(
                 session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
             )
+        # Like a failed hook, a bad answer leaves the session as it was.
+        if not isinstance(answer, hksv3.WebRTCReofferAnswer):
+            logger.error(
+                "[%s] The reoffer answer is not a WebRTCReofferAnswer: %r",
+                session.id,
+                answer,
+            )
+            return hksv3.WebRTCReofferResponse(session.id, _STATUS.ERROR)
         if answer.sframe is not None and not session.sframe:
             logger.error(
                 "[%s] The reoffer answer's SFrame key does not fit", session.id
