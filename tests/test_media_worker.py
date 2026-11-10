@@ -261,8 +261,8 @@ async def test_worker_crash_ends_sessions_and_restarts(
 
 def kill(worker: MediaWorker) -> None:
     """Crash the worker process."""
-    assert worker._process is not None
-    worker._process.kill()
+    assert worker._runner is not None
+    worker._runner.kill()
 
 
 async def test_close_during_offer(worker: MediaWorker) -> None:
