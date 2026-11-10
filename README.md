@@ -263,13 +263,8 @@ user is running `HAP-python`. For example, do:
 $ sudo visudo # and add the line: "<hap-user> ALL=NOPASSWD: /sbin/shutdown".
 ```
 
-## Notice <a name="Notice"></a>
+## Use of AI
 
-Some HAP know-how was taken from [HAP-NodeJS by KhaosT](https://github.com/KhaosT/HAP-NodeJS).
+AI-assisted contributions are welcome. However, you remain fully responsible for them: disclose AI use, verify the code yourself (tests, lint, docs), keep PRs focused and concise, and respond to review feedback as you would for your own hand-written code.
 
-I am not aware of any bugs, but I am more than confident that such exist. If you find any,
-please report and I will try to fix them.
-
-Suggestions are always welcome.
-
-Have fun!
+Contributions that ignore this may be closed without review.
