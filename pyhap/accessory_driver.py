@@ -87,13 +87,17 @@ PAIRING_LOCKOUT_SECONDS = 60
 MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
 
+# A characteristic value as HAP JSON carries it.
+HAPValue = bool | int | float | str | None
 
-def _stored_value(char: Any, value: Any) -> Any:
+
+def _stored_value(char: Characteristic, value: HAPValue) -> HAPValue:
     """Return the value ``client_update_value`` stores for ``value``."""
     try:
-        return char.to_valid_value(value)
+        stored: HAPValue = char.to_valid_value(value)
     except ValueError:
         return value
+    return stored
 
 
 def _wrap_char_setter(char: Any, value: Any, client_addr: Any) -> tuple[int, Any]:
@@ -347,7 +351,9 @@ class AccessoryDriver:
         self.http_server = HAPServer(network_tuple, self)
         self.prepared_writes = {}
         # Write responses of readable characteristics, per client.
-        self._write_responses: dict[tuple[str, int], dict[Characteristic, Any]] = {}
+        self._write_responses: dict[
+            tuple[str, int], dict[Characteristic, HAPValue]
+        ] = {}
 
     def listen_address(self) -> str | list[str]:
         """Return the address, or list of addresses, the HAP server listens on."""
@@ -1197,9 +1203,9 @@ class AccessoryDriver:
     def _store_write_response(
         self,
         char: Characteristic,
-        response: Any,
+        response: HAPValue,
         client_addr: tuple[str, int] | None,
-    ) -> Any:
+    ) -> HAPValue:
         """Keep the write response and return what to send.
 
         The written value of a write response characteristic, such as an SDP
@@ -1213,7 +1219,7 @@ class AccessoryDriver:
         """
         readable = HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
         try:
-            response = char.to_valid_value(response)
+            valid: HAPValue = char.to_valid_value(response)
         except ValueError:
             logger.debug(
                 "%s: not keeping the write response, it is invalid: %s",
@@ -1223,10 +1229,10 @@ class AccessoryDriver:
             return response
         if readable:
             if client_addr is not None:
-                self._write_responses.setdefault(client_addr, {})[char] = response
+                self._write_responses.setdefault(client_addr, {})[char] = valid
         else:
-            char.value = response
-        return response
+            char.value = valid
+        return valid
 
     def prepare(
         self, prepare_query: dict[str, Any], client_addr: tuple[str, int]
