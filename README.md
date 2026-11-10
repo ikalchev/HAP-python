@@ -23,10 +23,9 @@ On a Raspberry Pi, you can get it with:
 ```sh
 $ sudo apt-get install libavahi-compat-libdnssd-dev
 ```
-`avahi-utils` may also fit the bill. Then, you can install with `pip3` (you will need
-`sudo` or `--user` for the install):
+`avahi-utils` may also fit the bill. Then, you can install with e.g. `pip`:
 ```sh
-$ pip3 install HAP-python[QRCode]
+$ pip install HAP-python[QRCode]
 ```
 
 This will install HAP-python in your Python packages, so that you can import it as
