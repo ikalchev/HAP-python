@@ -43,7 +43,10 @@ def encode(*args: Any, to_base64: bool = False) -> bytes | str:
             for y in range(0, total_length // 255):
                 encoded = encoded + tag + b"\xff" + data[y * 255 : (y + 1) * 255]
             remaining = total_length % 255
-            encoded = encoded + tag + struct.pack("B", remaining) + data[-remaining:]
+            if remaining:
+                encoded = (
+                    encoded + tag + struct.pack("B", remaining) + data[-remaining:]
+                )
 
         pieces.append(encoded)
 
