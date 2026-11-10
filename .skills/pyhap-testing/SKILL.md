@@ -23,10 +23,6 @@ create a new one (unless the choice is already obvious from the session):
   python3 -m pip install -r requirements_test.txt
   ```
 
-  The `talkback` extra installs `pylibsrtp`, needed by the talkback test
-  `tests/test_camera.py::test_talkback_audio_is_received_and_dispatched`
-  (it is skipped via `pytest.importorskip("pylibsrtp")` when missing).
-
 Alternatively the user may prefer running through `tox` (see `tox.ini`) with the
 chosen interpreter.
 
