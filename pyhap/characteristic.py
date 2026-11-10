@@ -148,6 +148,13 @@ class Characteristic:
     the current temperature. Characteristics are contained in services.
     Each characteristic has a unique type UUID and a set of properties,
     like format, min and max values, valid values and others.
+
+    Set ``read_back_response`` to True for a readable control point that a
+    controller writes and then reads, such as Setup Endpoints: what the
+    setter returns or leaves as the value is read back only by the connection
+    that wrote, and the shared value stays as it was. An async setter must
+    return the answer and must not set the value itself, a value it sets is
+    shared with every controller.
     """
 
     __slots__ = (
