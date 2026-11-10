@@ -3,7 +3,8 @@
 Started as ``python -m pyhap.media._worker <log levels>``, one level per
 logger in ``FORWARDED_LOGGERS``. Requests arrive framed on stdin; responses
 and events leave framed on the original stdout, which is moved aside first.
-The process ends when stdin closes.
+The process ends when stdin closes. In thread mode :func:`serve_socket` runs
+the same server over a socket pair instead.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import socket
 import sys
 from typing import Any
 
@@ -193,19 +195,18 @@ class _Server:
             source.close("media worker stopped")
 
 
-async def _serve(output_fd: int) -> None:
+async def _serve(
+    reader: asyncio.StreamReader,
+    output: asyncio.WriteTransport,
+    *,
+    forward_logs: bool,
+) -> None:
     loop = asyncio.get_running_loop()
-    reader = asyncio.StreamReader()
-    await loop.connect_read_pipe(
-        lambda: asyncio.StreamReaderProtocol(reader), os.fdopen(0, "rb", buffering=0)
-    )
-    output, _ = await loop.connect_write_pipe(
-        asyncio.Protocol, os.fdopen(output_fd, "wb", buffering=0)
-    )
     server = _Server(output)
-    forwarder = _LogForwarder(server)
-    for name in FORWARDED_LOGGERS:
-        logging.getLogger(name).addHandler(forwarder)
+    forwarder = _LogForwarder(server) if forward_logs else None
+    if forwarder is not None:
+        for name in FORWARDED_LOGGERS:
+            logging.getLogger(name).addHandler(forwarder)
     server.send({"event": "ready"})
     stopping = loop.create_task(server.stopping.wait())
     try:
@@ -224,6 +225,32 @@ async def _serve(output_fd: int) -> None:
         stopping.cancel()
         await server.close_all()
         output.close()
+        if forwarder is not None:
+            for name in FORWARDED_LOGGERS:
+                logging.getLogger(name).removeHandler(forwarder)
+
+
+async def _serve_stdio(output_fd: int) -> None:
+    loop = asyncio.get_running_loop()
+    reader = asyncio.StreamReader()
+    await loop.connect_read_pipe(
+        lambda: asyncio.StreamReaderProtocol(reader), os.fdopen(0, "rb", buffering=0)
+    )
+    output, _ = await loop.connect_write_pipe(
+        asyncio.Protocol, os.fdopen(output_fd, "wb", buffering=0)
+    )
+    await _serve(reader, output, forward_logs=True)
+
+
+async def serve_socket(sock: socket.socket) -> None:
+    """Serve one parent over a connected socket, in the parent's process.
+
+    The worker thread of :class:`~pyhap.media.worker.MediaWorker` runs this in
+    its own event loop. Loggers are shared with the parent, so nothing is
+    forwarded and their levels stay as the parent sets them.
+    """
+    reader, writer = await asyncio.open_connection(sock=sock)
+    await _serve(reader, writer.transport, forward_logs=False)
 
 
 def main() -> None:
@@ -237,7 +264,7 @@ def main() -> None:
         logging.getLogger(name).setLevel(level)
         logging.getLogger(name).propagate = False
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(_serve(output_fd))
+        asyncio.run(_serve_stdio(output_fd))
 
 
 if __name__ == "__main__":

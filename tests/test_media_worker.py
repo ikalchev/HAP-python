@@ -76,8 +76,8 @@ async def test_lifecycle(worker: MediaWorker) -> None:
 
 def kill(worker: MediaWorker) -> None:
     """Crash the worker process."""
-    assert worker._process is not None
-    worker._process.kill()
+    assert worker._runner is not None
+    worker._runner.kill()
 
 
 class Output:
