@@ -1141,7 +1141,11 @@ class AccessoryDriver:
                 set_result, set_result_value = _wrap_char_setter(
                     char, value, client_addr
                 )
-            # Put back the former value unless the setter set its own.
+            # A write with ``r`` to a readable characteristic is a request,
+            # e.g. a Setup Endpoints offer with the writer's SRTP keys. Only
+            # the writer reads the answer back, see _store_write_response.
+            # client_update_value stored the request as the value, so put
+            # back the former one unless the setter set a value of its own.
             if private_write and char.value == _stored_value(char, value):
                 char.value = previous_value
 
