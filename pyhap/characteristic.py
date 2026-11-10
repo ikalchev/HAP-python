@@ -407,7 +407,9 @@ class Characteristic:
         """Called from broker for value change in Home app.
 
         Change self.value to value and call callback. Returns what the callback
-        returned, which the caller has to await if it is awaitable. With
+        returned. A coroutine the callback returns is for the caller to await,
+        then the caller finishes the update with ``_client_update_finished``,
+        so subscribers only learn the value once the setter succeeded. With
         ``notify`` False, subscribers are not told about the written value,
         e.g. for a request that only the writing connection may read back.
         """
@@ -431,12 +433,21 @@ class Characteristic:
                 response = self.setter_callback(value, sender_client_addr)
             else:
                 response = self.setter_callback(value)
-        changed = self._value != previous_value
-        if changed and notify:
+        if not inspect.iscoroutine(response):
+            self._client_update_finished(previous_value, sender_client_addr, notify)
+        return response
+
+    def _client_update_finished(
+        self,
+        previous_value: Any,
+        sender_client_addr: tuple[str, int] | None,
+        notify: bool,
+    ) -> None:
+        """Tell subscribers about a client's write once its setter is done."""
+        if notify and self._value != previous_value:
             self.notify(sender_client_addr)
         if self._always_null:
             self.value = None
-        return response
 
     def _setter_wants_addr(self) -> bool:
         """Whether the current setter opts into the sender's client address.

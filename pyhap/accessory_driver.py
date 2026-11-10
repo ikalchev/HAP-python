@@ -184,6 +184,14 @@ class _PendingWrite(NamedTuple):
     coro: Coroutine[Any, Any, Any]
     write_response: bool  # Whether the controller asked for a write response.
     char: Characteristic
+    previous_value: Any  # The value before the write, to tell if it changed.
+    notify: bool  # Whether subscribers learn the value once the setter is done.
+
+
+def _retrieve_late_result(task: asyncio.Future[Any]) -> None:
+    """Retrieve the outcome of a setter that ran on after it was cancelled."""
+    if not task.cancelled() and (err := task.exception()) is not None:
+        logger.debug("Setter failed after it was cancelled", exc_info=err)
 
 
 def _set_characteristics_response(
@@ -1109,9 +1117,12 @@ class AccessoryDriver:
 
         A characteristic setter may be a coroutine function. Writes from a
         controller wait for it before they are answered. Called directly, this
-        method only schedules the coroutine and does not wait for it.
-        Accessory and service setters must not be coroutine functions; a
-        coroutine they return is closed with a warning.
+        method only schedules the coroutine and does not wait for it. Either
+        way subscribers learn the value once the coroutine succeeded, and it
+        should use its argument, not the characteristic's value, which a write
+        response request has already put back. Accessory and service setters
+        must not be coroutine functions. A coroutine they return is closed
+        with a warning.
 
         :param chars_query: A configuration query. For example:
 
@@ -1130,9 +1141,18 @@ class AccessoryDriver:
         :type chars_query: dict
         """
         results, pending = self._apply_characteristic_writes(chars_query, client_addr)
-        for _, coro, _, _ in pending:
-            self.add_job(coro)
+        for write in pending:
+            self.add_job(self._finish_pending_write(write, client_addr))
         return _set_characteristics_response(results)
+
+    async def _finish_pending_write(
+        self, write: _PendingWrite, client_addr: tuple[str, int]
+    ) -> None:
+        """Run a coroutine setter of a direct call, then tell subscribers."""
+        await write.coro
+        write.char._client_update_finished(  # noqa: SLF001
+            write.previous_value, client_addr, write.notify
+        )
 
     def _set_characteristics_for_controller(
         self,
@@ -1145,7 +1165,7 @@ class AccessoryDriver:
         Returns an awaitable of the response if a characteristic setter is a
         coroutine function. Accessory and service setters run before those
         coroutines start. A setter still running after ``timeout`` seconds is
-        cancelled and its characteristic answers -70408; cancelling the
+        cancelled and its characteristic answers -70408. Cancelling the
         awaitable, e.g. because the connection closed, cancels the setters.
         """
         results, pending = self._apply_characteristic_writes(chars_query, client_addr)
@@ -1165,8 +1185,8 @@ class AccessoryDriver:
         except BaseException:
             # A malformed later entry must not leave a setter coroutine
             # un-awaited.
-            for _, coro, _, _ in pending:
-                coro.close()
+            for write in pending:
+                write.coro.close()
             raise
 
     def _run_characteristic_writes(
@@ -1263,7 +1283,7 @@ class AccessoryDriver:
             # Only characteristics with the write response permission answer
             # a write with a value, and only when the controller asks for it.
             write_response = (
-                query.get(HAP_REPR_WRITE_RESPONSE) is True
+                bool(query.get(HAP_REPR_WRITE_RESPONSE))
                 and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
             )
             # A new write replaces a former response of this connection. The
@@ -1296,7 +1316,14 @@ class AccessoryDriver:
             result: dict[str, Any] = {HAP_REPR_STATUS: set_result}
             if inspect.iscoroutine(set_result_value):
                 pending.append(
-                    _PendingWrite(result, set_result_value, write_response, char)
+                    _PendingWrite(
+                        result,
+                        set_result_value,
+                        write_response,
+                        char,
+                        previous_value,
+                        not private_write,
+                    )
                 )
             elif set_result_value is not None and write_response:
                 result[HAP_REPR_VALUE] = self._store_write_response(
@@ -1349,9 +1376,11 @@ class AccessoryDriver:
         except asyncio.CancelledError:
             for task in tasks:
                 task.cancel()
+                task.add_done_callback(_retrieve_late_result)
             raise
         for task in not_done:
             task.cancel()
+            task.add_done_callback(_retrieve_late_result)
             write = tasks[task]
             logger.warning(
                 "%s: Timed out setting characteristic %s",
@@ -1373,6 +1402,9 @@ class AccessoryDriver:
                     HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
                 )
                 continue
+            write.char._client_update_finished(  # noqa: SLF001
+                write.previous_value, client_addr, write.notify
+            )
             if outcome is not None and write.write_response:
                 # A response queued when the connection closes is dropped by
                 # the deferred cleanup in connection_lost.
