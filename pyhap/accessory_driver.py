@@ -1344,12 +1344,13 @@ class AccessoryDriver:
                 and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
             )
             # A new write replaces a former response of this connection. The
-            # request of a readable write response characteristic is not
-            # shared, whatever the setter does, also not with ev subscribers.
+            # request of a readable write response or read back characteristic
+            # is not shared, whatever the setter does, also not with ev
+            # subscribers.
             if value is not None:
                 self._write_responses.get(client_addr, {}).pop(char, None)
             private_write = (
-                write_response
+                (write_response or char.read_back_response)
                 and value is not None
                 and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
             )
@@ -1367,8 +1368,22 @@ class AccessoryDriver:
             # the writer reads the answer back, see _store_write_response.
             # client_update_value stored the request as the value, so put
             # back the former one unless the setter set a value of its own.
-            if private_write and char.value == _stored_value(char, value):
-                char.value = previous_value
+            # Whatever the setter of a read back characteristic leaves in the
+            # value is an answer for the writer only, e.g. the Setup Endpoints
+            # answer of a subclass that calls super() and returns nothing.
+            # Neither the former value of a refused write nor the request the
+            # setter left alone is an answer.
+            if private_write:
+                own_value = char.value
+                if char.read_back_response:
+                    if set_result_value is None and own_value not in (
+                        previous_value,
+                        _stored_value(char, value),
+                    ):
+                        set_result_value = own_value
+                    char.value = previous_value
+                elif own_value == _stored_value(char, value):
+                    char.value = previous_value
 
             result: dict[str, Any] = {HAP_REPR_STATUS: set_result}
             if inspect.iscoroutine(set_result_value):
@@ -1382,9 +1397,9 @@ class AccessoryDriver:
                         not private_write,
                     )
                 )
-            elif set_result_value is not None and write_response:
-                result[HAP_REPR_VALUE] = self._store_write_response(
-                    char, set_result_value, client_addr
+            elif set_result_value is not None:
+                self._keep_response(
+                    result, char, set_result_value, write_response, client_addr
                 )
 
             results[aid][iid] = result
@@ -1465,11 +1480,11 @@ class AccessoryDriver:
             write.char.client_update_finished(
                 write.previous_value, client_addr, notify=write.notify
             )
-            if outcome is not None and write.write_response:
+            if outcome is not None:
                 # A response queued when the connection closes is dropped by
                 # the deferred cleanup in connection_lost.
-                write.result[HAP_REPR_VALUE] = self._store_write_response(
-                    write.char, outcome, client_addr
+                self._keep_response(
+                    write.result, write.char, outcome, write.write_response, client_addr
                 )
         return _set_characteristics_response(results)
 
@@ -1491,6 +1506,25 @@ class AccessoryDriver:
         write.char.client_update_finished(
             write.previous_value, client_addr, notify=write.notify
         )
+
+    def _keep_response(
+        self,
+        result: dict[str, Any],
+        char: Characteristic,
+        response: HAPValue,
+        write_response: bool,
+        client_addr: tuple[str, int] | None,
+    ) -> None:
+        """Keep what a setter returned as a write response or read back value."""
+        if write_response:
+            result[HAP_REPR_VALUE] = self._store_write_response(
+                char, response, client_addr
+            )
+        elif (
+            char.read_back_response
+            and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
+        ):
+            self._store_write_response(char, response, client_addr)
 
     def _take_prepared_write(self, pid: Any, client_addr: tuple[str, int]) -> bool:
         """Consume the prepared write ``pid`` and return whether it is still valid."""
@@ -1514,8 +1548,9 @@ class AccessoryDriver:
         response back, until it closes, and it wins over the getter and a later
         ``set_value``. Other connections read the characteristic's own value,
         which the write leaves as it was. A write without ``r`` stays readable
-        for everyone, and a characteristic that also has ``ev`` notifies the
-        written value as any write does.
+        for everyone and notifies ``ev`` subscribers as any write does, unless
+        the characteristic has ``read_back_response``, which keeps the response
+        the same way without a write response.
         """
         readable = HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
         try:

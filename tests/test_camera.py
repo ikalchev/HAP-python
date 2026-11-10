@@ -7,12 +7,19 @@ import logging
 import socket
 import struct
 from typing import Any, cast
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 from uuid import UUID
 
 import pytest
 
 from pyhap import camera, tlv
+
+# A Setup Endpoints request of a controller at 192.168.1.114.
+_SETUP_ENDPOINTS_REQUEST = (
+    "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
+    "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
+    "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
+)
 
 _OPTIONS = {
     "stream_count": 4,
@@ -75,12 +82,6 @@ def test_init(mock_driver: Any) -> None:
 
 def test_setup_endpoints(mock_driver: Any) -> None:
     """Test that the SetupEndpoint response is computed correctly"""
-    set_endpoint_req = (
-        "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
-        "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
-        "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
-    )
-
     set_endpoint_res = (
         "ARCszGzBBWNFFY2pdLRQkAaRAgEAAxoBAQACDTE5Mi4xNjguMS4yMjYDAjPFBAK"
         "s1gQlAQEAAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QUlAQEAAh"
@@ -91,33 +92,29 @@ def test_setup_endpoints(mock_driver: Any) -> None:
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(set_endpoint_req)
+    response = setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
 
-    assert setup_endpoints.get_value()[:171] == set_endpoint_res[:171]
+    assert response[:171] == set_endpoint_res[:171]
+    # Without the driver nothing puts the former value back.
+    assert setup_endpoints.get_value() == response
 
 
 def test_setup_endpoints_does_not_log_srtp_keys(
     mock_driver: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Verify the negotiated SRTP key material is not written to the logs."""
-    set_endpoint_req = (
-        "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
-        "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
-        "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
-    )
-
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
 
     with caplog.at_level(logging.DEBUG, logger="pyhap.camera"):
-        setup_endpoints.client_update_value(set_endpoint_req)
+        setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
 
     # The endpoint configuration was logged at DEBUG level, but without any
     # of the SRTP master key/salt material in it.
     assert "Received endpoint configuration:" in caplog.text
-    key_and_salt = _audio_srtp_key_and_salt(set_endpoint_req)
+    key_and_salt = _audio_srtp_key_and_salt(_SETUP_ENDPOINTS_REQUEST)
     assert base64.b64encode(key_and_salt).decode() not in caplog.text
     assert key_and_salt.hex() not in caplog.text
 
@@ -186,19 +183,13 @@ def test_no_talkback_by_default(mock_driver: Any) -> None:
     SetupEndpoints keeps echoing the controller's port back (unchanged,
     pre-existing behavior for accessories that don't opt in).
     """
-    set_endpoint_req = (
-        "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
-        "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
-        "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
-    )
-
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
     assert acc.get_service("Speaker") is None
 
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(set_endpoint_req)
+    setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
 
     session_id = list(acc.sessions)[0]
     assert acc.sessions[session_id]["audio_backchannel"] is None
@@ -260,26 +251,20 @@ def test_setup_endpoints_reports_real_port_when_talkback_enabled(
     this module fixes: HAP clients had nowhere valid to send the talkback
     audio to, because the accessory never actually listened anywhere).
     """
-    set_endpoint_req = (
-        "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
-        "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
-        "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
-    )
-
     options = dict(_OPTIONS, talkback=True)
     acc = camera.Camera(options, mock_driver, "Camera")
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(set_endpoint_req)
+    response = setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
 
     session_id = list(acc.sessions)[0]
     receiver = acc.sessions[session_id]["audio_backchannel"]
     assert receiver is not None
 
-    reported_port = _accessory_audio_port(setup_endpoints.get_value())
+    reported_port = _accessory_audio_port(response)
     assert reported_port == receiver.local_port
-    assert reported_port != _controller_audio_port(set_endpoint_req)
+    assert reported_port != _controller_audio_port(_SETUP_ENDPOINTS_REQUEST)
 
     receiver.stop()
 
@@ -300,18 +285,12 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver: Any) -> No
         def talkback_audio_received(self, session_id: Any, payload: Any) -> None:
             received.append((session_id, payload))
 
-    set_endpoint_req = (
-        "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
-        "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
-        "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
-    )
-
     options = dict(_OPTIONS, talkback=True)
     acc = TalkbackCamera(options, mock_driver, "Camera")
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(set_endpoint_req)
+    setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
 
     session_id = list(acc.sessions)[0]
     receiver = acc.sessions[session_id]["audio_backchannel"]
@@ -320,7 +299,7 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver: Any) -> No
     # controller is local so the loopback send passes the source filter.
     receiver._controller_address = "127.0.0.1"
 
-    key_and_salt = _audio_srtp_key_and_salt(set_endpoint_req)
+    key_and_salt = _audio_srtp_key_and_salt(_SETUP_ENDPOINTS_REQUEST)
     rtp_payload = b"opus-frame-payload"
     rtp_packet = struct.pack("!BBHII", 0x80, 110, 1, 0, 0x1234) + rtp_payload
 
@@ -535,9 +514,9 @@ def test_setup_endpoints_refuses_addresses(
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(_setup_request(address, is_ipv6))
+    answer = setup_endpoints.client_update_value(_setup_request(address, is_ipv6))
     assert acc.sessions == {}
-    assert tlv.decode(setup_endpoints.get_value(), from_base64=True) == {
+    assert tlv.decode(answer, from_base64=True) == {
         camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
         camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
     }
@@ -580,9 +559,9 @@ def test_setup_endpoints_refuses_malformed(
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(request_value)
+    answer = setup_endpoints.client_update_value(request_value)
     assert acc.sessions == {}
-    assert tlv.decode(setup_endpoints.get_value(), from_base64=True) == {
+    assert tlv.decode(answer, from_base64=True) == {
         camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
         camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
     }
@@ -612,13 +591,131 @@ def test_setup_endpoints_refuses_address_before_streaming_off(
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
     with caplog.at_level(logging.INFO):
-        setup_endpoints.client_update_value(_setup_request(address, False))
+        answer = setup_endpoints.client_update_value(_setup_request(address, False))
     assert message in caplog.text
     assert acc.sessions == {}
-    assert tlv.decode(setup_endpoints.get_value(), from_base64=True) == {
+    assert tlv.decode(answer, from_base64=True) == {
         camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
         camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
     }
+
+
+_WRITER = ("192.168.1.114", 50000)
+_OTHER_CONTROLLER = ("192.168.1.115", 50000)
+
+
+class _WrappingCamera(camera.Camera):
+    """A subclass that wraps set_endpoints and returns nothing."""
+
+    def set_endpoints(  # ty: ignore[incompatible-method-override]
+        self, value: str, stream_idx: int | None = None
+    ) -> None:
+        super().set_endpoints(value, stream_idx)
+
+
+class _ReturningCamera(camera.Camera):
+    """A subclass that wraps set_endpoints and returns the answer."""
+
+    def set_endpoints(self, value: str, stream_idx: int | None = None) -> str:
+        return super().set_endpoints(value, stream_idx)
+
+
+class _SettingCamera(camera.Camera):
+    """A subclass that sets the answer itself, as before, and returns nothing."""
+
+    def set_endpoints(  # ty: ignore[incompatible-method-override]
+        self, value: str, stream_idx: int | None = None
+    ) -> None:
+        answer = super().set_endpoints(value, stream_idx)
+        _setup_endpoints_char(self).set_value(answer)
+
+
+def _setup_endpoints_char(acc: camera.Camera) -> Any:
+    """Return the Setup Endpoints characteristic of the first stream."""
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    return management.get_characteristic("SetupEndpoints")
+
+
+def _setup_endpoints_query(
+    acc: camera.Camera, request: str = _SETUP_ENDPOINTS_REQUEST
+) -> dict[str, Any]:
+    """Return a controller's write of a Setup Endpoints request."""
+    iid = acc.iid_manager.get_iid(_setup_endpoints_char(acc))
+    return {"characteristics": [{"aid": acc.aid, "iid": iid, "value": request}]}
+
+
+def _read_setup_endpoints(driver: Any, acc: camera.Camera, client_addr: Any) -> Any:
+    """Return the Setup Endpoints value ``client_addr`` reads."""
+    iid = acc.iid_manager.get_iid(_setup_endpoints_char(acc))
+    (rep,) = driver.get_characteristics([f"{acc.aid}.{iid}"], client_addr)[
+        "characteristics"
+    ]
+    return rep["value"]
+
+
+@pytest.mark.parametrize(
+    ("request_value", "streaming_allowed", "status"),
+    [
+        pytest.param(
+            _SETUP_ENDPOINTS_REQUEST,
+            True,
+            camera.SETUP_STATUS["SUCCESS"],
+            id="answer",
+        ),
+        pytest.param(
+            _setup_request(b"192.168.1.114 x", False),
+            True,
+            camera.SETUP_STATUS["ERROR"],
+            id="malformed",
+        ),
+        pytest.param(
+            _SETUP_ENDPOINTS_REQUEST,
+            False,
+            camera.SETUP_STATUS["ERROR"],
+            id="streaming-off",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "camera_cls",
+    [camera.Camera, _WrappingCamera, _ReturningCamera, _SettingCamera],
+    ids=["camera", "wrapping-subclass", "returning-subclass", "setting-subclass"],
+)
+def test_setup_endpoints_read_back_by_writer_only(
+    driver: Any,
+    camera_cls: type[camera.Camera],
+    request_value: str,
+    streaming_allowed: bool,
+    status: bytes,
+) -> None:
+    """Test only the controller that set up a session reads its answer."""
+    acc = camera_cls(_OPTIONS, driver, "Camera")
+    driver.add_accessory(acc)
+    char = _setup_endpoints_char(acc)
+
+    with patch.object(
+        camera.Camera,
+        "streaming_allowed",
+        new_callable=PropertyMock,
+        return_value=streaming_allowed,
+    ):
+        assert (
+            driver.set_characteristics(
+                _setup_endpoints_query(acc, request_value), _WRITER
+            )
+            is None
+        )
+
+    # The writer reads the answer, which carries a status, not its request.
+    answer = tlv.decode(_read_setup_endpoints(driver, acc, _WRITER), from_base64=True)
+    session_id = camera.SETUP_TYPES["SESSION_ID"]
+    assert answer[session_id] == tlv.decode(request_value, from_base64=True)[session_id]
+    assert answer[camera.SETUP_TYPES["STATUS"]] == status
+    assert _read_setup_endpoints(driver, acc, _OTHER_CONTROLLER) == ""
+    assert char.value == ""
+    # /accessories shows the shared value.
+    assert char.to_HAP()["value"] == ""
 
 
 @pytest.mark.asyncio
