@@ -80,6 +80,7 @@ select = [
     "BLE", # flake8-blind-except: broad excepts must opt out per use
     "UP", # pyupgrade
     "ANN", # flake8-annotations
+    "E721", # type-comparison: use isinstance(x, T) instead of type(x) == T
 ]
 ignore = [
     "ANN401", # Any is sometimes the honest type; prefer precise types
@@ -141,6 +142,7 @@ include = [
     "pyhap",
     "tests",
     "benchmarks",
+    "scripts",
 ]
 
 [tool.ty.environment]

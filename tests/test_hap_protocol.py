@@ -536,7 +536,7 @@ async def test_camera_snapshot_connection_closed(driver: AccessoryDriver) -> Non
     # get_snapshot/async_get_snapshot are camera-only methods, not part
     # of Accessory's interface; attach them dynamically so the handler
     # dispatches to them.
-    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[unresolved-attribute]
+    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[missing-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
@@ -606,7 +606,7 @@ async def test_camera_snapshot_works_sync(driver: AccessoryDriver) -> None:
     acc = Accessory(driver, "TestAcc")
     # Camera-only snapshot method, attached dynamically so the
     # handler dispatches to it.
-    acc.get_snapshot = _get_snapshot  # ty: ignore[unresolved-attribute]
+    acc.get_snapshot = _get_snapshot  # ty: ignore[missing-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
@@ -646,7 +646,7 @@ async def test_camera_snapshot_works_async(driver: AccessoryDriver) -> None:
     # get_snapshot/async_get_snapshot are camera-only methods, not part
     # of Accessory's interface; attach them dynamically so the handler
     # dispatches to them.
-    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[unresolved-attribute]
+    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[missing-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
@@ -706,8 +706,8 @@ def _delayed_snapshot_protocol(
         return b"snap%d" % number
 
     acc = Accessory(driver, "TestAcc")
-    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[unresolved-attribute]
-    acc.snapshot_calls = calls  # ty: ignore[unresolved-attribute]
+    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[missing-attribute]
+    acc.snapshot_calls = calls  # ty: ignore[missing-attribute]
     driver.add_accessory(acc)
     hap_proto = hap_protocol.HAPServerProtocol(MagicMock(), {}, driver)
     hap_proto.connection_made(transport)
@@ -726,7 +726,7 @@ async def test_request_waits_for_delayed_response(driver: AccessoryDriver) -> No
         assert writelines.call_args_list == []
         transport.close.assert_not_called()
         # The second request is not dispatched before the first is answered.
-        assert acc.snapshot_calls == [1]  # ty: ignore[unresolved-attribute]
+        assert acc.snapshot_calls == [1]  # ty: ignore[missing-attribute]
 
         release.set()
         await _await_response(hap_proto)
@@ -897,7 +897,7 @@ async def test_camera_snapshot_timeout_async(driver: AccessoryDriver) -> None:
     # get_snapshot/async_get_snapshot are camera-only methods, not part
     # of Accessory's interface; attach them dynamically so the handler
     # dispatches to them.
-    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[unresolved-attribute]
+    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[missing-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
@@ -1070,7 +1070,7 @@ async def test_camera_snapshot_throws_an_exception(driver: AccessoryDriver) -> N
     # get_snapshot/async_get_snapshot are camera-only methods, not part
     # of Accessory's interface; attach them dynamically so the handler
     # dispatches to them.
-    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[unresolved-attribute]
+    acc.async_get_snapshot = _async_get_snapshot  # ty: ignore[missing-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
@@ -1109,7 +1109,7 @@ async def test_camera_snapshot_times_out(driver: AccessoryDriver) -> None:
     acc = Accessory(driver, "TestAcc")
     # Camera-only snapshot method, attached dynamically so the
     # handler dispatches to it.
-    acc.get_snapshot = _get_snapshot  # ty: ignore[unresolved-attribute]
+    acc.get_snapshot = _get_snapshot  # ty: ignore[missing-attribute]
     driver.add_accessory(acc)
 
     hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
