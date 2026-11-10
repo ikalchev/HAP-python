@@ -1446,6 +1446,16 @@ def test_prepare_bounds_prepared_writes(driver: AccessoryDriver) -> None:
 CLIENT = ("1.2.3.4", 5)
 
 
+def test_connection_lost_without_accessory(driver: AccessoryDriver) -> None:
+    """Test a closed connection before an accessory was added is fine."""
+    assert driver.accessory is None
+    driver.prepared_writes[CLIENT] = {1: 0.0}
+
+    driver.connection_lost(CLIENT)
+
+    assert CLIENT not in driver.prepared_writes
+
+
 def test_connection_lost_tells_the_accessory(driver: AccessoryDriver) -> None:
     """Test the accessory hears about a closed connection."""
     acc = Accessory(driver, "TestAcc")
