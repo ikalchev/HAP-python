@@ -7,7 +7,7 @@ Installation Guide
 Before We Begin
 ===============
 
-HAP-python requires Python 3.4+.
+HAP-python requires Python 3.11+.
 This guide will cover the current version of Raspbian and Ubuntu LTS.
 It is somewhat safe to assume the process for newer versions of Ubuntu
 will work.

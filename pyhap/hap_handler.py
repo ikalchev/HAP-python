@@ -8,7 +8,6 @@ from collections.abc import Awaitable
 from http import HTTPStatus
 import inspect
 import logging
-import sys
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import ParseResult, parse_qs, urlparse
 import uuid
@@ -32,11 +31,6 @@ from pyhap.util import long_to_bytes
 from .hap_crypto import hap_hkdf, pad_tls_nonce
 from .state import State
 from .util import from_hap_json, to_hap_json
-
-if sys.version_info >= (3, 11):
-    from asyncio import timeout as async_timeout
-else:
-    from async_timeout import timeout as async_timeout
 
 if TYPE_CHECKING:
     from .accessory_driver import AccessoryDriver
@@ -105,7 +99,7 @@ class UnprivilegedRequestException(Exception):
 
 async def _run_with_timeout(coro: Awaitable[bytes], timeout: float) -> bytes:
     """Run a coroutine with a timeout."""
-    async with async_timeout(timeout):
+    async with asyncio.timeout(timeout):
         return await coro
 
 

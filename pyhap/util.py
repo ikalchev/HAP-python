@@ -5,18 +5,12 @@ import functools
 import inspect
 import random
 import socket
-import sys
 from typing import Any, cast
 from uuid import UUID
 
 import orjson
 
 from .const import BASE_UUID
-
-if sys.version_info >= (3, 11):
-    from asyncio import timeout as async_timeout
-else:
-    from async_timeout import timeout as async_timeout
 
 ALPHANUM = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 HEX_DIGITS = "0123456789ABCDEF"
@@ -147,9 +141,9 @@ async def event_wait(event: asyncio.Event, timeout: float) -> bool:
     :rtype: bool
     """
     try:
-        async with async_timeout(timeout):
+        async with asyncio.timeout(timeout):
             await event.wait()
-    except asyncio.TimeoutError:
+    except TimeoutError:
         pass
     return event.is_set()
 
