@@ -17,7 +17,8 @@ streaming.
 """
 
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Iterable, Sequence
+import contextlib
 import functools
 import hashlib
 import ipaddress
@@ -28,7 +29,15 @@ import sys
 from typing import Any
 from uuid import UUID
 
-from pyhap import RESOURCE_DIR, hds, hds_recording, hds_server, hksv_recording, tlv
+from pyhap import (
+    RESOURCE_DIR,
+    hds,
+    hds_recording,
+    hds_server,
+    hksv3,
+    hksv_recording,
+    tlv,
+)
 from pyhap.accessory import Accessory
 from pyhap.camera_talkback import TalkbackReceiver, talkback_available
 from pyhap.characteristic import Characteristic
@@ -243,10 +252,22 @@ PERSISTED_RECORDING_CHARS = (
     ("CameraOperatingMode", "HomeKitCameraActive"),
     ("CameraOperatingMode", "PeriodicSnapshotsActive"),
 )
+# accessory_state key of the HKSV 17.99 settings.
+HKSV3_STATE = "hksv3"
+HKSV3_MOTION_CHARS = ("ContributingSensors", "MotionEnabled")
+# Concurrent video encodings each sensor must offer (HKSV 17.99 guide, section 2).
+HKSV3_MIN_SENSOR_STREAMS = 3
 SUPPORTED_RECORDING_CHARS = (
     "SupportedCameraRecordingConfiguration",
     "SupportedVideoRecordingConfiguration",
     "SupportedAudioRecordingConfiguration",
+)
+# Global operating mode chars a controller writes, the camera keeps them.
+PERSISTED_GLOBAL_OPERATING_MODE_CHARS = (
+    "HomeKitCameraActive",
+    "StreamingEnabled",
+    "CameraOperatingModeIndicator",
+    "NightVision",
 )
 
 
@@ -492,10 +513,29 @@ class Camera(Accessory):
                 service is added so that HAP clients know the accessory supports
                 it, and :meth:`talkback_audio_received` is called with the
                 received audio for each session that negotiates it.
+            - global_operating_mode - list of optional characteristics of the
+                HomeKit Secure Video 17.99 Camera Global Operating Mode service,
+                e.g. ``["ManuallyDisabled", "NightVision"]``. Opts into the service,
+                an empty list adds only the required characteristics. With
+                ``recording``, the Camera Operating Mode service has a HomeKit
+                Camera Active too: the last write to either turns the camera on
+                or off, and the other one is set to the same value, so a hub
+                that only knows the classic one still works. While streaming is
+                not allowed, the camera refuses to set up live streams and ends
+                running ones. Unknown names raise ``ValueError``, a value that is
+                not a list raises ``TypeError``.
             - start_stream_cmd - string specifying the command to be executed to start
                 the stream. The string can contain the keywords, corresponding to the
                 video and audio configuration that was negotiated between the camera
                 and the client. See the ``start`` method for a full list of parameters.
+            - sensors - list of :class:`pyhap.hksv3.SensorConfiguration`, the image
+                sensors of the camera. Opts into the HomeKit Secure Video 17.99
+                Camera Capabilities and Camera Motion Zones services, and adds
+                Contributing Sensors and Motion Enabled to the motion sensor,
+                or adds a motion sensor without ``recording``. Each sensor needs
+                at least three video encodings. With ``recording``, turning it
+                on for a paired camera changes the instance IDs of the recording
+                services with the default IID manager.
 
         :type options: ``dict``
         """
@@ -531,20 +571,46 @@ class Camera(Accessory):
         # Last selection that decoded, the char may hold a rejected write.
         self._selected_recording_raw = None
         self._recording_defaults = {}
-        self._recording_save_pending = False
+        self._save_pending = False
+        self._recording_changed = False
         self._motion_detected_char = None
         # Bumped on stop so a start still binding does not publish its listener.
         self._hds_generation = 0
         self._hds_listener = None
         self._hds_connections = set()
         self._recording_stream = None
-        self._homekit_camera_active_char = None
+        self._homekit_camera_active_char: Characteristic | None = None
+        # The HomeKit Camera Active of the Camera Operating Mode service, kept
+        # in step with the global one when both exist.
+        self._classic_camera_active_char: Characteristic | None = None
         self._motion_status_active_char = None
+        self._global_operating_mode: Service | None = None
+        # Its chars by name, they don't change after the setup.
+        self._global_operating_mode_chars: dict[str, Characteristic] = {}
+        # Persisted HKSV 17.99 chars with their state key, default and the
+        # handler a reset calls.
+        self._hksv3_defaults: dict[
+            Characteristic, tuple[str, Any, Callable[[Any], None]]
+        ] = {}
+        # The values the handlers last saw, they only hear about changes.
+        self._hksv3_seen: dict[Characteristic, Any] = {}
+        self._sensors: list[hksv3.SensorConfiguration] = list(
+            options.get("sensors") or []
+        )
+        self._motion_zones_service: Service | None = None
+        self._contributing_sensors_char: Characteristic | None = None
+        self._motion_enabled_char: Characteristic | None = None
         if options.get("video"):
             self._setup_stream_management(options)
         # Classic HomeKit Secure Video recording (HDS + fragmented MP4).
         if options.get("recording"):
             self._setup_recording_management(options)
+        if self._sensors:
+            self._setup_camera_capabilities()
+        # Last, so the instance IDs of the other services stay the same.
+        if options.get("global_operating_mode") is not None:
+            self._setup_global_operating_mode(options["global_operating_mode"])
+        self._restore_hksv3_state()
 
     @property
     def streaming_status(self) -> bytes | None:
@@ -652,16 +718,20 @@ class Camera(Accessory):
             "CameraOperatingMode", chars=["PeriodicSnapshotsActive"]
         )
         operating_mode.configure_char("EventSnapshotsActive", value=1)
-        self._homekit_camera_active_char = operating_mode.configure_char(
-            "HomeKitCameraActive",
-            value=1,
-            setter_callback=self._handle_homekit_camera_active,
+        homekit_camera_active = operating_mode.configure_char(
+            "HomeKitCameraActive", value=1
         )
+        homekit_camera_active.setter_callback = self._handle_homekit_camera_active
+        self._homekit_camera_active_char = homekit_camera_active
+        self._classic_camera_active_char = homekit_camera_active
         operating_mode.configure_char("PeriodicSnapshotsActive", value=1)
 
         # HKSV records on an event trigger; the camera owns a motion sensor and
         # links it (and the data stream transport) to the recording management.
-        motion = self.add_preload_service("MotionSensor", chars=["StatusActive"])
+        motion = self.add_preload_service(
+            "MotionSensor",
+            chars=["StatusActive", *(HKSV3_MOTION_CHARS if self._sensors else ())],
+        )
         self._motion_detected_char = motion.configure_char(
             "MotionDetected", value=False
         )
@@ -704,6 +774,114 @@ class Camera(Accessory):
             self._recording_defaults[char] = char.value
         self._restore_recording_state()
         self._setup_data_stream_transport()
+
+    def _setup_camera_capabilities(self) -> None:
+        """Advertise the image sensors and accept motion zones (HKSV 17.99)."""
+        for sensor in self._sensors:
+            if len(sensor.video_streams) < HKSV3_MIN_SENSOR_STREAMS:
+                logger.warning(
+                    "%s: sensor %s has %d video encodings, HKSV needs at least %d",
+                    self.display_name,
+                    sensor.sensor_uuid,
+                    len(sensor.video_streams),
+                    HKSV3_MIN_SENSOR_STREAMS,
+                )
+        capabilities = self.add_preload_service("CameraCapabilities")
+        capabilities.configure_char("Version", value=hksv3.SERVICE_VERSION)
+        capabilities.configure_char(
+            "CameraCapabilities",
+            value=to_base64_str(hksv3.CameraCapabilities(self._sensors).encode()),
+        )
+        zones = self.add_preload_service("CameraMotionZones")
+        zones.configure_char("Version", value=hksv3.SERVICE_VERSION)
+        self._motion_zones_service = zones
+
+        motion = self.get_service("MotionSensor")
+        if motion is None:
+            motion = self.add_preload_service("MotionSensor", chars=HKSV3_MOTION_CHARS)
+            self._motion_detected_char = motion.get_characteristic("MotionDetected")
+        self._contributing_sensors_char = motion.get_characteristic(
+            "ContributingSensors"
+        )
+        self._motion_enabled_char = motion.configure_char("MotionEnabled", value=True)
+        for char, key, handler in (
+            (
+                zones.get_characteristic("Active"),
+                "motion_zones_active",
+                self._handle_motion_zones,
+            ),
+            (
+                zones.get_characteristic("CameraZones"),
+                "camera_zones",
+                self._handle_motion_zones,
+            ),
+            (self._motion_enabled_char, "motion_enabled", self._handle_motion_enabled),
+        ):
+            self._persist_hksv3_char(char, key, handler)
+        # Check the zones before they count as written.
+        zones.get_characteristic("CameraZones").setter_callback = self._set_camera_zones
+
+    @property
+    def camera_zones(self) -> hksv3.CameraZones | None:
+        """The motion zones the controller wrote, if any."""
+        if self._motion_zones_service is None:
+            return None
+        value = self._motion_zones_service.get_characteristic("CameraZones").value
+        if not value:
+            return None
+        try:
+            return hksv3.CameraZones.decode(base64_to_bytes(value))
+        # A damaged state file.
+        except ValueError:
+            return None
+
+    @property
+    def motion_zones_active(self) -> bool:
+        """Whether only motion inside :attr:`camera_zones` should count."""
+        if self._motion_zones_service is None:
+            return False
+        return bool(self._motion_zones_service.get_characteristic("Active").value)
+
+    @property
+    def motion_enabled(self) -> bool:
+        """Whether motion detection is on, cameras without the setting always are."""
+        return self._motion_enabled_char is None or bool(
+            self._motion_enabled_char.value
+        )
+
+    def _set_camera_zones(self, value: str) -> None:
+        assert self._motion_zones_service is not None  # noqa: S101
+        char = self._motion_zones_service.get_characteristic("CameraZones")
+        try:
+            if value:
+                hksv3.CameraZones.decode(base64_to_bytes(value))
+        except ValueError:
+            # Fail the write and keep the zones the camera had.
+            char.value = self._hksv3_seen[char]
+            raise
+        self._hksv3_written(char, value)
+
+    def _handle_motion_zones(self, value: Any) -> None:
+        self.motion_zones_changed()
+
+    def motion_zones_changed(self) -> None:
+        """React to the controller changing :attr:`camera_zones` or turning
+        them on or off. Override.
+
+        Only changes call it, not a controller writing the same value again.
+        """
+
+    def _handle_motion_enabled(self, value: Any) -> None:
+        if not value:
+            self.set_motion_detected(False)
+        self.motion_enabled_changed(bool(value))
+
+    def motion_enabled_changed(self, enabled: bool) -> None:
+        """React to the user turning motion detection on or off. Override.
+
+        While it is off, :meth:`set_motion_detected` reports no motion. Only
+        changes call it, not a controller writing the same value again.
+        """
 
     def _setup_data_stream_transport(self) -> None:
         """Create the Data Stream Transport Management service used by HDS.
@@ -829,16 +1007,117 @@ class Camera(Accessory):
             self._recording_service.get_characteristic("RecordingAudioActive").value
         )
 
+    def _setup_global_operating_mode(self, chars: Sequence[str]) -> None:
+        """Create the Camera Global Operating Mode service (HKSV 17.99)."""
+        optional = self.driver.loader.serv_types["CameraGlobalOperatingMode"][
+            "OptionalCharacteristics"
+        ]
+        if unknown := [name for name in chars if name not in optional]:
+            raise ValueError(
+                "Not an optional Camera Global Operating Mode characteristic: "
+                f"{', '.join(unknown)}"
+            )
+        service = self.add_preload_service("CameraGlobalOperatingMode", chars=chars)
+        for char in service.characteristics:
+            name = char.display_name
+            # Everything starts on except Night Vision and Manually Disabled.
+            if name not in ("NightVision", "ManuallyDisabled"):
+                char.set_value(1, should_notify=False)
+            if name not in PERSISTED_GLOBAL_OPERATING_MODE_CHARS:
+                continue
+            if name == "HomeKitCameraActive":
+                handler = self._handle_global_camera_active
+                # The last write to either HomeKit Camera Active decides.
+                if self._classic_camera_active_char is not None:
+                    self._classic_camera_active_char.setter_callback = (
+                        self._handle_classic_camera_active
+                    )
+                self._homekit_camera_active_char = char
+            else:
+                handler = functools.partial(self._handle_global_operating_mode, name)
+            self._persist_hksv3_char(char, f"global_operating_mode.{name}", handler)
+        self._global_operating_mode = service
+        self._global_operating_mode_chars = {
+            char.display_name: char
+            for char in service.characteristics
+            if char.display_name is not None
+        }
+
+    @property
+    def streaming_allowed(self) -> bool:
+        """Whether the global operating mode allows streaming.
+
+        True without the ``global_operating_mode`` option. While it is False,
+        the camera refuses to set up live streams.
+        """
+        service = self._global_operating_mode
+        if service is None:
+            return True
+        manually_disabled = self._global_operating_mode_char("ManuallyDisabled")
+        return (
+            self.homekit_camera_active
+            and bool(service.get_characteristic("StreamingEnabled").value)
+            and not (manually_disabled is not None and manually_disabled.value)
+        )
+
+    def set_manually_disabled(self, disabled: bool) -> None:
+        """Report the camera being turned off on the device itself.
+
+        Needs ``ManuallyDisabled`` in the ``global_operating_mode`` option.
+        """
+        char = self._global_operating_mode_char("ManuallyDisabled")
+        if char is not None:
+            char.set_value(bool(disabled))
+            self._end_streams_if_not_allowed()
+
+    def set_third_party_camera_active(self, active: bool) -> None:
+        """Report whether the camera is on for apps outside HomeKit.
+
+        Needs ``ThirdPartyCameraActive`` in the ``global_operating_mode`` option.
+        """
+        char = self._global_operating_mode_char("ThirdPartyCameraActive")
+        if char is not None:
+            char.set_value(bool(active))
+
+    def _global_operating_mode_char(self, name: str) -> Characteristic | None:
+        return self._global_operating_mode_chars.get(name)
+
+    def _handle_global_operating_mode(self, name: str, value: Any) -> None:
+        if name == "StreamingEnabled":
+            self._end_streams_if_not_allowed()
+        self.global_operating_mode_changed(name, value)
+
+    def _end_streams_if_not_allowed(self) -> None:
+        """End the live streams once streaming is turned off."""
+        if self.streaming_allowed:
+            return
+        for session_id in list(self.sessions):
+            self.driver.add_job(self._end_stream_not_allowed, session_id)
+
+    async def _end_stream_not_allowed(self, session_id: UUID) -> None:
+        stream_idx = await self._end_stream(session_id)
+        if stream_idx is not None:
+            logger.info("[%s] Ending the stream, streaming is turned off", session_id)
+            self.set_streaming_available(stream_idx)
+
+    def global_operating_mode_changed(self, name: str, value: Any) -> None:
+        """React to the controller changing a global operating mode setting.
+
+        ``name`` is the characteristic, e.g. ``"NightVision"``. HomeKit Camera
+        Active changes call :meth:`homekit_camera_active_changed` instead. Only
+        changes call it, not a controller writing the same value again.
+        Override.
+        """
+
     @property
     def homekit_camera_active(self) -> bool:
         """Whether the camera is on in the Home app.
 
-        Only cameras with recording have the setting, all others are on.
+        Only cameras with recording or the global operating mode have the
+        setting, all others are on.
         """
-        operating_mode = self.get_service("CameraOperatingMode")
-        if operating_mode is None:
-            return True
-        return bool(operating_mode.get_characteristic("HomeKitCameraActive").value)
+        char = self._homekit_camera_active_char
+        return char is None or bool(char.value)
 
     def set_selected_recording_configuration(self, value: str) -> None:
         """Handle a write to Selected Camera Recording Configuration (spec HKSV)."""
@@ -865,10 +1144,24 @@ class Camera(Accessory):
         sender_client_addr: Any = None,
         immediate: bool = False,
     ) -> None:
-        """Forward the update and store recording state changes."""
+        """Forward the update and store recording and HKSV 17.99 state changes."""
         super().publish(value, sender, sender_client_addr, immediate)
+        if sender in self._hksv3_defaults:
+            # Local changes too, so a later write of the same value is no change.
+            self._hksv3_seen[sender] = value
         # Without an aid there is no entry to store under.
-        if sender not in self._recording_defaults or self.aid is None:
+        if self.aid is None:
+            return
+        if sender in self._hksv3_defaults:
+            key = self._hksv3_defaults[sender][0]
+            state = self.driver.accessory_state(self.aid)
+            kept = state.get(HKSV3_STATE)
+            # A damaged state file must not fail the write.
+            if not isinstance(kept, dict):
+                kept = state[HKSV3_STATE] = {}
+            kept[key] = value
+            self._schedule_save("camera")
+        if sender not in self._recording_defaults:
             return
         # Store now so a camera rebuilt before the save restores this change.
         stored = {char.display_name: char.value for char in self._recording_defaults}
@@ -878,15 +1171,20 @@ class Camera(Accessory):
         self._schedule_recording_save()
 
     def _schedule_recording_save(self) -> None:
-        if self._recording_save_pending:
+        self._recording_changed = True
+        self._schedule_save("recording")
+
+    def _schedule_save(self, what: str) -> None:
+        if self._save_pending:
             return
         # One disk write per hub burst.
-        self._recording_save_pending = True
+        self._save_pending = True
         try:
-            self.driver.add_job(self._save_recording_state)
+            self.driver.add_job(self._save_state)
         except RuntimeError:
-            self._recording_save_pending = False
-            logger.warning("Could not schedule saving the recording state")
+            self._save_pending = False
+            self._recording_changed = False
+            logger.warning("Could not schedule saving the %s state", what)
 
     def _supported_recording_hash(self) -> str:
         digest = hashlib.sha256()
@@ -897,14 +1195,53 @@ class Camera(Accessory):
         return digest.hexdigest()
 
     @callback
-    def _save_recording_state(self) -> None:
-        self._recording_save_pending = False
+    def _save_state(self) -> None:
+        self._save_pending = False
+        recording_changed, self._recording_changed = self._recording_changed, False
         self.driver.async_persist()
-        self.recording_state_changed()
+        if recording_changed:
+            self.recording_state_changed()
+
+    def _persist_hksv3_char(
+        self, char: Characteristic, key: str, handler: Callable[[Any], None]
+    ) -> None:
+        """Keep the value of ``char`` across restarts, reset it for a new home.
+
+        A controller write or a reset that changes the value calls ``handler``
+        with the new value, a reset once per handler. The constructor restores
+        the stored values afterwards.
+        """
+        self._hksv3_defaults[char] = (key, char.value, handler)
+        char.setter_callback = functools.partial(self._hksv3_written, char)
+
+    def _hksv3_written(self, char: Characteristic, value: Any) -> None:
+        """Call the handler of ``char`` if the write changed its value."""
+        if self._hksv3_seen.get(char) == value:
+            return
+        self._hksv3_seen[char] = value
+        self._hksv3_defaults[char][2](value)
+
+    def _restore_hksv3_state(self) -> None:
+        if self.aid is not None:
+            self._load_hksv3_state(self.aid)
+        self._hksv3_seen = {char: char.value for char in self._hksv3_defaults}
+
+    def _load_hksv3_state(self, aid: int) -> None:
+        stored = self.driver.accessory_state(aid).get(HKSV3_STATE)
+        if not isinstance(stored, dict):
+            return
+        for char, (key, _, _) in self._hksv3_defaults.items():
+            if key not in stored:
+                continue
+            try:
+                char.set_value(stored[key], should_notify=False)
+            except (TypeError, ValueError, OverflowError):
+                logger.warning("Ignoring stored %s of aid %s", key, aid)
 
     def restore_accessory_state(self) -> None:
-        """Restore the stored recording state."""
+        """Restore the stored recording and HKSV 17.99 state."""
         self._restore_recording_state()
+        self._restore_hksv3_state()
 
     def _restore_recording_state(self) -> None:
         # Private so construction does not run a subclass override early.
@@ -945,26 +1282,64 @@ class Camera(Accessory):
         self._selected_recording_raw = selected
 
     def reset_accessory_state(self) -> None:
-        """Return the recording state to its defaults for a new home."""
-        if not self._recording_defaults:
-            return
-        for char, value in self._recording_defaults.items():
-            char.set_value(value, should_notify=False)
-        self._selected_recording_config = None
-        self._selected_recording_raw = None
-        if self.aid is not None:
-            self.driver.accessory_state(self.aid).pop("recording", None)
-        self._schedule_recording_save()
+        """Return the recording and HKSV 17.99 state to its defaults.
 
-    def set_motion_detected(self, detected: bool) -> None:
+        Once all state is reset, the handlers of the HKSV 17.99 values that
+        changed are called.
+        """
+        handlers: list[tuple[Callable[[Any], None], Any]] = []
+        for char, (_, value, handler) in self._hksv3_defaults.items():
+            changed = char.value != value
+            char.set_value(value, should_notify=False)
+            self._hksv3_seen[char] = value
+            if changed and all(handler != known for known, _ in handlers):
+                handlers.append((handler, value))
+        if self._hksv3_defaults and self.aid is not None:
+            self.driver.accessory_state(self.aid).pop(HKSV3_STATE, None)
+            self._schedule_save("camera")
+        if self._recording_defaults:
+            for char, value in self._recording_defaults.items():
+                char.set_value(value, should_notify=False)
+            self._selected_recording_config = None
+            self._selected_recording_raw = None
+            if self.aid is not None:
+                self.driver.accessory_state(self.aid).pop("recording", None)
+            self._schedule_recording_save()
+        for handler, value in handlers:
+            handler(value)
+
+    def set_motion_detected(
+        self, detected: bool, sensors: Iterable[UUID] | None = None
+    ) -> None:
         """Fire (``True``) or clear (``False``) the recording motion trigger.
 
         This is the entry point an integration calls when its own motion
         detector changes state: it drives the HKSV event-trigger MotionSensor,
         which is what makes the Home Hub start (and later finish) a recording.
+
+        With ``sensors`` the camera names the sensors that saw the motion,
+        by default or when empty the first one. Ignored without the
+        ``sensors`` option.
         """
+        detected = bool(detected) and self.motion_enabled
+        if self._contributing_sensors_char is not None:
+            if not detected:
+                sensors = ()
+            elif not (sensors := tuple(sensors or ())):
+                sensors = (self._sensors[0].sensor_uuid,)
+            else:
+                configured = {sensor.sensor_uuid for sensor in self._sensors}
+                if unknown := [uuid for uuid in sensors if uuid not in configured]:
+                    logger.warning(
+                        "%s: motion reported for sensors that are not configured: %s",
+                        self.display_name,
+                        ", ".join(map(str, unknown)),
+                    )
+            self._contributing_sensors_char.set_value(
+                to_base64_str(hksv3.encode_contributing_sensors(sensors))
+            )
         if self._motion_detected_char is not None:
-            self._motion_detected_char.set_value(bool(detected))
+            self._motion_detected_char.set_value(detected)
 
     def _recording_open_gate(
         self, manager: hds_recording.RecordingStreamManager
@@ -1099,18 +1474,24 @@ class Camera(Accessory):
         stream_idx = session_info["stream_idx"]
 
         opts.update(session_info)
-        success = (
-            await self.reconfigure_stream(session_info, opts)
-            if reconfigure
-            else await self.start_stream(session_info, opts)
-        )
+        # Turned off after SetupEndpoints.
+        refused = not reconfigure and not self.streaming_allowed
+        if refused:
+            logger.info("[%s] Streaming is turned off, refusing it", session_id)
+            success = False
+        elif reconfigure:
+            success = await self.reconfigure_stream(session_info, opts)
+        else:
+            success = await self.start_stream(session_info, opts)
 
         if success:
             self._streaming_status[stream_idx] = STREAMING_STATUS["STREAMING"]
         else:
-            logger.error(
-                "[%s] Failed to start/reconfigure stream, deleting session.", session_id
-            )
+            if not refused:
+                logger.error(
+                    "[%s] Failed to start/reconfigure stream, deleting session.",
+                    session_id,
+                )
             self._close_talkback(session_info)
             del self.sessions[session_id]
             self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
@@ -1126,17 +1507,32 @@ class Camera(Accessory):
         assert self._homekit_camera_active_char is not None  # noqa: S101
         return bool(self._homekit_camera_active_char.value)
 
+    def _handle_classic_camera_active(self, value: Any) -> None:
+        # A hub that only knows the Camera Operating Mode service.
+        char = self._homekit_camera_active_char
+        assert char is not None  # noqa: S101
+        if char.value != value:
+            char.set_value(value)
+        self._handle_homekit_camera_active(value)
+
+    def _handle_global_camera_active(self, value: Any) -> None:
+        char = self._classic_camera_active_char
+        if char is not None and char.value != value:
+            char.set_value(value)
+        self._handle_homekit_camera_active(value)
+
     def _handle_homekit_camera_active(self, value: Any) -> None:
         # A camera turned off must not record, and the hub must not treat its
         # motion sensor as an active trigger.
         active = bool(value)
-        assert self._motion_status_active_char is not None  # noqa: S101
-        # Always notify: a restored value may have bypassed the stored one,
-        # so set_value alone could see no change.
-        self._motion_status_active_char.set_value(active, should_notify=False)
-        self._motion_status_active_char.notify()
+        if self._motion_status_active_char is not None:
+            # Always notify: a restored value may have bypassed the stored one,
+            # so set_value alone could see no change.
+            self._motion_status_active_char.set_value(active, should_notify=False)
+            self._motion_status_active_char.notify()
         if not active and self._recording_stream is not None:
             self._recording_stream.close(hds_recording.RecordingReason.NOT_ALLOWED)
+        self._end_streams_if_not_allowed()
         self.homekit_camera_active_changed(active)
 
     def homekit_camera_active_changed(self, active: bool) -> None:
@@ -1145,7 +1541,9 @@ class Camera(Accessory):
         Override instead of replacing the characteristic's setter. A running
         recording is already closed when the camera is turned off. Like other
         setters, every controller write calls this, setting the value locally
-        does not.
+        does not. With the ``global_operating_mode`` option, writes to its
+        HomeKit Camera Active only call it on changes, not when a controller
+        writes the same value again.
         """
 
     async def _stop_stream(self, objs: dict[bytes, Any]) -> None:
@@ -1168,12 +1566,19 @@ class Camera(Accessory):
             )
             return
 
-        stream_idx = session_info["stream_idx"]
+        await self._end_stream(session_id)
+
+    async def _end_stream(self, session_id: UUID) -> int | None:
+        """Stop the stream of ``session_id`` and return its stream index."""
+        session_info = self.sessions.get(session_id)
+        if not session_info:
+            return None
+        stream_idx: int = session_info["stream_idx"]
         await self.stop_stream(session_info)
         self._close_talkback(session_info)
-        del self.sessions[session_id]
-
+        self.sessions.pop(session_id, None)
         self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
+        return stream_idx
 
     @staticmethod
     def _close_talkback(session_info: dict[str, Any]) -> None:
@@ -1268,6 +1673,18 @@ class Camera(Accessory):
 
         objs = tlv.decode(value, from_base64=True)
         session_id = UUID(bytes=objs[SETUP_TYPES["SESSION_ID"]])
+        if not self.streaming_allowed:
+            logger.info("[%s] Streaming is turned off, refusing it", session_id)
+            self._management[stream_idx].get_characteristic("SetupEndpoints").set_value(
+                tlv.encode(
+                    SETUP_TYPES["SESSION_ID"],
+                    session_id.bytes,
+                    SETUP_TYPES["STATUS"],
+                    SETUP_STATUS["ERROR"],
+                    to_base64=True,
+                )
+            )
+            return
 
         # Extract address info
         address_tlv = objs[SETUP_TYPES["ADDRESS"]]
@@ -1597,7 +2014,8 @@ class Camera(Accessory):
         if ffmpeg_process:
             logger.info("[%s] Stopping stream.", session_id)
             try:
-                ffmpeg_process.terminate()
+                with contextlib.suppress(ProcessLookupError):
+                    ffmpeg_process.terminate()
                 async with async_timeout(2.0):
                     _, stderr = await ffmpeg_process.communicate()
                 logger.debug("Stream command stderr: %s", stderr)
@@ -1606,7 +2024,8 @@ class Camera(Accessory):
                     "Timeout while waiting for the stream process "
                     "to terminate. Trying with kill."
                 )
-                ffmpeg_process.kill()
+                with contextlib.suppress(ProcessLookupError):
+                    ffmpeg_process.kill()
                 await ffmpeg_process.wait()
             logger.debug("Stream process stopped.")
         else:
