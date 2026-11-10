@@ -607,7 +607,7 @@ _OTHER_CONTROLLER = ("192.168.1.115", 50000)
 class _WrappingCamera(camera.Camera):
     """A subclass that wraps set_endpoints and returns nothing."""
 
-    def set_endpoints(  # ty: ignore[invalid-method-override]
+    def set_endpoints(  # ty: ignore[incompatible-method-override]
         self, value: str, stream_idx: int | None = None
     ) -> None:
         super().set_endpoints(value, stream_idx)
@@ -623,7 +623,7 @@ class _ReturningCamera(camera.Camera):
 class _SettingCamera(camera.Camera):
     """A subclass that sets the answer itself, as before, and returns nothing."""
 
-    def set_endpoints(  # ty: ignore[invalid-method-override]
+    def set_endpoints(  # ty: ignore[incompatible-method-override]
         self, value: str, stream_idx: int | None = None
     ) -> None:
         answer = super().set_endpoints(value, stream_idx)
