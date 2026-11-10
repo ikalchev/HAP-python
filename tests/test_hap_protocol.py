@@ -433,10 +433,10 @@ def test_set_characteristics_with_crypto(driver: AccessoryDriver) -> None:
         hap_proto.data_received(
             b"PUT /characteristics HTTP/1.1\r\n"
             b"Host: HASS12\\032AD1C22._hap._tcp.local\r\n"
-            b"Content-Length: 49\r\n"
+            b"Content-Length: 50\r\n"
             b"Content-Type: application/hap+json\r\n"
             b"\r\n"
-            b'{"characteristics":[{"aid":1,"iid":9,"ev":true}]}'
+            b'{"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
         )
 
     hap_proto.close()
