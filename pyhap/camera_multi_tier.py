@@ -595,6 +595,10 @@ def _answer(session: MultiTierSession) -> hksv3.SetupEndpointsResponse:
     )
 
 
+# Global options of FFmpegMultiTierDelegate, before the input: no banner, no
+# status line, only warnings on stderr.
+FFMPEG_GLOBAL_OPTIONS = ("-hide_banner", "-nostats", "-loglevel", "warning")
+
 # Output arguments of FFmpegMultiTierDelegate, each formatted with the
 # session values. Video is copied, audio encoded to 16 kHz mono Opus in
 # 20 ms frames, which ffmpeg sends with the 48 kHz RTP clock. Video goes out
@@ -620,7 +624,8 @@ class FFmpegMultiTierDelegate:
     """Streams each session with its own ffmpeg process.
 
     Pass it as the ``delegate`` of the ``multi_tier`` option. The command is
-    ``ffmpeg``, the ``ffmpeg_input`` arguments, :data:`FFMPEG_VIDEO_OUTPUT`
+    ``ffmpeg``, :data:`FFMPEG_GLOBAL_OPTIONS`, the ``ffmpeg_input`` arguments,
+    :data:`FFMPEG_VIDEO_OUTPUT`
     and, if the controller wants audio, :data:`FFMPEG_AUDIO_OUTPUT`. It is an
     argument list that no shell sees.
 
@@ -640,7 +645,7 @@ class FFmpegMultiTierDelegate:
     def __init__(
         self, ffmpeg_input: Sequence[str], ffmpeg: str = "ffmpeg", audio: bool = True
     ) -> None:
-        self.argv = (ffmpeg, *ffmpeg_input)
+        self.argv = (ffmpeg, *FFMPEG_GLOBAL_OPTIONS, *ffmpeg_input)
         self.audio = audio
 
     async def handle_prepare(self, session: MultiTierSession) -> None:
@@ -725,7 +730,9 @@ class FFmpegMultiTierDelegate:
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
             await process.wait()
-        await session.data.pop("watcher")
+        watcher = session.data.pop("watcher")
+        with contextlib.suppress(Exception):
+            await watcher
 
 
 def _redact_command(cmd: list[str]) -> str:
@@ -772,20 +779,41 @@ async def _watch(
 ) -> None:
     """Log ffmpeg's output and end the session with ffmpeg."""
     output = asyncio.ensure_future(_log_output(session, process))
-    code = await process.wait()
-    await output
+    try:
+        code = await process.wait()
+        with contextlib.suppress(Exception):
+            await output
+    finally:
+        output.cancel()
     if session.data.get("process") is process:
         logger.warning("[%s] Stream process exited with %s", session.id, code)
         session.end("the stream process exited")
 
 
+# ffmpeg ends status lines with "\r", so the output is read in chunks, not
+# lines; a line longer than this is logged in pieces.
+_OUTPUT_CHUNK = 4096
+
+
 async def _log_output(
     session: MultiTierSession, process: asyncio.subprocess.Process
 ) -> None:
-    # Reading the output also keeps the pipe from filling up.
+    # Reading the output also keeps the pipe from filling up and ffmpeg from
+    # blocking, so it keeps reading until ffmpeg closes it.
     if process.stderr is None:
         return
-    async for line in process.stderr:
-        # Token based, user info with a raw space is not covered.
-        text = _redact_urls(line.decode(errors="replace").rstrip())
+    pending = b""
+    while chunk := await process.stderr.read(_OUTPUT_CHUNK):
+        *lines, pending = re.split(rb"[\r\n]", pending + chunk)
+        if len(pending) >= _OUTPUT_CHUNK:
+            lines.append(pending)
+            pending = b""
+        for line in lines:
+            _log_line(session, line)
+    _log_line(session, pending)
+
+
+def _log_line(session: MultiTierSession, line: bytes) -> None:
+    # Token based, user info with a raw space is not covered.
+    if text := _redact_urls(line.decode(errors="replace").strip()):
         logger.debug("[%s] %s", session.id, text)
