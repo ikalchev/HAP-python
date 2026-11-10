@@ -115,6 +115,9 @@ def is_allowed_sender(addr: tuple[str, int], controller_address: str | None) -> 
     if controller_address is None:
         return True
     source = addr[0]
+    if (":" in source) ^ (":" in controller_address):
+        # Only IPv6 literals contain ":", and IPv4 never equals IPv6.
+        return False
     try:
         return ipaddress.ip_address(source) == ipaddress.ip_address(controller_address)
     except ValueError:
