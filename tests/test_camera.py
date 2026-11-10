@@ -6,7 +6,7 @@ import logging
 import socket
 import struct
 from typing import Any, cast
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID
 
 import pytest
@@ -420,3 +420,42 @@ async def test_start_stream_rejects_argument_injection(mock_driver: Any) -> None
     ):
         assert await acc.start_stream(session_info, safe_config) is True
         exec_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_process_already_exited(mock_driver: Any) -> None:
+    """Verify stopping a stream whose ffmpeg already exited does not raise."""
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    process = Mock()
+    process.terminate.side_effect = ProcessLookupError
+    process.communicate = AsyncMock(return_value=(b"", b""))
+    session_info = {
+        "id": UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1"),
+        "process": process,
+    }
+
+    await acc.stop_stream(session_info)
+
+    process.terminate.assert_called_once_with()
+    process.communicate.assert_awaited_once_with()
+    process.kill.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_kill_after_process_exited(mock_driver: Any) -> None:
+    """Verify the kill fallback tolerates a process that exited meanwhile."""
+    acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
+    process = Mock()
+    process.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+    process.kill.side_effect = ProcessLookupError
+    process.wait = AsyncMock(return_value=0)
+    session_info = {
+        "id": UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1"),
+        "process": process,
+    }
+
+    await acc.stop_stream(session_info)
+
+    process.terminate.assert_called_once_with()
+    process.kill.assert_called_once_with()
+    process.wait.assert_awaited_once_with()
