@@ -1112,7 +1112,7 @@ class AccessoryDriver:
 
             # Only characteristics with the write response permission answer
             # a write with a value, and only when the controller asks for it.
-            write_response = bool(
+            write_response = (
                 query.get(HAP_REPR_WRITE_RESPONSE, False)
                 and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
             )
