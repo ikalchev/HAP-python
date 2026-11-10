@@ -39,7 +39,7 @@ async def _hook(result: Any = 1) -> Any:
     return result
 
 
-async def _never() -> None:
+async def _never(*_args: object) -> None:
     await asyncio.Event().wait()
 
 
@@ -173,7 +173,7 @@ async def test_end_without_delegate(
     session = add_session(CLIENT)
 
     assert session_controller._end(session, "test") is None
-    assert await session_controller.end_session(session.id) is False
+    assert session_controller._end(session, "again") is None
     session_release.assert_not_called()
 
 
@@ -192,29 +192,43 @@ async def test_end_waits_for_cancelled_hooks(
     )
     await asyncio.sleep(0)
 
-    assert await session_controller.end_session(session.id) is True
+    release = session_controller._end(session, "test")
 
+    assert release is not None
+    assert await release is True
     session_release.assert_awaited_once_with(session)
     with pytest.raises(HookFailed):
         await hook
 
 
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (RuntimeError, "Releasing the session failed"),
+        (asyncio.CancelledError, "Releasing the session was cancelled"),
+    ],
+)
 async def test_release_failure_is_logged(
     session_controller: StreamController[StreamSession],
     session_release: AsyncMock,
     caplog: pytest.LogCaptureFixture,
     add_session: Callable[..., StreamSession],
+    error: type[BaseException],
+    message: str,
 ) -> None:
-    """Test a failing release still ends the session."""
-    session_release.side_effect = RuntimeError
+    """Test a failing release still finishes it and frees the session's room."""
+    session_release.side_effect = error
+    add_session(CLIENT)
+    add_session(CLIENT)
     session = add_session(CLIENT)
     session._delegated = True
 
     release_task = session_controller._end(session, "test")
 
     assert release_task is not None
-    assert await release_task is False
-    assert "Releasing the session failed" in caplog.text
+    assert await release_task is True
+    assert message in caplog.text
+    assert session_controller._no_room(CLIENT) is None
 
 
 async def test_cancelled_request_ends_the_session(
@@ -330,22 +344,6 @@ async def test_client_disconnected(
     session_release.assert_awaited_once_with(mine)
 
 
-async def test_end_all_sessions(
-    session_controller: StreamController[StreamSession],
-    session_release: AsyncMock,
-    add_session: Callable[..., StreamSession],
-) -> None:
-    """Test ending all sessions waits for each release."""
-    first = add_session(CLIENT)
-    second = add_session(OTHER)
-    first._delegated = second._delegated = True
-
-    await session_controller.end_all_sessions()
-
-    assert session_controller.sessions == {}
-    assert session_release.await_count == 2
-
-
 async def test_end_by_request_waits_until_the_deadline(
     session_controller: StreamController[StreamSession],
     session_release: AsyncMock,
@@ -355,13 +353,10 @@ async def test_end_by_request_waits_until_the_deadline(
     session_release.side_effect = _never
     session = add_session(CLIENT)
     session._delegated = True
+    deadline = asyncio.get_running_loop().time() + 0.01
 
-    assert (
-        await session_controller._end_by_request(
-            session, session_controller._deadline()
-        )
-        is False
-    )
+    assert await session_controller._end_by_request(session, deadline) is False
+    session_release.assert_awaited_once_with(session)
     assert session.state is SessionState.ENDED
 
 
@@ -575,28 +570,89 @@ async def test_hook_error_after_the_end_is_retrieved(
     assert unhandled == []
 
 
+def _catch_unhandled(loop: asyncio.AbstractEventLoop) -> list[dict[str, Any]]:
+    """Collect what reaches the loop's exception handler."""
+    unhandled: list[dict[str, Any]] = []
+    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+    return unhandled
+
+
+async def _fails_after_cancellation(_session: StreamSession) -> None:
+    """A release that catches its cancellation and then raises."""
+    try:
+        await asyncio.Event().wait()
+    except asyncio.CancelledError:
+        pass
+    raise RuntimeError("late release failure")
+
+
+async def test_timed_out_release_error_is_retrieved(
+    session_controller: StreamController[StreamSession],
+    session_release: AsyncMock,
+    add_session: Callable[..., StreamSession],
+) -> None:
+    """Test the error of a release raised after its timeout is not lost."""
+    loop = asyncio.get_running_loop()
+    unhandled = _catch_unhandled(loop)
+    session_release.side_effect = _fails_after_cancellation
+    session = add_session(CLIENT)
+    session._delegated = True
+
+    release = session_controller._end(session, "test")
+    assert release is not None
+    assert await release is False
+    await asyncio.sleep(0)
+    del release
+    gc.collect()
+    loop.set_exception_handler(None)
+
+    assert unhandled == []
+
+
+async def _ignores_cancellation(stop: asyncio.Event) -> None:
+    with contextlib.suppress(asyncio.CancelledError):
+        await stop.wait()
+    await stop.wait()
+
+
+async def _ignores_cancellation_then_fails(stop: asyncio.Event) -> None:
+    await _ignores_cancellation(stop)
+    raise RuntimeError("late release failure")
+
+
+@pytest.mark.parametrize(
+    "release", [_ignores_cancellation, _ignores_cancellation_then_fails]
+)
 async def test_close_gives_up_on_a_stubborn_release(
     session_controller: StreamController[StreamSession],
     session_release: AsyncMock,
     add_session: Callable[..., StreamSession],
     caplog: pytest.LogCaptureFixture,
+    release: Callable[[asyncio.Event], Any],
 ) -> None:
-    """Test close() returns although a release ignores its cancellation."""
+    """Test close() returns although a release ignores its cancellation.
+
+    Its error, if it fails once it ends, is retrieved.
+    """
+    loop = asyncio.get_running_loop()
+    unhandled = _catch_unhandled(loop)
     stop = asyncio.Event()
 
-    async def _ignores_cancellation(_session: StreamSession) -> None:
-        with contextlib.suppress(asyncio.CancelledError):
-            await stop.wait()
-        await stop.wait()
+    async def _release(_session: StreamSession) -> None:
+        await release(stop)
 
-    session_release.side_effect = _ignores_cancellation
+    session_release.side_effect = _release
     session = add_session(CLIENT)
     session._delegated = True
 
     await asyncio.wait_for(session_controller.close(), 1)
     stop.set()
     await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    gc.collect()
+    loop.set_exception_handler(None)
 
+    assert unhandled == []
     assert "Releasing the session timed out" in caplog.text
     assert "Closing the stream service while 1 tasks still run" in caplog.text
     assert session_controller._no_room(OTHER) == "The stream service is closed"

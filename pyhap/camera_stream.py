@@ -74,9 +74,11 @@ _E = TypeVar("_E", bound=IntEnum)
 class StreamError(Exception):
     """Raised by a delegate hook to answer the request with ``status``.
 
-    ``status`` is one of the request's answer, e.g.
-    :attr:`pyhap.hksv3.RTPStreamingStatus.BUSY`. Other exceptions, and hooks
-    that take too long, answer with the request's error status.
+    ``status`` must be a value of the status enum of the request the hook
+    answers, e.g. :attr:`pyhap.hksv3.RTPStreamingStatus.BUSY` for RTP
+    Streaming Control or :attr:`pyhap.hksv3.SetupEndpointsStatus.BUSY` for
+    Setup Endpoints. Another value, other exceptions and hooks that take too
+    long answer with the request's error status.
     """
 
     def __init__(self, status: int, message: str = "") -> None:
@@ -131,7 +133,7 @@ class StreamSession:
     def end(self, reason: str = "the camera ended it") -> None:
         """End the session on the camera's side, e.g. when its media stopped.
 
-        Schedules the end on the event loop and returns at once; the
+        Schedules the end on the event loop and returns at once. The
         delegate then releases the session as for any other end. Does
         nothing for a session that ended. Call it in the event loop.
         """
@@ -314,10 +316,14 @@ class StreamController(Generic[_S]):
             self._end(session, f"the {name} hook failed")
         raise HookFailed(error.status if isinstance(error, StreamError) else None)
 
-    def _background(self, coro: Coroutine[Any, Any, _T]) -> asyncio.Task[_T]:
+    def _background(
+        self, session: _S, name: str, coro: Coroutine[Any, Any, _T]
+    ) -> asyncio.Task[_T]:
         task = self._loop.create_task(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        # A release that timed out is not awaited any more.
+        task.add_done_callback(functools.partial(_retrieve, session, name))
         return task
 
     def _end(self, session: _S, reason: str) -> asyncio.Task[bool] | None:
@@ -339,10 +345,13 @@ class StreamController(Generic[_S]):
             self._session_ended(session, previous)
             if session._delegated:
                 self._releasing.add(session)
-                session._release = self._background(self._release(session, hooks))
+                session._release = self._background(
+                    session, "release", self._release(session, hooks)
+                )
         return session._release
 
     async def _release(self, session: _S, hooks: list[asyncio.Task[Any]]) -> bool:
+        """Release ``session``, False if the delegate's release timed out."""
         try:
             return await self._release_after(session, hooks)
         finally:
@@ -359,7 +368,7 @@ class StreamController(Generic[_S]):
                     session.id,
                     len(pending),
                 )
-        release = self._background(self._release_hook(session))
+        release = self._background(session, "end", self._release_hook(session))
         done, _ = await asyncio.wait({release}, timeout=self.hook_timeout)
         if not done:
             # Not awaited: a release that ignores its cancellation must not
@@ -367,19 +376,21 @@ class StreamController(Generic[_S]):
             release.cancel()
             logger.warning("[%s] Releasing the session timed out", session.id)
             return False
+        # The release finished, so the session is gone even if it failed.
         if release.cancelled():
             logger.warning("[%s] Releasing the session was cancelled", session.id)
-            return False
-        # The delegate may fail in many ways, the session is gone anyway.
-        if (error := release.exception()) is not None:
+        elif (error := release.exception()) is not None:
             logger.error(
                 "[%s] Releasing the session failed", session.id, exc_info=error
             )
-            return False
         return True
 
     async def _end_by_request(self, session: _S, deadline: float) -> bool:
-        """End a session for a request, waiting for its release until ``deadline``."""
+        """End a session for a request, waiting for its release until ``deadline``.
+
+        Returns False if the release did not finish in time, the session then
+        still counts towards the session limits.
+        """
         release = self._end(session, "the controller ended it")
         if release is None:
             return True
@@ -423,30 +434,6 @@ class StreamController(Generic[_S]):
         """End all sessions now, releasing them in the background."""
         for session in list(self._sessions.values()):
             self._end(session, reason)
-
-    async def end_session(self, session_id: UUID) -> bool:
-        """End a session, e.g. when its stream ended on the camera's side.
-
-        Waits until the delegate released it. Returns False if there is no
-        such session.
-        """
-        session = self._sessions.get(session_id)
-        if session is None:
-            return False
-        release = self._end(session, "the camera ended it")
-        if release is not None:
-            await asyncio.shield(release)
-        return True
-
-    async def end_all_sessions(self) -> None:
-        """End all sessions and wait until the delegate released them."""
-        releases = [
-            self._end(session, "the camera ended it")
-            for session in list(self._sessions.values())
-        ]
-        await asyncio.gather(
-            *(asyncio.shield(release) for release in releases if release is not None)
-        )
 
     def client_disconnected(self, client_addr: tuple[str, int]) -> None:
         """End the sessions of a connection that closed."""

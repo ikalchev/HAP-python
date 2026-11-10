@@ -330,7 +330,7 @@ async def test_setup_answers_from_the_connection(
 ) -> None:
     """Test the answer has the accessory's address on the connection."""
     camera = stream_camera()
-    with patch.object(camera.driver, "local_address", return_value="fd00::10"):
+    with patch.object(camera.driver, "_local_address", return_value="fd00::10"):
         answer = await _setup(camera, _setup_request(b"fd00::1", True))
     address = tlv.decode(answer[SETUP_TYPES["ADDRESS"]])
     assert address[SETUP_ADDR_INFO["ADDRESS_VER"]] == b"\x01"
@@ -351,6 +351,55 @@ async def test_prepare_may_change_the_answer(
     address = tlv.decode(answer[SETUP_TYPES["ADDRESS"]])
     assert address[SETUP_ADDR_INFO["ADDRESS"]] == b"192.168.1.20"
     assert address[SETUP_ADDR_INFO["VIDEO_RTP_PORT"]] == struct.pack("<H", 40000)
+
+
+def _prepare_ports(video: Any, audio: Any) -> Callable[..., Any]:
+    """A prepare hook that sets the accessory's ports."""
+
+    async def _prepare(session: MultiTierSession) -> None:
+        session.accessory_video_port = video
+        session.accessory_audio_port = audio
+
+    return _prepare
+
+
+@pytest.mark.parametrize(
+    ("video", "audio"),
+    [(0, 50002), (50000, 65536), ("50000", 50002), (50000, 50002.0), (True, 1)],
+    ids=["zero", "too-large", "str", "float", "bool"],
+)
+async def test_prepare_sets_invalid_ports(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+    video: Any,
+    audio: Any,
+) -> None:
+    """Test ports a prepare hook sets outside 1 to 65535 fail the setup at once."""
+    multi_tier_delegate.handle_prepare.side_effect = _prepare_ports(video, audio)
+    camera = stream_camera()
+
+    answer = await _setup(camera)
+    sessions = dict(_controller(camera).sessions)
+    await camera.stop()
+
+    assert answer[SETUP_TYPES["STATUS"]] == b"\x02"
+    assert sessions == {}
+    assert "The prepare hook set invalid ports" in caplog.text
+    multi_tier_delegate.handle_end.assert_awaited_once()
+
+
+async def test_prepare_sets_edge_ports(
+    stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
+) -> None:
+    """Test ports 1 and 65535 are valid."""
+    multi_tier_delegate.handle_prepare.side_effect = _prepare_ports(1, 65535)
+
+    answer = await _setup(stream_camera())
+
+    address = tlv.decode(answer[SETUP_TYPES["ADDRESS"]])
+    assert address[SETUP_ADDR_INFO["VIDEO_RTP_PORT"]] == struct.pack("<H", 1)
+    assert address[SETUP_ADDR_INFO["AUDIO_RTP_PORT"]] == struct.pack("<H", 65535)
 
 
 @pytest.mark.parametrize(
@@ -587,6 +636,23 @@ async def test_setup_again_release_too_slow(
     multi_tier_delegate.handle_prepare.assert_awaited_once()
 
 
+async def test_setup_again_release_fails(
+    stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
+) -> None:
+    """Test a set up again proceeds when the former release failed but finished."""
+    multi_tier_delegate.handle_end.side_effect = RuntimeError
+    camera = stream_camera()
+    await _setup(camera)
+    first = _session(camera)
+
+    answer = await _setup(camera)
+
+    assert answer[SETUP_TYPES["STATUS"]] == b"\x00"
+    assert _session(camera) is not first
+    assert multi_tier_delegate.handle_prepare.await_count == 2
+    multi_tier_delegate.handle_end.assert_awaited_once_with(first)
+
+
 async def test_setup_of_another_controller(
     stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
 ) -> None:
@@ -768,6 +834,39 @@ async def test_end(
     assert await _streaming_control(camera, command=1) == 1
 
 
+async def test_end_release_fails(
+    stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
+) -> None:
+    """Test an end answers success when the release failed but finished."""
+    multi_tier_delegate.handle_end.side_effect = RuntimeError
+    camera = stream_camera()
+    await _setup(camera)
+    await _streaming_control(camera)
+
+    assert await _streaming_control(camera, command=1) == 0
+    assert _controller(camera).sessions == {}
+    assert _controller(camera)._releasing == set()
+
+
+async def test_end_release_too_slow(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    end_gate: asyncio.Event,
+) -> None:
+    """Test an end answers an error when the release overruns."""
+    camera = stream_camera(
+        multi_tier={"delegate": multi_tier_delegate, "hook_timeout": 0.05}
+    )
+    await _setup(camera)
+    await _streaming_control(camera)
+
+    status = await _streaming_control(camera, command=1)
+    end_gate.set()
+    await camera.stop()
+
+    assert status == 4
+
+
 async def test_end_before_start(
     stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
 ) -> None:
@@ -934,5 +1033,5 @@ async def test_driver_local_address(
     connection = MagicMock()
     connection.transport.get_extra_info.return_value = sockname
     stream_driver.http_server.connections[CLIENT] = connection
-    assert stream_driver.local_address(CLIENT, ipv6) == expected
-    assert stream_driver.local_address(OTHER, ipv6) is None
+    assert stream_driver._local_address(CLIENT, ipv6) == expected
+    assert stream_driver._local_address(OTHER, ipv6) is None

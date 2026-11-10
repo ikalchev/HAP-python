@@ -7,7 +7,7 @@ this API is experimental and may change.
 its ``webrtc`` option, next to the multi-tier RTP service. Controllers view
 remotely through it. The accessory offers, the controller answers, may
 renegotiate and update its SFrame keys, and ends the session. A
-:class:`WebRTCDelegate` runs the WebRTC media; it shares
+:class:`WebRTCDelegate` runs the WebRTC media. It shares
 :class:`pyhap.hksv3.WebRTCOffer`, :class:`pyhap.hksv3.WebRTCReofferAnswer`,
 :class:`pyhap.hksv3.IceCandidate` and :class:`pyhap.hksv3.SFrameKey` with
 the HAP side.
@@ -143,7 +143,7 @@ class WebRTCConfig:
     delegate hook gets ``hook_timeout`` seconds. A session the controller
     did not answer within ``answer_timeout`` seconds ends. The offer
     advertises the sensor's video tier of ``remote_quality``, the lowest tier
-    if it has none. Medium keeps 4K off the remote path; the Scrypted HomeKit
+    if it has none. Medium keeps 4K off the remote path. The Scrypted HomeKit
     plugin offers the first tier.
     """
 
@@ -254,7 +254,7 @@ class WebRTCController(StreamController[WebRTCSession]):
                 name, setter_callback=setter
             ).read_back_response = True
 
-    def refusal(self) -> hksv3.WebRTCSolicitOfferStatus | None:
+    def _refusal(self) -> hksv3.WebRTCSolicitOfferStatus | None:
         """Why the sensor may not stream now, None if it may."""
         if not self.camera.homekit_camera_active:
             return hksv3.WebRTCSolicitOfferStatus.PRIVACY_MODE_ACTIVE
@@ -264,7 +264,7 @@ class WebRTCController(StreamController[WebRTCSession]):
 
     def update_status(self) -> None:
         """End the sessions if the sensor may no longer stream."""
-        if self.refusal() is not None:
+        if self._refusal() is not None:
             self._end_sessions("streaming was turned off")
 
     def _session_ended(self, session: WebRTCSession, previous: SessionState) -> None:
@@ -311,7 +311,7 @@ class WebRTCController(StreamController[WebRTCSession]):
         deadline: float,
     ) -> hksv3.WebRTCSolicitOfferResponse:
         error = hksv3.WebRTCSolicitOfferStatus.ERROR
-        refusal = self.refusal()
+        refusal = self._refusal()
         if refusal is not None:
             logger.info("Refusing a WebRTC offer, streaming is off: %s", refusal)
             return hksv3.WebRTCSolicitOfferResponse(refusal)
@@ -355,6 +355,10 @@ class WebRTCController(StreamController[WebRTCSession]):
             return hksv3.WebRTCSolicitOfferResponse(
                 failure_status(hksv3.WebRTCSolicitOfferStatus, err.status, error)
             )
+        if not isinstance(offer, hksv3.WebRTCOffer):
+            logger.error("[%s] The offer is not a WebRTCOffer: %r", session.id, offer)
+            self._end(session, "the offer is not a WebRTCOffer")
+            return hksv3.WebRTCSolicitOfferResponse(error)
         if (offer.sframe is not None) != session.sframe:
             logger.error("[%s] The offer's SFrame key does not fit", session.id)
             self._end(session, "the offer's SFrame key does not fit")

@@ -62,7 +62,7 @@ class MultiTierSession(StreamSession):
     ``address`` and the ports are where the controller receives, with the
     SRTP keys it sent. The accessory sends from ``accessory_address`` and the
     ``accessory_*_port`` values, by default its address on the controller's
-    connection and the controller's port numbers; ``handle_prepare`` may
+    connection and the controller's port numbers. ``handle_prepare`` may
     change them. ``video_ssrc`` and ``audio_ssrc`` are the accessory's SSRCs
     from the Setup Endpoints answer, the controller filters by them. The
     ``controller_*_ssrc`` values are what the controller sent with the last
@@ -160,13 +160,17 @@ class MultiTierConfig:
 
     ``delegate`` sends the media. ``audio`` is the one audio tier the guide
     allows. ``max_sessions`` per sensor is at least five, as the guide
-    requires, and one connection has at most ``max_sessions_per_connection``
-    of them, by default three, so one controller cannot take every session.
+    requires. One connection has at most ``max_sessions_per_connection`` of
+    them, by default three. That is below the guide's "at least five
+    simultaneous sessions" per service on purpose: sessions one connection
+    leaks cannot take the room of other controllers, and remote viewers,
+    who share the home hub's connection, stream over WebRTC. Raise it, at
+    most to ``max_sessions``, to let one connection have more.
     A delegate hook gets ``hook_timeout`` seconds. A session must start
     within ``setup_timeout`` seconds of its Setup Endpoints answer.
     A started session ends unless :meth:`MultiTierSession.keep_alive` is
     called at least every ``idle_timeout`` seconds, e.g. for each RTCP packet
-    of the controller; None turns that off.
+    of the controller. None turns that off.
     """
 
     delegate: MultiTierDelegate | None = None
@@ -356,7 +360,7 @@ class MultiTierController(StreamController[MultiTierSession]):
         if self.delegate is None:
             logger.warning("[%s] No multi-tier delegate, refusing", session_id)
             return error
-        accessory_address = self.camera.stream_address_for(
+        accessory_address = self.camera._stream_address_for(
             client_addr, endpoint.is_ipv6
         )
         if accessory_address is None:
@@ -415,6 +419,13 @@ class MultiTierController(StreamController[MultiTierSession]):
             )
         except HookFailed as err:
             return failure_status(hksv3.SetupEndpointsStatus, err.status, error)
+        ports = session.accessory_video_port, session.accessory_audio_port
+        if not all(map(_valid_port, ports)):
+            logger.error(
+                "[%s] The prepare hook set invalid ports %s", session_id, ports
+            )
+            self._end(session, "the prepare hook set invalid ports")
+            return error
         session.state = SessionState.PREPARED
         self._set_timer(
             session,
@@ -512,6 +523,10 @@ class MultiTierController(StreamController[MultiTierSession]):
         if request.audio_tier != audio.identifier or request.audio_ssrc is None:
             return None
         return video, audio
+
+
+def _valid_port(port: object) -> bool:
+    return type(port) is int and 0 < port <= 0xFFFF
 
 
 def _ssrc() -> int:
