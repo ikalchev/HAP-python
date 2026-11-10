@@ -21,24 +21,24 @@ class MediaError(Exception):
 
 
 if TYPE_CHECKING:
-    from .delegate import WebRTCMediaDelegate
     from .ffmpeg import FFmpegInput, FFmpegSourceProvider
     from .multi_tier import MultiTierSender
     from .multi_tier_delegate import MultiTierMediaDelegate
     from .pool import (
         ChannelLease,
         ChannelPull,
-        MediaSender,
         MediaSourceLike,
         MultiTierMediaSender,
         RecorderLike,
         SourceLease,
         SourcePool,
+        WebRTCMediaSender,
     )
     from .recording import Recorder
     from .recording_delegate import RecordingError, RecordingMediaDelegate
     from .sender import SFrameKeyLike, WebRTCSender
     from .source import MediaSource
+    from .webrtc_delegate import WebRTCMediaDelegate
     from .worker import (
         MediaWorker,
         RemoteMediaSource,
@@ -54,7 +54,7 @@ __all__ = [
     "FFmpegInput",
     "FFmpegSourceProvider",
     "IceCandidateLike",
-    "MediaSender",
+    "WebRTCMediaSender",
     "MediaSource",
     "MediaSourceLike",
     "MultiTierMediaDelegate",
@@ -83,7 +83,7 @@ _LAZY = {
     "ChannelPull": "pool",
     "FFmpegInput": "ffmpeg",
     "FFmpegSourceProvider": "ffmpeg",
-    "MediaSender": "pool",
+    "WebRTCMediaSender": "pool",
     "MediaSourceLike": "pool",
     "MultiTierMediaDelegate": "multi_tier_delegate",
     "MultiTierMediaSender": "pool",
@@ -94,7 +94,7 @@ _LAZY = {
     "RecordingMediaDelegate": "recording_delegate",
     "SourceLease": "pool",
     "SourcePool": "pool",
-    "WebRTCMediaDelegate": "delegate",
+    "WebRTCMediaDelegate": "webrtc_delegate",
     "MediaSource": "source",
     "SFrameKeyLike": "sender",
     "WebRTCSender": "sender",

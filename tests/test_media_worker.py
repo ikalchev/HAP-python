@@ -49,7 +49,7 @@ async def worker() -> AsyncIterator[MediaWorker]:
 
 def remote_sender(worker: MediaWorker, **kwargs: Any) -> RemoteWebRTCSender:
     """Create a loopback sender proxy."""
-    return worker.create_sender(**sender_options(**kwargs))
+    return worker.create_webrtc_sender(**sender_options(**kwargs))
 
 
 class Events:
@@ -331,7 +331,9 @@ def ice_selected_in_worker(caplog: pytest.LogCaptureFixture) -> bool:
 def test_unknown_option_is_refused() -> None:
     """Verify a typo in the sender options fails in the caller."""
     with pytest.raises(TypeError, match="idle_timout"):
-        MediaWorker().create_sender(video=VIDEO, sframe=TALKBACK_KEY, idle_timout=1)
+        MediaWorker().create_webrtc_sender(
+            video=VIDEO, sframe=TALKBACK_KEY, idle_timout=1
+        )
 
 
 async def test_stuck_worker_is_stopped(monkeypatch: pytest.MonkeyPatch) -> None:

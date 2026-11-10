@@ -1,4 +1,4 @@
-"""Tests for pyhap.media.delegate on fakes of the media."""
+"""Tests for pyhap.media.webrtc_delegate on fakes of the media."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from pyhap import hksv3
 from pyhap.camera_stream import StreamError
 from pyhap.camera_webrtc import WebRTCSession
 from pyhap.media import AudioParams, MediaError, VideoParams
-from pyhap.media.delegate import WebRTCMediaDelegate
 from pyhap.media.pool import SourcePool
+from pyhap.media.webrtc_delegate import WebRTCMediaDelegate
 
 from .media_fakes import (
     AUDIO,
@@ -367,7 +367,7 @@ async def test_offer_error(
 ) -> None:
     """Verify a failed offer answers Error and keeps the session to release."""
     session = webrtc_session()
-    cast(Any, fake_worker).create_sender = _failing_sender
+    cast(Any, fake_worker).create_webrtc_sender = _failing_sender
 
     with pytest.raises(StreamError, match="No offer") as err:
         await offer(media_delegate, session)

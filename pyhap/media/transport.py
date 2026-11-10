@@ -75,6 +75,10 @@ DEFAULT_CONNECT_TIMEOUT = 20.0
 MAX_REMOTE_CANDIDATES = 32
 MAX_MDNS_NAME = 253
 MDNS_TIMEOUT = 2.0
+# The DTLS 1.2 protocol version, which pyOpenSSL has no constant for.
+DTLS1_2_VERSION = 0xFEFD
+# mDNS names resolved per connection; each costs a zeroconf query.
+MAX_MDNS_CANDIDATES = 4
 FINGERPRINT_ALGORITHMS = {
     "sha-256": hashes.SHA256(),
     "sha-384": hashes.SHA384(),
@@ -178,7 +182,9 @@ class Certificate:
     def ssl_context(self) -> SSL.Context:
         """Create a DTLS context offering the supported SRTP profiles."""
         context = SSL.Context(SSL.DTLS_METHOD)
-        context.set_options(SSL.OP_NO_TICKET)
+        context.set_options(SSL.OP_NO_TICKET | SSL.OP_NO_RENEGOTIATION)
+        # WebRTC requires DTLS 1.2 (RFC 8827 section 6.5).
+        context.set_min_proto_version(DTLS1_2_VERSION)
         # The peer is authenticated by the SDP fingerprint, not by a CA.
         context.set_verify(
             SSL.VERIFY_PEER | SSL.VERIFY_FAIL_IF_NO_PEER_CERT, lambda *_args: True
@@ -605,22 +611,39 @@ def _usable_remote_address(host: str, port: int) -> bool:
 
 
 async def _resolve_candidates(candidates: list[Candidate]) -> list[Candidate]:
-    """Replace mDNS host names by their address; unresolved ones are dropped."""
+    """Replace mDNS host names by their address; unresolved ones are dropped.
+
+    At most :data:`MAX_MDNS_CANDIDATES` names are resolved, in parallel, and
+    an address a name resolves to must be a usable unicast address too.
+    """
+    names = [c.host for c in candidates if c.host.lower().endswith(".local")]
+    if len(set(names)) > MAX_MDNS_CANDIDATES:
+        logger.debug("Resolving only %d of the mDNS candidates", MAX_MDNS_CANDIDATES)
+    wanted = list(dict.fromkeys(names))[:MAX_MDNS_CANDIDATES]
+    addresses: dict[str, str | None] = {}
+    if wanted:
+        try:
+            addresses = await resolve_mdns(wanted, MDNS_TIMEOUT)
+        except OSError as err:
+            logger.debug("Cannot resolve mDNS candidates: %s", err)
     resolved = []
     for candidate in candidates:
         if not candidate.host.lower().endswith(".local"):
             resolved.append(candidate)
             continue
-        try:
-            address = await resolve_mdns(candidate.host, MDNS_TIMEOUT)
-        except OSError as err:
-            logger.debug("Cannot resolve %s: %s", candidate.host, err)
-            address = None
-        if address is None:
+        address = addresses.get(candidate.host)
+        if address is None or not _usable_resolved_address(address, candidate.port):
             logger.debug("Ignoring unresolved candidate %s", candidate.host)
             continue
         resolved.append(dataclasses.replace(candidate, host=address))
     return resolved
+
+
+def _usable_resolved_address(address: str, port: int) -> bool:
+    """Whether an mDNS answer names a usable peer: unicast, not loopback."""
+    if address.lower().endswith(".local") or not _usable_remote_address(address, port):
+        return False
+    return not ipaddress.ip_address(address.split("%", 1)[0]).is_loopback
 
 
 def _remote_candidates(values: Iterable[str]) -> list[Candidate]:

@@ -4,9 +4,9 @@ SFrame, SRTP and pacing cost CPU for every packet of every session. In an
 application that also runs other work on its event loop (Home Assistant runs
 HAP signalling on its main loop) the media path therefore runs in a separate
 process. Only the signalling stays on the caller's loop: the proxies here
-have the async API of :class:`~pyhap.media.sender.WebRTCSender` and
-:class:`~pyhap.media.source.MediaSource`, and their events are called on the
-caller's loop.
+have the async API of :class:`~pyhap.media.source.MediaSource`, the
+WebRTC and multi-tier senders and :class:`~pyhap.media.recording.Recorder`,
+and their events are called on the caller's loop.
 
 One :class:`MediaWorker` is one process with one asyncio loop, shared by
 all cameras of the application. A process per camera would cost a Python
@@ -25,7 +25,7 @@ levels.
 
 Fan-out: register a source per camera channel with
 :meth:`MediaWorker.open_source`, point the media pull at its
-``rtp_input`` and pass it to each :meth:`MediaWorker.create_sender` of
+``rtp_input`` and pass it to each :meth:`MediaWorker.create_webrtc_sender` of
 that channel. The source reassembles H.265 once; SFrame and SRTP run per
 session. A sender without a source gets its own, closed with the session.
 """
@@ -152,7 +152,7 @@ class RemoteWebRTCSender:
         source: RemoteMediaSource | None,
         config: dict[str, Any],
     ) -> None:
-        """Use :meth:`MediaWorker.create_sender`."""
+        """Use :meth:`MediaWorker.create_webrtc_sender`."""
         self.on_closed: Callable[[str], None] | None = None
         self.on_connected: Callable[[], None] | None = None
         self.on_keyframe_request: (
@@ -616,7 +616,7 @@ class MediaWorker:
         source.rtp_input = tuple(result["rtp_input"])  # type: ignore[assignment]
         return source
 
-    def create_sender(
+    def create_webrtc_sender(
         self,
         *,
         video: VideoParams,

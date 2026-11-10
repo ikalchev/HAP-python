@@ -90,6 +90,9 @@ DEFAULT_NEGOTIATION_TIMEOUT = 20.0
 DEFAULT_IDLE_TIMEOUT = 10.0
 DEFAULT_PACING_FACTOR = 2.5
 DEFAULT_MAX_QUEUE_DELAY = 0.4
+# Audio and retransmitted packets waiting to go out: a second of the
+# retransmission cap plus some audio.
+MAX_URGENT_PACKETS = 128
 RTCP_INTERVAL = 1.0
 KEYFRAME_REQUEST_INTERVAL = rtp.KEYFRAME_REQUEST_INTERVAL
 AUDIO_TALKSPURT_GAP = rtp.AUDIO_TALKSPURT_GAP
@@ -269,7 +272,9 @@ class WebRTCSender:
         self._pacer = _Pacer(
             video.pacing_bitrate_kbps * 1000, pacing_factor, max_queue_delay
         )
-        self._urgent: deque[_Pending | bytes] = deque()
+        # Audio and retransmissions; bounded, the oldest go first when the
+        # path is blocked, so no burst of stale audio follows.
+        self._urgent: deque[_Pending | bytes] = deque(maxlen=MAX_URGENT_PACKETS)
         self._wakeup = asyncio.Event()
         self._pacing = False
         self._local: LocalParams | None = None

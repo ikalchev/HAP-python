@@ -43,7 +43,7 @@ from pyhap import hksv3
 from pyhap.camera_stream import StreamError
 
 from . import MediaError
-from .pool import MediaSender, SourceLease
+from .pool import SourceLease, WebRTCMediaSender
 from .sdp import AudioParams, VideoParams
 
 if TYPE_CHECKING:
@@ -67,7 +67,7 @@ class _Media:
     session: WebRTCSession
     sframe: hksv3.SFrameKey | None
     lease: SourceLease | None = None
-    sender: MediaSender | None = None
+    sender: WebRTCMediaSender | None = None
     created: float = field(default_factory=time.monotonic)
     answered: float | None = None
     finished: bool = False
@@ -105,7 +105,7 @@ class WebRTCMediaDelegate:
         """Sessions the delegate holds media for."""
         return len(self._media)
 
-    def sender(self, session: WebRTCSession) -> MediaSender | None:
+    def sender(self, session: WebRTCSession) -> WebRTCMediaSender | None:
         """The sender of a session, None if there is none."""
         media = self._media.get(session)
         return None if media is None else media.sender
@@ -126,7 +126,7 @@ class WebRTCMediaDelegate:
         except Exception as err:
             logger.warning("[%s] No WebRTC media source: %s", session.id, err)
             raise StreamError(_OFFER_ERROR, f"No media source: {err}") from err
-        sender = media.sender = media.lease.create_sender(
+        sender = media.sender = media.lease.create_webrtc_sender(
             **self.sender_options,
             video=VideoParams.from_tier(video_tier, hksv3.VIDEO_PAYLOAD_TYPE),
             audio=AudioParams(
@@ -154,7 +154,9 @@ class WebRTCMediaDelegate:
         )
         return hksv3.WebRTCOffer(sdp, key)
 
-    def _get(self, session: WebRTCSession) -> tuple[MediaSender, SourceLease, _Media]:
+    def _get(
+        self, session: WebRTCSession
+    ) -> tuple[WebRTCMediaSender, SourceLease, _Media]:
         media = self._media.get(session)
         if media is None or media.sender is None or media.lease is None:
             raise StreamError(_ERROR, "No WebRTC media for the session")

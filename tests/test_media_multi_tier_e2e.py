@@ -21,9 +21,9 @@ from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 from pyhap.camera_multi_tier import MultiTierController
 from pyhap.camera_stream import StreamError
-from pyhap.media.delegate import WebRTCMediaDelegate
 from pyhap.media.multi_tier_delegate import MultiTierMediaDelegate
 from pyhap.media.pool import SourcePool
+from pyhap.media.webrtc_delegate import WebRTCMediaDelegate
 from pyhap.media.worker import MediaWorker
 from pyhap.util import base64_to_bytes, to_base64_str
 

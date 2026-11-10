@@ -168,7 +168,7 @@ class FakeWorker:
         self.sources.append(source)
         return source
 
-    def create_sender(self, **options: Any) -> Any:
+    def create_webrtc_sender(self, **options: Any) -> Any:
         """Create a fake sender."""
         sender = FakeSender(**options)
         self.senders.append(sender)

@@ -105,6 +105,29 @@ async def test_srtp_both_directions(
     assert offerer.srtp_profile == answerer.srtp_profile
 
 
+async def test_replayed_srtp_is_dropped(
+    pair: tuple[DtlsSrtpTransport, DtlsSrtpTransport],
+) -> None:
+    """Verify a replayed SRTP packet is delivered only once."""
+    offerer, answerer = pair
+    answer_rtp, _ = collect(answerer)
+    ice = offerer._ice
+    send = ice.send
+
+    async def send_twice(data: bytes) -> None:
+        await send(data)
+        await send(data)
+
+    ice.send = send_twice  # type: ignore[method-assign]
+    await offerer.send_rtp(RTP)
+    ice.send = send  # type: ignore[method-assign]
+    second = RTP[:3] + b"\x02" + RTP[4:]
+    await offerer.send_rtp(second)
+    assert await asyncio.wait_for(answer_rtp.get(), 2) == RTP
+    assert await asyncio.wait_for(answer_rtp.get(), 2) == second
+    assert answer_rtp.empty()
+
+
 async def test_close_notify_reaches_peer(
     pair: tuple[DtlsSrtpTransport, DtlsSrtpTransport],
 ) -> None:
@@ -117,6 +140,18 @@ async def test_close_notify_reaches_peer(
     assert not offerer.connected
 
 
+async def test_dtls_1_2_without_renegotiation(
+    pair: tuple[DtlsSrtpTransport, DtlsSrtpTransport],
+) -> None:
+    """Verify the handshake is DTLS 1.2 and renegotiation is off."""
+    offerer, _ = pair
+    assert offerer._ssl is not None
+    assert offerer._ssl.get_protocol_version_name() == "DTLSv1.2"
+    # set_options returns the options now in effect.
+    context = offerer.certificate.ssl_context()
+    assert context.set_options(0) & transport.SSL.OP_NO_RENEGOTIATION
+
+
 async def test_fingerprint_mismatch() -> None:
     """Verify a peer certificate not matching the SDP is refused."""
     offerer, answerer = make_transport(True), make_transport(False)
@@ -125,6 +160,74 @@ async def test_fingerprint_mismatch() -> None:
         await connect(offerer, answerer, DtlsRole.CLIENT, answerer_fingerprint=wrong)
     await offerer.close()
     await answerer.close()
+
+
+@pytest.mark.parametrize(
+    "fingerprints",
+    [[], [("md5", "00:11")], [("SHA-999", "AA")]],
+    ids=["none", "md5", "unknown"],
+)
+async def test_unusable_fingerprints_are_refused(
+    fingerprints: list[tuple[str, str]],
+) -> None:
+    """Verify a peer without a fingerprint of a known algorithm is refused."""
+    offerer, answerer = make_transport(True), make_transport(False)
+    offer_candidates = await offerer.gather()
+    answer_candidates = await answerer.gather()
+    results = await asyncio.gather(
+        offerer.connect(
+            remote_username=answerer.local_username,
+            remote_password=answerer.local_password,
+            remote_candidates=answer_candidates,
+            remote_fingerprints=fingerprints,
+            role=DtlsRole.CLIENT,
+            timeout=3,
+        ),
+        answerer.connect(
+            remote_username=offerer.local_username,
+            remote_password=offerer.local_password,
+            remote_candidates=offer_candidates,
+            remote_fingerprints=[("sha-256", offerer.certificate.fingerprint)],
+            role=DtlsRole.SERVER,
+            timeout=3,
+        ),
+        return_exceptions=True,
+    )
+    assert isinstance(results[0], TransportError)
+    await offerer.close()
+    await answerer.close()
+
+
+async def test_mdns_candidates_are_bounded_and_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify few mDNS names are resolved at once and bad answers are dropped."""
+    asked: list[list[str]] = []
+    answers = {
+        "a.local": "192.168.1.20",
+        "b.local": "127.0.0.1",
+        "c.local": "224.0.0.251",
+        "d.local": None,
+        "e.local": "192.168.1.21",
+    }
+
+    async def resolve(names: list[str], _timeout: float) -> dict[str, str | None]:
+        asked.append(list(names))
+        return {name: answers[name] for name in names}
+
+    monkeypatch.setattr(transport, "resolve_mdns", resolve)
+    candidates = transport._remote_candidates(
+        [
+            f"candidate:{i} 1 udp {100 - i} {name} 5000 typ host"
+            for i, name in enumerate(answers)
+        ]
+        + ["candidate:9 1 udp 1 192.168.1.30 5000 typ host"]
+    )
+
+    resolved = await transport._resolve_candidates(candidates)
+
+    assert asked == [["a.local", "b.local", "c.local", "d.local"]]
+    assert [c.host for c in resolved] == ["192.168.1.20", "192.168.1.30"]
 
 
 async def test_connect_timeout() -> None:

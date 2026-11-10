@@ -6,7 +6,8 @@ FINGERPRINT, XOR-MAPPED-ADDRESS, PRIORITY, USE-CANDIDATE, ICE-CONTROLLED,
 ICE-CONTROLLING and ERROR-CODE. Attributes are kept as raw values; the
 accessors decode the ones ICE reads. Parsing is defensive: a message has a
 bounded size, every attribute must fit, padding is skipped whatever its
-content, and nothing may follow FINGERPRINT.
+content, attributes after MESSAGE-INTEGRITY other than FINGERPRINT are
+ignored, and nothing may follow FINGERPRINT.
 """
 
 from __future__ import annotations
@@ -249,8 +250,10 @@ def parse(data: bytes) -> Message:
                 raise StunError("Bad FINGERPRINT")
             message.fingerprint_offset = offset
         elif message.integrity_offset is not None:
-            # RFC 8489: only FINGERPRINT may follow MESSAGE-INTEGRITY.
-            raise StunError("Attribute after MESSAGE-INTEGRITY")
+            # RFC 8489 14.5: attributes after MESSAGE-INTEGRITY are ignored,
+            # e.g. a MESSAGE-INTEGRITY-SHA256; only FINGERPRINT counts.
+            offset = start + size + _pad(size)
+            continue
         elif attr == Attr.MESSAGE_INTEGRITY:
             if size != INTEGRITY_LENGTH:
                 raise StunError("Bad MESSAGE-INTEGRITY")

@@ -150,14 +150,21 @@ def test_malformed(data: bytes, error: str) -> None:
         stun.parse(data)
 
 
-def test_attribute_after_integrity_is_rejected() -> None:
-    """Verify only FINGERPRINT may follow MESSAGE-INTEGRITY."""
+def test_attribute_after_integrity_is_ignored() -> None:
+    """Verify attributes after MESSAGE-INTEGRITY are ignored (RFC 8489 14.5).
+
+    A peer may add MESSAGE-INTEGRITY-SHA256 after it; the message still
+    authenticates, and the ignored value does not count.
+    """
     without_fp = REQUEST[:-8]
-    extra = b"\x00\x24\x00\x04\x00\x00\x00\x01"
-    data = bytearray(without_fp + extra)
+    sha256 = b"\x00\x1c\x00\x20" + bytes(32)
+    extra = b"\x00\x06\x00\x04evil"
+    data = bytearray(without_fp + sha256 + extra)
     data[2:4] = struct.pack("!H", len(data) - 20)
-    with pytest.raises(stun.StunError, match="after MESSAGE-INTEGRITY"):
-        stun.parse(bytes(data))
+    message = stun.parse(bytes(data))
+    assert stun.check_integrity(message, PASSWORD)
+    assert message.attributes.get(stun.Attr.USERNAME) != b"evil"
+    assert 0x001C not in message.attributes
 
 
 def test_attribute_after_fingerprint_is_rejected() -> None:

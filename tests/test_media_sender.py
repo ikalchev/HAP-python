@@ -262,6 +262,16 @@ def test_nack_retransmits_are_capped() -> None:
     assert len(sender._urgent) == sender_module.MAX_RETRANSMITS_PER_SECOND
 
 
+def test_urgent_queue_is_bounded() -> None:
+    """Verify audio and retransmissions waiting on a blocked path are capped."""
+    sender = make_sender(audio=None)
+    for index in range(sender_module.MAX_URGENT_PACKETS + 10):
+        sender._urgent.append(bytes([index % 256]))
+    assert len(sender._urgent) == sender_module.MAX_URGENT_PACKETS
+    # The oldest went first.
+    assert sender._urgent[0] == bytes([10])
+
+
 def fill_history(sender: WebRTCSender, count: int) -> None:
     """Pretend ``count`` video packets were sent, from sequence 0."""
     sender._video.sequence = 0

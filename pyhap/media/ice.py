@@ -649,17 +649,32 @@ class IceAgent:
             sock.close()
 
 
-async def resolve_mdns(name: str, timeout: float) -> str | None:
-    """Resolve an mDNS ``.local`` host name to an IP address with zeroconf."""
+async def resolve_mdns(names: Iterable[str], timeout: float) -> dict[str, str | None]:
+    """Resolve mDNS ``.local`` host names to IP addresses, all at once.
+
+    One zeroconf instance asks for every name in parallel; a name that does
+    not resolve within ``timeout`` seconds maps to None.
+    """
     from zeroconf import AddressResolver  # noqa: PLC0415 - rarely needed
     from zeroconf.asyncio import AsyncZeroconf  # noqa: PLC0415
 
     zeroconf = AsyncZeroconf()
-    try:
+
+    async def resolve(name: str) -> str | None:
         resolver = AddressResolver(name if name.endswith(".") else f"{name}.")
         if not await resolver.async_request(zeroconf.zeroconf, int(timeout * 1000)):
             return None
         addresses = resolver.parsed_scoped_addresses()
         return addresses[0] if addresses else None
+
+    try:
+        unique = list(dict.fromkeys(names))
+        results = await asyncio.gather(
+            *(resolve(name) for name in unique), return_exceptions=True
+        )
     finally:
         await zeroconf.async_close()
+    return {
+        name: result if isinstance(result, str) else None
+        for name, result in zip(unique, results, strict=True)
+    }

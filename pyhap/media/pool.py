@@ -1,6 +1,6 @@
 """Media sources shared by the sessions of a camera channel.
 
-:class:`SourcePool` gives each WebRTC or multi-tier session a
+:class:`SourcePool` gives each WebRTC, multi-tier or recording session a
 :class:`ChannelLease` on the media source of its camera channel. All
 sessions of a channel share one source and one media pull
 (:class:`ChannelPull`, for example an ffmpeg process), so N sessions cost one
@@ -8,7 +8,7 @@ camera connection. Sources live in a
 :class:`~pyhap.media.worker.MediaWorker`, or in process without one;
 a lease creates its session's sender in the same place.
 
-A WebRTC sender is created by its lease (:meth:`ChannelLease.create_sender`);
+A WebRTC sender is created by its lease (:meth:`ChannelLease.create_webrtc_sender`);
 a multi-tier sender binds its ports before the controller picks a tier, so
 it is created by the pool (:meth:`SourcePool.create_multi_tier_sender`) and
 started with a lease's source later.
@@ -57,7 +57,7 @@ class MediaSourceLike(Protocol):
         """Release the ports and end every session on the source."""
 
 
-class MediaSender(Protocol):
+class WebRTCMediaSender(Protocol):
     """A :class:`~pyhap.media.sender.WebRTCSender` or its worker proxy."""
 
     on_closed: Callable[[str], None] | None
@@ -150,7 +150,7 @@ class SourceLease(Protocol):
     def source(self) -> MediaSourceLike:
         """The shared source."""
 
-    def create_sender(self, **options: Any) -> MediaSender:
+    def create_webrtc_sender(self, **options: Any) -> WebRTCMediaSender:
         """Create the session's sender on the source, where the source runs."""
 
     async def activate(self) -> None:
@@ -196,7 +196,7 @@ class ChannelLease:
         """The channel's name."""
         return self._channel.name
 
-    def create_sender(self, **options: Any) -> MediaSender:
+    def create_webrtc_sender(self, **options: Any) -> WebRTCMediaSender:
         """Create a sender on the channel's source, in the pool's worker if any.
 
         ``options`` are those of :class:`~pyhap.media.sender.WebRTCSender`
@@ -205,10 +205,10 @@ class ChannelLease:
         worker = self._pool.worker
         source: Any = self.source
         if worker is not None:
-            return worker.create_sender(source=source, **options)
+            return worker.create_webrtc_sender(source=source, **options)
         from .sender import WebRTCSender  # noqa: PLC0415
 
-        return cast(MediaSender, WebRTCSender(source=source, **options))
+        return cast(WebRTCMediaSender, WebRTCSender(source=source, **options))
 
     async def open_recorder(
         self, *, prebuffer: float, audio: bool = True

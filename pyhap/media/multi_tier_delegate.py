@@ -4,7 +4,7 @@
 :class:`pyhap.camera_multi_tier.MultiTierDelegate` with one
 :class:`~pyhap.media.multi_tier.MultiTierSender` per session. It leases
 sources from the same provider and pool as
-:class:`~pyhap.media.delegate.WebRTCMediaDelegate`, so a camera channel is
+:class:`~pyhap.media.webrtc_delegate.WebRTCMediaDelegate`, so a camera channel is
 pulled once for all local and remote sessions::
 
     worker = MediaWorker()

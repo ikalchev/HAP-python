@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+import contextlib
 import socket
 from typing import cast
 
@@ -229,6 +230,59 @@ async def test_data_only_from_validated_addresses(
         assert controlled._queue.empty()
     finally:
         stranger.close()
+
+
+async def test_nomination_from_a_new_source_does_not_redirect(
+    agents: tuple[IceAgent, IceAgent],
+) -> None:
+    """Verify an authenticated USE-CANDIDATE after the selection moves nothing.
+
+    Someone who learned the credentials, e.g. on path, could otherwise take
+    over the media.
+    """
+    controlling, controlled = agents
+    selected = controlled.selected_pair
+    assert selected is not None
+    local = controlled.local_candidates[0]
+    intruder = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    intruder.bind(("127.0.0.1", 0))
+    intruder.setblocking(False)
+    loop = asyncio.get_running_loop()
+    try:
+        request = Message(
+            Method.BINDING,
+            Class.REQUEST,
+            attributes={
+                Attr.USERNAME: (
+                    f"{controlled.local_username}:{controlling.local_username}"
+                ).encode(),
+                Attr.PRIORITY: (1 << 31).to_bytes(4, "big"),
+                Attr.ICE_CONTROLLING: (2**64 - 1).to_bytes(8, "big"),
+                Attr.USE_CANDIDATE: b"",
+            },
+        )
+        intruder.sendto(
+            stun.encode(request, controlled.local_password.encode()),
+            (local.host, local.port),
+        )
+        # Answered, as any authenticated check, ...
+        await asyncio.wait_for(loop.sock_recvfrom(intruder, 1500), 1)
+        await asyncio.sleep(0.05)
+        # ... but the media stays on the selected pair.
+        assert controlled.selected_pair is selected
+        await controlled.send(b"\x80still-here")
+        assert await asyncio.wait_for(controlling.recv(), 1) == b"\x80still-here"
+        # At most checks reach the intruder, never media.
+        received = []
+        with contextlib.suppress(TimeoutError):
+            while True:
+                data, _ = await asyncio.wait_for(
+                    loop.sock_recvfrom(intruder, 1500), 0.1
+                )
+                received.append(data)
+        assert all(stun.is_stun(data) for data in received)
+    finally:
+        intruder.close()
 
 
 async def test_unauthenticated_request_is_not_answered() -> None:

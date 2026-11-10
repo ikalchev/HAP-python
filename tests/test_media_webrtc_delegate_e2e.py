@@ -16,8 +16,8 @@ import pytest
 from pyhap import hksv3
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
-from pyhap.media.delegate import WebRTCMediaDelegate
 from pyhap.media.pool import SourcePool
+from pyhap.media.webrtc_delegate import WebRTCMediaDelegate
 from pyhap.media.worker import MediaWorker
 
 from .media_hap import (

@@ -54,7 +54,12 @@ class SFrameError(Exception):
 
 
 class SFrameSuite(enum.IntEnum):
-    """SFrame cipher suites built on AES-CTR and HMAC (RFC 9605 4.5.1)."""
+    """SFrame cipher suites built on AES-CTR and HMAC (RFC 9605 4.5.1).
+
+    The HomeKit suites 6 and 8 are not registered with IANA; they and the
+    per-SSRC HKDF salt are what HomeKit controllers use, as observed with
+    Scrypted's HomeKit WebRTC plugin.
+    """
 
     AES_128_CTR_HMAC_SHA256_80 = 1
     AES_128_CTR_HMAC_SHA256_64 = 2

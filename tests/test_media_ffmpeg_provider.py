@@ -16,13 +16,13 @@ import pytest
 from pyhap import hksv3
 from pyhap.camera_stream import StreamError
 from pyhap.media import ffmpeg as ffmpeg_module
-from pyhap.media.delegate import WebRTCMediaDelegate
 from pyhap.media.ffmpeg import (
     FFmpegInput,
     FFmpegPull,
     FFmpegSourceProvider,
     redact_urls,
 )
+from pyhap.media.webrtc_delegate import WebRTCMediaDelegate
 
 from .media_fakes import (
     AUDIO,
