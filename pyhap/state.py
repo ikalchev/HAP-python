@@ -69,7 +69,7 @@ class State:
         """Return if main accessory is currently paired."""
         return len(self.paired_clients) > 0
 
-    def is_admin(self, client_uuid: UUID) -> bool:
+    def is_admin(self, client_uuid: UUID | None) -> bool:
         """Check if a paired client is an admin."""
         if client_uuid not in self.client_properties:
             return False
