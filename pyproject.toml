@@ -141,6 +141,7 @@ include = [
     "pyhap",
     "tests",
     "benchmarks",
+    "scripts",
 ]
 
 [tool.ty.environment]
