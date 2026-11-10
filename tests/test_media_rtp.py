@@ -89,6 +89,17 @@ def test_parse_compound_sr_sdes_bye() -> None:
     assert messages[2].media_ssrcs == [9, 10]
 
 
+def test_parse_rtcp_bye_without_sources() -> None:
+    """Test a BYE without sources is parsed and does not end the compound."""
+    bye = bytes([0x80, rtp.RTCP_BYE, 0, 0])
+    pli = rtp.build_pli(1, 2)
+    messages = rtp.parse_rtcp(bye + pli)
+    assert [m.packet_type for m in messages] == [rtp.RTCP_BYE, rtp.RTCP_PSFB]
+    assert messages[0].media_ssrcs == []
+    # Any other empty part is malformed.
+    assert rtp.parse_rtcp(bytes([0x80, rtp.RTCP_SR, 0, 0]) + pli) == []
+
+
 def test_parse_rtcp_stops_at_garbage() -> None:
     """Verify parsing stops at a part with a bad version or length."""
     assert rtp.parse_rtcp(rtp.build_pli(1, 2) + b"\x00" * 8) == rtp.parse_rtcp(
@@ -98,16 +109,17 @@ def test_parse_rtcp_stops_at_garbage() -> None:
 
 
 @pytest.mark.parametrize(
-    "data",
+    ("data", "parsed"),
     [
-        bytes([0x81, 206, 0, 0]) + bytes(8),
-        bytes([0x80, 203, 0, 0, 0x80, 200, 0, 0]),
+        (bytes([0x81, 206, 0, 0]) + bytes(8), 0),
+        (bytes([0x81, 203, 0, 0]), 0),
+        (bytes([0x80, 203, 0, 0, 0x80, 200, 0, 0]), 1),
     ],
-    ids=["zero-length-pli", "zero-length-bye-then-sr"],
+    ids=["zero-length-pli", "zero-length-bye-with-count", "bye-then-empty-sr"],
 )
-def test_parse_rtcp_rejects_zero_length(data: bytes) -> None:
+def test_parse_rtcp_rejects_zero_length(data: bytes, parsed: int) -> None:
     """Verify a part without room for the sender SSRC stops parsing."""
-    assert rtp.parse_rtcp(data) == []
+    assert len(rtp.parse_rtcp(data)) == parsed
 
 
 @pytest.mark.parametrize(

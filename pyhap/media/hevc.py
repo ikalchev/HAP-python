@@ -33,6 +33,7 @@ NAL_HEADER_SIZE = 2
 NAL_VPS = 32
 NAL_SPS = 33
 NAL_PPS = 34
+NAL_AUD = 35
 NAL_AP = 48
 NAL_FU = 49
 IRAP_FIRST = 16
@@ -256,7 +257,9 @@ class HevcDepacketizer:
             for kind in PARAMETER_SETS
             if kind not in present and kind in self.parameter_sets
         ]
-        return missing + nals
+        # An access unit delimiter stays the first NAL unit (H.265 7.4.2.4.4).
+        lead = 1 if nals and nal_type(nals[0]) == NAL_AUD else 0
+        return nals[:lead] + missing + nals[lead:]
 
     def _drop(self) -> None:
         if self._nals or self._fragment is not None or self._damaged:

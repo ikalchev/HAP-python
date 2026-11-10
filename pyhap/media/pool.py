@@ -305,10 +305,13 @@ class SourcePool:
 
     async def close(self) -> None:
         """Stop every pull and close every source, e.g. on shutdown."""
-        channels = list(self._channels.values())
-        self._channels.clear()
+        # A lease being opened finishes first, so its channel is closed too.
+        async with self._lock:
+            channels = list(self._channels.values())
+            self._channels.clear()
+            for channel in channels:
+                channel.closed = True
         for channel in channels:
-            channel.closed = True
             await self._sync_pull(channel)
             await self._close_source(channel, "pool closed")
         while self._tasks:

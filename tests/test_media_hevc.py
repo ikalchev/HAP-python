@@ -154,6 +154,20 @@ def test_parameter_sets_inserted_before_irap() -> None:
     assert keyframes_of(units) == [True, False, True]
 
 
+def test_parameter_sets_go_after_an_access_unit_delimiter() -> None:
+    """Verify an AUD stays the first NAL unit of an IRAP access unit."""
+    packetizer = HevcPacketizer()
+    aud = nal(35, 3)
+    units = feed(
+        HevcDepacketizer(),
+        [
+            packetizer.packetize([VPS, SPS, PPS, IDR]),
+            packetizer.packetize([aud, IDR]),
+        ],
+    )
+    assert units[-1].nals == [aud, VPS, SPS, PPS, IDR]
+
+
 def test_updated_parameter_sets_are_used() -> None:
     """Verify the latest parameter sets are the ones inserted."""
     packetizer = HevcPacketizer()

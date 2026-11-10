@@ -124,17 +124,24 @@ def parse_rtcp(data: bytes) -> list[RtcpMessage]:
     """Parse a compound RTCP packet; stops at the first malformed part.
 
     Every part must be version 2, fit in ``data`` and carry at least the
-    sender SSRC (RFC 3550 section 6.4).
+    sender SSRC (RFC 3550 section 6.4), except a BYE without sources, whose
+    ``sender_ssrc`` is 0.
     """
     messages = []
     offset = 0
-    while offset + 8 <= len(data):
+    while offset + 4 <= len(data):
         first, packet_type, length = struct.unpack_from(">BBH", data, offset)
         end = offset + 4 * (length + 1)
-        if first >> 6 != RTP_VERSION or length == 0 or end > len(data):
+        if first >> 6 != RTP_VERSION or end > len(data):
             break
-        body = data[offset + 4 : end]
-        messages.append(_parse_one(first & 0x1F, packet_type, body))
+        if length == 0:
+            # Only a BYE without sources is just a header (RFC 3550 6.6).
+            if packet_type != RTCP_BYE or first & 0x1F:
+                break
+            messages.append(RtcpMessage(packet_type, 0, 0))
+        else:
+            body = data[offset + 4 : end]
+            messages.append(_parse_one(first & 0x1F, packet_type, body))
         offset = end
     return messages
 
