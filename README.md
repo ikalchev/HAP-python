@@ -4,8 +4,7 @@
 
 HAP-python is a [HomeKit Accessory Protocol](https://developer.apple.com/homekit/) implementation in Python 3.
 It lets you expose your own smart home devices as HomeKit accessories, so you can add them
-to the Home app on your iPhone, iPad or Mac — and since Siri is integrated with the Home
-app, you can voice-control your accessories right away.
+to the Home app on your Apple device.
 
 Main features:
 
@@ -15,15 +14,9 @@ Main features:
 * **Secure pairing** — just scan a QR code, no manual codes to type in.
 * **Proven in production** — HAP-python powers the HomeKit integration of the home automation framework [Home Assistant](https://github.com/home-assistant/home-assistant).
 
-The project was developed on a Raspberry Pi, but it should work on any platform supported
-by Python 3. Full API documentation is available on
-[readthedocs](http://hap-python.readthedocs.io/).
+Full API documentation is available on [readthedocs](http://hap-python.readthedocs.io/).
 
 ## Installation
-
-As of version 3.5.1, HAP-python no longer supports Python older than 3.6, because we are
-moving to asyncio. If your platform does not have a compatible Python out of the box, you
-can install it manually or just use an older version of HAP-python.
 
 As a prerequisite, you will need Avahi/Bonjour installed (due to the zeroconf package).
 On a Raspberry Pi, you can get it with:
@@ -36,11 +29,12 @@ $ sudo apt-get install libavahi-compat-libdnssd-dev
 $ pip3 install HAP-python[QRCode]
 ```
 
-This will install HAP-python in your Python packages, so that you can import it as `pyhap`.
-To uninstall, just do:
-```sh
-$ pip3 uninstall HAP-python
-```
+This will install HAP-python in your Python packages, so that you can import it as
+`pyhap`. The following optional features can be installed via pip extras:
+
+* `QRCode` — print a pairing QR code in the terminal (`base36`, `pyqrcode`).
+* `Talkback` — two-way audio for the camera accessory (`pylibsrtp`).
+* `bench` — dependencies for running the benchmarks (`psutil`, `py-spy`).
 
 ## Demo
 
