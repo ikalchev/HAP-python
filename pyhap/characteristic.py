@@ -98,6 +98,11 @@ HAP_UNIT_PERCENTAGE = "percentage"
 HAP_UNIT_SECONDS = "seconds"
 
 # ### Properties ###
+# Accesses only admin controllers may use. Not part of the HAP representation.
+# The accessory driver enforces "write" only. Reads, the accessory database
+# and events are not restricted.
+PROP_ADMIN_ONLY_ACCESS = "AdminOnlyAccess"
+ADMIN_ONLY_WRITE = "write"
 PROP_FORMAT = "Format"
 PROP_MAX_VALUE = "maxValue"
 PROP_MIN_STEP = "minStep"
@@ -408,13 +413,17 @@ class Characteristic:
         sender_client_addr: tuple[str, int] | None = None,
         *,
         notify: bool = True,
+        defer_notify: bool = False,
     ) -> Any:
         """Called from broker for value change in Home app.
 
         Change self.value to value and call callback. Returns what the callback
-        returned, which the caller has to await if it is awaitable. With
-        ``notify`` False, subscribers are not told about the written value,
-        e.g. for a request that only the writing connection may read back.
+        returned. With ``notify`` False, subscribers are not told about the
+        written value, e.g. for a request that only the writing connection may
+        read back. With ``defer_notify``, a coroutine the callback returns is
+        for the caller to await, and the caller then calls
+        :meth:`client_update_finished`, so subscribers only learn the value
+        once the setter succeeded.
         """
         original_value = value
         if not self._always_null or original_value is not None:
@@ -436,12 +445,28 @@ class Characteristic:
                 response = self.setter_callback(value, sender_client_addr)
             else:
                 response = self.setter_callback(value)
-        changed = self._value != previous_value
-        if changed and notify:
+        if not (defer_notify and inspect.iscoroutine(response)):
+            self.client_update_finished(
+                previous_value, sender_client_addr, notify=notify
+            )
+        return response
+
+    def client_update_finished(
+        self,
+        previous_value: Any,
+        sender_client_addr: tuple[str, int] | None,
+        *,
+        notify: bool = True,
+    ) -> None:
+        """Finish a client's write, e.g. after awaiting its coroutine setter.
+
+        Tells subscribers about the new value if it differs from
+        ``previous_value``, see :meth:`client_update_value`.
+        """
+        if notify and self._value != previous_value:
             self.notify(sender_client_addr)
         if self._always_null:
             self.value = None
-        return response
 
     def _setter_wants_addr(self) -> bool:
         """Whether the current setter opts into the sender's client address.
