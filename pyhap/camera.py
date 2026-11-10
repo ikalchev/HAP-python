@@ -17,7 +17,7 @@ streaming.
 """
 
 import asyncio
-from collections.abc import AsyncGenerator, Callable, Iterable
+from collections.abc import AsyncGenerator, Callable, Iterable, Sequence
 import functools
 import hashlib
 import ipaddress
@@ -584,6 +584,8 @@ class Camera(Accessory):
         self._classic_camera_active_char: Characteristic | None = None
         self._motion_status_active_char = None
         self._global_operating_mode: Service | None = None
+        # Its chars by name, they don't change after the setup.
+        self._global_operating_mode_chars: dict[str, Characteristic] = {}
         # Persisted HKSV 17.99 chars with their state key, default and the
         # handler a reset calls.
         self._hksv3_defaults: dict[
@@ -1004,19 +1006,15 @@ class Camera(Accessory):
             self._recording_service.get_characteristic("RecordingAudioActive").value
         )
 
-    def _setup_global_operating_mode(self, chars: list[str]) -> None:
+    def _setup_global_operating_mode(self, chars: Sequence[str]) -> None:
         """Create the Camera Global Operating Mode service (HKSV 17.99)."""
-        if not isinstance(chars, (list, tuple)):
-            raise TypeError(
-                "global_operating_mode must be a list of characteristic names"
-            )
         optional = self.driver.loader.serv_types["CameraGlobalOperatingMode"][
             "OptionalCharacteristics"
         ]
         if unknown := [name for name in chars if name not in optional]:
             raise ValueError(
                 "Not an optional Camera Global Operating Mode characteristic: "
-                + ", ".join(unknown)
+                f"{', '.join(unknown)}"
             )
         service = self.add_preload_service("CameraGlobalOperatingMode", chars=chars)
         for char in service.characteristics:
@@ -1038,6 +1036,11 @@ class Camera(Accessory):
                 handler = functools.partial(self._handle_global_operating_mode, name)
             self._persist_hksv3_char(char, f"global_operating_mode.{name}", handler)
         self._global_operating_mode = service
+        self._global_operating_mode_chars = {
+            char.display_name: char
+            for char in service.characteristics
+            if char.display_name is not None
+        }
 
     @property
     def streaming_allowed(self) -> bool:
@@ -1076,12 +1079,7 @@ class Camera(Accessory):
             char.set_value(bool(active))
 
     def _global_operating_mode_char(self, name: str) -> Characteristic | None:
-        if self._global_operating_mode is None:
-            return None
-        try:
-            return self._global_operating_mode.get_characteristic(name)
-        except ValueError:
-            return None
+        return self._global_operating_mode_chars.get(name)
 
     def _handle_global_operating_mode(self, name: str, value: Any) -> None:
         if name == "StreamingEnabled":
@@ -1478,7 +1476,7 @@ class Camera(Accessory):
         # Turned off after SetupEndpoints.
         refused = not reconfigure and not self.streaming_allowed
         if refused:
-            logger.warning("[%s] Streaming is turned off, refusing it", session_id)
+            logger.info("[%s] Streaming is turned off, refusing it", session_id)
             success = False
         elif reconfigure:
             success = await self.reconfigure_stream(session_info, opts)
@@ -1675,7 +1673,7 @@ class Camera(Accessory):
         objs = tlv.decode(value, from_base64=True)
         session_id = UUID(bytes=objs[SETUP_TYPES["SESSION_ID"]])
         if not self.streaming_allowed:
-            logger.warning("[%s] Streaming is turned off, refusing it", session_id)
+            logger.info("[%s] Streaming is turned off, refusing it", session_id)
             self._management[stream_idx].get_characteristic("SetupEndpoints").set_value(
                 tlv.encode(
                     SETUP_TYPES["SESSION_ID"],

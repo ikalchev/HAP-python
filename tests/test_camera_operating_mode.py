@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+import logging
 import pathlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -149,7 +150,7 @@ async def test_writes_call_hook(
 
 
 @pytest.mark.parametrize(
-    ("enabled", "starts", "status", "warnings"),
+    ("enabled", "starts", "status", "refusals"),
     [
         (True, 1, STREAMING_STATUS["STREAMING"], 0),
         (False, 0, STREAMING_STATUS["AVAILABLE"], 1),
@@ -160,10 +161,11 @@ async def test_stream_start_needs_streaming_allowed(
     enabled: bool,
     starts: int,
     status: bytes,
-    warnings: int,
+    refusals: int,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Test a stream turned off after its setup does not start."""
+    caplog.set_level(logging.INFO, "pyhap.camera")
     camera = _camera(driver, video=VIDEO, audio=AUDIO, global_operating_mode=[])
     camera.start_stream = AsyncMock(return_value=True)
     camera.sessions[SESSION_ID] = {"id": SESSION_ID, "stream_idx": 0}
@@ -175,7 +177,7 @@ async def test_stream_start_needs_streaming_allowed(
     assert camera.start_stream.await_count == starts
     assert camera.streaming_status == status
     assert (SESSION_ID in camera.sessions) is enabled
-    assert caplog.text.count("Streaming is turned off") == warnings
+    assert caplog.text.count("Streaming is turned off") == refusals
     assert "Failed to start/reconfigure stream" not in caplog.text
 
 
@@ -448,8 +450,7 @@ async def test_unknown_chars(driver: Any, chars: list[str]) -> None:
         _camera(driver, global_operating_mode=chars)
 
 
-@pytest.mark.parametrize("chars", [True, "NightVision"])
-async def test_option_not_a_list(driver: Any, chars: Any) -> None:
-    """Test the option must be a list of names."""
-    with pytest.raises(TypeError, match="must be a list"):
-        _camera(driver, global_operating_mode=chars)
+async def test_option_as_tuple(driver: Any) -> None:
+    """Test the option takes any sequence of names."""
+    camera = _camera(driver, global_operating_mode=("NightVision",))
+    assert _char(camera, GLOBAL, "NightVision").value == 0
