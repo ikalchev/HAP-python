@@ -4,8 +4,8 @@
 :class:`~pyhap.media.multi_tier_delegate.MultiTierMediaDelegate`: it
 resolves the tier of a session to ffmpeg input arguments and leases that
 channel's source from its :class:`~pyhap.media.pool.SourcePool`, with an
-:class:`FFmpegPull` as the channel's pull. All sessions of a channel share
-one ffmpeg.
+:class:`FFmpegPull` as the channel's pull. All sessions and recordings of a
+channel share one ffmpeg.
 """
 
 from __future__ import annotations
@@ -245,7 +245,8 @@ class FFmpegSourceProvider:
     ) -> ChannelLease:
         """Lease the source of a tier's channel without a session.
 
-        For example to keep a channel buffered between sessions.
+        For example to keep a recording channel buffered; see
+        :class:`~pyhap.media.recording_delegate.RecordingMediaDelegate`.
         """
         found = await self.input_for(video_tier)
         name = self.channel_name(video_tier)
