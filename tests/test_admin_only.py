@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterator
 import io
 import json
 from typing import Any, NamedTuple
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -86,7 +86,8 @@ def chars(driver: AccessoryDriver) -> Iterator[dict[str, SensorChar]]:
 
     Motion Enabled may only be written by admins. Secret is a made-up
     characteristic that only admins may read. Open is a made-up characteristic
-    anyone may read and write.
+    anyone may read and write. Sealed is made up, write only and readable only
+    by admins, Locked is made up, read only and writable only by admins.
     """
     acc = Accessory(driver, "Sensor")
     service = driver.loader.get_service("MotionSensor")
@@ -109,6 +110,24 @@ def chars(driver: AccessoryDriver) -> Iterator[dict[str, SensorChar]]:
                 PROP_ADMIN_ONLY_ACCESS: ["read"],
             },
         ),
+        Characteristic(
+            "Sealed",
+            UUID("2d7f7c38-1d4c-4e0b-9d0e-4c1f1d2c7a12"),
+            {
+                PROP_FORMAT: HAP_FORMAT_BOOL,
+                PROP_PERMISSIONS: [HAP_PERMISSION_WRITE],
+                PROP_ADMIN_ONLY_ACCESS: ["read"],
+            },
+        ),
+        Characteristic(
+            "Locked",
+            UUID("2d7f7c38-1d4c-4e0b-9d0e-4c1f1d2c7a13"),
+            {
+                PROP_FORMAT: HAP_FORMAT_BOOL,
+                PROP_PERMISSIONS: [HAP_PERMISSION_READ],
+                PROP_ADMIN_ONLY_ACCESS: ["write"],
+            },
+        ),
     )
     acc.add_service(service)
     driver.add_accessory(acc)
@@ -119,6 +138,8 @@ def chars(driver: AccessoryDriver) -> Iterator[dict[str, SensorChar]]:
             "MotionEnabled": _with_setter(acc, service, "MotionEnabled"),
             "Open": _with_setter(acc, service, "Open"),
             "Secret": _with_setter(acc, service, "Secret"),
+            "Sealed": _with_setter(acc, service, "Sealed"),
+            "Locked": _with_setter(acc, service, "Locked"),
         }
 
 
@@ -233,6 +254,88 @@ def test_admin_only_read(
 
     assert response == {
         HAP_REPR_CHARS: [{HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, **expected}]
+    }
+
+
+@pytest.mark.parametrize(
+    ("client_uuid", "status"),
+    [
+        (USER, REFUSED),
+        (ADMIN, HAP_SERVER_STATUS.READ_ONLY_CHARACTERISTIC),
+    ],
+    ids=["user", "admin"],
+)
+def test_admin_only_write_refused_before_read_only(
+    driver: AccessoryDriver,
+    chars: dict[str, SensorChar],
+    client_uuid: UUID,
+    status: int,
+) -> None:
+    """Test a write to a read only admin char is refused for privileges first."""
+    char = chars["Locked"]
+
+    response = driver.set_characteristics(_write(char), CLIENT, client_uuid=client_uuid)
+
+    assert response == _response(char, status)
+    char.setter.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("client_uuid", "status"),
+    [
+        (USER, REFUSED),
+        (ADMIN, HAP_SERVER_STATUS.WRITE_ONLY_CHARACTERISTIC),
+    ],
+    ids=["user", "admin"],
+)
+def test_admin_only_read_refused_before_write_only(
+    driver: AccessoryDriver,
+    chars: dict[str, SensorChar],
+    client_uuid: UUID,
+    status: int,
+) -> None:
+    """Test a read of a write only admin char is refused for privileges first."""
+    char = chars["Sealed"]
+
+    response = driver.get_characteristics(
+        [f"{char.aid}.{char.iid}"], CLIENT, client_uuid=client_uuid
+    )
+
+    assert response == {
+        HAP_REPR_CHARS: [
+            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_STATUS: status}
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    ("client_uuid", "status"),
+    [
+        (USER, REFUSED),
+        (ADMIN, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE),
+    ],
+    ids=["user", "admin"],
+)
+def test_admin_only_read_refused_before_availability(
+    driver: AccessoryDriver,
+    chars: dict[str, SensorChar],
+    client_uuid: UUID,
+    status: int,
+) -> None:
+    """Test a read of an unavailable admin char is refused for privileges first."""
+    char = chars["Secret"]
+
+    with patch.object(
+        Accessory, "available", new_callable=PropertyMock, return_value=False
+    ):
+        response = driver.get_characteristics(
+            [f"{char.aid}.{char.iid}"], CLIENT, client_uuid=client_uuid
+        )
+
+    assert response == {
+        HAP_REPR_CHARS: [
+            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_STATUS: status}
+        ]
     }
 
 

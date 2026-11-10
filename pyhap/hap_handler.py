@@ -679,7 +679,9 @@ class HAPServerHandler:
         assert self.parsed_url is not None  # noqa: S101
         params = parse_qs(self.parsed_url.query)
         response = self.accessory_handler.get_characteristics(
-            params["id"][0].split(","), client_uuid=self.client_uuid
+            params["id"][0].split(","),
+            cast("tuple[str, int]", self.client_address),
+            client_uuid=self.client_uuid,
         )
         chars = response[HAP_REPR_CHARS]
 

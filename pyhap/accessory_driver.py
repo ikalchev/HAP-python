@@ -41,11 +41,16 @@ from pyhap.characteristic import (
     ADMIN_ONLY_READ,
     ADMIN_ONLY_WRITE,
     PROP_ADMIN_ONLY_ACCESS,
+    PROP_PERMISSIONS,
     Characteristic,
     CharacteristicError,
+    HAPValue,
 )
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
+    HAP_PERMISSION_READ,
+    HAP_PERMISSION_WRITE,
+    HAP_PERMISSION_WRITE_RESPONSE,
     HAP_PROTOCOL_SHORT_VERSION,
     HAP_REPR_ACCS,
     HAP_REPR_AID,
@@ -97,10 +102,21 @@ def _admin_only(char: Characteristic, access: str) -> bool:
     return access in char.properties.get(PROP_ADMIN_ONLY_ACCESS, ())
 
 
-def _wrap_char_setter(char: Any, value: Any, client_addr: Any) -> tuple[int, Any]:
+def _stored_value(char: Characteristic, value: HAPValue) -> HAPValue:
+    """Return the value ``client_update_value`` stores for ``value``."""
+    try:
+        stored: HAPValue = char.to_valid_value(value)
+    except ValueError:
+        return value
+    return stored
+
+
+def _wrap_char_setter(
+    char: Any, value: Any, client_addr: Any, notify: bool = True
+) -> tuple[int, Any]:
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
-        response = char.client_update_value(value, client_addr)
+        response = char.client_update_value(value, client_addr, notify=notify)
     except Exception:
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
@@ -347,6 +363,10 @@ class AccessoryDriver:
         network_tuple = (self._listen_address, self.state.port)
         self.http_server = HAPServer(network_tuple, self)
         self.prepared_writes = {}
+        # Write responses of readable characteristics, per client.
+        self._write_responses: dict[
+            tuple[str, int], dict[Characteristic, HAPValue]
+        ] = {}
 
     def listen_address(self) -> str | list[str]:
         """Return the address, or list of addresses, the HAP server listens on."""
@@ -593,6 +613,8 @@ class AccessoryDriver:
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
         self.prepared_writes.pop(client, None)
+        # Deferred, so a write response that is already on its way is dropped too.
+        self.loop.call_soon(self._write_responses.pop, client, None)
 
     def publish(
         self,
@@ -918,12 +940,20 @@ class AccessoryDriver:
         return {HAP_REPR_ACCS: hap_rep}
 
     def get_characteristics(
-        self, char_ids: Any, *, client_uuid: UUID | None = None
+        self,
+        char_ids: Any,
+        client_addr: tuple[str, int] | None = None,
+        *,
+        client_uuid: UUID | None = None,
     ) -> dict[str, Any]:
         """Returns values for the required characteristics.
 
         :param char_ids: A list of characteristic "paths", e.g. "1.2" is aid 1, iid 2.
         :type char_ids: list<str>
+
+        :param client_addr: The client that reads. It reads back its own write
+            responses.
+        :type client_addr: tuple <str, int>
 
         :param client_uuid: The paired controller that sent the request. Reads
             of characteristics restricted to admins are refused with -70401
@@ -946,6 +976,9 @@ class AccessoryDriver:
         """
         assert self.accessory is not None  # noqa: S101
         is_admin = self._is_admin(client_uuid)
+        write_responses = (
+            self._write_responses.get(client_addr, {}) if client_addr else {}
+        )
         chars = []
         for aid_iid in char_ids:
             aid, iid = (int(i) for i in aid_iid.split("."))
@@ -975,18 +1008,24 @@ class AccessoryDriver:
                         available = False
 
                 # A characteristic IID may resolve to a Service or be unknown;
-                # only a Characteristic can report a value. Privileges are
-                # checked before availability, so a controller that may not
-                # read the characteristic learns nothing about its accessory.
-                if (
-                    isinstance(char, Characteristic)
-                    and not is_admin
-                    and _admin_only(char, ADMIN_ONLY_READ)
-                ):
-                    rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
-                elif available and isinstance(char, Characteristic):
-                    rep[HAP_REPR_VALUE] = char.get_value()
-                    rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
+                # only a Characteristic can report a value, and only when it
+                # has the paired read permission. Privileges are checked first,
+                # before availability, so a controller that may not read the
+                # characteristic learns nothing about its accessory.
+                if isinstance(char, Characteristic):
+                    if not is_admin and _admin_only(char, ADMIN_ONLY_READ):
+                        rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
+                    elif HAP_PERMISSION_READ not in char.properties[PROP_PERMISSIONS]:
+                        rep[HAP_REPR_STATUS] = (
+                            HAP_SERVER_STATUS.WRITE_ONLY_CHARACTERISTIC
+                        )
+                    elif available:
+                        rep[HAP_REPR_VALUE] = (
+                            write_responses[char]
+                            if char in write_responses
+                            else char.get_value()
+                        )
+                        rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             except CharacteristicError:
                 logger.error(
                     "%s: Error getting value for characteristic %s.",
@@ -1051,11 +1090,9 @@ class AccessoryDriver:
             unless it is an admin.
         :type client_uuid: uuid.UUID
         """
-        # TODO: Add support for chars that do no support notifications.
-
         queries: list[dict[str, Any]] = chars_query[HAP_REPR_CHARS]
 
-        self._notify(queries, client_addr)
+        not_notifiable = self._notify(queries, client_addr)
 
         updates_by_accessories_services: dict[
             Accessory, dict[Service, dict[Characteristic, Any]]
@@ -1075,14 +1112,21 @@ class AccessoryDriver:
         assert primary_accessory is not None  # noqa: S101
         primary_aid = primary_accessory.aid
 
-        for query in queries:
-            if HAP_REPR_VALUE not in query and not expired:
-                continue
+        for aid, iid in not_notifiable:
+            results[aid][iid] = {
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.NOTIFICATION_NOT_SUPPORTED
+            }
 
+        for query in queries:
             aid = query[HAP_REPR_AID]
             iid = query[HAP_REPR_IID]
+            if (aid, iid) in not_notifiable:
+                continue
+            if HAP_REPR_VALUE not in query and not expired:
+                # Listed with status 0 if the response has other results.
+                results[aid][iid] = {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
+                continue
             value = query.get(HAP_REPR_VALUE)
-            write_response_requested = query.get(HAP_REPR_WRITE_RESPONSE, False)
 
             if aid == primary_aid:
                 acc = primary_accessory
@@ -1109,16 +1153,55 @@ class AccessoryDriver:
                 }
                 continue
 
+            if (
+                value is not None
+                and HAP_PERMISSION_WRITE not in char.properties[PROP_PERMISSIONS]
+            ):
+                results[aid][iid] = {
+                    HAP_REPR_STATUS: HAP_SERVER_STATUS.READ_ONLY_CHARACTERISTIC
+                }
+                continue
+
+            # Only characteristics with the write response permission answer
+            # a write with a value, and only when the controller asks for it.
+            write_response = (
+                query.get(HAP_REPR_WRITE_RESPONSE, False)
+                and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
+            )
+            # A new write replaces a former response of this connection. The
+            # request of a readable write response characteristic is not
+            # shared, whatever the setter does, also not with ev subscribers.
+            if value is not None:
+                self._write_responses.get(client_addr, {}).pop(char, None)
+            private_write = (
+                write_response
+                and value is not None
+                and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
+            )
+            previous_value = char.value
+
             set_result = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
             set_result_value = None
 
             if value is not None:
                 set_result, set_result_value = _wrap_char_setter(
-                    char, value, client_addr
+                    char, value, client_addr, notify=not private_write
                 )
+            # A write with ``r`` to a readable characteristic is a request,
+            # e.g. a Setup Endpoints offer with the writer's SRTP keys. Only
+            # the writer reads the answer back, see _store_write_response.
+            # client_update_value stored the request as the value, so put
+            # back the former one unless the setter set a value of its own.
+            if private_write and char.value == _stored_value(char, value):
+                char.value = previous_value
 
-            if set_result_value is not None and write_response_requested:
-                result = {HAP_REPR_STATUS: set_result, HAP_REPR_VALUE: set_result_value}
+            if set_result_value is not None and write_response:
+                result = {
+                    HAP_REPR_STATUS: set_result,
+                    HAP_REPR_VALUE: self._store_write_response(
+                        char, set_result_value, client_addr
+                    ),
+                }
             else:
                 result = {HAP_REPR_STATUS: set_result}
 
@@ -1166,6 +1249,40 @@ class AccessoryDriver:
                     nonempty_results_exist = True
 
         return {HAP_REPR_CHARS: characteristics} if nonempty_results_exist else None
+
+    def _store_write_response(
+        self,
+        char: Characteristic,
+        response: HAPValue,
+        client_addr: tuple[str, int] | None,
+    ) -> HAPValue:
+        """Keep the write response and return what to send.
+
+        The written value of a write response characteristic, such as an SDP
+        offer, is a request. What the accessory answered is its state. If the
+        characteristic is readable, only the connection that wrote reads the
+        response back, until it closes, and it wins over the getter and a later
+        ``set_value``. Other connections read the characteristic's own value,
+        which the write leaves as it was. A write without ``r`` stays readable
+        for everyone, and a characteristic that also has ``ev`` notifies the
+        written value as any write does.
+        """
+        readable = HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
+        try:
+            valid: HAPValue = char.to_valid_value(response)
+        except ValueError:
+            logger.debug(
+                "%s: not keeping the write response, it is invalid: %s",
+                char.display_name,
+                response,
+            )
+            return response
+        if readable:
+            if client_addr is not None:
+                self._write_responses.setdefault(client_addr, {})[char] = valid
+        else:
+            char.value = valid
+        return valid
 
     def _is_admin(self, client_uuid: UUID | None) -> bool:
         """Return whether ``client_uuid`` is a paired admin controller."""
@@ -1228,8 +1345,15 @@ class AccessoryDriver:
 
     def _notify(
         self, queries: list[dict[str, Any]], client_addr: tuple[str, int]
-    ) -> None:
-        """Notify the driver that the client has subscribed or unsubscribed."""
+    ) -> set[tuple[int, int]]:
+        """Notify the driver that the client has subscribed or unsubscribed.
+
+        Characteristics without the notify permission are left alone; their
+        ``(aid, iid)`` pairs are returned so the request can report
+        -70406 for them.
+        """
+        assert self.accessory is not None  # noqa: S101
+        not_notifiable: set[tuple[int, int]] = set()
         for query in queries:
             if HAP_PERMISSION_NOTIFY not in query:
                 continue
@@ -1237,7 +1361,16 @@ class AccessoryDriver:
             iid = query[HAP_REPR_IID]
             ev = query[HAP_PERMISSION_NOTIFY]
 
+            char = self.accessory.get_characteristic(aid, iid)
+            if (
+                char is not None
+                and HAP_PERMISSION_NOTIFY not in char.properties[PROP_PERMISSIONS]
+            ):
+                not_notifiable.add((aid, iid))
+                continue
+
             char_topic = get_topic(aid, iid)
             action = "Subscribed" if ev else "Unsubscribed"
             logger.debug("%s client %s to topic %s", action, client_addr, char_topic)
             self.async_subscribe_client_topic(client_addr, char_topic, ev)
+        return not_notifiable
