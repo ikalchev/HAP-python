@@ -42,6 +42,7 @@ from pyhap.characteristic import (
     PROP_PERMISSIONS,
     Characteristic,
     CharacteristicError,
+    CharacteristicWrite,
     HAPValue,
 )
 from pyhap.const import (
@@ -1206,7 +1207,7 @@ class AccessoryDriver:
         client_addr: tuple[str, int],
         pending: list[_PendingWrite],
     ) -> tuple[dict[int, dict[int, dict[str, Any]]], list[_PendingWrite]]:
-        queries: list[dict[str, Any]] = chars_query[HAP_REPR_CHARS]
+        queries: list[CharacteristicWrite] = chars_query[HAP_REPR_CHARS]
 
         timed_write = HAP_REPR_PID in chars_query
         if timed_write and not self._take_prepared_write(
@@ -1548,7 +1549,7 @@ class AccessoryDriver:
             raise
 
     def _notify(
-        self, queries: list[dict[str, Any]], client_addr: tuple[str, int]
+        self, queries: list[CharacteristicWrite], client_addr: tuple[str, int]
     ) -> set[tuple[int, int]]:
         """Notify the driver that the client has subscribed or unsubscribed.
 

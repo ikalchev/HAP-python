@@ -7,7 +7,7 @@ a temperature measuring or a device status.
 from collections.abc import Callable
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 from uuid import UUID
 
 from .const import (
@@ -49,6 +49,24 @@ def _setter_wants_client_addr(setter: Callable[..., Any]) -> bool:
 # ### HAP Format ###
 # A characteristic value as HAP JSON carries it.
 HAPValue = bool | int | float | str | None
+
+
+class _CharacteristicWriteTarget(TypedDict):
+    aid: int
+    iid: int
+
+
+class CharacteristicWrite(_CharacteristicWriteTarget, total=False):
+    """One characteristic of a write, as HAP JSON carries it.
+
+    ``value`` is the value to write, ``ev`` subscribes or unsubscribes and
+    ``r`` asks for a write response.
+    """
+
+    value: HAPValue
+    ev: bool
+    r: bool
+
 
 HAP_FORMAT_BOOL = "bool"
 HAP_FORMAT_INT = "int"
