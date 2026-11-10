@@ -748,7 +748,7 @@ class FFmpegMultiTierDelegate:
             process.terminate()
         try:
             await asyncio.wait_for(process.wait(), 2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("[%s] Killing the stream process", session.id)
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
