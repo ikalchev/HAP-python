@@ -754,9 +754,7 @@ def build_meta(args: argparse.Namespace) -> dict[str, Any]:
     """Metadata describing the code and machine the run was made on."""
     return {
         "benchmark_version": 1,
-        "timestamp": datetime_module.datetime.now(
-            datetime_module.timezone.utc
-        ).isoformat(),
+        "timestamp": datetime_module.datetime.now(datetime_module.UTC).isoformat(),
         "commit": git_commit(),
         "label": args.label,
         "python": sys.version.split()[0],

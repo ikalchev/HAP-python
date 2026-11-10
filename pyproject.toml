@@ -8,14 +8,13 @@ license = "Apache-2.0"
 description = "HomeKit Accessory Protocol implementation in python"
 readme = "README.md"
 authors = [{ name = "Ivan Kalchev" }]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Intended Audience :: End Users/Desktop",
     "Natural Language :: English",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -23,7 +22,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "async_timeout;python_version<'3.11'",
     "cryptography",
     "chacha20poly1305-reuseable",
     "orjson>=3.7.2",
@@ -61,7 +59,7 @@ version = { attr = "pyhap.const.__version__" }
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py311"
 # Directories previously excluded from black.
 exclude = ["generated"]
 
@@ -146,7 +144,7 @@ include = [
 ]
 
 [tool.ty.environment]
-python-version = "3.10"
+python-version = "3.11"
 
 [tool.pytest.ini_options]
 testpaths = [

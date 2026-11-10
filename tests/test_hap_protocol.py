@@ -1104,7 +1104,7 @@ async def test_camera_snapshot_times_out(driver: AccessoryDriver) -> None:
     connections = {}
 
     def _get_snapshot(*_: Any) -> NoReturn:
-        raise asyncio.TimeoutError("timeout")
+        raise TimeoutError("timeout")
 
     acc = Accessory(driver, "TestAcc")
     # Camera-only snapshot method, attached dynamically so the

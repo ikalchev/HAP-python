@@ -199,10 +199,7 @@ class TalkbackReceiver:
             try:
                 data, addr = self._sock.recvfrom(2048)
             except TimeoutError:
-                # socket.timeout aliases TimeoutError from Python 3.10 on, but
-                # is an OSError subclass on 3.9, which this project supports,
-                # so catching TimeoutError here would kill the receiver thread
-                # on the first (0.5s) poll timeout on Python 3.9.
+                # The 0.5 s poll timeout, check the stop event again.
                 continue
             except OSError:
                 break
