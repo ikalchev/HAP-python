@@ -7,6 +7,10 @@ Follows the HAP TLV8 list encoding: each item of a list is a TLV of its own,
 and items of the same type are separated by an empty TLV of type 0. Values
 longer than 255 bytes are sent as 255-byte fragments of the same type; a TLV
 continues the value before it only after such a full fragment.
+
+:mod:`pyhap.tlv` maps each type to one value, so it cannot express repeated
+items of a type or the separators these lists need; hence the small encoder
+and decoder here.
 """
 
 from __future__ import annotations
@@ -128,8 +132,7 @@ def _to_enum(enum_type: type[_E], data: bytes) -> _E | int:
 
 
 def _to_uuid(data: bytes) -> UUID:
-    if len(data) != 16:
-        raise ValueError(f"Invalid UUID length {len(data)}")
+    # UUID raises ValueError for anything but 16 bytes.
     return UUID(bytes=data)
 
 
@@ -231,7 +234,8 @@ class ZonePolygon:
             (_to_int(raw[i : i + 2]), _to_int(raw[i + 2 : i + 4]))
             for i in range(0, len(raw), 4)
         ]
-        identifier = _to_uuid(fields[1][0]) if 1 in fields else None
+        # UUID raises ValueError for anything but 16 bytes.
+        identifier = UUID(bytes=fields[1][0]) if 1 in fields else None
         return cls(identifier, vertices)
 
 
