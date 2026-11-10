@@ -1333,14 +1333,14 @@ async def test_write_response_dropped_on_disconnect(driver: AccessoryDriver) -> 
 
 
 def test_plain_write_replaces_write_response(driver: AccessoryDriver) -> None:
-    """A write without ``r`` drops the writer's former response, privately too."""
+    """A write without ``r`` drops the writer's former response."""
     acc, char, char_id = _add_write_response_char(driver, False)
     _write(driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True})
 
     _write(driver, acc, char, **{HAP_REPR_VALUE: 9})
 
-    assert _read(driver, char_id, WRITER) == 0
-    assert _read(driver, char_id, OTHER_CONTROLLER) == 0
+    assert _read(driver, char_id, WRITER) == 9
+    assert _read(driver, char_id, OTHER_CONTROLLER) == 9
 
 
 @pytest.mark.parametrize(
@@ -1479,15 +1479,15 @@ def test_write_response_without_client_not_kept(driver: AccessoryDriver) -> None
         pytest.param({HAP_REPR_WRITE_RESPONSE: False}, id="declined"),
     ],
 )
-def test_written_value_private_without_write_response(
+def test_written_value_readable_without_write_response(
     driver: AccessoryDriver, reader: Any, query: dict[str, Any]
 ) -> None:
-    """Without a write response the written value is not left readable either."""
+    """Without a write response the written value is read by every controller."""
     acc, char, char_id = _add_write_response_char(driver, False)
 
     _write(driver, acc, char, **{HAP_REPR_VALUE: 5, **query})
 
-    assert _read(driver, char_id, reader) == 0
+    assert _read(driver, char_id, reader) == 5
 
 
 def test_service_callbacks(driver: AccessoryDriver) -> None:
@@ -2621,6 +2621,33 @@ def test_read_back_response_only_for_writer(
 ) -> None:
     """Only the writing controller reads back what the setter answered."""
     acc, char = _add_read_back_char(driver)
+
+    assert _write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
+
+    assert _read(driver, f"{acc.aid}.{acc.iid_manager.get_iid(char)}", reader) == (
+        expected
+    )
+    acc_rep = driver.get_accessories()[HAP_REPR_ACCS][-1]
+    assert acc_rep[HAP_REPR_SERVICES][-1][HAP_REPR_CHARS][0][HAP_REPR_VALUE] == 0
+
+
+@pytest.mark.parametrize(
+    ("reader", "expected"),
+    [
+        pytest.param(WRITER, 42, id="writer"),
+        pytest.param(OTHER_CONTROLLER, 0, id="other-controller"),
+    ],
+)
+def test_read_back_value_set_by_setter_only_for_writer(
+    driver: AccessoryDriver, reader: Any, expected: int
+) -> None:
+    """A value the setter sets itself on a read back char stays with the writer."""
+    acc, char = _add_read_back_char(driver)
+
+    def _setter(value: int) -> None:
+        char.set_value(42)
+
+    char.setter_callback = _setter
 
     assert _write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
 

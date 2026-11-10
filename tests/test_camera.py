@@ -449,6 +449,48 @@ def test_setup_endpoints_read_back_by_writer_only(driver: Any) -> None:
     (other,) = driver.get_characteristics([char_id], ("192.168.1.115", 50000))[
         "characteristics"
     ]
-    assert writer["value"][:20] == "ARCszGzBBWNFFY2pdLRQ"
+    # The writer reads the answer, which carries a status, not its request.
+    answer = tlv.decode(writer["value"], from_base64=True)
+    assert answer[b"\x01"] == tlv.decode(request, from_base64=True)[b"\x01"]
+    assert answer[b"\x02"] == b"\x00"
+    assert other["value"] == ""
+    assert char.value == ""
+
+
+def test_setup_endpoints_set_by_subclass_read_back_by_writer_only(
+    driver: Any,
+) -> None:
+    """Test an answer a subclass sets as the value stays with the writer."""
+
+    class _Camera(camera.Camera):
+        def set_endpoints(self, value: str, stream_idx: int | None = None) -> None:
+            answer = super().set_endpoints(value, stream_idx)
+            management = self.get_service("CameraRTPStreamManagement")
+            assert management is not None
+            management.get_characteristic("SetupEndpoints").set_value(answer)
+
+    acc = _Camera(_OPTIONS, driver, "Camera")
+    driver.add_accessory(acc)
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    char = management.get_characteristic("SetupEndpoints")
+    iid = acc.iid_manager.get_iid(char)
+    request = (
+        "ARCszGzBBWNFFY2pdLRQkAaRAxoBAQACDTE5Mi4xNjguMS4xMTQDAjPFBAKs1gQ"
+        "lAhDYlmCkyTBZQfxqFS3OnxVOAw4bQZm5NuoQjyanlqWA0QEBAAUlAhAKRPSRVa"
+        "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
+    )
+    query = {"characteristics": [{"aid": acc.aid, "iid": iid, "value": request}]}
+
+    assert driver.set_characteristics(query, ("192.168.1.114", 50000)) is None
+
+    char_id = f"{acc.aid}.{iid}"
+    (writer,) = driver.get_characteristics([char_id], ("192.168.1.114", 50000))[
+        "characteristics"
+    ]
+    (other,) = driver.get_characteristics([char_id], ("192.168.1.115", 50000))[
+        "characteristics"
+    ]
+    assert tlv.decode(writer["value"], from_base64=True)[b"\x02"] == b"\x00"
     assert other["value"] == ""
     assert char.value == ""

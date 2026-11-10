@@ -1270,10 +1270,7 @@ class AccessoryDriver:
             if value is not None:
                 self._write_responses.get(client_addr, {}).pop(char, None)
             private_write = (
-                (
-                    HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
-                    or char.read_back_response
-                )
+                (write_response or char.read_back_response)
                 and value is not None
                 and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
             )
@@ -1291,8 +1288,19 @@ class AccessoryDriver:
             # the writer reads the answer back, see _store_write_response.
             # client_update_value stored the request as the value, so put
             # back the former one unless the setter set a value of its own.
-            if private_write and char.value == _stored_value(char, value):
-                char.value = previous_value
+            # Whatever the setter of a read back characteristic leaves in the
+            # value is an answer for the writer only, e.g. from a subclass that
+            # still sets the Setup Endpoints answer itself.
+            if private_write:
+                own_value = char.value
+                if char.read_back_response:
+                    if set_result_value is None and own_value != _stored_value(
+                        char, value
+                    ):
+                        set_result_value = own_value
+                    char.value = previous_value
+                elif own_value == _stored_value(char, value):
+                    char.value = previous_value
 
             result: dict[str, Any] = {HAP_REPR_STATUS: set_result}
             if inspect.iscoroutine(set_result_value):
