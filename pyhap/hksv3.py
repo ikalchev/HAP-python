@@ -4,6 +4,10 @@ Follows the HAP TLV8 list encoding: each item of a list is a TLV of its own,
 and items of the same type are separated by an empty TLV of type 0. Values
 longer than 255 bytes are sent as 255-byte fragments of the same type; a TLV
 continues the value before it only after such a full fragment.
+
+:mod:`pyhap.tlv` maps each type to one value, so it cannot express repeated
+items of a type or the separators these lists need; hence the small encoder
+and decoder here.
 """
 
 from __future__ import annotations
