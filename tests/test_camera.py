@@ -492,23 +492,25 @@ def _setup_request_with(address_tlv: bytes, crypto: bytes = b"\x00") -> str:
 
 
 @pytest.mark.parametrize(
-    ("address", "is_ipv6"),
+    ("address", "is_ipv6", "expected"),
     [
-        (b"192.168.1.114", False),
-        (b"fd00::1", True),
+        (b"192.168.1.114", False, "192.168.1.114"),
+        (b"fd00::1", True, "fd00::1"),
+        (b"FD00::1", True, "fd00::1"),
+        (b"fd00:0:0:0:0:0:0:1", True, "fd00::1"),
     ],
 )
 def test_setup_endpoints_accepts_addresses(
-    mock_driver: Any, address: bytes, is_ipv6: bool
+    mock_driver: Any, address: bytes, is_ipv6: bool, expected: str
 ) -> None:
-    """Test canonical addresses of the announced version are accepted."""
+    """Test addresses of the announced version are accepted in canonical form."""
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     management.get_characteristic("SetupEndpoints").client_update_value(
         _setup_request(address, is_ipv6)
     )
-    assert acc.sessions[_SESSION_ID]["address"] == address.decode()
+    assert acc.sessions[_SESSION_ID]["address"] == expected
 
 
 @pytest.mark.parametrize(
@@ -517,8 +519,6 @@ def test_setup_endpoints_accepts_addresses(
         (b"192.168.1.114 x", False),
         (b"192.168.1.114\n", False),
         (b"fe80::1%en0", True),
-        (b"FD00::1", True),
-        (b"fd00:0:0:0:0:0:0:1", True),
         (b"192.168.1.114", True),
         (b"fd00::1", False),
         (b"::ffff:192.168.1.114", False),
@@ -534,13 +534,12 @@ def test_setup_endpoints_refuses_addresses(
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    response = setup_endpoints.client_update_value(_setup_request(address, is_ipv6))
+    setup_endpoints.client_update_value(_setup_request(address, is_ipv6))
     assert acc.sessions == {}
-    assert tlv.decode(response, from_base64=True) == {
+    assert tlv.decode(setup_endpoints.get_value(), from_base64=True) == {
         camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
         camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
     }
-    assert setup_endpoints.get_value() == response
 
 
 @pytest.mark.parametrize(
@@ -580,10 +579,9 @@ def test_setup_endpoints_refuses_malformed(
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    response = setup_endpoints.client_update_value(request_value)
+    setup_endpoints.client_update_value(request_value)
     assert acc.sessions == {}
-    assert tlv.decode(response, from_base64=True) == {
+    assert tlv.decode(setup_endpoints.get_value(), from_base64=True) == {
         camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
         camera.SETUP_TYPES["STATUS"]: camera.SETUP_STATUS["ERROR"],
     }
-    assert setup_endpoints.get_value() == response

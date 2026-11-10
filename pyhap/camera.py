@@ -253,8 +253,9 @@ SUPPORTED_RECORDING_CHARS = (
 def parse_setup_address(value: bytes, is_ipv6: bool) -> str:
     """Return the controller address of a Setup Endpoints write.
 
-    Only the canonical IP of the announced version is accepted, without an
-    IPv6 scope ID.
+    The address must be an IP address of the announced version, without an
+    IPv6 scope ID. It is returned in canonical form, e.g. ``fd00::1`` for
+    ``FD00:0::1``.
 
     :raises ValueError: If the address is anything else.
     """
@@ -265,11 +266,9 @@ def parse_setup_address(value: bytes, is_ipv6: bool) -> str:
         raise ValueError(f"invalid address {value!r}") from ex
     if isinstance(parsed, ipaddress.IPv6Address) and parsed.scope_id is not None:
         raise ValueError(f"address {address!r} has a scope ID")
-    if str(parsed) != address:
-        raise ValueError(f"address {address!r} is not in canonical form")
     if parsed.version != (6 if is_ipv6 else 4):
         raise ValueError(f"address {address!r} does not match its IP version")
-    return address
+    return str(parsed)
 
 
 def _decode_setup_endpoints(
@@ -1342,12 +1341,12 @@ class Camera(Accessory):
         self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
         self._management[stream_idx].get_characteristic("StreamingStatus").notify()
 
-    def set_endpoints(self, value: str, stream_idx: int | None = None) -> Any:
+    def set_endpoints(self, value: str, stream_idx: int | None = None) -> None:
         """Configure streaming endpoints.
 
         Called when iOS sets the SetupEndpoints ``Characteristic``. The endpoint
         information for the camera should be set as the current value of SetupEndpoints.
-        A refused write sets and returns the error answer.
+        A refused write sets the error answer.
 
         :param value: The base64-encoded stream session details in TLV format.
         :param value: ``str``
@@ -1369,13 +1368,10 @@ class Camera(Accessory):
             ) = _decode_setup_endpoints(session_id, objs)
         except (IndexError, KeyError, ValueError, struct.error) as ex:
             logger.warning("[%s] Refusing the endpoints: %s", session_id, ex)
-            refusal = _setup_endpoints_status(session_id, SETUP_STATUS["ERROR"])
-            # The value for a driver without read back, the return value for
-            # one with it.
             self._management[stream_idx].get_characteristic("SetupEndpoints").set_value(
-                refusal
+                _setup_endpoints_status(session_id, SETUP_STATUS["ERROR"])
             )
-            return refusal
+            return
 
         # Configure the SetupEndpoints response
 
