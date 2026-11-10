@@ -287,6 +287,30 @@ def test_admin_only_write_refused_before_read_only(
     char.setter.assert_not_called()
 
 
+def test_admin_only_null_write_reaches_no_setter(
+    driver: AccessoryDriver, chars: dict[str, SensorChar]
+) -> None:
+    """Test an explicit null from a regular controller is refused before setters."""
+    char = chars["MotionEnabled"]
+    assert driver.accessory is not None
+    service = driver.accessory.get_service("MotionSensor")
+    assert service is not None
+    service.setter_callback = MagicMock()
+    driver.accessory.setter_callback = MagicMock()
+    query = {
+        HAP_REPR_CHARS: [
+            {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_VALUE: None}
+        ]
+    }
+
+    response = driver.set_characteristics(query, CLIENT, client_uuid=USER)
+
+    assert response == _response(char, REFUSED)
+    char.setter.assert_not_called()
+    service.setter_callback.assert_not_called()
+    driver.accessory.setter_callback.assert_not_called()
+
+
 def _write_through_handler(
     driver: AccessoryDriver, char: SensorChar, client_uuid: UUID
 ) -> hap_handler.HAPResponse:

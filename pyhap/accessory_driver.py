@@ -1153,7 +1153,7 @@ class AccessoryDriver:
         :param client_uuid: The paired controller that sent the request. Writes
             to characteristics restricted to admins are refused with -70401
             unless it is an admin.
-        :type client_uuid: uuid.UUID
+        :type client_uuid: uuid.UUID or None
         """
         results, pending = self._apply_characteristic_writes(
             chars_query, client_addr, client_uuid
@@ -1293,10 +1293,9 @@ class AccessoryDriver:
 
             # Privileges are checked before the permissions, so a controller
             # that may not write the characteristic learns nothing else.
-            if (
-                value is not None
-                and not is_admin
-                and ADMIN_ONLY_WRITE in char.properties.get(PROP_ADMIN_ONLY_ACCESS, ())
+            # Also for an explicit null, so no setter sees the characteristic.
+            if not is_admin and ADMIN_ONLY_WRITE in char.properties.get(
+                PROP_ADMIN_ONLY_ACCESS, ()
             ):
                 results[aid][iid] = {
                     HAP_REPR_STATUS: HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
