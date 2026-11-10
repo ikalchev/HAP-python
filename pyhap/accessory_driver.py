@@ -31,7 +31,7 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypeGuard
 
 from zeroconf import ServiceInfo
 from zeroconf.asyncio import AsyncZeroconf
@@ -96,6 +96,11 @@ MAX_PREPARED_WRITES_PER_CLIENT = 16
 MAX_PREPARED_WRITE_TTL_SECONDS = 30.0
 
 
+def _is_hap_int(value: Any) -> TypeGuard[int]:
+    """Whether ``value`` is a JSON integer, not a bool."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _stored_value(char: Characteristic, value: HAPValue) -> HAPValue:
     """Return the value ``client_update_value`` stores for ``value``."""
     try:
@@ -110,7 +115,10 @@ def _wrap_char_setter(
 ) -> tuple[int, Any]:
     """Process an characteristic setter callback trapping and logging all exceptions."""
     try:
-        response = char.client_update_value(value, client_addr, notify=notify)
+        # The driver finishes the update of a coroutine setter once it is done.
+        response = char.client_update_value(
+            value, client_addr, notify=notify, defer_notify=True
+        )
     except Exception:
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
@@ -179,6 +187,14 @@ class _PendingWrite(NamedTuple):
     coro: Coroutine[Any, Any, Any]
     write_response: bool  # Whether the controller asked for a write response.
     char: Characteristic
+    previous_value: Any  # The value before the write, to tell if it changed.
+    notify: bool  # Whether subscribers learn the value once the setter is done.
+
+
+def _retrieve_late_result(task: asyncio.Future[Any]) -> None:
+    """Retrieve the outcome of a setter that ran on after it was cancelled."""
+    if not task.cancelled() and (err := task.exception()) is not None:
+        logger.debug("Setter failed after it was cancelled", exc_info=err)
 
 
 def _set_characteristics_response(
@@ -353,11 +369,9 @@ class AccessoryDriver:
 
         :param enforce_timed_writes: Whether to reject a plain write to a
             characteristic with the timed write ("tw") permission with -70410,
-            as the HAP specification requires. When False, such a write is
-            applied and only logged at debug level: a Home hub has been seen
-            writing HomeKit Camera Active without a timed write, and the HomeKit
-            Secure Video guide gives Streaming Enabled and Motion Enabled tw too,
-            so enforcing it would break HKSV with such hubs.
+            as the HAP specification requires. Off by default, because Home
+            hubs write some tw characteristics, e.g. HomeKit Camera Active,
+            without a timed write.
         :type enforce_timed_writes: bool
         """
         if loop is None:
@@ -1106,9 +1120,12 @@ class AccessoryDriver:
 
         A characteristic setter may be a coroutine function. Writes from a
         controller wait for it before they are answered. Called directly, this
-        method only schedules the coroutine and does not wait for it.
-        Accessory and service setters must not be coroutine functions; a
-        coroutine they return is closed with a warning.
+        method only schedules the coroutine and does not wait for it. Either
+        way subscribers learn the value once the coroutine succeeded, and it
+        should use its argument, not the characteristic's value, which a write
+        response request has already put back. Accessory and service setters
+        must not be coroutine functions. A coroutine they return is closed
+        with a warning.
 
         :param chars_query: A configuration query. For example:
 
@@ -1127,9 +1144,26 @@ class AccessoryDriver:
         :type chars_query: dict
         """
         results, pending = self._apply_characteristic_writes(chars_query, client_addr)
-        for _, coro, _, _ in pending:
-            self.add_job(coro)
+        for write in pending:
+            self.add_job(self._finish_pending_write(write, client_addr))
         return _set_characteristics_response(results)
+
+    async def _finish_pending_write(
+        self, write: _PendingWrite, client_addr: tuple[str, int]
+    ) -> None:
+        """Run a coroutine setter of a direct call, then tell subscribers."""
+        try:
+            await write.coro
+        except Exception:
+            logger.exception(
+                "%s: Error while setting characteristic %s",
+                client_addr,
+                write.char.display_name,
+            )
+            return
+        write.char.client_update_finished(
+            write.previous_value, client_addr, notify=write.notify
+        )
 
     def _set_characteristics_for_controller(
         self,
@@ -1142,7 +1176,7 @@ class AccessoryDriver:
         Returns an awaitable of the response if a characteristic setter is a
         coroutine function. Accessory and service setters run before those
         coroutines start. A setter still running after ``timeout`` seconds is
-        cancelled and its characteristic answers -70408; cancelling the
+        cancelled and its characteristic answers -70408. Cancelling the
         awaitable, e.g. because the connection closed, cancels the setters.
         """
         results, pending = self._apply_characteristic_writes(chars_query, client_addr)
@@ -1162,8 +1196,8 @@ class AccessoryDriver:
         except BaseException:
             # A malformed later entry must not leave a setter coroutine
             # un-awaited.
-            for _, coro, _, _ in pending:
-                coro.close()
+            for write in pending:
+                write.coro.close()
             raise
 
     def _run_characteristic_writes(
@@ -1260,7 +1294,7 @@ class AccessoryDriver:
             # Only characteristics with the write response permission answer
             # a write with a value, and only when the controller asks for it.
             write_response = (
-                query.get(HAP_REPR_WRITE_RESPONSE) is True
+                bool(query.get(HAP_REPR_WRITE_RESPONSE))
                 and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
             )
             # A new write replaces a former response of this connection. The
@@ -1305,7 +1339,14 @@ class AccessoryDriver:
             result: dict[str, Any] = {HAP_REPR_STATUS: set_result}
             if inspect.iscoroutine(set_result_value):
                 pending.append(
-                    _PendingWrite(result, set_result_value, write_response, char)
+                    _PendingWrite(
+                        result,
+                        set_result_value,
+                        write_response,
+                        char,
+                        previous_value,
+                        not private_write,
+                    )
                 )
             elif set_result_value is not None:
                 self._keep_response(
@@ -1356,11 +1397,16 @@ class AccessoryDriver:
         try:
             done, not_done = await asyncio.wait(tasks, timeout=timeout)
         except asyncio.CancelledError:
-            for task in tasks:
+            for task, write in tasks.items():
+                if task.done():
+                    self._finish_done_write(task, write, client_addr)
+                    continue
                 task.cancel()
+                task.add_done_callback(_retrieve_late_result)
             raise
         for task in not_done:
             task.cancel()
+            task.add_done_callback(_retrieve_late_result)
             write = tasks[task]
             logger.warning(
                 "%s: Timed out setting characteristic %s",
@@ -1382,6 +1428,9 @@ class AccessoryDriver:
                     HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
                 )
                 continue
+            write.char.client_update_finished(
+                write.previous_value, client_addr, notify=write.notify
+            )
             if outcome is not None:
                 # A response queued when the connection closes is dropped by
                 # the deferred cleanup in connection_lost.
@@ -1389,6 +1438,25 @@ class AccessoryDriver:
                     write.result, write.char, outcome, write.write_response, client_addr
                 )
         return _set_characteristics_response(results)
+
+    @staticmethod
+    def _finish_done_write(
+        task: asyncio.Future[Any], write: _PendingWrite, client_addr: tuple[str, int]
+    ) -> None:
+        """Tell subscribers about a setter done before the write was cancelled."""
+        if task.cancelled():
+            return
+        if (err := task.exception()) is not None:
+            logger.error(
+                "%s: Error while setting characteristic %s",
+                client_addr,
+                write.char.display_name,
+                exc_info=err,
+            )
+            return
+        write.char.client_update_finished(
+            write.previous_value, client_addr, notify=write.notify
+        )
 
     def _keep_response(
         self,
@@ -1409,10 +1477,10 @@ class AccessoryDriver:
         ):
             self._store_write_response(char, response, client_addr)
 
-    def _take_prepared_write(self, pid: int, client_addr: tuple[str, int]) -> bool:
+    def _take_prepared_write(self, pid: Any, client_addr: tuple[str, int]) -> bool:
         """Consume the prepared write ``pid`` and return whether it is still valid."""
-        if not isinstance(pid, int):
-            # Controller input; a list or dict is not even hashable.
+        if not _is_hap_int(pid):
+            # Controller input. A list or dict is not even hashable.
             return False
         expires_at = self.prepared_writes.get(client_addr, {}).pop(pid, None)
         return expires_at is not None and time.monotonic() <= expires_at
@@ -1468,9 +1536,13 @@ class AccessoryDriver:
 
         :type prepare_query: dict
         """
+        if not isinstance(prepare_query, dict):
+            return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
+        ttl = prepare_query.get(HAP_REPR_TTL)
+        pid = prepare_query.get(HAP_REPR_PID)
+        if not (_is_hap_int(ttl) and _is_hap_int(pid)):
+            return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
         try:
-            ttl = prepare_query[HAP_REPR_TTL]
-            pid = prepare_query[HAP_REPR_PID]
             now = time.monotonic()
             pending = self.prepared_writes.setdefault(client_addr, {})
             # Prune expired entries and cap the number of pending writes so a
@@ -1479,13 +1551,13 @@ class AccessoryDriver:
             for stale_pid in [
                 prepared_pid
                 for prepared_pid, expires_at in pending.items()
-                if expires_at <= now
+                if expires_at < now
             ]:
                 del pending[stale_pid]
             if len(pending) >= MAX_PREPARED_WRITES_PER_CLIENT:
                 del pending[min(pending, key=pending.get)]
             pending[pid] = now + min(ttl / 1000, MAX_PREPARED_WRITE_TTL_SECONDS)
-        except (KeyError, TypeError, ValueError):
+        except OverflowError:
             return {HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST}
 
         return {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}

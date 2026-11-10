@@ -7,14 +7,14 @@ import os
 import tempfile
 import time
 from typing import Any, NoReturn
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 from uuid import uuid1
 
 from cryptography.hazmat.primitives import serialization
 import pytest
 from zeroconf import InterfaceChoice
 
-from pyhap import util
+from pyhap import accessory_driver, util
 from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
 from pyhap.accessory_driver import (
     MAX_FAILED_PAIRING_ATTEMPTS,
@@ -1216,6 +1216,326 @@ async def test_public_set_characteristics_schedules_async_setters(
 
     assert _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True}) is None
     await asyncio.wait_for(setter.ran.wait(), ASYNC_TIMEOUT)
+
+
+class _NotifyCheckingSetter:
+    """An async setter that records how often subscribers were told when it ran."""
+
+    def __init__(self, notify: MagicMock, fail: bool) -> None:
+        self.notify = notify
+        self.fail = fail
+        self.notified_before: list[int] = []
+
+    async def __call__(self, value: int) -> None:
+        await asyncio.sleep(0)
+        self.notified_before.append(self.notify.call_count)
+        if self.fail:
+            raise ValueError("setter failed")
+
+
+@pytest.mark.parametrize(
+    ("fail", "calls"),
+    [
+        pytest.param(False, [call(WRITER)], id="success"),
+        pytest.param(True, [], id="error"),
+    ],
+)
+async def test_async_setter_notifies_once_it_succeeded(
+    driver: AccessoryDriver, fail: bool, calls: list[Any]
+) -> None:
+    """Subscribers learn a written value only after the async setter succeeded."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "ev"], False)
+    char.value = 5
+
+    with patch.object(Characteristic, "notify") as notify:
+        setter = _NotifyCheckingSetter(notify, fail)
+        char.setter_callback = setter
+        await _controller_write(driver, acc, char)
+
+    assert setter.notified_before == [0]
+    assert notify.call_args_list == calls
+
+
+class _ValueSettingSetter:
+    """An async setter that stores a value of its own and answers 1."""
+
+    def __init__(self, char: Characteristic) -> None:
+        self.char = char
+        self.done = asyncio.Event()
+
+    async def __call__(self, value: int) -> int:
+        await asyncio.sleep(0)
+        self.char.value = 7
+        self.done.set()
+        return 1
+
+
+@pytest.mark.parametrize("own_value", [False, True], ids=["request", "own-value"])
+async def test_private_async_write_does_not_notify(
+    driver: AccessoryDriver, own_value: bool
+) -> None:
+    """A write response request through an async setter tells no subscriber."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "ev", "wr"], False)
+    char.value = 5
+    setters = {False: _async_return_one, True: _ValueSettingSetter(char)}
+    char.setter_callback = setters[own_value]
+
+    with patch.object(Characteristic, "notify") as notify:
+        await _controller_write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
+
+    notify.assert_not_called()
+
+
+def test_direct_client_update_notifies_at_once(driver: AccessoryDriver) -> None:
+    """Without defer_notify, client_update_value notifies as before."""
+    _, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "ev"], False)
+    char.value = 5
+    char.setter_callback = _async_return_none
+
+    with patch.object(Characteristic, "notify") as notify:
+        coro = char.client_update_value(0, WRITER)
+
+    coro.close()
+    notify.assert_called_once_with(WRITER)
+
+
+async def test_public_write_notifies_once_the_async_setter_ran(
+    driver: AccessoryDriver,
+) -> None:
+    """Called directly, subscribers also learn the value after the setter ran."""
+    driver.loop = asyncio.get_running_loop()
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "ev"], False)
+    char.value = 5
+    setter = _RecordingSetter()
+    char.setter_callback = setter
+    notified = asyncio.Event()
+    ran_when_notified: list[bool] = []
+
+    def _record(*_: Any) -> None:
+        ran_when_notified.append(setter.ran.is_set())
+        notified.set()
+
+    with patch.object(Characteristic, "notify", side_effect=_record) as notify:
+        assert _write(driver, acc, char) is None
+        await asyncio.wait_for(notified.wait(), ASYNC_TIMEOUT)
+
+    assert ran_when_notified == [True]
+    notify.assert_called_once_with(WRITER)
+
+
+async def test_public_write_logs_a_failing_async_setter(
+    driver: AccessoryDriver,
+) -> None:
+    """Called directly, a failing async setter is logged with its name."""
+    driver.loop = asyncio.get_running_loop()
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "ev"], False)
+    char.value = 5
+    logged = asyncio.Event()
+    char.setter_callback = _async_raise
+
+    with (
+        patch.object(Characteristic, "notify") as notify,
+        patch.object(
+            accessory_driver.logger,
+            "exception",
+            side_effect=lambda *_: logged.set(),
+        ) as log_exception,
+    ):
+        assert _write(driver, acc, char) is None
+        await asyncio.wait_for(logged.wait(), ASYNC_TIMEOUT)
+
+    log_exception.assert_called_once_with(
+        "%s: Error while setting characteristic %s", WRITER, char.display_name
+    )
+    notify.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("fast_setter", "calls"),
+    [
+        pytest.param(_async_return_none, [call(WRITER)], id="success"),
+        pytest.param(_async_raise, [], id="error"),
+    ],
+)
+async def test_cancelled_write_notifies_setters_that_finished(
+    driver: AccessoryDriver, fast_setter: Any, calls: list[Any]
+) -> None:
+    """A setter done before the write is cancelled tells subscribers if it worked."""
+    acc = Accessory(driver, "Test Accessory")
+    service = Service(uuid1(), "Test Service")
+    props = {PROP_FORMAT: HAP_FORMAT_INT, PROP_PERMISSIONS: ["pr", "pw", "ev"]}
+    fast = Characteristic("Fast", uuid1(), props)
+    fast.setter_callback = fast_setter
+    slow = Characteristic("Slow", uuid1(), props)
+    slow_setter = _SlowSetter()
+    slow.setter_callback = slow_setter
+    service.add_characteristic(fast, slow)
+    acc.add_service(service)
+    driver.add_accessory(acc)
+    fast.value = slow.value = 5
+    fast_iid = acc.iid_manager.get_iid(fast)
+    slow_iid = acc.iid_manager.get_iid(slow)
+    query = {
+        HAP_REPR_CHARS: [
+            {HAP_REPR_AID: acc.aid, HAP_REPR_IID: fast_iid, HAP_REPR_VALUE: 0},
+            {HAP_REPR_AID: acc.aid, HAP_REPR_IID: slow_iid, HAP_REPR_VALUE: 0},
+        ]
+    }
+
+    with patch.object(Characteristic, "notify") as notify:
+        result = driver._set_characteristics_for_controller(
+            query, WRITER, ASYNC_TIMEOUT
+        )
+        assert inspect.isawaitable(result)
+        task = asyncio.ensure_future(result)
+        await asyncio.wait_for(slow_setter.started.wait(), ASYNC_TIMEOUT)
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    assert notify.call_args_list == calls
+    assert task.cancelled()
+
+
+async def test_cancelled_write_logs_a_setter_that_failed_before(
+    driver: AccessoryDriver,
+) -> None:
+    """A setter that failed before the write is cancelled is logged once."""
+    acc = Accessory(driver, "Test Accessory")
+    service = Service(uuid1(), "Test Service")
+    props = {PROP_FORMAT: HAP_FORMAT_INT, PROP_PERMISSIONS: ["pw"]}
+    failing = Characteristic("Failing", uuid1(), props)
+    failing.setter_callback = _async_raise
+    slow = Characteristic("Slow", uuid1(), props)
+    slow_setter = _SlowSetter()
+    slow.setter_callback = slow_setter
+    service.add_characteristic(failing, slow)
+    acc.add_service(service)
+    driver.add_accessory(acc)
+    failing_iid = acc.iid_manager.get_iid(failing)
+    slow_iid = acc.iid_manager.get_iid(slow)
+    query = {
+        HAP_REPR_CHARS: [
+            {HAP_REPR_AID: acc.aid, HAP_REPR_IID: failing_iid, HAP_REPR_VALUE: 0},
+            {HAP_REPR_AID: acc.aid, HAP_REPR_IID: slow_iid, HAP_REPR_VALUE: 0},
+        ]
+    }
+    result = driver._set_characteristics_for_controller(query, WRITER, ASYNC_TIMEOUT)
+    assert inspect.isawaitable(result)
+    task = asyncio.ensure_future(result)
+    await asyncio.wait_for(slow_setter.started.wait(), ASYNC_TIMEOUT)
+    await asyncio.sleep(0)
+
+    with (
+        patch.object(accessory_driver.logger, "error") as log_error,
+        patch.object(accessory_driver.logger, "debug") as log_debug,
+    ):
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await asyncio.wait_for(slow_setter.cancelled.wait(), ASYNC_TIMEOUT)
+
+    log_error.assert_called_once_with(
+        "%s: Error while setting characteristic %s",
+        WRITER,
+        "Failing",
+        exc_info=ANY,
+    )
+    log_debug.assert_not_called()
+
+
+async def test_public_private_write_with_own_value_does_not_notify(
+    driver: AccessoryDriver,
+) -> None:
+    """Called directly, a write response request tells no subscriber either."""
+    driver.loop = asyncio.get_running_loop()
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "ev", "wr"], False)
+    char.value = 5
+    setter = _ValueSettingSetter(char)
+    char.setter_callback = setter
+
+    with patch.object(Characteristic, "notify") as notify:
+        _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
+        await asyncio.wait_for(setter.done.wait(), ASYNC_TIMEOUT)
+        await asyncio.sleep(0)
+
+    notify.assert_not_called()
+
+
+class _StubbornSetter:
+    """An async setter that ignores its cancellation and fails afterwards."""
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+
+    async def __call__(self, value: int) -> None:
+        self.started.set()
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            await asyncio.sleep(0)
+            raise ValueError("failed after the cancellation") from None
+
+
+async def _write_and_cancel(
+    driver: AccessoryDriver, query: dict[str, Any], setter: _StubbornSetter
+) -> None:
+    """Start a controller write and cancel it once the setter runs."""
+    result = driver._set_characteristics_for_controller(query, WRITER, ASYNC_TIMEOUT)
+    assert inspect.isawaitable(result)
+    task = asyncio.ensure_future(result)
+    await asyncio.wait_for(setter.started.wait(), ASYNC_TIMEOUT)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
+async def _write_until_timeout(
+    driver: AccessoryDriver, query: dict[str, Any], setter: _StubbornSetter
+) -> None:
+    """Make a controller write whose setter outlives the timeout."""
+    result = driver._set_characteristics_for_controller(query, WRITER, 0.05)
+    assert inspect.isawaitable(result)
+    await result
+
+
+@pytest.mark.parametrize(
+    "run", [_write_until_timeout, _write_and_cancel], ids=["timeout", "cancelled"]
+)
+async def test_setter_failing_after_its_cancellation_is_retrieved(
+    driver: AccessoryDriver, run: Any
+) -> None:
+    """A setter that runs on after its cancellation has its error logged."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pw"], False)
+    setter = _StubbornSetter()
+    char.setter_callback = setter
+    logged = asyncio.Event()
+    query = {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: acc.iid_manager.get_iid(char),
+                HAP_REPR_VALUE: 0,
+            }
+        ]
+    }
+
+    with patch.object(
+        accessory_driver.logger, "debug", side_effect=lambda *_, **__: logged.set()
+    ) as log_debug:
+        await run(driver, query, setter)
+        await asyncio.wait_for(logged.wait(), ASYNC_TIMEOUT)
+
+    assert log_debug.call_args.args == ("Setter failed after it was cancelled",)
+
+
+@pytest.mark.parametrize("flag", [True, 1], ids=["true", "one"])
+def test_write_response_flag_is_truthy(driver: AccessoryDriver, flag: Any) -> None:
+    """Any truthy "r" asks for a write response, as before."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pw", "wr"], False)
+    char.setter_callback = MagicMock(return_value=1)
+
+    response = _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: flag})
+
+    assert response[HAP_REPR_CHARS][0][HAP_REPR_VALUE] == 1
 
 
 async def test_setter_returning_a_task_is_not_awaited(

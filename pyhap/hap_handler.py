@@ -719,7 +719,7 @@ class HAPServerHandler:
         )
         assert self.response is not None  # noqa: S101
         if inspect.isawaitable(result):
-            # A setter is still running; answer once it is done. The driver
+            # A setter is still running, answer once it is done. The driver
             # times out slow setters itself.
             self.response.task = asyncio.ensure_future(
                 self._async_set_characteristics_body(self.response, result)
