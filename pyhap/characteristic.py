@@ -7,7 +7,7 @@ a temperature measuring or a device status.
 from collections.abc import Callable
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 from uuid import UUID
 
 from .const import (
@@ -49,6 +49,27 @@ def _setter_wants_client_addr(setter: Callable[..., Any]) -> bool:
 # ### HAP Format ###
 # A characteristic value as HAP JSON carries it.
 HAPValue = bool | int | float | str | None
+
+
+class _CharacteristicWriteTarget(TypedDict):
+    aid: int
+    iid: int
+
+
+class CharacteristicWrite(_CharacteristicWriteTarget, total=False):
+    """One characteristic of a write, as HAP JSON carries it.
+
+    ``value`` is the value to write, ``ev`` subscribes or unsubscribes and
+    ``r`` asks for a write response. ``authData`` and ``remote`` are part of
+    the HAP request too, the driver does not read them.
+    """
+
+    value: HAPValue
+    ev: bool
+    r: bool
+    authData: str
+    remote: bool
+
 
 HAP_FORMAT_BOOL = "bool"
 HAP_FORMAT_INT = "int"
@@ -148,6 +169,13 @@ class Characteristic:
     the current temperature. Characteristics are contained in services.
     Each characteristic has a unique type UUID and a set of properties,
     like format, min and max values, valid values and others.
+
+    Set ``read_back_response`` to True for a readable control point that a
+    controller writes and then reads, such as Setup Endpoints: what the
+    setter returns or leaves as the value is read back only by the connection
+    that wrote, and the shared value stays as it was. An async setter must
+    return the answer and must not set the value itself, a value it sets is
+    shared with every controller.
     """
 
     __slots__ = (
@@ -168,6 +196,7 @@ class Characteristic:
         "_always_null",
         "_setter_addr_cache",
         "_setter_addr_cache_for",
+        "read_back_response",
     )
 
     def __init__(
@@ -224,6 +253,10 @@ class Characteristic:
         self._loader_display_name: str | None = None
         self._to_hap_cache_with_value: dict[str, Any] | None = None
         self._to_hap_cache: dict[str, Any] | None = None
+        # For a control point a controller writes and then reads, such as
+        # Setup Endpoints: the setter's return value is what the writing
+        # connection reads back, like a write response.
+        self.read_back_response = False
 
     @property
     def display_name(self) -> str | None:

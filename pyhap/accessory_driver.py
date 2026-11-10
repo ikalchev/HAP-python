@@ -24,6 +24,7 @@ from collections.abc import Awaitable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import inspect
+import ipaddress
 import logging
 import os
 import re
@@ -45,6 +46,7 @@ from pyhap.characteristic import (
     PROP_PERMISSIONS,
     Characteristic,
     CharacteristicError,
+    CharacteristicWrite,
     HAPValue,
 )
 from pyhap.const import (
@@ -1122,6 +1124,30 @@ class AccessoryDriver:
             return None
         return connection.derive_key(salt, info)
 
+    def local_address(
+        self, client_addr: tuple[str, int] | None, ipv6: bool
+    ) -> str | None:
+        """The accessory's address on a controller's connection.
+
+        Returns None without such a connection or if its address is not of
+        the asked IP version. An IPv4 address mapped into IPv6 counts as
+        IPv4, a scope ID is dropped.
+        """
+        connection = (
+            self.http_server.connections.get(client_addr) if client_addr else None
+        )
+        transport = connection.transport if connection else None
+        sockname = transport.get_extra_info("sockname") if transport else None
+        if not sockname:
+            return None
+        try:
+            address = ipaddress.ip_address(str(sockname[0]).split("%", 1)[0])
+        except ValueError:
+            return None
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+            address = address.ipv4_mapped
+        return str(address) if address.version == (6 if ipv6 else 4) else None
+
     def set_characteristics(
         self,
         chars_query: dict[str, Any],
@@ -1239,7 +1265,7 @@ class AccessoryDriver:
         client_uuid: UUID | None,
         pending: list[_PendingWrite],
     ) -> tuple[dict[int, dict[int, dict[str, Any]]], list[_PendingWrite]]:
-        queries: list[dict[str, Any]] = chars_query[HAP_REPR_CHARS]
+        queries: list[CharacteristicWrite] = chars_query[HAP_REPR_CHARS]
 
         timed_write = HAP_REPR_PID in chars_query
         if timed_write and not self._take_prepared_write(
@@ -1343,12 +1369,13 @@ class AccessoryDriver:
                 and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
             )
             # A new write replaces a former response of this connection. The
-            # request of a readable write response characteristic is not
-            # shared, whatever the setter does, also not with ev subscribers.
+            # request of a readable write response or read back characteristic
+            # is not shared, whatever the setter does, also not with ev
+            # subscribers.
             if value is not None:
                 self._write_responses.get(client_addr, {}).pop(char, None)
             private_write = (
-                write_response
+                (write_response or char.read_back_response)
                 and value is not None
                 and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
             )
@@ -1366,8 +1393,22 @@ class AccessoryDriver:
             # the writer reads the answer back, see _store_write_response.
             # client_update_value stored the request as the value, so put
             # back the former one unless the setter set a value of its own.
-            if private_write and char.value == _stored_value(char, value):
-                char.value = previous_value
+            # Whatever the setter of a read back characteristic leaves in the
+            # value is an answer for the writer only, e.g. the Setup Endpoints
+            # answer of a subclass that calls super() and returns nothing.
+            # Neither the former value of a refused write nor the request the
+            # setter left alone is an answer.
+            if private_write:
+                own_value = char.value
+                if char.read_back_response:
+                    if set_result_value is None and own_value not in (
+                        previous_value,
+                        _stored_value(char, value),
+                    ):
+                        set_result_value = own_value
+                    char.value = previous_value
+                elif own_value == _stored_value(char, value):
+                    char.value = previous_value
 
             result: dict[str, Any] = {HAP_REPR_STATUS: set_result}
             if inspect.iscoroutine(set_result_value):
@@ -1381,9 +1422,9 @@ class AccessoryDriver:
                         not private_write,
                     )
                 )
-            elif set_result_value is not None and write_response:
-                result[HAP_REPR_VALUE] = self._store_write_response(
-                    char, set_result_value, client_addr
+            elif set_result_value is not None:
+                self._keep_response(
+                    result, char, set_result_value, write_response, client_addr
                 )
 
             results[aid][iid] = result
@@ -1464,11 +1505,11 @@ class AccessoryDriver:
             write.char.client_update_finished(
                 write.previous_value, client_addr, notify=write.notify
             )
-            if outcome is not None and write.write_response:
+            if outcome is not None:
                 # A response queued when the connection closes is dropped by
                 # the deferred cleanup in connection_lost.
-                write.result[HAP_REPR_VALUE] = self._store_write_response(
-                    write.char, outcome, client_addr
+                self._keep_response(
+                    write.result, write.char, outcome, write.write_response, client_addr
                 )
         return _set_characteristics_response(results)
 
@@ -1490,6 +1531,25 @@ class AccessoryDriver:
         write.char.client_update_finished(
             write.previous_value, client_addr, notify=write.notify
         )
+
+    def _keep_response(
+        self,
+        result: dict[str, Any],
+        char: Characteristic,
+        response: HAPValue,
+        write_response: bool,
+        client_addr: tuple[str, int] | None,
+    ) -> None:
+        """Keep what a setter returned as a write response or read back value."""
+        if write_response:
+            result[HAP_REPR_VALUE] = self._store_write_response(
+                char, response, client_addr
+            )
+        elif (
+            char.read_back_response
+            and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
+        ):
+            self._store_write_response(char, response, client_addr)
 
     def _take_prepared_write(self, pid: Any, client_addr: tuple[str, int]) -> bool:
         """Consume the prepared write ``pid`` and return whether it is still valid."""
@@ -1513,8 +1573,9 @@ class AccessoryDriver:
         response back, until it closes, and it wins over the getter and a later
         ``set_value``. Other connections read the characteristic's own value,
         which the write leaves as it was. A write without ``r`` stays readable
-        for everyone, and a characteristic that also has ``ev`` notifies the
-        written value as any write does.
+        for everyone and notifies ``ev`` subscribers as any write does, unless
+        the characteristic has ``read_back_response``, which keeps the response
+        the same way without a write response.
         """
         readable = HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
         try:
@@ -1593,7 +1654,7 @@ class AccessoryDriver:
             raise
 
     def _notify(
-        self, queries: list[dict[str, Any]], client_addr: tuple[str, int]
+        self, queries: list[CharacteristicWrite], client_addr: tuple[str, int]
     ) -> set[tuple[int, int]]:
         """Notify the driver that the client has subscribed or unsubscribed.
 
