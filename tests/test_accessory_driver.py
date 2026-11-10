@@ -1,7 +1,6 @@
 """Tests for pyhap.accessory_driver."""
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import os
 import tempfile
@@ -1280,23 +1279,32 @@ def test_mixing_service_char_callbacks_partial_failure(driver: AccessoryDriver) 
     }
 
 
-def test_start_from_sync(driver: AccessoryDriver) -> None:
-    """Start from sync."""
+def test_start_from_sync(async_zeroconf: Any) -> None:
+    """Start from sync, on the loop and executor the driver makes itself.
 
-    class Acc(Accessory):
-        @Accessory.run_at_interval(0)
-        async def run(self) -> None:
-            driver.executor = ThreadPoolExecutor()
-            driver.loop.set_default_executor(driver.executor)
-            await driver.async_stop()
+    Not the shared test loop: stopping shuts the executor down, which would
+    leave that loop unable to run later tests' executor jobs.
+    """
+    with (
+        patch("pyhap.accessory_driver.HAPServer.async_stop", new_callable=MagicMock),
+        patch("pyhap.accessory_driver.HAPServer.async_start", new_callable=AsyncMock),
+        patch("pyhap.accessory_driver.AccessoryDriver.persist"),
+    ):
+        driver = AccessoryDriver()
 
-        def setup_message(self) -> None:
-            pass
+        class Acc(Accessory):
+            @Accessory.run_at_interval(0)
+            async def run(self) -> None:
+                await driver.async_stop()
 
-    acc = Acc(driver, "TestAcc")
-    driver.add_accessory(acc)
-    with patch.object(driver.loop, "close"):
+            def setup_message(self) -> None:
+                pass
+
+        acc = Acc(driver, "TestAcc")
+        driver.add_accessory(acc)
         driver.start()
+
+    assert driver.loop.is_closed()
 
 
 def test_accessory_level_callbacks(driver: AccessoryDriver) -> None:
