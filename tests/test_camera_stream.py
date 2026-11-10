@@ -228,6 +228,7 @@ async def test_release_failure_is_logged(
     assert release_task is not None
     assert await release_task is True
     assert message in caplog.text
+    assert "after its timeout" not in caplog.text
     assert session_controller._no_room(CLIENT) is None
 
 
@@ -590,8 +591,9 @@ async def test_timed_out_release_error_is_retrieved(
     session_controller: StreamController[StreamSession],
     session_release: AsyncMock,
     add_session: Callable[..., StreamSession],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Test the error of a release raised after its timeout is not lost."""
+    """Test the error of a release raised after its timeout is warned about."""
     loop = asyncio.get_running_loop()
     unhandled = _catch_unhandled(loop)
     session_release.side_effect = _fails_after_cancellation
@@ -607,6 +609,13 @@ async def test_timed_out_release_error_is_retrieved(
     loop.set_exception_handler(None)
 
     assert unhandled == []
+    assert (
+        "pyhap.camera_stream",
+        logging.WARNING,
+        f"[{session.id}] The end hook failed after its timeout: "
+        "RuntimeError('late release failure')",
+    ) in caplog.record_tuples
+    assert session_controller._abandoned == set()
 
 
 async def _ignores_cancellation(stop: asyncio.Event) -> None:

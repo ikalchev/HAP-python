@@ -18,8 +18,9 @@ A delegate hook runs as a task the session owns. A HAP request waits for it
 until one deadline, ``hook_timeout`` after the write, which leaves time to
 answer within the HAP response timeout. A hook that takes longer is
 cancelled and its session ends. Once a session ended, the delegate releases
-it exactly once, in the background, if it saw the session at all. Until the
-release finished, the session still counts towards the session limits.
+it exactly once, in the background, if it saw the session at all. Until its
+release finished or timed out, the session still counts towards the session
+limits.
 
 A delegate keeps its state by session object, e.g. in ``session.data``, not
 by session ID: a controller may set up a session with the ID of one that is
@@ -206,6 +207,8 @@ class StreamController(Generic[_S]):
         # Ended sessions whose release still runs, they keep their room.
         self._releasing: set[_S] = set()
         self._tasks: set[asyncio.Task[Any]] = set()
+        # Background tasks nobody waits for any more, their errors are warned.
+        self._abandoned: set[asyncio.Task[Any]] = set()
         self._closed = False
 
     @property
@@ -282,7 +285,9 @@ class StreamController(Generic[_S]):
         task = self._loop.create_task(hook)
         session._tasks.add(task)
         task.add_done_callback(session._tasks.discard)
-        task.add_done_callback(functools.partial(_retrieve, session, name))
+        task.add_done_callback(
+            functools.partial(self._retrieve, session, f"The {name} hook")
+        )
         try:
             done, _ = await asyncio.wait(
                 {task}, timeout=max(deadline - self._loop.time(), 0)
@@ -317,14 +322,32 @@ class StreamController(Generic[_S]):
         raise HookFailed(error.status if isinstance(error, StreamError) else None)
 
     def _background(
-        self, session: _S, name: str, coro: Coroutine[Any, Any, _T]
+        self, session: _S, label: str, coro: Coroutine[Any, Any, _T]
     ) -> asyncio.Task[_T]:
+        """Run ``coro`` as a task of the controller, ``label`` names it in logs."""
         task = self._loop.create_task(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         # A release that timed out is not awaited any more.
-        task.add_done_callback(functools.partial(_retrieve, session, name))
+        task.add_done_callback(functools.partial(self._retrieve, session, label))
         return task
+
+    def _retrieve(self, session: _S, label: str, task: asyncio.Task[Any]) -> None:
+        """Retrieve the exception of a hook or background task, also unawaited.
+
+        Nobody reports the error of an abandoned task, e.g. a release still
+        running at its timeout, so it is warned about. Other errors are only
+        logged at debug, their waiter reports them or their session ended.
+        """
+        abandoned = task in self._abandoned
+        self._abandoned.discard(task)
+        if not task.cancelled() and (error := task.exception()) is not None:
+            if abandoned:
+                logger.warning(
+                    "[%s] %s failed after its timeout: %r", session.id, label, error
+                )
+            else:
+                logger.debug("[%s] %s ended with %r", session.id, label, error)
 
     def _end(self, session: _S, reason: str) -> asyncio.Task[bool] | None:
         """End ``session`` now and release it in the background.
@@ -346,7 +369,7 @@ class StreamController(Generic[_S]):
             if session._delegated:
                 self._releasing.add(session)
                 session._release = self._background(
-                    session, "release", self._release(session, hooks)
+                    session, "The release task", self._release(session, hooks)
                 )
         return session._release
 
@@ -368,12 +391,13 @@ class StreamController(Generic[_S]):
                     session.id,
                     len(pending),
                 )
-        release = self._background(session, "end", self._release_hook(session))
+        release = self._background(session, "The end hook", self._release_hook(session))
         done, _ = await asyncio.wait({release}, timeout=self.hook_timeout)
         if not done:
             # Not awaited: a release that ignores its cancellation must not
             # keep the room or the camera's stop.
             release.cancel()
+            self._abandoned.add(release)
             logger.warning("[%s] Releasing the session timed out", session.id)
             return False
         # The release finished, so the session is gone even if it failed.
@@ -388,8 +412,8 @@ class StreamController(Generic[_S]):
     async def _end_by_request(self, session: _S, deadline: float) -> bool:
         """End a session for a request, waiting for its release until ``deadline``.
 
-        Returns False if the release did not finish in time, the session then
-        still counts towards the session limits.
+        Returns False if the release did not finish by ``deadline``. The
+        session then keeps its room until its release finished or timed out.
         """
         release = self._end(session, "the controller ended it")
         if release is None:
@@ -461,9 +485,3 @@ class StreamController(Generic[_S]):
                 )
                 return
             await asyncio.wait(pending, timeout=remaining)
-
-
-def _retrieve(session: StreamSession, name: str, task: asyncio.Task[Any]) -> None:
-    """Retrieve a hook's exception, also when nobody waits for it any more."""
-    if not task.cancelled() and (error := task.exception()) is not None:
-        logger.debug("[%s] The %s hook ended with %r", session.id, name, error)
