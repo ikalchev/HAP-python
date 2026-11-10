@@ -1,9 +1,9 @@
-"""Shared media of HomeKit camera streams.
+"""Media of HomeKit cameras: multi-tier RTP live view.
 
-:class:`MediaSource` receives a camera channel as plain RTP and reassembles
-its H.265 once for every session of the channel. :class:`SourcePool` shares
-one source and one pull (e.g. :class:`FFmpegSourceProvider`) per channel,
-and :class:`MediaWorker` runs the sources in a worker process.
+:class:`MultiTierSender` and :class:`MediaSource` import their transport
+(``pylibsrtp``) on first use; :class:`MediaWorker` runs them in a worker
+process. :class:`MultiTierMediaDelegate` runs them for the multi-tier
+sessions of :class:`pyhap.camera.Camera` from a :class:`SourcePool`.
 """
 
 from __future__ import annotations
@@ -19,10 +19,13 @@ class MediaError(Exception):
 
 if TYPE_CHECKING:
     from .ffmpeg import FFmpegInput, FFmpegSourceProvider
+    from .multi_tier import MultiTierSender
+    from .multi_tier_delegate import MultiTierMediaDelegate
     from .pool import (
         ChannelLease,
         ChannelPull,
         MediaSourceLike,
+        MultiTierMediaSender,
         SourceLease,
         SourcePool,
     )
@@ -30,6 +33,7 @@ if TYPE_CHECKING:
     from .worker import (
         MediaWorker,
         RemoteMediaSource,
+        RemoteMultiTierSender,
     )
 
 __all__ = [
@@ -41,7 +45,11 @@ __all__ = [
     "IceCandidateLike",
     "MediaSource",
     "MediaSourceLike",
+    "MultiTierMediaDelegate",
+    "MultiTierMediaSender",
+    "MultiTierSender",
     "RemoteMediaSource",
+    "RemoteMultiTierSender",
     "SourceLease",
     "SourcePool",
     "VideoParams",
@@ -55,10 +63,14 @@ _LAZY = {
     "FFmpegInput": "ffmpeg",
     "FFmpegSourceProvider": "ffmpeg",
     "MediaSourceLike": "pool",
+    "MultiTierMediaDelegate": "multi_tier_delegate",
+    "MultiTierMediaSender": "pool",
+    "MultiTierSender": "multi_tier",
     "SourceLease": "pool",
     "SourcePool": "pool",
     "MediaSource": "source",
     "RemoteMediaSource": "worker",
+    "RemoteMultiTierSender": "worker",
     "MediaWorker": "worker",
 }
 

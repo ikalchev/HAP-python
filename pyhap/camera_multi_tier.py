@@ -619,6 +619,10 @@ FFMPEG_AUDIO_OUTPUT = (
 class FFmpegMultiTierDelegate:
     """Streams each session with its own ffmpeg process.
 
+    A simple reference: each session opens its own camera connection.
+    :class:`pyhap.media.MultiTierMediaDelegate` shares one pull per camera
+    channel among all local and remote sessions.
+
     Pass it as the ``delegate`` of the ``multi_tier`` option. The command is
     ``ffmpeg``, the ``ffmpeg_input`` arguments, :data:`FFMPEG_VIDEO_OUTPUT`
     and, if the controller wants audio, :data:`FFMPEG_AUDIO_OUTPUT`. It is an
