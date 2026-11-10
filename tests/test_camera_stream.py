@@ -2,7 +2,9 @@
 
 import asyncio
 from collections.abc import Callable
+import contextlib
 from dataclasses import dataclass
+import gc
 import logging
 from typing import Any
 from unittest.mock import AsyncMock
@@ -481,3 +483,121 @@ async def test_no_room_once_closed(
     await session_controller.close()
 
     assert session_controller._no_room(CLIENT) == "The stream service is closed"
+
+
+async def test_releasing_session_keeps_its_room(
+    session_controller: StreamController[StreamSession],
+    session_release: AsyncMock,
+    add_session: Callable[..., StreamSession],
+) -> None:
+    """Test an ended session counts towards the limits until it is released."""
+    released = asyncio.Event()
+
+    async def _release(_session: StreamSession) -> None:
+        await released.wait()
+
+    session_release.side_effect = _release
+    add_session(CLIENT)
+    add_session(CLIENT)
+    session = add_session(CLIENT)
+    session._delegated = True
+
+    release = session_controller._end(session, "test")
+
+    assert session_controller._no_room(CLIENT) == (
+        "Too many stream sessions of the connection"
+    )
+    released.set()
+    assert release is not None
+    assert await release is True
+    assert session_controller._no_room(CLIENT) is None
+
+
+async def test_cancelled_hook_ends_the_session(
+    session_controller: StreamController[StreamSession],
+    session_release: AsyncMock,
+    add_session: Callable[..., StreamSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test a hook that cancels itself fails and may end its session."""
+    session = add_session(CLIENT)
+
+    with pytest.raises(HookFailed):
+        await session_controller._run_hook(
+            session,
+            "test",
+            _raise(asyncio.CancelledError()),
+            session_controller._deadline(),
+            end_on_failure=True,
+            first=True,
+        )
+
+    assert session.state is SessionState.ENDED
+    assert "The test hook was cancelled" in caplog.text
+    await session_controller.close()
+    session_release.assert_awaited_once_with(session)
+
+
+async def _fails_when_cancelled(started: asyncio.Event) -> None:
+    """A hook that raises another error when it is cancelled."""
+    started.set()
+    try:
+        await asyncio.Event().wait()
+    except asyncio.CancelledError:
+        raise RuntimeError("cleanup failed") from None
+
+
+async def test_hook_error_after_the_end_is_retrieved(
+    session_controller: StreamController[StreamSession],
+    add_session: Callable[..., StreamSession],
+) -> None:
+    """Test the error of a hook whose session ended meanwhile is not lost."""
+    loop = asyncio.get_running_loop()
+    unhandled: list[dict[str, Any]] = []
+    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+    session = add_session(CLIENT)
+    started = asyncio.Event()
+    request = asyncio.ensure_future(
+        session_controller._run_hook(
+            session, "test", _fails_when_cancelled(started), loop.time() + 1
+        )
+    )
+    await started.wait()
+
+    session_controller._end(session, "test")
+    await asyncio.wait({request})
+    assert isinstance(request.exception(), HookFailed)
+    # Drop the failure's traceback, it holds the hook's task.
+    del request
+    gc.collect()
+    loop.set_exception_handler(None)
+
+    assert unhandled == []
+
+
+async def test_close_gives_up_on_a_stubborn_release(
+    session_controller: StreamController[StreamSession],
+    session_release: AsyncMock,
+    add_session: Callable[..., StreamSession],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test close() returns although a release ignores its cancellation."""
+    stop = asyncio.Event()
+
+    async def _ignores_cancellation(_session: StreamSession) -> None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await stop.wait()
+        await stop.wait()
+
+    session_release.side_effect = _ignores_cancellation
+    session = add_session(CLIENT)
+    session._delegated = True
+
+    await asyncio.wait_for(session_controller.close(), 1)
+    stop.set()
+    await asyncio.sleep(0)
+
+    assert "Releasing the session timed out" in caplog.text
+    assert "Closing the stream service while 1 tasks still run" in caplog.text
+    assert session_controller._no_room(OTHER) == "The stream service is closed"
+    assert session_controller._releasing == set()

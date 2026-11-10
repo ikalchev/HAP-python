@@ -238,10 +238,14 @@ def _session(camera: Camera) -> MultiTierSession:
 
 
 def _control(
-    command: int, video_tier: int | None = 1, audio_tier: int | None = 1
+    command: int,
+    video_tier: int | None = 1,
+    audio_tier: int | None = 1,
+    session_id: UUID = SESSION,
 ) -> str:
-    """An RTP Streaming Control write for SESSION."""
-    data = hksv3.encode_item(1, SESSION.bytes) + hksv3.encode_item(2, bytes([command]))
+    """An RTP Streaming Control write, by default for SESSION."""
+    data = hksv3.encode_item(1, session_id.bytes)
+    data += hksv3.encode_item(2, bytes([command]))
     if video_tier is not None:
         data += hksv3.encode_item(3, video_tier.to_bytes(4, "little"))
         data += hksv3.encode_item(4, (0x1234).to_bytes(4, "little"))
@@ -270,6 +274,20 @@ def _setup_request_of(session_id: UUID) -> str:
     """A Setup Endpoints write like ``_setup_request()`` for ``session_id``."""
     request = base64_to_bytes(_setup_request())
     return to_base64_str(request[:2] + session_id.bytes + request[18:])
+
+
+async def _setup_and_end_many(camera: Camera, count: int) -> list[int]:
+    """Set up ``count`` sessions and end each before it starts.
+
+    Returns the Setup Endpoints statuses.
+    """
+    statuses: list[int] = []
+    for index in range(count):
+        session_id = UUID(int=index + 1)
+        answer = await _setup(camera, _setup_request_of(session_id))
+        statuses.append(answer[SETUP_TYPES["STATUS"]][0])
+        await _streaming_control(camera, command=1, session_id=session_id)
+    return statuses
 
 
 async def _setup_many(camera: Camera, count: int) -> list[int]:
@@ -490,10 +508,10 @@ async def test_setup_again_concurrently(
     )
 
 
-async def test_setup_again_finds_no_room(
+async def test_setup_again_keeps_its_room(
     stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
 ) -> None:
-    """Test a set up again is busy when a new session took its room meanwhile."""
+    """Test a new session cannot take the room of a session set up again."""
     camera = stream_camera()
     await _setup(camera)
     await _setup_many(camera, 2)
@@ -504,9 +522,9 @@ async def test_setup_again_finds_no_room(
     sessions = dict(_controller(camera).sessions)
     await camera.stop()
 
-    assert again[SETUP_TYPES["STATUS"]] == b"\x01"
-    assert new[SETUP_TYPES["STATUS"]] == b"\x00"
-    assert sorted(sessions) == [UUID(int=1), UUID(int=2), UUID(int=3)]
+    assert again[SETUP_TYPES["STATUS"]] == b"\x00"
+    assert new[SETUP_TYPES["STATUS"]] == b"\x01"
+    assert sorted(sessions) == [UUID(int=1), UUID(int=2), SESSION]
     assert multi_tier_delegate.handle_end.await_count == 4
 
 
@@ -759,6 +777,49 @@ async def test_end_before_start(
     assert await _streaming_control(camera, command=1) == 2
     await camera.stop()
     multi_tier_delegate.handle_end.assert_awaited_once()
+
+
+async def test_releasing_sessions_keep_their_room(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    end_gate: asyncio.Event,
+) -> None:
+    """Test sessions ended before they started count until they are released."""
+    camera = stream_camera()
+
+    statuses = await _setup_and_end_many(camera, 4)
+    end_gate.set()
+    await camera.stop()
+
+    assert statuses == [0, 0, 0, 1]
+    assert multi_tier_delegate.handle_end.await_count == 3
+
+
+async def test_releasing_sessions_count_towards_max_sessions(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    end_gate: asyncio.Event,
+) -> None:
+    """Test sessions being released count towards max_sessions of the sensor."""
+    camera = stream_camera(
+        multi_tier={"delegate": multi_tier_delegate, "max_sessions_per_connection": 5}
+    )
+
+    statuses = await _setup_and_end_many(camera, 6)
+    end_gate.set()
+    await camera.stop()
+
+    assert statuses == [0, 0, 0, 0, 0, 1]
+
+
+async def test_setup_after_stop(stream_camera: Callable[..., Camera]) -> None:
+    """Test a stopped camera answers Setup Endpoints with an error, not busy."""
+    camera = stream_camera()
+    await camera.stop()
+
+    answer = await _setup(camera)
+
+    assert answer[SETUP_TYPES["STATUS"]] == b"\x02"
 
 
 async def test_malformed_control(stream_camera: Callable[..., Camera]) -> None:

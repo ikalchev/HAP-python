@@ -77,10 +77,12 @@ class WebRTCDelegate(Protocol):
     with a status, any other exception answers with an error. A hook that
     takes longer than ``hook_timeout`` is cancelled and its session ends.
 
-    An answered session has no timeout of its own: remote viewers share the
-    home hub's connection, so its close ends nothing. The delegate must call
-    ``session.end()`` when the media connection fails, e.g. on ICE or consent
-    failure, or the session keeps one of the sensor's slots.
+    An answered session has no timeout of its own. When the home hub's
+    connection closes its sessions end, but remote viewers share that
+    connection, so a viewer that leaves closes nothing on the HAP side. The
+    delegate must call ``session.end()`` when the media connection fails or
+    the viewer leaves, e.g. on ICE or consent failure or a DTLS close, or the
+    session keeps one of the sensor's slots.
     """
 
     async def handle_solicit_offer(
@@ -246,7 +248,11 @@ class WebRTCController(StreamController[WebRTCSession]):
             ("WebRTCReoffer", self._set_reoffer),
             ("WebRTCUpdateSession", self._set_update_session),
         ):
-            service.configure_char(name, setter_callback=setter)
+            # The requests carry SDPs with ICE passwords and SFrame keys, so
+            # neither they nor the answers are shared with other connections.
+            service.configure_char(
+                name, setter_callback=setter
+            ).read_back_response = True
 
     def refusal(self) -> hksv3.WebRTCSolicitOfferStatus | None:
         """Why the sensor may not stream now, None if it may."""

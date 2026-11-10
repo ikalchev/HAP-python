@@ -161,8 +161,9 @@ class MultiTierConfig:
     ``delegate`` sends the media. ``audio`` is the one audio tier the guide
     allows. ``max_sessions`` per sensor is at least five, as the guide
     requires, and one connection has at most ``max_sessions_per_connection``
-    of them. A delegate hook gets ``hook_timeout`` seconds. A session must
-    start within ``setup_timeout`` seconds of its Setup Endpoints answer.
+    of them, by default three, so one controller cannot take every session.
+    A delegate hook gets ``hook_timeout`` seconds. A session must start
+    within ``setup_timeout`` seconds of its Setup Endpoints answer.
     A started session ends unless :meth:`MultiTierSession.keep_alive` is
     called at least every ``idle_timeout`` seconds, e.g. for each RTCP packet
     of the controller; None turns that off.
@@ -258,9 +259,10 @@ class MultiTierController(StreamController[MultiTierSession]):
         )
         # The answer has the session's SRTP keys, only its controller reads it.
         setup_endpoints.read_back_response = True
+        # Neither the request nor the status is shared with other connections.
         service.configure_char(
             "RTPStreamingControl", setter_callback=self._set_streaming_control
-        )
+        ).read_back_response = True
 
     @property
     def active(self) -> bool:
@@ -301,7 +303,7 @@ class MultiTierController(StreamController[MultiTierSession]):
 
     async def _set_setup_endpoints(
         self, value: str, sender_client_addr: tuple[str, int] | None = None
-    ) -> Any:
+    ) -> str:
         """Set up a session, only the writing connection reads the answer."""
         deadline = self._deadline()
         try:
@@ -349,7 +351,8 @@ class MultiTierController(StreamController[MultiTierSession]):
             return error
         if existing is None and (no_room := self._no_room(client_addr)):
             logger.warning("[%s] %s", session_id, no_room)
-            return hksv3.SetupEndpointsStatus.BUSY
+            # Busy asks to try again, a closed service never takes one.
+            return error if self._closed else hksv3.SetupEndpointsStatus.BUSY
         if self.delegate is None:
             logger.warning("[%s] No multi-tier delegate, refusing", session_id)
             return error
@@ -378,7 +381,7 @@ class MultiTierController(StreamController[MultiTierSession]):
                 return error
             if no_room := self._no_room(client_addr):
                 logger.warning("[%s] %s", session_id, no_room)
-                return hksv3.SetupEndpointsStatus.BUSY
+                return error if self._closed else hksv3.SetupEndpointsStatus.BUSY
         session = MultiTierSession(
             id=session_id,
             sensor=self.sensor,
