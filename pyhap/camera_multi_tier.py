@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+import ipaddress
 import logging
 import secrets
 from typing import TYPE_CHECKING, Any, Protocol, cast
@@ -426,6 +427,14 @@ class MultiTierController(StreamController[MultiTierSession]):
             )
             self._end(session, "the prepare hook set invalid ports")
             return error
+        if not _valid_address(session.accessory_address, session.is_ipv6):
+            logger.error(
+                "[%s] The prepare hook set an invalid address %r",
+                session_id,
+                session.accessory_address,
+            )
+            self._end(session, "the prepare hook set an invalid address")
+            return error
         session.state = SessionState.PREPARED
         self._set_timer(
             session,
@@ -527,6 +536,17 @@ class MultiTierController(StreamController[MultiTierSession]):
 
 def _valid_port(port: object) -> bool:
     return type(port) is int and 0 < port <= 0xFFFF
+
+
+def _valid_address(address: object, is_ipv6: bool) -> bool:
+    """Whether ``address`` is an IP address string of the session's family."""
+    if not isinstance(address, str):
+        return False
+    try:
+        parsed = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    return parsed.version == (6 if is_ipv6 else 4)
 
 
 def _ssrc() -> int:
