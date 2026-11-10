@@ -1247,8 +1247,11 @@ class AccessoryDriver:
 
         return {HAP_REPR_CHARS: characteristics} if nonempty_results_exist else None
 
-    def _take_prepared_write(self, pid: Any, client_addr: tuple[str, int]) -> bool:
+    def _take_prepared_write(self, pid: int, client_addr: tuple[str, int]) -> bool:
         """Consume the prepared write ``pid`` and return whether it is still valid."""
+        if not isinstance(pid, int):
+            # Controller input; a list or dict is not even hashable.
+            return False
         expires_at = self.prepared_writes.get(client_addr, {}).pop(pid, None)
         return expires_at is not None and time.monotonic() <= expires_at
 
