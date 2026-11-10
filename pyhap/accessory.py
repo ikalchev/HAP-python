@@ -333,6 +333,13 @@ class Accessory:
         built before that. Does nothing by default.
         """
 
+    def client_disconnected(self, client_addr: tuple[str, int]) -> None:
+        """Called in the event loop when a controller's connection closed.
+
+        Override to end what the controller started, e.g. its streams. Does
+        nothing by default.
+        """
+
     def reset_accessory_state(self) -> None:
         """Forget settings made by the previous home.
 
@@ -454,6 +461,16 @@ class Bridge(Accessory):
             except Exception:
                 logger.warning(
                     "Failed to restore the state of %s", acc.display_name, exc_info=True
+                )
+
+    def client_disconnected(self, client_addr: tuple[str, int]) -> None:
+        """Tell each bridged accessory about the closed connection."""
+        for acc in self.accessories.values():
+            try:
+                acc.client_disconnected(client_addr)
+            except Exception:
+                logger.exception(
+                    "%s failed to handle a closed connection", acc.display_name
                 )
 
     def reset_accessory_state(self) -> None:
