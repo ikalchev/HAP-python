@@ -16,6 +16,13 @@ Sections
 ### Developers
 -->
 
+## [Unreleased]
+
+### Changed
+
+- Add Python 3.14 and 3.15 to the supported versions (tox envs, CI matrix, and
+  package classifiers).
+
 ## [5.2.0] - 2026-11-07
 
 - Harden the pairing flow: validate TLV records, reject SRP A values divisible
