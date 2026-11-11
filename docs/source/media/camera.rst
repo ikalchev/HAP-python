@@ -103,6 +103,27 @@ decides what a fragment contains. Motion and doorbell events are signalled
 through the camera's sensor characteristics, which your code sets like any
 other value.
 
+Instead of overriding the method, you can pass a ``delegate`` that makes the
+recordings, a :class:`~pyhap.hds_recording.RecordingProducer`. The camera
+arms it while the hub has recording on and the camera is on.
+:class:`~pyhap.media.recording_delegate.RecordingMediaDelegate` is one on the
+media core: it transcodes one channel of a source provider to the H.264 the
+hub selected and can keep a prebuffer, so a recording starts a few seconds
+before the motion event:
+
+.. code-block:: python
+
+    from pyhap.media.recording_delegate import RecordingMediaDelegate
+
+    # tier: the pyhap.hksv3.VideoStreamTier of the channel to record
+    recording = RecordingMediaDelegate(provider, tier, prebuffer_ms=4000)
+    camera = Camera({..., "recording": {"delegate": recording}}, driver, "Camera")
+
+The channel comes from the same provider as the live sessions, so a channel
+that is also watched live is pulled once. Observed with iOS and tvOS 27: hubs
+do not upload the HDS recordings of a camera that also has ``multi_tier``,
+so they never appear in the Home app. Use recording on cameras without it.
+
 The 17.99 stream services
 ==========================
 
