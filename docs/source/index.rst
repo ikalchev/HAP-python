@@ -42,6 +42,20 @@ First Steps
     Accessory class.
 
 
+Camera Streaming
+=================
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+
+   media/architecture
+
+:doc:`media/architecture`
+    How the camera stream services share one media pull per channel and
+    keep the per-packet work off the caller's loop.
+
+
 API Reference
 =============
 
