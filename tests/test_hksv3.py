@@ -480,6 +480,15 @@ def test_rtp_streaming_control_end() -> None:
     assert request == RTPStreamingControl(SESSION, RTPStreamingCommand.END, 3)
 
 
+def test_rtp_streaming_control_largest_ssrc() -> None:
+    """Test the largest 32-bit SSRC still decodes for video and audio."""
+    request = RTPStreamingControl.decode(
+        bytes.fromhex("0110" + SESSION.hex + "020102 0404ffffffff 0604ffffffff")
+    )
+    assert request.video_ssrc == 0xFFFFFFFF
+    assert request.audio_ssrc == 0xFFFFFFFF
+
+
 def test_rtp_streaming_control_unknown_values() -> None:
     """Test unknown commands and types are kept and skipped."""
     request = RTPStreamingControl.decode(
@@ -497,10 +506,12 @@ def test_rtp_streaming_control_unknown_values() -> None:
         "0104aabbccdd 020102",
         "0110" + SESSION.hex + "020102 0300",
         "0110" + SESSION.hex + "0201",
+        "0110" + SESSION.hex + "020102 04050000000001",
+        "0110" + SESSION.hex + "020102 06050000000001",
     ],
 )
 def test_rtp_streaming_control_invalid(data: str) -> None:
-    """Test missing fields, bad lengths and truncated data raise."""
+    """Test missing fields, bad lengths, truncated data and wide SSRCs raise."""
     with pytest.raises(ValueError):
         RTPStreamingControl.decode(bytes.fromhex(data))
 
@@ -581,13 +592,68 @@ def test_check_video_tiers_guide_table() -> None:
 
 
 @pytest.mark.parametrize(
+    "streams",
+    [
+        ((2, 2880, 2160, 4500, 5000), (3, 1600, 1200, 1700, 1800), GUIDE_360),
+        ((2, 2400, 3200, 4500, 5000), (3, 1200, 1600, 1700, 1800), GUIDE_360),
+        ((2, 2880, 2880, 4500, 5000), (3, 1440, 1440, 1700, 1800), GUIDE_360),
+        ((2, 2560, 1440, 2800, 3000), GUIDE_1080, (4, 640, 480, 180, 190)),
+        ((2, 2048, 1536, 2800, 3000), (3, 1600, 1200, 1700, 1800), GUIDE_360),
+        ((2, 1536, 2048, 2800, 3000), (3, 1200, 1600, 1700, 1800), GUIDE_360),
+        ((2, 1920, 1920, 2800, 3000), (3, 1440, 1440, 1700, 1800), GUIDE_360),
+        (GUIDE_1080, (3, 1280, 720, 768, 800), (4, 426, 240, 180, 190)),
+        (GUIDE_1080, (3, 1440, 1080, 768, 800), (4, 640, 480, 180, 190)),
+        (
+            (2, 1200, 1600, 1700, 1800),
+            (3, 960, 1280, 768, 800),
+            (4, 480, 640, 180, 190),
+        ),
+        (
+            (2, 1440, 1440, 1700, 1800),
+            (3, 1080, 1080, 768, 800),
+            (4, 480, 480, 180, 190),
+        ),
+    ],
+)
+def test_check_video_tiers_guide_resolutions(
+    streams: tuple[tuple[int, int, int, int, int], ...],
+) -> None:
+    """Test every resolution of the guide at its class's bit rates gives no warning."""
+    assert hksv3.check_video_tiers(_sensor(*streams)) == []
+
+
+def test_check_video_tiers_above_4k() -> None:
+    """Test a frame above 4K, here DCI 4K, is held to the guide's 4K row."""
+    dci_4k = (2, 4096, 2160, 4500, 5000)
+    assert hksv3.check_video_tiers(_sensor(dci_4k, GUIDE_1080, GUIDE_360)) == []
+
+
+@pytest.mark.parametrize(
+    ("stream", "warning"),
+    [
+        ((3, 2048, 1536, 2800, 3100), "peak above the guide's 3000 kbps"),
+        ((3, 1920, 1920, 2800, 3100), "peak above the guide's 3000 kbps"),
+        ((3, 1440, 1440, 1750, 1900), "peak above the guide's 1800 kbps"),
+        ((3, 1440, 1080, 768, 850), "peak above the guide's 800 kbps"),
+        ((3, 640, 480, 180, 200), "peak above the guide's 190 kbps"),
+    ],
+)
+def test_check_video_tiers_class_by_pixels(
+    stream: tuple[int, int, int, int, int], warning: str
+) -> None:
+    """Test a frame takes the row of its class in the guide, not of its short side."""
+    (found,) = hksv3.check_video_tiers(_sensor(GUIDE_4K, stream, GUIDE_360))
+    assert warning in found
+
+
+@pytest.mark.parametrize(
     ("stream", "warning"),
     [
         ((3, 1920, 1080, 1500, 1800), "average more than 10 % below the peak"),
         ((3, 1920, 1080, 1800, 1900), "peak above the guide's 1800 kbps"),
         ((3, 1080, 1920, 1800, 1900), "1080x1920@30: peak above the guide's 1800"),
         ((3, 1280, 600, 900, 950), "1280x600@30: peak above the guide's 800 kbps"),
-        ((3, 7680, 4320, 9000, 9500), "larger than the guide's 4K bit rate table"),
+        ((3, 7680, 4320, 9000, 9500), "7680x4320@30: peak above the guide's 5000"),
     ],
 )
 def test_check_video_tiers_warnings(

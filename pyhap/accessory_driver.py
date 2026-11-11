@@ -1124,7 +1124,7 @@ class AccessoryDriver:
             return None
         return connection.derive_key(salt, info)
 
-    def local_address(
+    def _local_address(
         self, client_addr: tuple[str, int] | None, ipv6: bool
     ) -> str | None:
         """The accessory's address on a controller's connection.

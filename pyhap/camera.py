@@ -647,10 +647,10 @@ class Camera(Accessory):
                 ``audio``: iOS 27 shows a camera without the classic RTP stream
                 management service as not responding. Its services come before
                 the RTP stream management services, which then get a new
-                ``unique_id``; for a paired camera this changes instance IDs.
+                ``unique_id``. For a paired camera this changes instance IDs.
                 Observed with iOS and tvOS 27: the hub does not upload the
                 recordings it gets over HDS from a camera with this service, so
-                they do not appear in the Home app; the camera is expected to
+                they do not appear in the Home app. The camera is expected to
                 upload its recordings itself.
             - webrtc - :class:`pyhap.camera_webrtc.WebRTCConfig`, or a dict of
                 its fields. Developer Preview of HomeKit Secure Video 17.99,
@@ -911,7 +911,7 @@ class Camera(Accessory):
         for controller in self._stream_controllers():
             controller.update_status()
 
-    def stream_address_for(
+    def _stream_address_for(
         self, client_addr: tuple[str, int] | None, is_ipv6: bool
     ) -> str | None:
         """The address to stream from to a controller, in the given IP version.
@@ -919,36 +919,12 @@ class Camera(Accessory):
         The accessory's address on the controller's connection, else the
         ``address`` option if it has that version.
         """
-        address = self.driver.local_address(client_addr, is_ipv6)
+        address = self.driver._local_address(client_addr, is_ipv6)
         if address is not None:
             return address
         if (self.stream_address_isv6 == b"\x01") == is_ipv6:
             return str(self.stream_address)
         return None
-
-    async def end_session(self, session_id: UUID) -> bool:
-        """End a multi-tier or WebRTC session (17.99) on the camera's side.
-
-        E.g. when its media source stopped. Ends the sessions with that ID of
-        every sensor and service and waits until their delegates released
-        them. Returns False if there is no such session.
-        """
-        ended = await asyncio.gather(
-            *(
-                controller.end_session(session_id)
-                for controller in self._stream_controllers()
-            )
-        )
-        return any(ended)
-
-    async def end_all_sessions(self) -> None:
-        """End every multi-tier and WebRTC session (17.99) and wait for them."""
-        await asyncio.gather(
-            *(
-                controller.end_all_sessions()
-                for controller in self._stream_controllers()
-            )
-        )
 
     def client_disconnected(self, client_addr: tuple[str, int]) -> None:
         """End the multi-tier and WebRTC sessions of the connection."""

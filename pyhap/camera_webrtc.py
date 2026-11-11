@@ -7,7 +7,7 @@ this API is experimental and may change.
 its ``webrtc`` option, next to the multi-tier RTP service. Controllers view
 remotely through it. The accessory offers, the controller answers, may
 renegotiate and update its SFrame keys, and ends the session. A
-:class:`WebRTCDelegate` runs the WebRTC media; it shares
+:class:`WebRTCDelegate` runs the WebRTC media. It shares
 :class:`pyhap.hksv3.WebRTCOffer`, :class:`pyhap.hksv3.WebRTCReofferAnswer`,
 :class:`pyhap.hksv3.IceCandidate` and :class:`pyhap.hksv3.SFrameKey` with
 the HAP side.
@@ -24,13 +24,13 @@ from uuid import UUID, uuid4
 from pyhap import hksv3
 from pyhap.camera_stream import (
     DEFAULT_HOOK_TIMEOUT,
+    HookFailed,
     SessionState,
     StreamController,
     StreamSession,
-    _check_hook_timeout,
-    _config_from_option,
-    _failure_status,
-    _HookFailed,
+    check_hook_timeout,
+    config_from_option,
+    failure_status,
 )
 from pyhap.util import base64_to_bytes, to_base64_str
 
@@ -77,10 +77,12 @@ class WebRTCDelegate(Protocol):
     with a status, any other exception answers with an error. A hook that
     takes longer than ``hook_timeout`` is cancelled and its session ends.
 
-    An answered session has no timeout of its own: remote viewers share the
-    home hub's connection, so its close ends nothing. The delegate must call
-    ``session.end()`` when the media connection fails, e.g. on ICE or consent
-    failure, or the session keeps one of the sensor's slots.
+    An answered session has no timeout of its own. When the home hub's
+    connection closes its sessions end, but remote viewers share that
+    connection, so a viewer that leaves closes nothing on the HAP side. The
+    delegate must call ``session.end()`` when the media connection fails or
+    the viewer leaves, e.g. on ICE or consent failure or a DTLS close, or the
+    session keeps one of the sensor's slots.
     """
 
     async def handle_solicit_offer(
@@ -141,7 +143,7 @@ class WebRTCConfig:
     delegate hook gets ``hook_timeout`` seconds. A session the controller
     did not answer within ``answer_timeout`` seconds ends. The offer
     advertises the sensor's video tier of ``remote_quality``, the lowest tier
-    if it has none. Medium keeps 4K off the remote path; the Scrypted HomeKit
+    if it has none. Medium keeps 4K off the remote path. The Scrypted HomeKit
     plugin offers the first tier.
     """
 
@@ -158,10 +160,10 @@ class WebRTCConfig:
 
         :raises ValueError: For an unknown key.
         """
-        return _config_from_option(cls, value, "webrtc")
+        return config_from_option(cls, value, "webrtc")
 
     def __post_init__(self) -> None:
-        _check_hook_timeout(self.hook_timeout)
+        check_hook_timeout(self.hook_timeout)
         if self.max_sessions < WEBRTC_MIN_SESSIONS:
             raise ValueError(
                 f"webrtc max_sessions must be at least {WEBRTC_MIN_SESSIONS}"
@@ -177,7 +179,7 @@ class WebRTCConfig:
             raise ValueError(f"Unknown webrtc remote_quality {self.remote_quality}")
 
 
-def remote_tier(
+def _remote_tier(
     tiers: list[hksv3.VideoStreamTier], quality: hksv3.VideoQuality | int
 ) -> hksv3.VideoStreamTier:
     """The smallest tier of ``quality``, else the smallest tier."""
@@ -222,7 +224,7 @@ class WebRTCController(StreamController[WebRTCSession]):
         self.config = config
         self.delegate = config.delegate
         self.audio_tier = multi_tier.config.audio
-        self.video_tier = remote_tier(multi_tier.tiers, config.remote_quality)
+        self.video_tier = _remote_tier(multi_tier.tiers, config.remote_quality)
         service = self.service = camera.add_preload_service(
             "CameraWebRTCStreamManagement", unique_id=str(self.sensor.sensor_uuid)
         )
@@ -246,9 +248,13 @@ class WebRTCController(StreamController[WebRTCSession]):
             ("WebRTCReoffer", self._set_reoffer),
             ("WebRTCUpdateSession", self._set_update_session),
         ):
-            service.configure_char(name, setter_callback=setter)
+            # The requests carry SDPs with ICE passwords and SFrame keys, so
+            # neither they nor the answers are shared with other connections.
+            service.configure_char(
+                name, setter_callback=setter
+            ).read_back_response = True
 
-    def refusal(self) -> hksv3.WebRTCSolicitOfferStatus | None:
+    def _refusal(self) -> hksv3.WebRTCSolicitOfferStatus | None:
         """Why the sensor may not stream now, None if it may."""
         if not self.camera.homekit_camera_active:
             return hksv3.WebRTCSolicitOfferStatus.PRIVACY_MODE_ACTIVE
@@ -258,7 +264,7 @@ class WebRTCController(StreamController[WebRTCSession]):
 
     def update_status(self) -> None:
         """End the sessions if the sensor may no longer stream."""
-        if self.refusal() is not None:
+        if self._refusal() is not None:
             self._end_sessions("streaming was turned off")
 
     def _session_ended(self, session: WebRTCSession, previous: SessionState) -> None:
@@ -305,7 +311,7 @@ class WebRTCController(StreamController[WebRTCSession]):
         deadline: float,
     ) -> hksv3.WebRTCSolicitOfferResponse:
         error = hksv3.WebRTCSolicitOfferStatus.ERROR
-        refusal = self.refusal()
+        refusal = self._refusal()
         if refusal is not None:
             logger.info("Refusing a WebRTC offer, streaming is off: %s", refusal)
             return hksv3.WebRTCSolicitOfferResponse(refusal)
@@ -345,10 +351,14 @@ class WebRTCController(StreamController[WebRTCSession]):
                 end_on_failure=True,
                 first=True,
             )
-        except _HookFailed as err:
+        except HookFailed as err:
             return hksv3.WebRTCSolicitOfferResponse(
-                _failure_status(hksv3.WebRTCSolicitOfferStatus, err.status, error)
+                failure_status(hksv3.WebRTCSolicitOfferStatus, err.status, error)
             )
+        if not isinstance(offer, hksv3.WebRTCOffer):
+            logger.error("[%s] The offer is not a WebRTCOffer: %r", session.id, offer)
+            self._end(session, "the offer is not a WebRTCOffer")
+            return hksv3.WebRTCSolicitOfferResponse(error)
         if (offer.sframe is not None) != session.sframe:
             logger.error("[%s] The offer's SFrame key does not fit", session.id)
             self._end(session, "the offer's SFrame key does not fit")
@@ -384,9 +394,9 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
         try:
             await self._run_hook(session, "answer", hook, deadline, end_on_failure=True)
-        except _HookFailed as err:
+        except HookFailed as err:
             return _status(
-                session.id, _failure_status(_STATUS, err.status, _STATUS.ERROR)
+                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
             )
         # Only now, the expiry ends a session whose answer did not apply.
         self._cancel_timer(session)
@@ -449,10 +459,18 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
         try:
             answer = await self._run_hook(session, "reoffer", hook, deadline)
-        except _HookFailed as err:
+        except HookFailed as err:
             return hksv3.WebRTCReofferResponse(
-                session.id, _failure_status(_STATUS, err.status, _STATUS.ERROR)
+                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
             )
+        # Like a failed hook, a bad answer leaves the session as it was.
+        if not isinstance(answer, hksv3.WebRTCReofferAnswer):
+            logger.error(
+                "[%s] The reoffer answer is not a WebRTCReofferAnswer: %r",
+                session.id,
+                answer,
+            )
+            return hksv3.WebRTCReofferResponse(session.id, _STATUS.ERROR)
         if answer.sframe is not None and not session.sframe:
             logger.error(
                 "[%s] The reoffer answer's SFrame key does not fit", session.id
@@ -477,8 +495,8 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
         try:
             await self._run_hook(session, "update session", hook, deadline)
-        except _HookFailed as err:
+        except HookFailed as err:
             return _status(
-                session.id, _failure_status(_STATUS, err.status, _STATUS.ERROR)
+                session.id, failure_status(_STATUS, err.status, _STATUS.ERROR)
             )
         return _status(session.id, _STATUS.SUCCESS)
