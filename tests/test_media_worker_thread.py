@@ -11,7 +11,12 @@ import threading
 import pytest
 
 from pyhap.media import _worker
-from pyhap.media.worker import THREAD_NAME, MediaWorker, MediaWorkerError
+from pyhap.media.worker import (
+    THREAD_NAME,
+    MediaWorker,
+    MediaWorkerError,
+    _ThreadRunner,
+)
 
 pytestmark = pytest.mark.timeout(30)
 
@@ -19,21 +24,24 @@ pytestmark = pytest.mark.timeout(30)
 @pytest.fixture
 async def worker() -> AsyncIterator[MediaWorker]:
     """Yield a started worker thread and stop it afterwards."""
-    started = MediaWorker(in_thread=True)
+    started = MediaWorker()
     await started.start()
     yield started
     await started.close()
 
 
-def worker_threads() -> list[threading.Thread]:
-    """The worker threads that still run."""
-    return [t for t in threading.enumerate() if t.name == THREAD_NAME]
+def thread_of(worker: MediaWorker) -> threading.Thread:
+    """The thread the worker runs in."""
+    runner = worker._runner
+    assert isinstance(runner, _ThreadRunner)
+    assert runner.thread.name == THREAD_NAME
+    return runner.thread
 
 
-async def wait_until_gone() -> None:
-    """Wait until no worker thread runs."""
+async def wait_until_gone(thread: threading.Thread) -> None:
+    """Wait until the worker thread ended."""
     for _ in range(200):
-        if not worker_threads():
+        if not thread.is_alive():
             return
         await asyncio.sleep(0.01)
     pytest.fail("worker thread still runs")
@@ -41,20 +49,22 @@ async def wait_until_gone() -> None:
 
 async def test_lifecycle(worker: MediaWorker) -> None:
     """Verify the thread starts once, stops on close and starts again on use."""
-    assert worker.in_thread
+    assert not worker.separate_process
     assert worker.running
     assert worker.pid is None
-    assert len(worker_threads()) == 1
+    thread = thread_of(worker)
+    assert thread.is_alive()
     generation = await worker.start()
-    assert len(worker_threads()) == 1
+    assert thread_of(worker) is thread
 
     await worker.close()
     assert not worker.running
-    await wait_until_gone()
+    await wait_until_gone(thread)
     await worker.close()
 
     assert await worker.start() == generation + 1
     assert worker.running
+    assert thread_of(worker) is not thread
 
 
 async def test_source_round_trip(worker: MediaWorker) -> None:
@@ -71,8 +81,9 @@ async def test_source_round_trip(worker: MediaWorker) -> None:
 
 async def test_close_ends_sources() -> None:
     """Verify closing the worker ends its sources with a reason."""
-    worker = MediaWorker(in_thread=True)
+    worker = MediaWorker()
     source = await worker.open_source()
+    thread = thread_of(worker)
     reasons: list[str] = []
     source.on_closed = reasons.append
     exits: list[str] = []
@@ -83,7 +94,7 @@ async def test_close_ends_sources() -> None:
     assert source.closed
     assert reasons == [exits[0]]
     assert "stopped" in exits[0]
-    await wait_until_gone()
+    await wait_until_gone(thread)
 
 
 async def test_kill_ends_sources_and_restarts(worker: MediaWorker) -> None:
@@ -129,7 +140,7 @@ async def test_failed_thread_fails_start(monkeypatch: pytest.MonkeyPatch) -> Non
         raise RuntimeError("boom")
 
     monkeypatch.setattr(_worker, "serve_socket", broken)
-    worker = MediaWorker(in_thread=True, start_timeout=5)
+    worker = MediaWorker(start_timeout=5)
 
     with pytest.raises(MediaWorkerError):
         await worker.start()

@@ -1,10 +1,9 @@
-"""The media worker process, see :mod:`pyhap.media.worker`.
+"""The media worker, see :mod:`pyhap.media.worker`.
 
-Started as ``python -m pyhap.media._worker <log levels>``, one level per
-logger in ``FORWARDED_LOGGERS``. Requests arrive framed on stdin; responses
-and events leave framed on the original stdout, which is moved aside first.
-The process ends when stdin closes. In thread mode :func:`serve_socket` runs
-the same server over a socket pair instead.
+:func:`serve_socket` serves one parent over a socket pair, in a thread of the
+parent or in a process of its own. As a process it is started as
+``python -m pyhap.media._worker <socket fd> <log level>``, writes its log
+records as JSON lines to stderr and ends when the parent closes the socket.
 """
 
 from __future__ import annotations
@@ -17,21 +16,22 @@ import socket
 import sys
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+import orjson
+
 from . import MediaError
 from .multi_tier import MultiTierSender
 from .recording import Recorder
 from .sdp import AudioParams, VideoParams
 from .source import MediaSource
-from .worker import FORWARDED_LOGGERS, encode_message, read_message
+from .worker import WORKER_LOGGER, encode_message, read_message
 
 if TYPE_CHECKING:
     from .sender import WebRTCSender
 
 logger = logging.getLogger(__name__)
 
-# Bytes waiting for the parent above which log records are dropped, and
-# above which the worker gives up on a parent that stopped reading.
-LOG_DROP_BUFFER = 1024 * 1024
+# Bytes waiting for the parent above which the worker gives up on a parent
+# that stopped reading.
 MAX_OUTPUT_BUFFER = 64 * 1024 * 1024
 
 
@@ -46,22 +46,24 @@ class _Candidate(NamedTuple):
     sdp_mline_index: int | None
 
 
-class _LogForwarder(logging.Handler):
-    def __init__(self, server: _Server) -> None:
-        super().__init__()
-        self._server = server
+class _StderrHandler(logging.Handler):
+    """Write each record as one JSON line for the parent to log."""
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            message = self.format(record)
-            self._server.send(
+            exc = None
+            if record.exc_info:
+                exc = logging.Formatter().formatException(record.exc_info)
+            line = orjson.dumps(
                 {
-                    "event": "log",
-                    "level": record.levelno,
                     "name": record.name,
-                    "message": message,
+                    "level": record.levelno,
+                    "message": record.getMessage(),
+                    "exc": exc,
                 }
             )
+            sys.stderr.buffer.write(line + b"\n")
+            sys.stderr.buffer.flush()
         except Exception:  # noqa: BLE001 - logging must never raise
             self.handleError(record)
 
@@ -78,11 +80,7 @@ class _Server:
         output = self._output
         if output.is_closing():
             return
-        buffered = output.get_write_buffer_size()
-        if message.get("event") == "log" and buffered > LOG_DROP_BUFFER:
-            # A parent that reads slowly loses log records, not media events.
-            return
-        if buffered > MAX_OUTPUT_BUFFER:
+        if output.get_write_buffer_size() > MAX_OUTPUT_BUFFER:
             # The parent stopped reading; it sees the worker as gone.
             output.close()
             self.stopping.set()
@@ -299,9 +297,8 @@ class _Server:
         if sender is not None:
             await sender.close()
 
-    async def _op_log_levels(self, message: dict[str, Any]) -> None:
-        for name, level in zip(FORWARDED_LOGGERS, message["levels"], strict=False):
-            logging.getLogger(name).setLevel(int(level))
+    async def _op_log_level(self, message: dict[str, Any]) -> None:
+        logging.getLogger(WORKER_LOGGER).setLevel(int(message["level"]))
 
     async def _op_shutdown(self, message: dict[str, Any]) -> None:
         await self.close_all()
@@ -318,18 +315,12 @@ class _Server:
             source.close("media worker stopped")
 
 
-async def _serve(
-    reader: asyncio.StreamReader,
-    output: asyncio.WriteTransport,
-    *,
-    forward_logs: bool,
-) -> None:
+async def serve_socket(sock: socket.socket) -> None:
+    """Serve one parent over a connected socket until it closes."""
     loop = asyncio.get_running_loop()
+    reader, writer = await asyncio.open_connection(sock=sock)
+    output = writer.transport
     server = _Server(output)
-    forwarder = _LogForwarder(server) if forward_logs else None
-    if forwarder is not None:
-        for name in FORWARDED_LOGGERS:
-            logging.getLogger(name).addHandler(forwarder)
     server.send({"event": "ready"})
     stopping = loop.create_task(server.stopping.wait())
     try:
@@ -341,53 +332,27 @@ async def _serve(
                 break
             try:
                 message, _blob = reading.result()
-            except asyncio.IncompleteReadError:
+            except (asyncio.IncompleteReadError, ConnectionError):
                 break
             server.handle(message)
     finally:
         stopping.cancel()
         await server.close_all()
         output.close()
-        if forwarder is not None:
-            for name in FORWARDED_LOGGERS:
-                logging.getLogger(name).removeHandler(forwarder)
-
-
-async def _serve_stdio(output_fd: int) -> None:
-    loop = asyncio.get_running_loop()
-    reader = asyncio.StreamReader()
-    await loop.connect_read_pipe(
-        lambda: asyncio.StreamReaderProtocol(reader), os.fdopen(0, "rb", buffering=0)
-    )
-    output, _ = await loop.connect_write_pipe(
-        asyncio.Protocol, os.fdopen(output_fd, "wb", buffering=0)
-    )
-    await _serve(reader, output, forward_logs=True)
-
-
-async def serve_socket(sock: socket.socket) -> None:
-    """Serve one parent over a connected socket, in the parent's process.
-
-    The worker thread of :class:`~pyhap.media.worker.MediaWorker` runs this in
-    its own event loop. Loggers are shared with the parent, so nothing is
-    forwarded and their levels stay as the parent sets them.
-    """
-    reader, writer = await asyncio.open_connection(sock=sock)
-    await _serve(reader, writer.transport, forward_logs=False)
 
 
 def main() -> None:
-    """Run the worker until its stdin closes or it is told to stop."""
-    # Keep the protocol stream for frames; anything printed goes to stderr.
-    output_fd = os.dup(1)
+    """Run the worker process until the parent closes its socket."""
+    sock = socket.socket(fileno=int(sys.argv[1]))
+    level = int(sys.argv[2]) if len(sys.argv) > 2 else logging.WARNING
+    # Anything printed ends up in the parent's log as a warning.
     os.dup2(2, 1)
-    levels = [int(arg) for arg in sys.argv[1:]]
-    levels += [logging.WARNING] * (len(FORWARDED_LOGGERS) - len(levels))
-    for name, level in zip(FORWARDED_LOGGERS, levels, strict=False):
-        logging.getLogger(name).setLevel(level)
-        logging.getLogger(name).propagate = False
+    worker_logger = logging.getLogger(WORKER_LOGGER)
+    worker_logger.addHandler(_StderrHandler())
+    worker_logger.setLevel(level)
+    worker_logger.propagate = False
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(_serve_stdio(output_fd))
+        asyncio.run(serve_socket(sock))
 
 
 if __name__ == "__main__":
