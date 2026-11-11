@@ -30,3 +30,9 @@ Packets
 
 .. autoclass:: pyhap.hds_recording.RecordingReason
    :members:
+
+Recording producer
+==================
+
+.. autoclass:: pyhap.hds_recording.RecordingProducer
+   :members:

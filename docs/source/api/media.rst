@@ -27,6 +27,40 @@ Source pool
 .. autoclass:: pyhap.media.pool.ChannelLease
    :members:
 
+Multi-tier RTP
+==============
+
+.. autoclass:: pyhap.media.multi_tier_delegate.MultiTierMediaDelegate
+   :members:
+   :special-members: __init__
+
+.. autoclass:: pyhap.media.multi_tier_delegate.PooledSourceProvider
+   :members:
+
+.. autoclass:: pyhap.media.multi_tier.MultiTierSender
+   :members:
+   :special-members: __init__
+
+HKSV recording
+==============
+
+.. autoclass:: pyhap.media.recording_delegate.RecordingMediaDelegate
+   :members:
+   :special-members: __init__
+
+.. autoclass:: pyhap.media.recording_delegate.ChannelProvider
+   :members:
+
+.. autoclass:: pyhap.media.recording.Recorder
+   :members:
+   :special-members: __init__
+
+.. autoclass:: pyhap.media.recording.PrebufferRing
+   :members:
+
+.. autoclass:: pyhap.media.mpegts.MpegTsMuxer
+   :members:
+
 Worker
 ======
 
@@ -70,4 +104,7 @@ Errors
    :members:
 
 .. autoclass:: pyhap.media.worker.MediaWorkerError
+   :members:
+
+.. autoclass:: pyhap.media.recording_delegate.RecordingError
    :members:
