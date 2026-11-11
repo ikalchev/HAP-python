@@ -82,8 +82,12 @@ class BufferedMedia:
 
     @property
     def keyframe(self) -> bool:
-        """Whether this is an IRAP picture."""
-        return self.unit is not None and self.unit.keyframe
+        """Whether a decoder can start here: an IRAP picture with VPS, SPS, PPS.
+
+        A source that joins a stream in the middle of an access unit can
+        deliver an IRAP picture without its parameter sets.
+        """
+        return self.unit is not None and self.unit.self_contained
 
     @property
     def size(self) -> int:
@@ -130,12 +134,12 @@ class PrebufferRing:
         return self._clock() - self._items[0].arrival
 
     def on_source_video(self, unit: AccessUnit, ssrc: int) -> None:
-        """Buffer an access unit; video before the first IRAP is dropped."""
+        """Buffer an access unit; video before a decoder can start is dropped."""
         if ssrc != self._ssrc:
             # A restarted pull: its timestamps start over.
             self._ssrc = ssrc
             self._clear()
-        if not self._items and not unit.keyframe:
+        if not self._items and not unit.self_contained:
             return
         self._add(BufferedMedia(self._clock(), unit=unit))
 
