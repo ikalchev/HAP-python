@@ -1,11 +1,16 @@
 """Media sources shared by the sessions of a camera channel.
 
-:class:`SourcePool` gives each session a
+:class:`SourcePool` gives each multi-tier session a
 :class:`ChannelLease` on the media source of its camera channel. All
 sessions of a channel share one source and one media pull
 (:class:`ChannelPull`, for example an ffmpeg process), so N sessions cost one
 camera connection. Sources live in a
-:class:`~pyhap.media.worker.MediaWorker`, or in process without one.
+:class:`~pyhap.media.worker.MediaWorker`, or in process without one;
+a multi-tier sender is created in the same place.
+
+A multi-tier sender binds its ports before the controller picks a tier, so
+it is created by the pool (:meth:`SourcePool.create_multi_tier_sender`) and
+started with a lease's source later.
 
 The ports of a source are bound by the first lease; the pull starts with the
 first answered session (:meth:`ChannelLease.activate`) and stops with the
@@ -20,7 +25,7 @@ from dataclasses import dataclass, field
 from functools import partial
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from . import MediaError
 
@@ -49,6 +54,26 @@ class MediaSourceLike(Protocol):
 
     def close(self, reason: str = "closed") -> Awaitable[None] | None:
         """Release the ports and end every session on the source."""
+
+
+class MultiTierMediaSender(Protocol):
+    """A :class:`~pyhap.media.multi_tier.MultiTierSender` or its worker proxy."""
+
+    on_closed: Callable[[str], None] | None
+    on_keyframe_request: Callable[[float | None, float | None], None] | None
+    on_rtcp: Callable[[], None] | None
+
+    async def bind(self) -> tuple[int, int]:
+        """Bind the accessory's video and audio ports and return them."""
+
+    async def start(self, source: MediaSourceLike, audio: bool = True) -> None:
+        """Send ``source``, a source of the same pool, to the controller."""
+
+    async def switch(self, source: MediaSourceLike) -> None:
+        """Continue the stream from another source of the same pool."""
+
+    async def close(self) -> None:
+        """End the session."""
 
 
 class ChannelPull(Protocol):
@@ -145,6 +170,23 @@ class SourcePool:
         self._channels: dict[Hashable, _Channel] = {}
         self._lock = asyncio.Lock()
         self._tasks: set[asyncio.Task[Any]] = set()
+
+    def create_multi_tier_sender(self, **options: Any) -> MultiTierMediaSender:
+        """Create a multi-tier sender where the pool's sources run.
+
+        ``options`` are those of
+        :class:`~pyhap.media.multi_tier.MultiTierSender`. Start it with the
+        source of a lease of this pool. The pool creates it, not a lease: its ports
+        are announced in Setup Endpoints, before the controller picks the
+        tier, i.e. the lease.
+        """
+        if self.worker is not None:
+            return cast(
+                MultiTierMediaSender, self.worker.create_multi_tier_sender(**options)
+            )
+        from .multi_tier import MultiTierSender  # noqa: PLC0415
+
+        return cast(MultiTierMediaSender, MultiTierSender(**options))
 
     def counts(self) -> dict[str, tuple[int, int]]:
         """Leases and answered leases per channel name."""

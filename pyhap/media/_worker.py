@@ -19,6 +19,7 @@ import sys
 from typing import Any
 
 from . import MediaError
+from .multi_tier import MultiTierSender
 from .source import MediaSource
 from .worker import (
     LOG_FILE_BACKUPS,
@@ -50,8 +51,7 @@ class _LogFile(RotatingFileHandler):
 class _Server:
     def __init__(self, output: asyncio.WriteTransport) -> None:
         self._output = output
-        # The senders of the sessions, by session ID.
-        self._sessions: dict[int, Any] = {}
+        self._sessions: dict[int, MultiTierSender] = {}
         self._sources: dict[int, MediaSource] = {}
         self._tasks: set[asyncio.Task[None]] = set()
         self.stopping = asyncio.Event()
@@ -119,6 +119,51 @@ class _Server:
         source = self._sources.pop(int(message["source"]), None)
         if source is not None:
             source.close(str(message.get("reason", "closed")))
+
+    def _multi_tier(self, message: dict[str, Any]) -> MultiTierSender:
+        sender = self._sessions.get(int(message["session"]))
+        if not isinstance(sender, MultiTierSender):
+            raise MediaError("Unknown multi-tier session")
+        return sender
+
+    def _source(self, message: dict[str, Any]) -> MediaSource:
+        source = self._sources.get(int(message["source"]))
+        if source is None:
+            raise MediaError("Unknown media source")
+        return source
+
+    async def _op_mt_bind(self, message: dict[str, Any]) -> dict[str, Any]:
+        session_id = int(message["session"])
+        config = dict(message["config"])
+        config["video_key"] = bytes.fromhex(config["video_key"])
+        config["audio_key"] = bytes.fromhex(config["audio_key"])
+        sender = MultiTierSender(**config)
+
+        def closed(reason: str) -> None:
+            self._sessions.pop(session_id, None)
+            self.send({"event": "closed", "session": session_id, "reason": reason})
+
+        sender.on_closed = closed
+        sender.on_rtcp = lambda: self.send({"event": "rtcp", "session": session_id})
+        sender.on_keyframe_request = lambda age, gop: self.send(
+            {"event": "keyframe_request", "session": session_id, "age": age, "gop": gop}
+        )
+        self._sessions[session_id] = sender
+        try:
+            ports = await sender.bind()
+        except BaseException:
+            self._sessions.pop(session_id, None)
+            await sender.close()
+            raise
+        return {"ports": list(ports)}
+
+    async def _op_mt_start(self, message: dict[str, Any]) -> None:
+        await self._multi_tier(message).start(
+            self._source(message), audio=bool(message["audio"])
+        )
+
+    async def _op_mt_switch(self, message: dict[str, Any]) -> None:
+        await self._multi_tier(message).switch(self._source(message))
 
     async def _op_close(self, message: dict[str, Any]) -> None:
         sender = self._sessions.pop(int(message["session"]), None)

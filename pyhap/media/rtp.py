@@ -265,6 +265,10 @@ class OutboundStream:
         self._last_wall = 0.0
         self.history: OrderedDict[int, bytes] = OrderedDict()
 
+    def rebase(self) -> None:
+        """Continue the timeline from the next input, e.g. of another source."""
+        self._in_base = None
+
     def timestamp(self, ssrc: int, timestamp: int) -> int:
         """Map an input timestamp onto this stream's timeline."""
         now = time.monotonic()
