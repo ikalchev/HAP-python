@@ -203,6 +203,16 @@ def test_ring_starts_at_an_irap_and_trims() -> None:
     assert ring.buffered == pytest.approx(5.0)
 
 
+def test_ring_starts_only_where_a_decoder_can() -> None:
+    """Verify an IRAP without its parameter sets does not start the ring."""
+    ring = PrebufferRing(4.0, clock=Clock())
+    ring.on_source_video(AccessUnit(0, [KEYFRAME[-1]]), 1)
+    ring.on_source_video(unit(False, 1), 1)
+    assert ring.snapshot(4.0) == []
+    ring.on_source_video(unit(True, 2), 1)
+    assert ring.snapshot(4.0)[0].unit == unit(True, 2)
+
+
 def test_ring_bounds_its_bytes() -> None:
     """Verify the ring drops whole GOPs beyond its byte limit."""
     clock = Clock()
