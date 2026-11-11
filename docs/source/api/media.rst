@@ -27,6 +27,20 @@ Source pool
 .. autoclass:: pyhap.media.pool.ChannelLease
    :members:
 
+Multi-tier RTP
+==============
+
+.. autoclass:: pyhap.media.multi_tier_delegate.MultiTierMediaDelegate
+   :members:
+   :special-members: __init__
+
+.. autoclass:: pyhap.media.multi_tier_delegate.PooledSourceProvider
+   :members:
+
+.. autoclass:: pyhap.media.multi_tier.MultiTierSender
+   :members:
+   :special-members: __init__
+
 Worker
 ======
 
