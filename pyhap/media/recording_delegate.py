@@ -64,7 +64,7 @@ class ChannelProvider(Protocol):
 
     ffmpeg: str
 
-    async def lease_channel(self, tier: hksv3.VideoStreamTier) -> ChannelLease:
+    async def lease_channel(self, tier: hksv3.VideoStreamTier, /) -> ChannelLease:
         """Lease the channel of ``tier`` without activating it."""
 
 
