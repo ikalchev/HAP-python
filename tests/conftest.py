@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator, Callable, Iterator
 import pathlib
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
@@ -196,54 +196,3 @@ def stream_camera(
         )
 
     return _make
-
-
-class _FFmpegStderr:
-    """The stderr pipe of a fake ffmpeg, it ends when the process exits."""
-
-    def __init__(self, data: bytes, exited: asyncio.Event) -> None:
-        self._data = data
-        self._exited = exited
-
-    async def read(self, n: int = -1) -> bytes:
-        if not self._data:
-            await self._exited.wait()
-            return b""
-        size = len(self._data) if n < 0 else n
-        chunk, self._data = self._data[:size], self._data[size:]
-        await asyncio.sleep(0)
-        return chunk
-
-
-class _FFmpegProcess:
-    """An ffmpeg process that runs until it is terminated or exits."""
-
-    def __init__(self, *lines: bytes) -> None:
-        self.pid = 42
-        self.returncode: int | None = None
-        self._exited = asyncio.Event()
-        self.stderr = _FFmpegStderr(b"".join(lines), self._exited)
-        self.terminate = MagicMock(side_effect=lambda: self.exit(-15))
-        self.kill = MagicMock(side_effect=lambda: self.exit(-9))
-
-    def exit(self, code: int) -> None:
-        self.returncode = code
-        self._exited.set()
-
-    async def wait(self) -> int:
-        await self._exited.wait()
-        return cast(int, self.returncode)
-
-
-@pytest.fixture
-def ffmpeg_process_factory() -> type[_FFmpegProcess]:
-    """Make fake ffmpeg processes with the given output."""
-    return _FFmpegProcess
-
-
-@pytest.fixture
-def ffmpeg_process() -> _FFmpegProcess:
-    """A running ffmpeg process, its output has a frame and an input line."""
-    return _FFmpegProcess(
-        b"frame=1\n", b"Input #0, rtsp, from 'rtsp://user:secret@cam/stream-token':\n"
-    )

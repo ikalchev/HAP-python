@@ -76,73 +76,97 @@ _DICT_14 = 0xEE
 _DICT_TERMINATED = 0xEF
 
 
-def _encode_int(value: int) -> bytes:
+def _encode_int(value: int, out: bytearray) -> None:
     if isinstance(value, Int64):
-        return bytes([_INT64]) + struct.pack("<q", value)
-    if value == -1:
-        return bytes([_INT_MINUS_ONE])
-    if 0 <= value <= 38:
-        return bytes([_INT_0 + value])
-    if -128 <= value <= 127:
-        return bytes([_INT8]) + struct.pack("<b", value)
-    if -32768 <= value <= 32767:
-        return bytes([_INT16]) + struct.pack("<h", value)
-    if -(2**31) <= value <= 2**31 - 1:
-        return bytes([_INT32]) + struct.pack("<i", value)
-    return bytes([_INT64]) + struct.pack("<q", value)
+        out += struct.pack("<Bq", _INT64, value)
+    elif value == -1:
+        out.append(_INT_MINUS_ONE)
+    elif 0 <= value <= 38:
+        out.append(_INT_0 + value)
+    elif -128 <= value <= 127:
+        out += struct.pack("<Bb", _INT8, value)
+    elif -32768 <= value <= 32767:
+        out += struct.pack("<Bh", _INT16, value)
+    elif -(2**31) <= value <= 2**31 - 1:
+        out += struct.pack("<Bi", _INT32, value)
+    else:
+        out += struct.pack("<Bq", _INT64, value)
 
 
 def _encode_length_prefixed(
-    value: bytes, base: int, len8: int, len16: int, len32: int, len64: int
-) -> bytes:
+    value: bytes,
+    out: bytearray,
+    base: int,
+    len8: int,
+    len16: int,
+    len32: int,
+    len64: int,
+) -> None:
     length = len(value)
     if length <= 32:
-        return bytes([base + length]) + value
-    if length <= 0xFF:
-        return bytes([len8]) + struct.pack("<B", length) + value
-    if length <= 0xFFFF:
-        return bytes([len16]) + struct.pack("<H", length) + value
-    if length <= 0xFFFFFFFF:
-        return bytes([len32]) + struct.pack("<I", length) + value
-    return bytes([len64]) + struct.pack("<Q", length) + value
+        out.append(base + length)
+    elif length <= 0xFF:
+        out.append(len8)
+        out.append(length)
+    elif length <= 0xFFFF:
+        out += struct.pack("<BH", len16, length)
+    elif length <= 0xFFFFFFFF:
+        out += struct.pack("<BI", len32, length)
+    else:
+        out += struct.pack("<BQ", len64, length)
+    out += value
 
 
-def encode(value: Any) -> bytes:
-    """Serialize a python value into the HDS payload format."""
+def _encode_into(value: Any, out: bytearray) -> None:
+    """Append the HDS serialization of a python value to ``out``."""
     if value is True:
-        return bytes([_TRUE])
-    if value is False:
-        return bytes([_FALSE])
-    if value is None:
-        return bytes([_NULL])
-    if isinstance(value, int):
-        return _encode_int(value)
-    if isinstance(value, float):
-        return bytes([_FLOAT64]) + struct.pack("<d", value)
-    if isinstance(value, str):
-        return _encode_length_prefixed(
+        out.append(_TRUE)
+    elif value is False:
+        out.append(_FALSE)
+    elif value is None:
+        out.append(_NULL)
+    elif isinstance(value, int):
+        _encode_int(value, out)
+    elif isinstance(value, float):
+        out += struct.pack("<Bd", _FLOAT64, value)
+    elif isinstance(value, str):
+        _encode_length_prefixed(
             value.encode("utf-8"),
+            out,
             _UTF8_0,
             _UTF8_LEN8,
             _UTF8_LEN16,
             _UTF8_LEN32,
             _UTF8_LEN64,
         )
-    if isinstance(value, (bytes, bytearray)):
-        return _encode_length_prefixed(
-            bytes(value), _DATA_0, _DATA_LEN8, _DATA_LEN16, _DATA_LEN32, _DATA_LEN64
+    elif isinstance(value, (bytes, bytearray)):
+        _encode_length_prefixed(
+            value, out, _DATA_0, _DATA_LEN8, _DATA_LEN16, _DATA_LEN32, _DATA_LEN64
         )
-    if isinstance(value, (list, tuple)):
-        items = b"".join(encode(item) for item in value)
-        if len(value) <= 14:
-            return bytes([_ARRAY_0 + len(value)]) + items
-        return bytes([_ARRAY_TERMINATED]) + items + bytes([_TERMINATOR])
-    if isinstance(value, dict):
-        pairs = b"".join(encode(k) + encode(v) for k, v in value.items())
-        if len(value) <= 14:
-            return bytes([_DICT_0 + len(value)]) + pairs
-        return bytes([_DICT_TERMINATED]) + pairs + bytes([_TERMINATOR])
-    raise TypeError(f"Cannot encode {type(value).__name__} into an HDS payload")
+    elif isinstance(value, (list, tuple)):
+        terminated = len(value) > 14
+        out.append(_ARRAY_TERMINATED if terminated else _ARRAY_0 + len(value))
+        for item in value:
+            _encode_into(item, out)
+        if terminated:
+            out.append(_TERMINATOR)
+    elif isinstance(value, dict):
+        terminated = len(value) > 14
+        out.append(_DICT_TERMINATED if terminated else _DICT_0 + len(value))
+        for key, item in value.items():
+            _encode_into(key, out)
+            _encode_into(item, out)
+        if terminated:
+            out.append(_TERMINATOR)
+    else:
+        raise TypeError(f"Cannot encode {type(value).__name__} into an HDS payload")
+
+
+def encode(value: Any) -> bytes:
+    """Serialize a python value into the HDS payload format."""
+    out = bytearray()
+    _encode_into(value, out)
+    return bytes(out)
 
 
 # Real HDS payloads nest only a handful of levels; bound recursion well above
