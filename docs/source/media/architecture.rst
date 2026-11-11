@@ -11,9 +11,9 @@ connection per channel** instead of per session, and the per-packet work kept
 off the loop that serves the HAP protocol.
 
 .. note::
-   The session senders that use this core (multi-tier RTP, HKSV recording,
-   WebRTC) arrive in follow-up pull requests. This page describes the shared
-   part they are built on: :mod:`pyhap.media`.
+   The multi-tier RTP sender (:mod:`pyhap.media.multi_tier`) uses this core.
+   The HKSV recording and WebRTC senders arrive in follow-up pull requests.
+   This page describes the shared part they are built on: :mod:`pyhap.media`.
 
 The problem
 ===========

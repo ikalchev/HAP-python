@@ -220,6 +220,32 @@ The delegates are free to use it or not: the
 hooks must do. See :doc:`/media/architecture` for the design of that core —
 channels and sessions, the worker, and the lease lifecycle.
 
+For multi-tier RTP there is a ready delegate on that core:
+:class:`~pyhap.media.multi_tier_delegate.MultiTierMediaDelegate` sends each
+session from the source of its tier's channel, and moves it to another
+channel when the controller switches tiers. Give it a source provider with
+one ffmpeg input per tier:
+
+.. code-block:: python
+
+    from pyhap.media.ffmpeg import FFmpegSourceProvider
+    from pyhap.media.multi_tier_delegate import MultiTierMediaDelegate
+    from pyhap.media.worker import MediaWorker
+
+    worker = MediaWorker()
+    provider = FFmpegSourceProvider({"high": [...], "medium": [...]}, worker=worker)
+    camera = Camera(
+        {
+            ...,
+            "multi_tier": {"delegate": MultiTierMediaDelegate(provider)},
+        },
+        driver,
+        "Camera",
+    )
+
+Start the worker before the first session; see
+:class:`~pyhap.media.multi_tier_delegate.MultiTierMediaDelegate`.
+
 Talkback
 ========
 
