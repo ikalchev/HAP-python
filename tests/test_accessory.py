@@ -11,6 +11,7 @@ from pyhap import accessory
 from pyhap.accessory import Accessory, Bridge
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.const import (
+    CATEGORY_AUDIO_RECEIVER,
     CATEGORY_CAMERA,
     CATEGORY_TARGET_CONTROLLER,
     CATEGORY_TELEVISION,
@@ -201,6 +202,13 @@ def test_xhm_uri(mock_driver: Any) -> None:
     )
     mock_driver.state.setup_id = "BBBB"
     assert acc_1.xhm_uri() == "X-HM://00VPU8UEKBBBB"
+
+    acc_1.category = CATEGORY_AUDIO_RECEIVER
+    mock_driver.state = State(
+        address="1.2.3.4", mac="AA::BB::CC::DD::EE", pincode=b"323-23-1212", port=44
+    )
+    mock_driver.state.setup_id = "BBBB"
+    assert acc_1.xhm_uri() == "X-HM://00XOVCWDOBBBB"
 
 
 def test_set_info_service(mock_driver: Any) -> None:
