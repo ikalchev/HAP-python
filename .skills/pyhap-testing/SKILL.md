@@ -44,13 +44,17 @@ All tests must pass. Report any failures with the failing tests and errors.
 
 ## Ruff (lint + format)
 
+CI lints a scoped set of paths (`tox -e lint`, see `tox.ini`) — `accessories/`
+and `main.py` are legacy examples with pre-existing findings and are not
+linted. Use the same scope:
+
 ```sh
-python -m ruff check .
-python -m ruff format --check .
+python -m ruff check pyhap tests benchmarks scripts/gen_hap_types.py
+python -m ruff format --check pyhap tests benchmarks scripts/gen_hap_types.py
 ```
 
-(or `ruff <cmd>` from the active venv). Configuration lives in `pyproject.toml`.
-All findings must be fixed or reported to the user.
+(or `ruff <cmd>` from the active venv, or `tox -e lint`.) Configuration lives
+in `pyproject.toml`. All findings must be fixed or reported to the user.
 
 ## ty (type checking)
 
@@ -58,7 +62,10 @@ All findings must be fixed or reported to the user.
 python -m ty check .
 ```
 
-Must pass cleanly; otherwise report the findings.
+Sources are configured via `[tool.ty.src]` in `pyproject.toml`. The branch
+carries a pre-existing baseline of diagnostics (mostly in `tests/`): capture
+it before your changes and ensure your edits add no new findings. Otherwise
+report the findings.
 
 ## Reporting
 
