@@ -7,53 +7,47 @@ Installation Guide
 Before We Begin
 ===============
 
-HAP-python requires Python 3.11+.
-This guide will cover the current version of Raspbian and Ubuntu LTS.
-It is somewhat safe to assume the process for newer versions of Ubuntu
-will work.
-
-
-Installing Pre-Requisites
-=========================
-
-Raspbian Stretch
-----------------
-
-As a prerequisite, you will need Avahi/Bonjour installed (due to ``zeroconf`` package)::
-
-    sudo apt install libavahi-compat-libdnssd-dev
-
-
-Ubuntu 16.04 LTS
-----------------
-
-Same with Raspbian, we will need to install Avahi/Bonjour, but a fresh 16.04 install will
-require the ``python3-dev`` package as well::
-
-    sudo apt install libavahi-compat-libdnssd-dev python3-dev
+HAP-python requires Python 3.11 or newer and is installed with ``pip``. All
+of its dependencies ship binary wheels for the common platforms — Linux
+(including Raspberry Pi OS on ARM), macOS and Windows — so no system
+packages are needed for a plain install. If you are on a platform without
+wheels for ``cryptography`` or ``pylibsrtp``, a C compiler and the OpenSSL /
+libsrtp2 headers are needed to build them.
 
 
 Installing HAP-python
 =====================
 
-Make a directory for your project, and ``cd`` into it::
+Make a directory for your project, create a virtualenv and activate it::
 
     ~ $ mkdir hk_project
     ~ $ cd hk_project
-    ~/hk_project $
+    ~/hk_project $ python3 -m venv venv
+    ~/hk_project $ source venv/bin/activate
 
-It is best to use a virtualenv for most Python projects, we can use one here as well.
-Make sure that you have the ``venv`` module installed for Python 3::
+Then install HAP-python with pip::
 
-    sudo apt install python3-venv
+    (venv) ~/hk_project $ pip install HAP-python
 
-To create a virtualenv and activate it, simply run these commands inside your project
-directory::
 
-    python3 -m venv venv
-    source venv/bin/activate
+Extras
+======
 
-Because we used a Python 3 virtualenv and activated it, we can install ``HAP-python``
-with ``pip``::
+To print a pairing QR code, install the ``QRCode`` extra::
 
-    pip install HAP-python
+    (venv) ~/hk_project $ pip install HAP-python[QRCode]
+
+Without it, HAP-python still pairs — you enter the setup code by hand in
+the Home app.
+
+
+Verifying the install
+=====================
+
+From the project directory, run the bundled example accessory::
+
+    (venv) ~/hk_project $ python main.py
+
+It starts a temperature sensor on port 51826, prints a setup code (or QR
+code with the extra installed) and advertises itself over mDNS — you can
+pair with it from the Home app. Continue with :doc:`tutorial`.

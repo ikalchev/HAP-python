@@ -556,90 +556,91 @@ class Camera(Accessory):
 
             .. code-block:: python
 
-            {
-                "video": {
-                    "codec": {
-                        "profiles": [
-                            camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["BASELINE"],
-                        ],
-                        "levels": [
-                            camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE3_1'],
+                {
+                    "video": {
+                        "codec": {
+                            "profiles": [
+                                camera.VIDEO_CODEC_PARAM_PROFILE_ID_TYPES["BASELINE"],
+                            ],
+                            "levels": [
+                                camera.VIDEO_CODEC_PARAM_LEVEL_TYPES['TYPE3_1'],
+                            ],
+                        },
+                        "resolutions": [
+                            [320, 240, 15],  # Width, Height, framerate
+                            [1024, 768, 30],
+                            [640, 480, 30],
+                            [640, 360, 30],
+                            [480, 360, 30],
+                            [480, 270, 30],
+                            [320, 240, 30],
+                            [320, 180, 30],
                         ],
                     },
-                    "resolutions": [
-                        [320, 240, 15],  # Width, Height, framerate
-                        [1024, 768, 30],
-                        [640, 480, 30],
-                        [640, 360, 30],
-                        [480, 360, 30],
-                        [480, 270, 30],
-                        [320, 240, 30],
-                        [320, 180, 30],
-                    ],
-                },
-                "audio": {
-                    "codecs": [
-                        {
-                            'type': 'OPUS',
-                            'samplerate': 24,
-                        },
-                        {
-                            'type': 'AAC-eld',
-                            'samplerate': 16
-                        }
-                    ],
-                },
-                "address": "192.168.1.226",  # Address from which the camera will stream
-            }
+                    "audio": {
+                        "codecs": [
+                            {
+                                'type': 'OPUS',
+                                'samplerate': 24,
+                            },
+                            {
+                                'type': 'AAC-eld',
+                                'samplerate': 16
+                            }
+                        ],
+                    },
+                    "address": "192.168.1.226",  # The camera streams from here
+                }
 
             Additional optional values are:
+
             - srtp - boolean, defaults to False. Whether the camera supports SRTP.
             - talkback - boolean, defaults to False. Whether the camera supports
-                receiving two-way ("talkback") audio from the controller during a
-                live view session. When enabled, a "Speaker"
-                service is added so that HAP clients know the accessory supports
-                it, and :meth:`talkback_audio_received` is called with the
-                received audio for each session that negotiates it.
+              receiving two-way ("talkback") audio from the controller during a
+              live view session. When enabled, a "Speaker"
+              service is added so that HAP clients know the accessory supports
+              it, and :meth:`talkback_audio_received` is called with the
+              received audio for each session that negotiates it.
             - global_operating_mode - list of optional characteristics of the
-                HomeKit Secure Video 17.99 Camera Global Operating Mode service,
-                e.g. ``["ManuallyDisabled", "NightVision"]``. Opts into the service,
-                an empty list adds only the required characteristics. With
-                ``recording``, the Camera Operating Mode service has a HomeKit
-                Camera Active too: the last write to either turns the camera on
-                or off, and the other one is set to the same value, so a hub
-                that only knows the classic one still works. While streaming is
-                not allowed, the camera refuses to set up live streams and ends
-                running ones. Unknown names raise ``ValueError``, a value that is
-                not a list raises ``TypeError``.
+              HomeKit Secure Video 17.99 Camera Global Operating Mode service,
+              e.g. ``["ManuallyDisabled", "NightVision"]``. Opts into the service,
+              an empty list adds only the required characteristics. With
+              ``recording``, the Camera Operating Mode service has a HomeKit
+              Camera Active too: the last write to either turns the camera on
+              or off, and the other one is set to the same value, so a hub
+              that only knows the classic one still works. While streaming is
+              not allowed, the camera refuses to set up live streams and ends
+              running ones. Unknown names raise ``ValueError``, a value that is
+              not a list raises ``TypeError``.
             - start_stream_cmd - string specifying the command to be executed to start
-                the stream. The string can contain the keywords, corresponding to the
-                video and audio configuration that was negotiated between the camera
-                and the client. See the ``start`` method for a full list of parameters.
+              the stream. The string can contain the keywords, corresponding to the
+              video and audio configuration that was negotiated between the camera
+              and the client. See the ``start`` method for a full list of parameters.
             - sensors - list of :class:`pyhap.hksv3.SensorConfiguration`, the image
-                sensors of the camera. Opts into the HomeKit Secure Video 17.99
-                Camera Capabilities and Camera Motion Zones services, and adds
-                Contributing Sensors and Motion Enabled to the motion sensor,
-                or adds a motion sensor without ``recording``. Each sensor needs
-                at least three video encodings. With ``recording``, turning it
-                on for a paired camera changes the instance IDs of the recording
-                services with the default IID manager.
+              sensors of the camera. Opts into the HomeKit Secure Video 17.99
+              Camera Capabilities and Camera Motion Zones services, and adds
+              Contributing Sensors and Motion Enabled to the motion sensor,
+              or adds a motion sensor without ``recording``. Each sensor needs
+              at least three video encodings. With ``recording``, turning it
+              on for a paired camera changes the instance IDs of the recording
+              services with the default IID manager.
             - multi_tier - :class:`pyhap.camera_multi_tier.MultiTierConfig`, or a
-                dict of its fields. Developer Preview of HomeKit Secure Video
-                17.99, experimental. Adds a Camera Multi-Tier RTP Stream
-                Management service per sensor, offering the sensor's video
-                encodings as H.265 tiers. Needs ``webrtc``, ``sensors``,
-                ``global_operating_mode``, ``recording``, ``video`` and
-                ``audio``: iOS 27 shows a camera without the classic RTP stream
-                management service as not responding. Its services come before
-                the RTP stream management services, which then get a new
-                ``unique_id``. For a paired camera this changes instance IDs.
+              dict of its fields. Developer Preview of HomeKit Secure Video
+              17.99, experimental. Adds a Camera Multi-Tier RTP Stream
+              Management service per sensor, offering the sensor's video
+              encodings as H.265 tiers. Needs ``webrtc``, ``sensors``,
+              ``global_operating_mode``, ``recording``, ``video`` and
+              ``audio``: iOS 27 shows a camera without the classic RTP stream
+              management service as not responding. Its services come before
+              the RTP stream management services, which then get a new
+              ``unique_id``. For a paired camera this changes instance IDs.
             - webrtc - :class:`pyhap.camera_webrtc.WebRTCConfig`, or a dict of
-                its fields. Developer Preview of HomeKit Secure Video 17.99,
-                experimental. Adds a Camera WebRTC Stream Management service per
-                sensor, linked to its multi-tier service. Controllers view
-                remotely through it: one that streams through the multi-tier
-                service does not fall back to the RTP stream management service.
-                Needs ``multi_tier`` and the options that it needs.
+              its fields. Developer Preview of HomeKit Secure Video 17.99,
+              experimental. Adds a Camera WebRTC Stream Management service per
+              sensor, linked to its multi-tier service. Controllers view
+              remotely through it: one that streams through the multi-tier
+              service does not fall back to the RTP stream management service.
+              Needs ``multi_tier`` and the options that it needs.
 
         :type options: ``dict``
         """
@@ -2102,46 +2103,53 @@ class Camera(Accessory):
 
         :param session_info: Contains information about the current session. Can be used
             for session storage. Available keys:
+
             - id - The session ID.
         :type session_info: ``dict``
         :param stream_config: Stream configuration, as negotiated with the HAP client.
             Implementations can only use part of these. Available keys:
+
             General configuration:
-                - address - The IP address from which the camera will stream
-                - v_port - Remote port to which to stream video
-                - v_srtp_key - Base64-encoded key and salt value for the
-                    AES_CM_128_HMAC_SHA1_80 cipher to use when streaming video.
-                    The key and the salt are concatenated before encoding
-                - a_port - Remote audio port to which to stream audio
-                - a_srtp_key - As v_srtp_params, but for the audio stream.
+
+            - address - The IP address from which the camera will stream
+            - v_port - Remote port to which to stream video
+            - v_srtp_key - Base64-encoded key and salt value for the
+              AES_CM_128_HMAC_SHA1_80 cipher to use when streaming video.
+              The key and the salt are concatenated before encoding
+            - a_port - Remote audio port to which to stream audio
+            - a_srtp_key - As v_srtp_params, but for the audio stream.
+
             Video configuration:
-                - v_profile_id - The profile ID for the H.264 codec, e.g. baseline.
-                    Refer to ``VIDEO_CODEC_PARAM_PROFILE_ID_TYPES``.
-                - v_level - The level in the profile ID, e.g. 3:1.
-                    Refer to ``VIDEO_CODEC_PARAM_LEVEL_TYPES``.
-                - width - Video width
-                - height - Video height
-                - fps - Video frame rate
-                - v_ssrc - Video synchronisation source
-                - v_payload_type - Type of the video codec
-                - v_max_bitrate - Maximum bit rate generated by the codec in kbps
-                    and averaged over 1 second
-                - v_rtcp_interval - Minimum RTCP interval in seconds
-                - v_max_mtu - MTU that the IP camera must use to transmit
-                    Video RTP packets.
+
+            - v_profile_id - The profile ID for the H.264 codec, e.g. baseline.
+              Refer to ``VIDEO_CODEC_PARAM_PROFILE_ID_TYPES``.
+            - v_level - The level in the profile ID, e.g. 3:1.
+              Refer to ``VIDEO_CODEC_PARAM_LEVEL_TYPES``.
+            - width - Video width
+            - height - Video height
+            - fps - Video frame rate
+            - v_ssrc - Video synchronisation source
+            - v_payload_type - Type of the video codec
+            - v_max_bitrate - Maximum bit rate generated by the codec in kbps
+              and averaged over 1 second
+            - v_rtcp_interval - Minimum RTCP interval in seconds
+            - v_max_mtu - MTU that the IP camera must use to transmit
+              Video RTP packets.
+
             Audio configuration:
-                - a_bitrate - Whether the bitrate is variable or constant
-                - a_codec - Audio codec
-                - a_comfort_noise - Wheter to use a comfort noise codec
-                - a_channel - Number of audio channels
-                - a_sample_rate - Audio sample rate in KHz
-                - a_packet_time - Length of time represented by the media in a packet
-                - a_ssrc - Audio synchronisation source
-                - a_payload_type - Type of the audio codec
-                - a_max_bitrate - Maximum bit rate generated by the codec in kbps
-                    and averaged over 1 second
-                - a_rtcp_interval - Minimum RTCP interval in seconds
-                - a_comfort_payload_type - The type of codec for comfort noise
+
+            - a_bitrate - Whether the bitrate is variable or constant
+            - a_codec - Audio codec
+            - a_comfort_noise - Wheter to use a comfort noise codec
+            - a_channel - Number of audio channels
+            - a_sample_rate - Audio sample rate in KHz
+            - a_packet_time - Length of time represented by the media in a packet
+            - a_ssrc - Audio synchronisation source
+            - a_payload_type - Type of the audio codec
+            - a_max_bitrate - Maximum bit rate generated by the codec in kbps
+              and averaged over 1 second
+            - a_rtcp_interval - Minimum RTCP interval in seconds
+            - a_comfort_payload_type - The type of codec for comfort noise
 
         :return: True if and only if starting the stream command was successful.
         :rtype: ``bool``
