@@ -2,26 +2,16 @@
 
 import asyncio
 from collections.abc import Callable
-import logging
 import struct
 from typing import Any, cast
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
 import pytest
 
 from pyhap import hksv3, tlv
 from pyhap.camera import SETUP_ADDR_INFO, SETUP_SRTP_PARAM, SETUP_TYPES, Camera
-from pyhap.camera_multi_tier import (
-    FFMPEG_GLOBAL_OPTIONS,
-    FFmpegMultiTierDelegate,
-    MultiTierController,
-    MultiTierSession,
-    RtcpMonitor,
-    _redact_command,
-    _redact_urls,
-    open_rtcp_monitor,
-)
+from pyhap.camera_multi_tier import MultiTierController, MultiTierSession
 from pyhap.camera_stream import SessionState, StreamError
 from pyhap.camera_webrtc import WebRTCController
 from pyhap.util import base64_to_bytes, to_base64_str
@@ -179,54 +169,18 @@ async def test_streaming_enabled_persisted(
 async def test_camera_forwards_to_controllers(
     stream_camera: Callable[..., Camera],
 ) -> None:
-    """Test the camera's session actions reach each controller."""
+    """Test the camera's stop and disconnect reach each controller."""
     camera = stream_camera()
-    controllers = [
-        *camera.multi_tier_controllers.values(),
-        *camera.webrtc_controllers.values(),
-    ]
     with (
         patch.object(MultiTierController, "close") as close,
+        patch.object(WebRTCController, "close") as webrtc_close,
         patch.object(MultiTierController, "client_disconnected") as disconnected,
-        patch.object(MultiTierController, "end_session", return_value=True) as end,
-        patch.object(MultiTierController, "end_all_sessions") as end_all,
     ):
         await camera.stop()
         camera.client_disconnected(CLIENT)
-        assert await camera.end_session(SESSION) is True
-        await camera.end_all_sessions()
     close.assert_awaited_once()
+    webrtc_close.assert_awaited_once()
     disconnected.assert_called_once_with(CLIENT)
-    end.assert_awaited_once_with(SESSION)
-    end_all.assert_awaited_once()
-    assert len(controllers) == 2
-
-
-@pytest.mark.parametrize(
-    ("multi_tier_ended", "webrtc_ended", "expected"),
-    [(True, True, True), (False, True, True), (False, False, False)],
-)
-async def test_camera_ends_the_id_in_each_controller(
-    stream_camera: Callable[..., Camera],
-    multi_tier_ended: bool,
-    webrtc_ended: bool,
-    expected: bool,
-) -> None:
-    """Test the camera ends a session ID in every controller, not the first only."""
-    camera = stream_camera()
-    with (
-        patch.object(
-            MultiTierController, "end_session", return_value=multi_tier_ended
-        ) as multi_tier_end,
-        patch.object(
-            WebRTCController, "end_session", return_value=webrtc_ended
-        ) as webrtc_end,
-    ):
-        assert await camera.end_session(SESSION) is expected
-    await camera.stop()
-
-    multi_tier_end.assert_awaited_once_with(SESSION)
-    webrtc_end.assert_awaited_once_with(SESSION)
 
 
 # Sessions
@@ -284,10 +238,14 @@ def _session(camera: Camera) -> MultiTierSession:
 
 
 def _control(
-    command: int, video_tier: int | None = 1, audio_tier: int | None = 1
+    command: int,
+    video_tier: int | None = 1,
+    audio_tier: int | None = 1,
+    session_id: UUID = SESSION,
 ) -> str:
-    """An RTP Streaming Control write for SESSION."""
-    data = hksv3.encode_item(1, SESSION.bytes) + hksv3.encode_item(2, bytes([command]))
+    """An RTP Streaming Control write, by default for SESSION."""
+    data = hksv3.encode_item(1, session_id.bytes)
+    data += hksv3.encode_item(2, bytes([command]))
     if video_tier is not None:
         data += hksv3.encode_item(3, video_tier.to_bytes(4, "little"))
         data += hksv3.encode_item(4, (0x1234).to_bytes(4, "little"))
@@ -316,6 +274,20 @@ def _setup_request_of(session_id: UUID) -> str:
     """A Setup Endpoints write like ``_setup_request()`` for ``session_id``."""
     request = base64_to_bytes(_setup_request())
     return to_base64_str(request[:2] + session_id.bytes + request[18:])
+
+
+async def _setup_and_end_many(camera: Camera, count: int) -> list[int]:
+    """Set up ``count`` sessions and end each before it starts.
+
+    Returns the Setup Endpoints statuses.
+    """
+    statuses: list[int] = []
+    for index in range(count):
+        session_id = UUID(int=index + 1)
+        answer = await _setup(camera, _setup_request_of(session_id))
+        statuses.append(answer[SETUP_TYPES["STATUS"]][0])
+        await _streaming_control(camera, command=1, session_id=session_id)
+    return statuses
 
 
 async def _setup_many(camera: Camera, count: int) -> list[int]:
@@ -358,7 +330,7 @@ async def test_setup_answers_from_the_connection(
 ) -> None:
     """Test the answer has the accessory's address on the connection."""
     camera = stream_camera()
-    with patch.object(camera.driver, "local_address", return_value="fd00::10"):
+    with patch.object(camera.driver, "_local_address", return_value="fd00::10"):
         answer = await _setup(camera, _setup_request(b"fd00::1", True))
     address = tlv.decode(answer[SETUP_TYPES["ADDRESS"]])
     assert address[SETUP_ADDR_INFO["ADDRESS_VER"]] == b"\x01"
@@ -379,6 +351,132 @@ async def test_prepare_may_change_the_answer(
     address = tlv.decode(answer[SETUP_TYPES["ADDRESS"]])
     assert address[SETUP_ADDR_INFO["ADDRESS"]] == b"192.168.1.20"
     assert address[SETUP_ADDR_INFO["VIDEO_RTP_PORT"]] == struct.pack("<H", 40000)
+
+
+def _prepare_ports(video: Any, audio: Any) -> Callable[..., Any]:
+    """A prepare hook that sets the accessory's ports."""
+
+    async def _prepare(session: MultiTierSession) -> None:
+        session.accessory_video_port = video
+        session.accessory_audio_port = audio
+
+    return _prepare
+
+
+@pytest.mark.parametrize(
+    ("video", "audio"),
+    [(0, 50002), (50000, 65536), ("50000", 50002), (50000, 50002.0), (True, 1)],
+    ids=["zero", "too-large", "str", "float", "bool"],
+)
+async def test_prepare_sets_invalid_ports(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+    video: Any,
+    audio: Any,
+) -> None:
+    """Test ports a prepare hook sets outside 1 to 65535 fail the setup at once."""
+    multi_tier_delegate.handle_prepare.side_effect = _prepare_ports(video, audio)
+    camera = stream_camera()
+
+    answer = await _setup(camera)
+    sessions = dict(_controller(camera).sessions)
+    await camera.stop()
+
+    assert answer[SETUP_TYPES["STATUS"]] == b"\x02"
+    assert sessions == {}
+    assert "The prepare hook set invalid ports" in caplog.text
+    multi_tier_delegate.handle_end.assert_awaited_once()
+
+
+def _prepare_address(address: Any) -> Callable[..., Any]:
+    """A prepare hook that sets the accessory's address."""
+
+    async def _prepare(session: MultiTierSession) -> None:
+        session.accessory_address = address
+
+    return _prepare
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        None,
+        "fd00::10",
+        "not an address",
+        "192.168.1.256",
+        3232235796,
+        b"\xc0\xa8\x01\x14",
+    ],
+    ids=["none", "wrong-family", "garbage", "out-of-range", "int", "packed"],
+)
+async def test_prepare_sets_invalid_address(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+    address: Any,
+) -> None:
+    """Test an address a prepare hook sets that is no IPv4 address fails the setup."""
+    multi_tier_delegate.handle_prepare.side_effect = _prepare_address(address)
+    camera = stream_camera()
+
+    answer = await _setup(camera)
+    sessions = dict(_controller(camera).sessions)
+    await camera.stop()
+
+    assert answer[SETUP_TYPES["STATUS"]] == b"\x02"
+    assert sessions == {}
+    assert "The accessory address" in caplog.text
+    multi_tier_delegate.handle_end.assert_awaited_once()
+
+
+async def test_prepare_sets_ipv6_address(
+    stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
+) -> None:
+    """Test an IPv6 session takes an IPv6 address from the prepare hook."""
+    multi_tier_delegate.handle_prepare.side_effect = _prepare_address("fd00::20")
+    camera = stream_camera()
+    with patch.object(camera.driver, "_local_address", return_value="fd00::10"):
+        answer = await _setup(camera, _setup_request(b"fd00::1", True))
+    await camera.stop()
+    address = tlv.decode(answer[SETUP_TYPES["ADDRESS"]])
+    assert address[SETUP_ADDR_INFO["ADDRESS"]] == b"fd00::20"
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["192.168.1.20", "fe80::20%eth0", "::ffff:192.168.1.20"],
+    ids=["ipv4", "scope-id", "ipv4-mapped"],
+)
+async def test_prepare_sets_invalid_address_on_ipv6(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+    address: str,
+) -> None:
+    """Test an address from the prepare hook that is no plain IPv6 address fails."""
+    multi_tier_delegate.handle_prepare.side_effect = _prepare_address(address)
+    camera = stream_camera()
+    with patch.object(camera.driver, "_local_address", return_value="fd00::10"):
+        answer = await _setup(camera, _setup_request(b"fd00::1", True))
+    sessions = dict(_controller(camera).sessions)
+    await camera.stop()
+    assert answer[SETUP_TYPES["STATUS"]] == b"\x02"
+    assert sessions == {}
+    assert "The accessory address" in caplog.text
+
+
+async def test_prepare_sets_edge_ports(
+    stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
+) -> None:
+    """Test ports 1 and 65535 are valid."""
+    multi_tier_delegate.handle_prepare.side_effect = _prepare_ports(1, 65535)
+
+    answer = await _setup(stream_camera())
+
+    address = tlv.decode(answer[SETUP_TYPES["ADDRESS"]])
+    assert address[SETUP_ADDR_INFO["VIDEO_RTP_PORT"]] == struct.pack("<H", 1)
+    assert address[SETUP_ADDR_INFO["AUDIO_RTP_PORT"]] == struct.pack("<H", 65535)
 
 
 @pytest.mark.parametrize(
@@ -536,10 +634,10 @@ async def test_setup_again_concurrently(
     )
 
 
-async def test_setup_again_finds_no_room(
+async def test_setup_again_keeps_its_room(
     stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
 ) -> None:
-    """Test a set up again is busy when a new session took its room meanwhile."""
+    """Test a new session cannot take the room of a session set up again."""
     camera = stream_camera()
     await _setup(camera)
     await _setup_many(camera, 2)
@@ -550,9 +648,9 @@ async def test_setup_again_finds_no_room(
     sessions = dict(_controller(camera).sessions)
     await camera.stop()
 
-    assert again[SETUP_TYPES["STATUS"]] == b"\x01"
-    assert new[SETUP_TYPES["STATUS"]] == b"\x00"
-    assert sorted(sessions) == [UUID(int=1), UUID(int=2), UUID(int=3)]
+    assert again[SETUP_TYPES["STATUS"]] == b"\x00"
+    assert new[SETUP_TYPES["STATUS"]] == b"\x01"
+    assert sorted(sessions) == [UUID(int=1), UUID(int=2), SESSION]
     assert multi_tier_delegate.handle_end.await_count == 4
 
 
@@ -613,6 +711,23 @@ async def test_setup_again_release_too_slow(
 
     assert answer[SETUP_TYPES["STATUS"]] == b"\x02"
     multi_tier_delegate.handle_prepare.assert_awaited_once()
+
+
+async def test_setup_again_release_fails(
+    stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
+) -> None:
+    """Test a set up again proceeds when the former release failed but finished."""
+    multi_tier_delegate.handle_end.side_effect = RuntimeError
+    camera = stream_camera()
+    await _setup(camera)
+    first = _session(camera)
+
+    answer = await _setup(camera)
+
+    assert answer[SETUP_TYPES["STATUS"]] == b"\x00"
+    assert _session(camera) is not first
+    assert multi_tier_delegate.handle_prepare.await_count == 2
+    multi_tier_delegate.handle_end.assert_awaited_once_with(first)
 
 
 async def test_setup_of_another_controller(
@@ -796,6 +911,39 @@ async def test_end(
     assert await _streaming_control(camera, command=1) == 1
 
 
+async def test_end_release_fails(
+    stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
+) -> None:
+    """Test an end answers success when the release failed but finished."""
+    multi_tier_delegate.handle_end.side_effect = RuntimeError
+    camera = stream_camera()
+    await _setup(camera)
+    await _streaming_control(camera)
+
+    assert await _streaming_control(camera, command=1) == 0
+    assert _controller(camera).sessions == {}
+    assert _controller(camera)._releasing == set()
+
+
+async def test_end_release_too_slow(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    end_gate: asyncio.Event,
+) -> None:
+    """Test an end answers an error when the release overruns."""
+    camera = stream_camera(
+        multi_tier={"delegate": multi_tier_delegate, "hook_timeout": 0.05}
+    )
+    await _setup(camera)
+    await _streaming_control(camera)
+
+    status = await _streaming_control(camera, command=1)
+    end_gate.set()
+    await camera.stop()
+
+    assert status == 4
+
+
 async def test_end_before_start(
     stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
 ) -> None:
@@ -805,6 +953,49 @@ async def test_end_before_start(
     assert await _streaming_control(camera, command=1) == 2
     await camera.stop()
     multi_tier_delegate.handle_end.assert_awaited_once()
+
+
+async def test_releasing_sessions_keep_their_room(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    end_gate: asyncio.Event,
+) -> None:
+    """Test sessions ended before they started count until they are released."""
+    camera = stream_camera()
+
+    statuses = await _setup_and_end_many(camera, 4)
+    end_gate.set()
+    await camera.stop()
+
+    assert statuses == [0, 0, 0, 1]
+    assert multi_tier_delegate.handle_end.await_count == 3
+
+
+async def test_releasing_sessions_count_towards_max_sessions(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    end_gate: asyncio.Event,
+) -> None:
+    """Test sessions being released count towards max_sessions of the sensor."""
+    camera = stream_camera(
+        multi_tier={"delegate": multi_tier_delegate, "max_sessions_per_connection": 5}
+    )
+
+    statuses = await _setup_and_end_many(camera, 6)
+    end_gate.set()
+    await camera.stop()
+
+    assert statuses == [0, 0, 0, 0, 0, 1]
+
+
+async def test_setup_after_stop(stream_camera: Callable[..., Camera]) -> None:
+    """Test a stopped camera answers Setup Endpoints with an error, not busy."""
+    camera = stream_camera()
+    await camera.stop()
+
+    answer = await _setup(camera)
+
+    assert answer[SETUP_TYPES["STATUS"]] == b"\x02"
 
 
 async def test_malformed_control(stream_camera: Callable[..., Camera]) -> None:
@@ -877,81 +1068,6 @@ async def test_former_session_keeps_nothing_alive(
     await camera.stop()
 
 
-async def _send_rtcp(monitor: RtcpMonitor, host: str) -> None:
-    """Send a datagram from ``host`` to ``monitor`` and wait until it handled it."""
-    handled = asyncio.Event()
-    received = monitor.datagram_received
-
-    def _received(data: bytes, addr: tuple[Any, ...]) -> None:
-        received(data, addr)
-        handled.set()
-
-    transport, _ = await asyncio.get_running_loop().create_datagram_endpoint(
-        asyncio.DatagramProtocol, remote_addr=(host, monitor.port)
-    )
-    with patch.object(monitor, "datagram_received", _received):
-        transport.sendto(b"\x81\xc9\x00\x01")
-        await asyncio.wait_for(handled.wait(), 2)
-    transport.close()
-
-
-@pytest.mark.parametrize(
-    ("address", "kept_alive"),
-    [(b"127.0.0.1", True), (b"192.168.1.114", False)],
-    ids=["controller", "other-host"],
-)
-async def test_rtcp_monitor(
-    stream_camera: Callable[..., Camera], address: bytes, kept_alive: bool
-) -> None:
-    """Test a datagram from the controller keeps the session alive, others not."""
-    camera = stream_camera()
-    await _setup(camera, _setup_request(address))
-    session = _session(camera)
-    monitor = await open_rtcp_monitor(session)
-    await _streaming_control(camera)
-    timer = session._timer
-
-    await _send_rtcp(monitor, "127.0.0.1")
-
-    assert timer is not None
-    assert timer.cancelled() is kept_alive
-    assert session.accessory_video_port == monitor.port
-    assert monitor.port != 0
-    monitor.close()
-    assert monitor.closed
-    await camera.stop()
-
-
-async def test_rtcp_monitor_ipv6(stream_sensor: hksv3.SensorConfiguration) -> None:
-    """Test the monitor of an IPv6 controller listens on IPv6."""
-    session = MultiTierSession(
-        id=SESSION,
-        sensor=stream_sensor,
-        client_addr=CLIENT,
-        address="::1",
-        is_ipv6=True,
-        video_port=50000,
-        audio_port=50002,
-        video_srtp_key=KEY,
-        video_srtp_salt=SALT,
-        audio_srtp_key=KEY,
-        audio_srtp_salt=SALT,
-        video_ssrc=1,
-        audio_ssrc=2,
-        accessory_address="::1",
-        accessory_video_port=50000,
-        accessory_audio_port=50002,
-    )
-    monitor = await open_rtcp_monitor(session)
-
-    with patch.object(session, "keep_alive") as keep_alive:
-        await _send_rtcp(monitor, "::1")
-    monitor.close()
-
-    keep_alive.assert_called_once_with()
-    assert session.accessory_video_port == monitor.port
-
-
 @pytest.mark.parametrize(
     "end",
     [
@@ -994,269 +1110,5 @@ async def test_driver_local_address(
     connection = MagicMock()
     connection.transport.get_extra_info.return_value = sockname
     stream_driver.http_server.connections[CLIENT] = connection
-    assert stream_driver.local_address(CLIENT, ipv6) == expected
-    assert stream_driver.local_address(OTHER, ipv6) is None
-
-
-# The ffmpeg delegate
-
-FFMPEG_INPUT = ["-i", "rtsp://user:secret@cam/stream-token"]
-
-
-async def _ffmpeg_session(
-    stream_camera: Callable[..., Camera], request: str | None = None, **options: Any
-) -> tuple[Camera, MultiTierSession, FFmpegMultiTierDelegate]:
-    delegate = FFmpegMultiTierDelegate(FFMPEG_INPUT)
-    camera = stream_camera(multi_tier={"delegate": delegate, **options})
-    await _setup(camera, request)
-    return camera, _session(camera), delegate
-
-
-async def test_ffmpeg_command(stream_camera: Callable[..., Camera]) -> None:
-    """Test the command is an argument list with video and audio outputs."""
-    camera, session, delegate = await _ffmpeg_session(stream_camera)
-
-    cmd = delegate.command(session, HIGH, hksv3.DEFAULT_AUDIO_TIER)
-    await camera.stop()
-
-    assert cmd[:7] == ["ffmpeg", *FFMPEG_GLOBAL_OPTIONS, *FFMPEG_INPUT]
-    assert "-nostats" in cmd
-    assert cmd[cmd.index("-ssrc") + 1] == str(session.video_ssrc)
-    assert cmd[cmd.index("-srtp_out_params") + 1] == to_base64_str(KEY + SALT)
-    assert cmd[cmd.index("-payload_type") + 1] == "99"
-    assert cmd[cmd.index("-b:a") + 1] == "24k"
-    assert cmd[cmd.index("libopus") - 3 : cmd.index("libopus")] == [
-        "-map",
-        "0:a:0",
-        "-c:a",
-    ]
-    assert cmd[-1] == (
-        "srtp://192.168.1.114:50002?rtcpport=50002"
-        f"&localrtpport={session.accessory_audio_port}&pkt_size=188"
-    )
-    assert "srtp://192.168.1.114:50000?rtcpport=50000&pkt_size=1190" in cmd
-
-
-async def test_ffmpeg_command_video_only(
-    stream_camera: Callable[..., Camera],
-) -> None:
-    """Test a stream without audio has no audio output."""
-    camera, session, delegate = await _ffmpeg_session(stream_camera)
-    cmd = delegate.command(session, HIGH, None)
-    await camera.stop()
-    assert "libopus" not in cmd
-    assert cmd[-1].startswith("srtp://192.168.1.114:50000?")
-
-
-async def test_ffmpeg_command_input_without_audio(
-    stream_camera: Callable[..., Camera],
-) -> None:
-    """Test audio=False streams video only even when the controller wants audio."""
-    camera, session, delegate = await _ffmpeg_session(stream_camera)
-    video_only = FFmpegMultiTierDelegate(FFMPEG_INPUT, audio=False)
-
-    cmd = video_only.command(session, HIGH, hksv3.DEFAULT_AUDIO_TIER)
-    await camera.stop()
-
-    assert cmd == delegate.command(session, HIGH, None)
-    assert "0:a:0" not in cmd
-
-
-async def test_ffmpeg_command_ipv6(stream_camera: Callable[..., Camera]) -> None:
-    """Test an IPv6 controller is bracketed in the URLs."""
-    with patch(
-        "pyhap.accessory_driver.AccessoryDriver.local_address", return_value="fd00::10"
-    ):
-        camera, session, delegate = await _ffmpeg_session(
-            stream_camera, _setup_request(b"fd00::1", True)
-        )
-    await camera.stop()
-    assert delegate.command(session, HIGH, None)[-1].startswith("srtp://[fd00::1]:")
-
-
-async def test_ffmpeg_start_and_stop(
-    stream_camera: Callable[..., Camera],
-    ffmpeg_process: Any,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Test ffmpeg starts once, keeps running on a tier change and stops."""
-    camera, session, delegate = await _ffmpeg_session(stream_camera)
-    expected = delegate.command(session, HIGH, hksv3.DEFAULT_AUDIO_TIER)
-    with (
-        patch("asyncio.create_subprocess_exec", return_value=ffmpeg_process) as start,
-        caplog.at_level(logging.DEBUG, logger="pyhap.camera_multi_tier"),
-    ):
-        assert await _streaming_control(camera) == 0
-        assert await _streaming_control(camera, video_tier=2) == 0
-        assert await _streaming_control(camera, command=1) == 0
-
-    start.assert_called_once_with(*expected, stdin=ANY, stdout=ANY, stderr=ANY)
-    ffmpeg_process.terminate.assert_called_once()
-    assert "frame=1" in caplog.text
-    assert "from 'rtsp://cam/<redacted>'" in caplog.text
-    assert to_base64_str(KEY + SALT) not in caplog.text
-    assert "secret" not in caplog.text
-    assert "stream-token" not in caplog.text
-    assert "exited" not in caplog.text
-
-
-async def test_ffmpeg_exit_ends_the_session(
-    stream_camera: Callable[..., Camera],
-    ffmpeg_process: Any,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Test the session ends when ffmpeg exits on its own."""
-    camera, _, _ = await _ffmpeg_session(stream_camera)
-    with patch("asyncio.create_subprocess_exec", return_value=ffmpeg_process):
-        assert await _streaming_control(camera) == 0
-
-    ffmpeg_process.exit(1)
-    await asyncio.sleep(0.01)
-
-    assert _controller(camera).sessions == {}
-    assert "Stream process exited with 1" in caplog.text
-    await camera.stop()
-
-
-async def test_ffmpeg_status_lines_keep_the_pipe_drained(
-    stream_camera: Callable[..., Camera],
-    ffmpeg_process_factory: Any,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Test more than 64 KiB of carriage return status lines are read."""
-    status = b"".join(b"frame=%d fps=30\r" % i for i in range(5000))
-    process = ffmpeg_process_factory(status, b"last\n")
-    assert len(status) > 65536
-    camera, _, _ = await _ffmpeg_session(stream_camera)
-    with (
-        patch("asyncio.create_subprocess_exec", return_value=process),
-        caplog.at_level(logging.DEBUG, logger="pyhap.camera_multi_tier"),
-    ):
-        assert await _streaming_control(camera) == 0
-        while process.stderr._data:
-            await asyncio.sleep(0)
-        await asyncio.sleep(0)
-
-    assert "frame=4999 fps=30" in caplog.text
-    assert "last" in caplog.text
-    process.exit(1)
-    for _ in range(100):
-        if not _controller(camera).sessions:
-            break
-        await asyncio.sleep(0)
-    assert _controller(camera).sessions == {}
-    await camera.stop()
-
-
-async def test_ffmpeg_announces_the_rtcp_monitor(
-    stream_camera: Callable[..., Camera],
-) -> None:
-    """Test the answer announces the port the RTCP monitor bound."""
-    camera = stream_camera(
-        multi_tier={"delegate": FFmpegMultiTierDelegate(FFMPEG_INPUT)}
-    )
-
-    answer = await _setup(camera)
-
-    monitor = _session(camera).data["rtcp_monitor"]
-    assert tlv.decode(answer[SETUP_TYPES["ADDRESS"]])[
-        SETUP_ADDR_INFO["VIDEO_RTP_PORT"]
-    ] == struct.pack("<H", monitor.port)
-    assert not monitor.closed
-    await camera.stop()
-    assert monitor.closed
-
-
-async def test_ffmpeg_session_ends_without_rtcp(
-    stream_camera: Callable[..., Camera], ffmpeg_process: Any
-) -> None:
-    """Test a running ffmpeg does not keep a session alive without RTCP."""
-    camera, session, _ = await _ffmpeg_session(stream_camera, idle_timeout=0.05)
-    monitor = session.data["rtcp_monitor"]
-    with patch("asyncio.create_subprocess_exec", return_value=ffmpeg_process):
-        assert await _streaming_control(camera) == 0
-        await asyncio.sleep(0.2)
-
-    assert session.ended
-    assert _controller(camera).sessions == {}
-    ffmpeg_process.terminate.assert_called_once()
-    assert monitor.closed
-    await camera.stop()
-
-
-async def test_ffmpeg_rtcp_keeps_the_session_alive(
-    stream_camera: Callable[..., Camera], ffmpeg_process: Any
-) -> None:
-    """Test the controller's RTCP keeps a running ffmpeg session alive."""
-    camera, session, _ = await _ffmpeg_session(
-        stream_camera, _setup_request(b"127.0.0.1")
-    )
-    with patch("asyncio.create_subprocess_exec", return_value=ffmpeg_process):
-        assert await _streaming_control(camera) == 0
-    timer = session._timer
-
-    await _send_rtcp(session.data["rtcp_monitor"], "127.0.0.1")
-
-    assert timer is not None
-    assert timer.cancelled()
-    assert session.state is SessionState.STARTED
-    await camera.stop()
-
-
-async def test_ffmpeg_start_fails(stream_camera: Callable[..., Camera]) -> None:
-    """Test a missing ffmpeg answers an error."""
-    camera, _, _ = await _ffmpeg_session(stream_camera)
-    with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError):
-        assert await _streaming_control(camera) == 4
-    await camera.stop()
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("rtsps://cam:7441/token?enableSrtp", "rtsps://cam:7441/<redacted>"),
-        (
-            "from 'rtsp://u:p@[fd00::1]:554/s':",
-            "from 'rtsp://[fd00::1]:554/<redacted>':",
-        ),
-        ("rtsp://u:p@cam", "rtsp://cam"),
-        ("rtsp://admin:abc/def@cam/s", "rtsp://cam/<redacted>"),
-        ("rtsp://admin:p#w@cam/s", "rtsp://cam/<redacted>"),
-        ("from 'rtsp://admin:pa'ss@cam/s'", "from 'rtsp://cam/<redacted>'"),
-        ("srtp://192.168.1.114:50000", "srtp://192.168.1.114:50000"),
-        ("frame=1 fps=30", "frame=1 fps=30"),
-    ],
-)
-def test_redact_urls(text: str, expected: str) -> None:
-    """Test URLs keep only their scheme, host and port."""
-    assert _redact_urls(text) == expected
-
-
-@pytest.mark.parametrize(
-    ("cmd", "expected"),
-    [
-        (
-            ["ffmpeg", "-i", "rtsp://admin:my pass@cam/s"],
-            "ffmpeg -i rtsp://cam/<redacted>",
-        ),
-        (
-            ["ffmpeg", "-i", "rtsp://admin:my\npass@cam/s"],
-            "ffmpeg -i rtsp://cam/<redacted>",
-        ),
-        (
-            ["ffmpeg", "-i", "rtsps://u:p@w@cam:7441/s?token"],
-            "ffmpeg -i rtsps://cam:7441/<redacted>",
-        ),
-        (
-            ["ffmpeg", "-srtp_out_params", "secret", "srtp://192.168.1.114:50000"],
-            "ffmpeg -srtp_out_params <redacted> srtp://192.168.1.114:50000",
-        ),
-        (
-            ["ffmpeg", "-f", "tee", "[f=rtsp]rtsp://u:p@cam/s"],
-            "ffmpeg -f tee [f=rtsp]rtsp://cam/<redacted>",
-        ),
-    ],
-)
-def test_redact_command(cmd: list[str], expected: str) -> None:
-    """Test each URL argument of a command is redacted as a whole."""
-    assert _redact_command(cmd) == expected
+    assert stream_driver._local_address(CLIENT, ipv6) == expected
+    assert stream_driver._local_address(OTHER, ipv6) is None

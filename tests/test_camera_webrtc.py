@@ -11,7 +11,7 @@ import pytest
 from pyhap import hksv3
 from pyhap.camera import Camera
 from pyhap.camera_stream import SessionState, StreamError
-from pyhap.camera_webrtc import WebRTCController, WebRTCSession, remote_tier
+from pyhap.camera_webrtc import WebRTCController, WebRTCSession, _remote_tier
 from pyhap.util import base64_to_bytes, to_base64_str
 
 WEBRTC = "CameraWebRTCStreamManagement"
@@ -102,8 +102,8 @@ async def _hang(*_args: object) -> None:
 def test_remote_tier(stream_sensor: hksv3.SensorConfiguration) -> None:
     """Test the remote tier is the smallest of a quality, else the smallest."""
     tiers = hksv3.tiers_from_sensor(stream_sensor)
-    assert remote_tier(tiers, hksv3.VideoQuality.MEDIUM) == MEDIUM
-    assert remote_tier(tiers, hksv3.VideoQuality.HIGHEST) == LOW
+    assert _remote_tier(tiers, hksv3.VideoQuality.MEDIUM) == MEDIUM
+    assert _remote_tier(tiers, hksv3.VideoQuality.HIGHEST) == LOW
 
 
 async def test_solicit_offer(
@@ -197,6 +197,44 @@ async def test_solicit_offer_refused(
     webrtc_delegate.handle_solicit_offer.assert_not_called()
 
 
+async def test_solicit_offer_after_stop(
+    stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
+) -> None:
+    """Test a stopped camera answers an offer with an error."""
+    camera = stream_camera()
+    await camera.stop()
+
+    response = await _solicit(camera)
+
+    assert response.status == hksv3.WebRTCSolicitOfferStatus.ERROR
+    assert response.session_id is None
+    webrtc_delegate.handle_solicit_offer.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "offer", [None, "v=0\r\n", hksv3.WebRTCReofferAnswer("v=0\r\n")]
+)
+async def test_offer_of_another_type(
+    stream_camera: Callable[..., Camera],
+    webrtc_delegate: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+    offer: Any,
+) -> None:
+    """Test an offer hook that returns no WebRTCOffer fails, the session ends."""
+    webrtc_delegate.handle_solicit_offer.return_value = offer
+    camera = stream_camera()
+
+    response = await _solicit(camera)
+    sessions = dict(_controller(camera).sessions)
+    await camera.stop()
+
+    assert response.status == hksv3.WebRTCSolicitOfferStatus.ERROR
+    assert response.session_id is None
+    assert sessions == {}
+    assert "The offer is not a WebRTCOffer" in caplog.text
+    webrtc_delegate.handle_end.assert_awaited_once()
+
+
 async def test_solicit_offer_without_delegate(
     stream_camera: Callable[..., Camera],
 ) -> None:
@@ -208,6 +246,57 @@ async def test_solicit_offer_limit(stream_camera: Callable[..., Camera]) -> None
     """Test one connection may solicit max_sessions, beyond fails without busy."""
     camera = stream_camera()
     assert await _solicit_many(camera, 7) == [0, 0, 0, 0, 0, 0, 2]
+
+
+@pytest.fixture
+def end_gate(webrtc_delegate: AsyncMock) -> asyncio.Event:
+    """Make ``handle_end`` wait for the returned event."""
+    gate = asyncio.Event()
+
+    async def _end(_session: WebRTCSession) -> None:
+        await gate.wait()
+
+    webrtc_delegate.handle_end.side_effect = _end
+    return gate
+
+
+async def _solicit_ids(camera: Camera, count: int) -> list[UUID]:
+    """Solicit ``count`` offers, return the session IDs."""
+    ids: list[UUID] = []
+    for _ in range(count):
+        response = await _solicit(camera)
+        assert response.session_id is not None
+        ids.append(response.session_id)
+    return ids
+
+
+async def _end_all(camera: Camera, ids: list[UUID]) -> list[int]:
+    """Write End for each session at once, return the statuses."""
+    answers = await asyncio.gather(*(_end(camera, session_id) for session_id in ids))
+    return [answer.status for answer in answers]
+
+
+async def test_releasing_sessions_count_towards_max_sessions(
+    stream_camera: Callable[..., Camera], end_gate: asyncio.Event
+) -> None:
+    """Test ended sessions being released count towards max_sessions."""
+    camera = stream_camera()
+    ends = asyncio.ensure_future(_end_all(camera, await _solicit_ids(camera, 6)))
+    # One step starts the gather, the next the End writes.
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    sessions = dict(_controller(camera).sessions)
+
+    refused = await _solicit(camera, client=OTHER)
+    end_gate.set()
+    statuses = await ends
+    accepted = await _solicit(camera, client=OTHER)
+    await camera.stop()
+
+    assert sessions == {}
+    assert refused.status == hksv3.WebRTCSolicitOfferStatus.ERROR
+    assert statuses == [0, 0, 0, 0, 0, 0]
+    assert accepted.status == hksv3.WebRTCSolicitOfferStatus.SUCCESS
 
 
 async def test_solicit_offer_limit_per_connection(
@@ -399,12 +488,32 @@ async def test_end(
 async def test_end_fails(
     stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
 ) -> None:
-    """Test a failed release answers an error, the session is gone anyway."""
+    """Test a failed but finished release answers success and frees the room."""
     webrtc_delegate.handle_end.side_effect = RuntimeError
-    camera = stream_camera()
+    camera = stream_camera(
+        webrtc={"delegate": webrtc_delegate, "max_sessions_per_connection": 1}
+    )
     session = await _active(camera)
-    assert (await _end(camera, session.id)).status == 3
+
+    assert (await _end(camera, session.id)).status == 0
     assert _controller(camera).sessions == {}
+    assert (await _solicit(camera)).status == 0
+
+
+async def test_end_release_too_slow(
+    stream_camera: Callable[..., Camera],
+    webrtc_delegate: AsyncMock,
+    end_gate: asyncio.Event,
+) -> None:
+    """Test an end answers an error when the release overruns."""
+    camera = stream_camera(webrtc={"delegate": webrtc_delegate, "hook_timeout": 0.05})
+    session = await _active(camera)
+
+    status = (await _end(camera, session.id)).status
+    end_gate.set()
+    await camera.stop()
+
+    assert status == 3
 
 
 async def test_unknown_command(stream_camera: Callable[..., Camera]) -> None:
@@ -440,19 +549,23 @@ async def test_sessions_end(
     webrtc_delegate.handle_end.assert_awaited_once_with(session)
 
 
-async def test_camera_ends_a_session(
+async def test_delegate_ends_a_session(
     stream_camera: Callable[..., Camera], webrtc_delegate: AsyncMock
 ) -> None:
-    """Test the integrator ends a session and all of them."""
+    """Test the delegate ends sessions, each is released once."""
     camera = stream_camera()
     first = await _active(camera)
     second = await _session(camera)
 
-    assert await camera.end_session(first.id) is True
-    assert await camera.end_session(first.id) is False
-    await camera.end_all_sessions()
+    first.end()
+    first.end()
+    second.end()
+    await asyncio.sleep(0)
+    sessions = dict(_controller(camera).sessions)
+    await camera.stop()
 
-    assert second.state is SessionState.ENDED
+    assert sessions == {}
+    assert _count(camera) == 0
     assert webrtc_delegate.handle_end.await_count == 2
 
 
@@ -552,6 +665,23 @@ async def test_reoffer_answer_with_unexpected_sframe_key(
 
     assert response == hksv3.WebRTCReofferResponse(session.id, 3)
     assert session.state is SessionState.ACTIVE
+
+
+async def test_reoffer_answer_of_wrong_type(
+    stream_camera: Callable[..., Camera],
+    webrtc_delegate: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test a reoffer hook returning no WebRTCReofferAnswer answers an error."""
+    camera = stream_camera()
+    session = await _active(camera)
+    webrtc_delegate.handle_reoffer.return_value = None
+
+    response = await _reoffer(camera, session.id)
+
+    assert response == hksv3.WebRTCReofferResponse(session.id, 3)
+    assert session.state is SessionState.ACTIVE
+    assert "The reoffer answer is not a WebRTCReofferAnswer: None" in caplog.text
 
 
 async def test_update_session(
