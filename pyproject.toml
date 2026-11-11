@@ -27,6 +27,7 @@ dependencies = [
     "orjson>=3.7.2",
     "zeroconf>=0.36.2",
     "h11",
+    "pylibsrtp>=0.10",
 ]
 dynamic = ["version"]
 
@@ -35,9 +36,8 @@ QRCode = [
     "base36",
     "pyqrcode",
 ]
-Talkback = [
-    "pylibsrtp",
-]
+# Kept for existing installs: two-way audio needs nothing extra.
+Talkback = []
 bench = [
     "psutil",
     "py-spy",

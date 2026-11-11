@@ -39,7 +39,7 @@ from pyhap import (
     tlv,
 )
 from pyhap.accessory import Accessory
-from pyhap.camera_talkback import TalkbackReceiver, talkback_available
+from pyhap.camera_talkback import TalkbackReceiver
 from pyhap.characteristic import Characteristic
 from pyhap.const import CATEGORY_CAMERA
 from pyhap.service import Service
@@ -596,8 +596,7 @@ class Camera(Accessory):
             - srtp - boolean, defaults to False. Whether the camera supports SRTP.
             - talkback - boolean, defaults to False. Whether the camera supports
                 receiving two-way ("talkback") audio from the controller during a
-                live view session. Requires the optional ``pylibsrtp`` dependency
-                (``pip install HAP-python[Talkback]``). When enabled, a "Speaker"
+                live view session. When enabled, a "Speaker"
                 service is added so that HAP clients know the accessory supports
                 it, and :meth:`talkback_audio_received` is called with the
                 received audio for each session that negotiates it.
@@ -646,11 +645,6 @@ class Camera(Accessory):
         """
         self.has_srtp = options.get("srtp", False)
         self.support_talkback = options.get("talkback", False)
-        if self.support_talkback and not talkback_available():
-            raise ValueError(
-                "The 'talkback' option requires the optional 'pylibsrtp' "
-                "dependency. Install it with: pip install HAP-python[Talkback]"
-            )
         self.start_stream_cmd = options.get("start_stream_cmd", FFMPEG_CMD)
 
         self.stream_address = options["address"]

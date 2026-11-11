@@ -31,10 +31,7 @@ import struct
 import threading
 from typing import cast
 
-try:
-    import pylibsrtp
-except ImportError:  # pragma: no cover - exercised via requires_talkback()
-    pylibsrtp = None
+import pylibsrtp
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +39,12 @@ RTP_HEADER_LEN = 12
 
 
 def talkback_available() -> bool:
-    """Whether the optional dependency for talkback support is installed."""
-    return pylibsrtp is not None
+    """Whether talkback is supported, always since pylibsrtp is a dependency.
+
+    Deprecated: kept for callers of the optional dependency check, it will be
+    removed in a future release.
+    """
+    return True
 
 
 @dataclass
@@ -148,12 +149,6 @@ class TalkbackReceiver:
         is_ipv6: bool = False,
         controller_address: str | None = None,
     ) -> None:
-        if pylibsrtp is None:
-            raise RuntimeError(
-                "Talkback support requires the 'pylibsrtp' package. "
-                "Install it with: pip install HAP-python[Talkback]"
-            )
-
         policy = pylibsrtp.Policy(
             key=srtp_key_and_salt,
             ssrc_type=pylibsrtp.Policy.SSRC_ANY_INBOUND,

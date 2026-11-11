@@ -1,6 +1,6 @@
 # Test/lint tooling only. Library dependencies (including the optional
-# QRCode/Talkback extras) come from the package itself - tox installs it,
-# so use e.g. `pip install -e ".[QRCode,Talkback]"` in a dev venv.
+# QRCode extra) come from the package itself - tox installs it, so use e.g.
+# `pip install -e ".[QRCode]"` in a dev venv.
 pytest
 pytest-asyncio
 pytest-cov
