@@ -28,6 +28,9 @@ device.
        changes its value from a background ``run`` task.
    * - ``TV.py``, ``FakeFan.py``, ``DisplaySwitch.py``
      - TVs, fans and switches: services with several linked characteristics.
+   * - ``AudioReceiver.py``
+     - An audio receiver: the ``CATEGORY_AUDIO_RECEIVER`` category with a
+       ``Speaker`` service for volume and mute.
    * - ``BMP180.py``, ``AM2302.py``, ``TSL2591.py``, ``SDS011.py``
      - Reading real hardware (I²C, GPIO, serial) and publishing it, polled
        from ``run`` with ``run_at_interval``.
