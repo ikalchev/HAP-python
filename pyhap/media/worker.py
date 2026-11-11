@@ -16,9 +16,10 @@ one.
 By default the worker is a thread of the caller's process. It shares the
 loggers and costs no second interpreter, but shares the GIL with the
 application. With ``MediaWorker(separate_process=True)`` it runs in a child
-process instead, which needs a POSIX system. That process logs its records
-as JSON lines to stderr, and the parent logs them with its own loggers, so
-the application's logging configuration applies to both.
+process instead, which needs a POSIX system. That process logs to a file of
+its own, ``pyhap-media-<pid>.log`` in ``log_dir``, rotated by size; its
+stderr goes there too, so a crash leaves its traceback. Starting a worker
+process removes such files that were not written for a week.
 
 Either way the worker talks over a socket pair in length-prefixed frames:
 a 4-byte JSON length, a 4-byte binary length, a JSON object and raw bytes.
@@ -41,8 +42,10 @@ import os
 import socket
 import struct
 import sys
+import tempfile
 import threading
-from typing import Any, cast
+import time
+from typing import Any
 
 import orjson
 
@@ -62,8 +65,12 @@ WORKER_MODULE = "pyhap.media._worker"
 # LEVEL_LOGGER.
 WORKER_LOGGER = "pyhap"
 LEVEL_LOGGER = "pyhap.media"
-# The longest log line a worker process may write to stderr.
-MAX_LOG_LINE = 1024 * 1024
+# The log files of worker processes: name, size limit and backups per file,
+# and the age after which the next worker start removes them.
+LOG_FILE_PREFIX = "pyhap-media-"
+LOG_FILE_MAX_BYTES = 1024 * 1024
+LOG_FILE_BACKUPS = 2
+LOG_FILE_MAX_AGE = 7 * 24 * 3600
 THREAD_NAME = "pyhap-media-worker"
 
 
@@ -155,11 +162,6 @@ class _ProcessRunner:
         self.reader = reader
         self.writer = writer
         self._process = process
-        # Set: the process is started with a pipe for it.
-        stderr = cast(asyncio.StreamReader, process.stderr)
-        self._logs = asyncio.get_running_loop().create_task(
-            _relay_logs(stderr, process.pid)
-        )
 
     @property
     def running(self) -> bool:
@@ -174,10 +176,7 @@ class _ProcessRunner:
             self._process.kill()
 
     async def wait(self) -> int:
-        code = await self._process.wait()
-        # Its last records explain why it ended.
-        await asyncio.shield(self._logs)
-        return code
+        return await self._process.wait()
 
 
 class _ThreadRunner:
@@ -257,6 +256,7 @@ class MediaWorker:
         *,
         separate_process: bool = False,
         python: str | None = None,
+        log_dir: str | os.PathLike[str] | None = None,
         start_timeout: float = DEFAULT_START_TIMEOUT,
         request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
     ) -> None:
@@ -264,10 +264,13 @@ class MediaWorker:
 
         ``separate_process`` runs it in a child process with the interpreter
         ``python`` (default: this one) instead of a thread of this process.
+        That process logs to a file in ``log_dir`` (default: ``pyhap-media``
+        in the temporary directory).
         """
         self.on_exit: Callable[[str], None] | None = None
         self._separate_process = separate_process
         self._python = python or sys.executable
+        self._log_dir = os.fspath(log_dir) if log_dir else _default_log_dir()
         self._start_timeout = start_timeout
         self._request_timeout = request_timeout
         self._runner: _ProcessRunner | _ThreadRunner | None = None
@@ -327,12 +330,19 @@ class MediaWorker:
         if runner.pid is None:
             logger.debug("Media worker started in a thread")
         else:
-            logger.debug("Media worker %s started", runner.pid)
+            logger.debug(
+                "Media worker %s started, logging to %s",
+                runner.pid,
+                log_file(self._log_dir, runner.pid),
+            )
 
     async def _start_process(self) -> _ProcessRunner:
         env = dict(os.environ)
         env["PYTHONPATH"] = os.pathsep.join(
             os.path.abspath(path) for path in sys.path if path
+        )
+        await asyncio.get_running_loop().run_in_executor(
+            None, prepare_log_dir, self._log_dir
         )
         parent, child = socket.socketpair()
         try:
@@ -346,13 +356,12 @@ class MediaWorker:
                     WORKER_MODULE,
                     str(child.fileno()),
                     str(_log_level()),
+                    self._log_dir,
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.PIPE,
                     pass_fds=(child.fileno(),),
                     env=env,
                     cwd=os.path.abspath(os.sep),
-                    limit=MAX_LOG_LINE,
                 )
             reader, writer = await asyncio.open_connection(sock=parent)
         except BaseException:
@@ -518,48 +527,27 @@ def _log_level() -> int:
     return logging.getLogger(LEVEL_LOGGER).getEffectiveLevel()
 
 
-async def _relay_logs(stream: asyncio.StreamReader, pid: int) -> None:
-    """Log the lines a worker process writes to stderr until it closes."""
-    while True:
-        try:
-            line = await stream.readline()
-        except ValueError:
-            # Longer than MAX_LOG_LINE; the reader dropped it.
-            logger.warning("Media worker %s wrote an overlong log line", pid)
-            continue
-        if not line:
-            return
-        _relay_line(line.rstrip(b"\n"), pid)
+def _default_log_dir() -> str:
+    name = "pyhap-media"
+    if hasattr(os, "getuid"):
+        # The temporary directory may be shared between users.
+        name += f"-{os.getuid()}"
+    return os.path.join(tempfile.gettempdir(), name)
 
 
-def _relay_line(line: bytes, pid: int) -> None:
-    """Log one record of a worker process, or its line if it is no record.
+def log_file(log_dir: str, pid: int) -> str:
+    """The log file of the worker process ``pid``."""
+    return os.path.join(log_dir, f"{LOG_FILE_PREFIX}{pid}.log")
 
-    Anything that is not a record, such as a traceback of a crashing
-    interpreter or a stray print, is logged as a warning.
-    """
-    try:
-        record = orjson.loads(line)
-        name = str(record["name"])
-        level = int(record["level"])
-        message = str(record["message"])
-        exc_text = record.get("exc")
-    except (orjson.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError):
-        if text := line.decode(errors="replace").strip():
-            logger.warning("Media worker %s: %s", pid, text)
-        return
-    target = logging.getLogger(name)
-    if not target.isEnabledFor(level):
-        return
-    target.handle(
-        logging.makeLogRecord(
-            {
-                "name": name,
-                "levelno": level,
-                "levelname": logging.getLevelName(level),
-                "msg": message,
-                "exc_text": str(exc_text) if exc_text else None,
-                "process": pid,
-            }
-        )
-    )
+
+def prepare_log_dir(log_dir: str) -> None:
+    """Create ``log_dir`` and remove worker log files not written for a week."""
+    os.makedirs(log_dir, mode=0o700, exist_ok=True)
+    oldest = time.time() - LOG_FILE_MAX_AGE
+    with os.scandir(log_dir) as entries:
+        for entry in entries:
+            if not entry.name.startswith(LOG_FILE_PREFIX) or ".log" not in entry.name:
+                continue
+            with contextlib.suppress(OSError):
+                if entry.is_file() and entry.stat().st_mtime < oldest:
+                    os.unlink(entry.path)

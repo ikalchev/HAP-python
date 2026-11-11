@@ -5,16 +5,22 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 import logging
+import os
+import pathlib
+import signal
+import time
 from typing import Any
 
 import pytest
 
 from pyhap.media import _worker  # noqa: E402
 from pyhap.media.worker import (  # noqa: E402
+    LOG_FILE_MAX_AGE,
     MAX_MESSAGE,
     MediaWorker,
-    _relay_line,
     encode_message,
+    log_file,
+    prepare_log_dir,
     read_message,
 )
 
@@ -22,9 +28,9 @@ pytestmark = pytest.mark.timeout(30)
 
 
 @pytest.fixture
-async def worker() -> AsyncIterator[MediaWorker]:
+async def worker(tmp_path: pathlib.Path) -> AsyncIterator[MediaWorker]:
     """Yield a started worker process and stop it afterwards."""
-    started = MediaWorker(separate_process=True)
+    started = MediaWorker(separate_process=True, log_dir=tmp_path)
     await started.start()
     yield started
     await started.close()
@@ -154,82 +160,83 @@ async def test_worker_crash_ends_its_sources(worker: MediaWorker) -> None:
     assert not again.closed
 
 
-async def wait_for_record(caplog: pytest.LogCaptureFixture, start: str) -> None:
-    """Wait until a record whose message starts with ``start`` was logged."""
-    for _ in range(200):
-        if any(record.getMessage().startswith(start) for record in caplog.records):
-            return
+async def wait_for_line(path: pathlib.Path, text: str) -> str:
+    """Wait until the file at ``path`` contains ``text``; return the file."""
+    for _ in range(300):
+        if path.exists() and text in (content := path.read_text()):
+            return content
         await asyncio.sleep(0.01)
-    pytest.fail(f"no record {start!r}")
+    pytest.fail(f"{text!r} not in {path}")
 
 
-async def test_process_records_use_parent_loggers(
-    caplog: pytest.LogCaptureFixture,
+async def test_process_logs_to_its_own_file(
+    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Verify a record of the worker process is logged by the parent's logger."""
+    """Verify a worker process logs to its own file, not through the parent."""
     caplog.set_level(logging.DEBUG, logger="pyhap.media")
-    worker = MediaWorker(separate_process=True)
+    worker = MediaWorker(separate_process=True, log_dir=tmp_path)
     try:
         await worker.open_source(audio=False)
-        await wait_for_record(caplog, "Media input buffer")
-        (record,) = (
-            record
-            for record in caplog.records
-            if record.getMessage().startswith("Media input buffer")
-        )
-        assert record.name == "pyhap.media.source"
-        assert record.levelno == logging.DEBUG
-        assert record.process == worker.pid
+        assert worker.pid is not None
+        path = pathlib.Path(log_file(str(tmp_path), worker.pid))
+        content = await wait_for_line(path, "Media input buffer")
+        assert "[pyhap.media.source]" in content
+        assert not any("Media input buffer" in r.getMessage() for r in caplog.records)
+        assert str(path) in caplog.text
     finally:
         await worker.close()
 
 
-async def test_process_follows_level_changes(caplog: pytest.LogCaptureFixture) -> None:
+async def test_process_follows_level_changes(
+    tmp_path: pathlib.Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """Verify the worker process logs debug records once the level allows them."""
     caplog.set_level(logging.WARNING, logger="pyhap.media")
-    worker = MediaWorker(separate_process=True)
+    worker = MediaWorker(separate_process=True, log_dir=tmp_path)
     try:
         await worker.open_source(audio=False)
-        caplog.set_level(logging.DEBUG, logger="pyhap.media")
+        assert worker.pid is not None
+        path = pathlib.Path(log_file(str(tmp_path), worker.pid))
         await asyncio.sleep(0.1)
-        assert not any("Media input buffer" in r.getMessage() for r in caplog.records)
+        assert "Media input buffer" not in path.read_text()
+        caplog.set_level(logging.DEBUG, logger="pyhap.media")
         await worker.update_log_levels()
         await worker.open_source(audio=False)
-        await wait_for_record(caplog, "Media input buffer")
+        await wait_for_line(path, "Media input buffer")
     finally:
         await worker.close()
 
 
-def test_relay_line_logs_record(caplog: pytest.LogCaptureFixture) -> None:
-    """Verify a JSON record keeps its logger, level and traceback."""
-    caplog.set_level(logging.DEBUG, logger="pyhap.media")
-    _relay_line(
-        b'{"name": "pyhap.media.rtp", "level": 40, "message": "broken", '
-        b'"exc": "Traceback: boom"}',
-        42,
-    )
-    (record,) = caplog.records
-    assert record.name == "pyhap.media.rtp"
-    assert record.levelno == logging.ERROR
-    assert record.process == 42
-    assert "Traceback: boom" in caplog.text
+async def test_process_crash_output_lands_in_its_file(tmp_path: pathlib.Path) -> None:
+    """Verify what the worker process writes to stderr ends up in its log file."""
+    worker = MediaWorker(separate_process=True, log_dir=tmp_path)
+    try:
+        await worker.start()
+        assert worker.pid is not None
+        path = pathlib.Path(log_file(str(tmp_path), worker.pid))
+        os.kill(worker.pid, signal.SIGSEGV)
+        await wait_for_line(path, "Fatal Python error")
+    finally:
+        await worker.close()
 
 
-def test_relay_line_respects_parent_level(caplog: pytest.LogCaptureFixture) -> None:
-    """Verify a record below the parent's level is dropped."""
-    caplog.set_level(logging.INFO, logger="pyhap.media")
-    _relay_line(b'{"name": "pyhap.media.rtp", "level": 10, "message": "x"}', 42)
-    assert not caplog.records
+def test_old_log_files_are_removed(tmp_path: pathlib.Path) -> None:
+    """Verify starting a worker process removes stale log files only."""
+    old = tmp_path / "pyhap-media-1.log"
+    old_backup = tmp_path / "pyhap-media-1.log.1"
+    fresh = tmp_path / "pyhap-media-2.log"
+    other = tmp_path / "other.log"
+    for path in (old, old_backup, fresh, other):
+        path.write_text("x")
+    stale = time.time() - LOG_FILE_MAX_AGE - 60
+    for path in (old, old_backup, other):
+        os.utime(path, (stale, stale))
 
+    prepare_log_dir(str(tmp_path / "new"))
+    prepare_log_dir(str(tmp_path))
 
-@pytest.mark.parametrize(
-    "line", [b"Traceback (most recent call last):", b"[1, 2]", b'{"name": "x"}']
-)
-def test_relay_line_logs_other_output_as_warning(
-    caplog: pytest.LogCaptureFixture, line: bytes
-) -> None:
-    """Verify output that is no record, like a crash traceback, is a warning."""
-    _relay_line(line, 42)
-    (record,) = caplog.records
-    assert record.levelno == logging.WARNING
-    assert line.decode() in record.getMessage()
+    assert (tmp_path / "new").is_dir()
+    assert not old.exists()
+    assert not old_backup.exists()
+    assert fresh.exists()
+    assert other.exists()

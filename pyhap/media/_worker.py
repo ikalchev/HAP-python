@@ -2,25 +2,32 @@
 
 :func:`serve_socket` serves one parent over a socket pair, in a thread of the
 parent or in a process of its own. As a process it is started as
-``python -m pyhap.media._worker <socket fd> <log level>``, writes its log
-records as JSON lines to stderr and ends when the parent closes the socket.
+``python -m pyhap.media._worker <socket fd> <log level> <log dir>``, logs to
+its own file in the log directory and ends when the parent closes the socket.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import faulthandler
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import socket
 import sys
 from typing import Any
 
-import orjson
-
 from . import MediaError
 from .source import MediaSource
-from .worker import WORKER_LOGGER, encode_message, read_message
+from .worker import (
+    LOG_FILE_BACKUPS,
+    LOG_FILE_MAX_BYTES,
+    WORKER_LOGGER,
+    encode_message,
+    log_file,
+    read_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,26 +36,15 @@ logger = logging.getLogger(__name__)
 MAX_OUTPUT_BUFFER = 64 * 1024 * 1024
 
 
-class _StderrHandler(logging.Handler):
-    """Write each record as one JSON line for the parent to log."""
+class _LogFile(RotatingFileHandler):
+    """A rotating log file that also takes the process's stderr and stdout."""
 
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            exc = None
-            if record.exc_info:
-                exc = logging.Formatter().formatException(record.exc_info)
-            line = orjson.dumps(
-                {
-                    "name": record.name,
-                    "level": record.levelno,
-                    "message": record.getMessage(),
-                    "exc": exc,
-                }
-            )
-            sys.stderr.buffer.write(line + b"\n")
-            sys.stderr.buffer.flush()
-        except Exception:  # noqa: BLE001 - logging must never raise
-            self.handleError(record)
+    def _open(self) -> Any:
+        stream = super()._open()
+        # Tracebacks, faulthandler dumps and prints follow the current file.
+        os.dup2(stream.fileno(), 2)
+        os.dup2(stream.fileno(), 1)
+        return stream
 
 
 class _Server:
@@ -176,13 +172,21 @@ async def serve_socket(sock: socket.socket) -> None:
 def main() -> None:
     """Run the worker process until the parent closes its socket."""
     sock = socket.socket(fileno=int(sys.argv[1]))
-    level = int(sys.argv[2]) if len(sys.argv) > 2 else logging.WARNING
-    # Anything printed ends up in the parent's log as a warning.
-    os.dup2(2, 1)
+    level = int(sys.argv[2])
+    handler = _LogFile(
+        log_file(sys.argv[3], os.getpid()),
+        maxBytes=LOG_FILE_MAX_BYTES,
+        backupCount=LOG_FILE_BACKUPS,
+        encoding="utf-8",
+    )
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    )
     worker_logger = logging.getLogger(WORKER_LOGGER)
-    worker_logger.addHandler(_StderrHandler())
+    worker_logger.addHandler(handler)
     worker_logger.setLevel(level)
     worker_logger.propagate = False
+    faulthandler.enable()
     with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(serve_socket(sock))
 
