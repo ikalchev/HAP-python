@@ -24,20 +24,22 @@ class AccessoryEncoder:
     with, thus allowing an Accessory to "be remembered".
 
     The idea is:
-        - The Accessory(ies) is created and added to an AccessoryDriver.
-        - The AccessoryDriver checks if a given file, containing the Accessory's state
-            exists. If so, it loads the state into the Accessory. Otherwise, it
-            creates the file and persists the state of the Accessory.
-        - On every change of the accessory - config change, new (un)paired clients,
-            the state is updated.
+
+    - The Accessory(ies) is created and added to an AccessoryDriver.
+    - The AccessoryDriver checks if a given file, containing the Accessory's
+      state exists. If so, it loads the state into the Accessory. Otherwise,
+      it creates the file and persists the state of the Accessory.
+    - On every change of the accessory - config change, new (un)paired
+      clients, the state is updated.
 
     You can implement your own encoding logic, but the minimum set of properties that
     must be persisted are:
-        - Public and private keys.
-        - UUID and public key of all paired clients.
-        - MAC address.
-        - Config version - ok, this is debatable, but it retains the consistency.
-        - Accessories Hash
+
+    - Public and private keys.
+    - UUID and public key of all paired clients.
+    - MAC address.
+    - Config version - ok, this is debatable, but it retains the consistency.
+    - Accessories Hash
 
     The default implementation persists the above properties.
 
