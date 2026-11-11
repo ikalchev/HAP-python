@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+import pathlib
 import socket
 from typing import Any
 
@@ -454,9 +455,11 @@ def test_key_length_is_checked(controller: Controller) -> None:
 
 
 @pytest.fixture(params=[False, True], ids=["thread", "process"])
-async def worker(request: pytest.FixtureRequest) -> AsyncIterator[MediaWorker]:
+async def worker(
+    request: pytest.FixtureRequest, tmp_path: pathlib.Path
+) -> AsyncIterator[MediaWorker]:
     """Yield a started media worker thread or process and stop it afterwards."""
-    started = MediaWorker(separate_process=request.param)
+    started = MediaWorker(separate_process=request.param, log_dir=tmp_path)
     await started.start()
     yield started
     await started.close()
