@@ -1,9 +1,10 @@
-"""Tests for pyhap.media.worker: the framing and lifecycle of the worker."""
+"""Tests for pyhap.media.worker: the framing and the worker process."""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+import logging
 from typing import Any
 
 import pytest
@@ -12,6 +13,7 @@ from pyhap.media import _worker  # noqa: E402
 from pyhap.media.worker import (  # noqa: E402
     MAX_MESSAGE,
     MediaWorker,
+    _relay_line,
     encode_message,
     read_message,
 )
@@ -21,8 +23,8 @@ pytestmark = pytest.mark.timeout(30)
 
 @pytest.fixture
 async def worker() -> AsyncIterator[MediaWorker]:
-    """Yield a started worker and stop it afterwards."""
-    started = MediaWorker()
+    """Yield a started worker process and stop it afterwards."""
+    started = MediaWorker(separate_process=True)
     await started.start()
     yield started
     await started.close()
@@ -122,17 +124,6 @@ async def test_unencodable_answer_becomes_an_error() -> None:
     assert message["error"].startswith("Answer not sent")
 
 
-async def test_slow_parent_loses_log_records_first() -> None:
-    """Verify a backed up pipe drops log records but still sends events."""
-    output = Output(buffered=_worker.LOG_DROP_BUFFER + 1)
-    server = _worker._Server(output)  # ty: ignore[invalid-argument-type]
-    server.send({"event": "log", "level": 30, "name": "pyhap", "message": "x"})
-    assert output.data == b""
-    server.send({"event": "source_closed", "source": 1, "reason": "x"})
-    message, _blob = await read_message(reader_of(output.data))
-    assert message["event"] == "source_closed"
-
-
 async def test_stalled_parent_stops_the_worker() -> None:
     """Verify the worker gives up on a parent that stopped reading."""
     output = Output(buffered=_worker.MAX_OUTPUT_BUFFER + 1)
@@ -161,3 +152,84 @@ async def test_worker_crash_ends_its_sources(worker: MediaWorker) -> None:
     again = await worker.open_source()
     assert worker.pid != pid
     assert not again.closed
+
+
+async def wait_for_record(caplog: pytest.LogCaptureFixture, start: str) -> None:
+    """Wait until a record whose message starts with ``start`` was logged."""
+    for _ in range(200):
+        if any(record.getMessage().startswith(start) for record in caplog.records):
+            return
+        await asyncio.sleep(0.01)
+    pytest.fail(f"no record {start!r}")
+
+
+async def test_process_records_use_parent_loggers(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Verify a record of the worker process is logged by the parent's logger."""
+    caplog.set_level(logging.DEBUG, logger="pyhap.media")
+    worker = MediaWorker(separate_process=True)
+    try:
+        await worker.open_source(audio=False)
+        await wait_for_record(caplog, "Media input buffer")
+        (record,) = (
+            record
+            for record in caplog.records
+            if record.getMessage().startswith("Media input buffer")
+        )
+        assert record.name == "pyhap.media.source"
+        assert record.levelno == logging.DEBUG
+        assert record.process == worker.pid
+    finally:
+        await worker.close()
+
+
+async def test_process_follows_level_changes(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify the worker process logs debug records once the level allows them."""
+    caplog.set_level(logging.WARNING, logger="pyhap.media")
+    worker = MediaWorker(separate_process=True)
+    try:
+        await worker.open_source(audio=False)
+        caplog.set_level(logging.DEBUG, logger="pyhap.media")
+        await asyncio.sleep(0.1)
+        assert not any("Media input buffer" in r.getMessage() for r in caplog.records)
+        await worker.update_log_levels()
+        await worker.open_source(audio=False)
+        await wait_for_record(caplog, "Media input buffer")
+    finally:
+        await worker.close()
+
+
+def test_relay_line_logs_record(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify a JSON record keeps its logger, level and traceback."""
+    caplog.set_level(logging.DEBUG, logger="pyhap.media")
+    _relay_line(
+        b'{"name": "pyhap.media.rtp", "level": 40, "message": "broken", '
+        b'"exc": "Traceback: boom"}',
+        42,
+    )
+    (record,) = caplog.records
+    assert record.name == "pyhap.media.rtp"
+    assert record.levelno == logging.ERROR
+    assert record.process == 42
+    assert "Traceback: boom" in caplog.text
+
+
+def test_relay_line_respects_parent_level(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify a record below the parent's level is dropped."""
+    caplog.set_level(logging.INFO, logger="pyhap.media")
+    _relay_line(b'{"name": "pyhap.media.rtp", "level": 10, "message": "x"}', 42)
+    assert not caplog.records
+
+
+@pytest.mark.parametrize(
+    "line", [b"Traceback (most recent call last):", b"[1, 2]", b'{"name": "x"}']
+)
+def test_relay_line_logs_other_output_as_warning(
+    caplog: pytest.LogCaptureFixture, line: bytes
+) -> None:
+    """Verify output that is no record, like a crash traceback, is a warning."""
+    _relay_line(line, 42)
+    (record,) = caplog.records
+    assert record.levelno == logging.WARNING
+    assert line.decode() in record.getMessage()

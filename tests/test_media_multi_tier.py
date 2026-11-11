@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-import os
-import signal
 import socket
 from typing import Any
 
@@ -455,10 +453,10 @@ def test_key_length_is_checked(controller: Controller) -> None:
         make_sender(controller, video_key=bytes(16))
 
 
-@pytest.fixture
-async def worker() -> AsyncIterator[MediaWorker]:
-    """Yield a started media worker and stop it afterwards."""
-    started = MediaWorker()
+@pytest.fixture(params=[False, True], ids=["thread", "process"])
+async def worker(request: pytest.FixtureRequest) -> AsyncIterator[MediaWorker]:
+    """Yield a started media worker thread or process and stop it afterwards."""
+    started = MediaWorker(separate_process=request.param)
     await started.start()
     yield started
     await started.close()
@@ -519,9 +517,8 @@ async def test_worker_exit_ends_the_sender(
     closed: list[str] = []
     sender.on_closed = closed.append
     await sender.bind()
-    pid = worker.pid
-    assert pid is not None
-    os.kill(pid, signal.SIGKILL)
+    assert worker._runner is not None
+    worker._runner.kill()
     await wait_until(lambda: bool(closed))
     assert "media worker exited" in closed[0]
     assert sender.closed
