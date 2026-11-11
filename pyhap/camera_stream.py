@@ -18,7 +18,9 @@ A delegate hook runs as a task the session owns. A HAP request waits for it
 until one deadline, ``hook_timeout`` after the write, which leaves time to
 answer within the HAP response timeout. A hook that takes longer is
 cancelled and its session ends. Once a session ended, the delegate releases
-it exactly once, in the background, if it saw the session at all.
+it exactly once, in the background, if it saw the session at all. Until its
+release finished or timed out, the session still counts towards the session
+limits.
 
 A delegate keeps its state by session object, e.g. in ``session.data``, not
 by session ID: a controller may set up a session with the ID of one that is
@@ -32,6 +34,7 @@ import asyncio
 from collections.abc import Coroutine, Mapping
 from dataclasses import dataclass, field, fields
 from enum import Enum, IntEnum
+import functools
 import logging
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
@@ -58,6 +61,10 @@ logger = logging.getLogger(__name__)
 HOOK_TIMEOUT_MARGIN = 1.0
 MAX_HOOK_TIMEOUT = RESPONSE_TIMEOUT - HOOK_TIMEOUT_MARGIN
 DEFAULT_HOOK_TIMEOUT = MAX_HOOK_TIMEOUT
+# A release waits up to hook_timeout for the cancelled hooks and then up to
+# hook_timeout for the delegate. close() gives up on tasks after this many
+# hook timeouts.
+CLOSE_TIMEOUT_FACTOR = 3
 
 _S = TypeVar("_S", bound="StreamSession")
 _T = TypeVar("_T")
@@ -68,9 +75,11 @@ _E = TypeVar("_E", bound=IntEnum)
 class StreamError(Exception):
     """Raised by a delegate hook to answer the request with ``status``.
 
-    ``status`` is one of the request's answer, e.g.
-    :attr:`pyhap.hksv3.RTPStreamingStatus.BUSY`. Other exceptions, and hooks
-    that take too long, answer with the request's error status.
+    ``status`` must be a value of the status enum of the request the hook
+    answers, e.g. :attr:`pyhap.hksv3.RTPStreamingStatus.BUSY` for RTP
+    Streaming Control or :attr:`pyhap.hksv3.SetupEndpointsStatus.BUSY` for
+    Setup Endpoints. Another value, other exceptions and hooks that take too
+    long answer with the request's error status.
     """
 
     def __init__(self, status: int, message: str = "") -> None:
@@ -125,7 +134,7 @@ class StreamSession:
     def end(self, reason: str = "the camera ended it") -> None:
         """End the session on the camera's side, e.g. when its media stopped.
 
-        Schedules the end on the event loop and returns at once; the
+        Schedules the end on the event loop and returns at once. The
         delegate then releases the session as for any other end. Does
         nothing for a session that ended. Call it in the event loop.
         """
@@ -134,7 +143,7 @@ class StreamSession:
             controller._loop.call_soon(controller._end, self, reason)
 
 
-class _HookFailed(Exception):
+class HookFailed(Exception):
     """A hook failed, ``status`` is the one the delegate asked for, if any.
 
     Raised by :meth:`StreamController._run_hook` to the stream services.
@@ -145,7 +154,7 @@ class _HookFailed(Exception):
         self.status = status
 
 
-def _failure_status(status_type: type[_E], status: int | None, error: _E) -> _E:
+def failure_status(status_type: type[_E], status: int | None, error: _E) -> _E:
     """The status a failed request answers, ``error`` unless the delegate chose."""
     try:
         chosen = status_type(status)
@@ -154,13 +163,13 @@ def _failure_status(status_type: type[_E], status: int | None, error: _E) -> _E:
     return chosen if chosen else error
 
 
-def _check_hook_timeout(hook_timeout: float) -> None:
+def check_hook_timeout(hook_timeout: float) -> None:
     """Make sure a hook leaves time to answer within the HAP response timeout."""
     if not 0 < hook_timeout <= MAX_HOOK_TIMEOUT:
         raise ValueError(f"hook_timeout must be above 0 and at most {MAX_HOOK_TIMEOUT}")
 
 
-def _config_from_option(config_type: type[_C], value: Any, name: str) -> _C:
+def config_from_option(config_type: type[_C], value: Any, name: str) -> _C:
     """Build a config dataclass from an option dict, or take it as it is.
 
     :raises ValueError: For an unknown key or a value of another type.
@@ -188,14 +197,18 @@ class StreamController(Generic[_S]):
         max_sessions: int,
         max_sessions_per_connection: int,
     ) -> None:
-        _check_hook_timeout(hook_timeout)
+        check_hook_timeout(hook_timeout)
         self.camera = camera
         self.sensor = sensor
         self.hook_timeout = hook_timeout
         self.max_sessions = max_sessions
         self.max_sessions_per_connection = max_sessions_per_connection
         self._sessions: dict[UUID, _S] = {}
+        # Ended sessions whose release still runs, they keep their room.
+        self._releasing: set[_S] = set()
         self._tasks: set[asyncio.Task[Any]] = set()
+        # Background tasks nobody waits for any more, their errors are warned.
+        self._abandoned: set[asyncio.Task[Any]] = set()
         self._closed = False
 
     @property
@@ -225,11 +238,10 @@ class StreamController(Generic[_S]):
         """Why a new session of ``client_addr`` does not fit, None if it does."""
         if self._closed:
             return f"The {self.kind} service is closed"
-        if len(self._sessions) >= self.max_sessions:
+        sessions = [*self._sessions.values(), *self._releasing]
+        if len(sessions) >= self.max_sessions:
             return f"Too many {self.kind} sessions"
-        owned = sum(
-            session.client_addr == client_addr for session in self._sessions.values()
-        )
+        owned = sum(session.client_addr == client_addr for session in sessions)
         if owned >= self.max_sessions_per_connection:
             return f"Too many {self.kind} sessions of the connection"
         return None
@@ -262,17 +274,20 @@ class StreamController(Generic[_S]):
         ``first`` marks the hook that introduces the session to the delegate,
         which then releases it when it ends.
 
-        :raises _HookFailed: If the hook failed or took too long, or the
+        :raises HookFailed: If the hook failed or took too long, or the
             session ended meanwhile.
         """
         if session.ended:
             hook.close()
-            raise _HookFailed
+            raise HookFailed
         if first:
             session._delegated = True
         task = self._loop.create_task(hook)
         session._tasks.add(task)
         task.add_done_callback(session._tasks.discard)
+        task.add_done_callback(
+            functools.partial(self._retrieve, session, f"The {name} hook")
+        )
         try:
             done, _ = await asyncio.wait(
                 {task}, timeout=max(deadline - self._loop.time(), 0)
@@ -284,9 +299,15 @@ class StreamController(Generic[_S]):
         if not done:
             logger.warning("[%s] The %s hook timed out", session.id, name)
             self._end(session, f"the {name} hook timed out")
-            raise _HookFailed
-        if task.cancelled() or session.ended:
-            raise _HookFailed
+            raise HookFailed
+        if session.ended:
+            raise HookFailed
+        if task.cancelled():
+            # The hook cancelled itself, not the end of its session.
+            logger.warning("[%s] The %s hook was cancelled", session.id, name)
+            if end_on_failure:
+                self._end(session, f"the {name} hook was cancelled")
+            raise HookFailed
         error = task.exception()
         if error is None:
             return task.result()
@@ -298,13 +319,35 @@ class StreamController(Generic[_S]):
             logger.error("[%s] The %s hook failed", session.id, name, exc_info=error)
         if end_on_failure:
             self._end(session, f"the {name} hook failed")
-        raise _HookFailed(error.status if isinstance(error, StreamError) else None)
+        raise HookFailed(error.status if isinstance(error, StreamError) else None)
 
-    def _background(self, coro: Coroutine[Any, Any, _T]) -> asyncio.Task[_T]:
+    def _background(
+        self, session: _S, label: str, coro: Coroutine[Any, Any, _T]
+    ) -> asyncio.Task[_T]:
+        """Run ``coro`` as a task of the controller, ``label`` names it in logs."""
         task = self._loop.create_task(coro)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+        # A release that timed out is not awaited any more.
+        task.add_done_callback(functools.partial(self._retrieve, session, label))
         return task
+
+    def _retrieve(self, session: _S, label: str, task: asyncio.Task[Any]) -> None:
+        """Retrieve the exception of a hook or background task, also unawaited.
+
+        Nobody reports the error of an abandoned task, e.g. a release still
+        running at its timeout, so it is warned about. Other errors are only
+        logged at debug, their waiter reports them or their session ended.
+        """
+        abandoned = task in self._abandoned
+        self._abandoned.discard(task)
+        if not task.cancelled() and (error := task.exception()) is not None:
+            if abandoned:
+                logger.warning(
+                    "[%s] %s failed after its timeout: %r", session.id, label, error
+                )
+            else:
+                logger.debug("[%s] %s ended with %r", session.id, label, error)
 
     def _end(self, session: _S, reason: str) -> asyncio.Task[bool] | None:
         """End ``session`` now and release it in the background.
@@ -324,10 +367,20 @@ class StreamController(Generic[_S]):
             logger.debug("[%s] %s session ended: %s", session.id, self.kind, reason)
             self._session_ended(session, previous)
             if session._delegated:
-                session._release = self._background(self._release(session, hooks))
+                self._releasing.add(session)
+                session._release = self._background(
+                    session, "The release task", self._release(session, hooks)
+                )
         return session._release
 
     async def _release(self, session: _S, hooks: list[asyncio.Task[Any]]) -> bool:
+        """Release ``session``, False if the delegate's release timed out."""
+        try:
+            return await self._release_after(session, hooks)
+        finally:
+            self._releasing.discard(session)
+
+    async def _release_after(self, session: _S, hooks: list[asyncio.Task[Any]]) -> bool:
         if hooks:
             # Cancelled hooks finish before the release starts, unless one
             # ignores its cancellation.
@@ -338,19 +391,30 @@ class StreamController(Generic[_S]):
                     session.id,
                     len(pending),
                 )
-        try:
-            await asyncio.wait_for(self._release_hook(session), self.hook_timeout)
-        except TimeoutError:
+        release = self._background(session, "The end hook", self._release_hook(session))
+        done, _ = await asyncio.wait({release}, timeout=self.hook_timeout)
+        if not done:
+            # Not awaited: a release that ignores its cancellation must not
+            # keep the room or the camera's stop.
+            release.cancel()
+            self._abandoned.add(release)
             logger.warning("[%s] Releasing the session timed out", session.id)
             return False
-        # The delegate may fail in many ways, the session is gone anyway.
-        except Exception:
-            logger.exception("[%s] Releasing the session failed", session.id)
-            return False
+        # The release finished, so the session is gone even if it failed.
+        if release.cancelled():
+            logger.warning("[%s] Releasing the session was cancelled", session.id)
+        elif (error := release.exception()) is not None:
+            logger.error(
+                "[%s] Releasing the session failed", session.id, exc_info=error
+            )
         return True
 
     async def _end_by_request(self, session: _S, deadline: float) -> bool:
-        """End a session for a request, waiting for its release until ``deadline``."""
+        """End a session for a request, waiting for its release until ``deadline``.
+
+        Returns False if the release did not finish by ``deadline``. The
+        session then keeps its room until its release finished or timed out.
+        """
         release = self._end(session, "the controller ended it")
         if release is None:
             return True
@@ -395,30 +459,6 @@ class StreamController(Generic[_S]):
         for session in list(self._sessions.values()):
             self._end(session, reason)
 
-    async def end_session(self, session_id: UUID) -> bool:
-        """End a session, e.g. when its stream ended on the camera's side.
-
-        Waits until the delegate released it. Returns False if there is no
-        such session.
-        """
-        session = self._sessions.get(session_id)
-        if session is None:
-            return False
-        release = self._end(session, "the camera ended it")
-        if release is not None:
-            await asyncio.shield(release)
-        return True
-
-    async def end_all_sessions(self) -> None:
-        """End all sessions and wait until the delegate released them."""
-        releases = [
-            self._end(session, "the camera ended it")
-            for session in list(self._sessions.values())
-        ]
-        await asyncio.gather(
-            *(asyncio.shield(release) for release in releases if release is not None)
-        )
-
     def client_disconnected(self, client_addr: tuple[str, int]) -> None:
         """End the sessions of a connection that closed."""
         for session in list(self._sessions.values()):
@@ -426,11 +466,22 @@ class StreamController(Generic[_S]):
                 self._end(session, "the controller disconnected")
 
     async def close(self) -> None:
-        """End all sessions and wait for every task, e.g. when the camera stops.
+        """End all sessions and wait for their releases, e.g. when the camera stops.
 
-        No new session fits afterwards.
+        Gives up on tasks that still run after three times ``hook_timeout``,
+        e.g. a release that ignores its cancellation. No new session fits
+        afterwards.
         """
         self._closed = True
         self._end_sessions("the camera stopped")
+        deadline = self._loop.time() + CLOSE_TIMEOUT_FACTOR * self.hook_timeout
         while pending := [task for task in self._tasks if not task.done()]:
-            await asyncio.wait(pending)
+            remaining = deadline - self._loop.time()
+            if remaining <= 0:
+                logger.warning(
+                    "Closing the %s service while %d tasks still run",
+                    self.kind,
+                    len(pending),
+                )
+                return
+            await asyncio.wait(pending, timeout=remaining)
