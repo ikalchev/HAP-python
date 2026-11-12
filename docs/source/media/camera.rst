@@ -55,7 +55,9 @@ the full list):
    * - ``global_operating_mode``
      - The 17.99 global operating mode service (e.g.
        ``ManuallyDisabled``, ``NightVision``); while streaming is disabled
-       the camera refuses to set up live streams.
+       the camera refuses to set up live streams. Report changes made on the
+       device itself with :meth:`~pyhap.camera.Camera.set_manually_disabled`
+       and :meth:`~pyhap.camera.Camera.set_third_party_camera_active`.
 
 Classic RTP live view
 =====================
@@ -99,9 +101,9 @@ The async generator yields fragmented-MP4 packets
 (:class:`pyhap.hds_recording.RecordingPacket`); HAP-python sets up the HomeKit
 Data Stream connection with the controller and sends them, encrypted, as
 they come. The controller decides when recording is active; your code
-decides what a fragment contains. Motion and doorbell events are signalled
-through the camera's sensor characteristics, which your code sets like any
-other value.
+decides what a fragment contains. Motion starts a recording: call
+:meth:`~pyhap.camera.Camera.set_motion_detected` when your detector fires, and
+again with ``False`` when the motion is over.
 
 Instead of overriding the method, you can pass a ``delegate`` that makes the
 recordings, a :class:`~pyhap.hds_recording.RecordingProducer`. The camera
@@ -123,6 +125,15 @@ The channel comes from the same provider as the live sessions, so a channel
 that is also watched live is pulled once. Observed with iOS and tvOS 27: hubs
 do not upload the HDS recordings of a camera that also has ``multi_tier``,
 so they never appear in the Home app. Use recording on cameras without it.
+
+:attr:`~pyhap.camera.Camera.recording_active` and
+:attr:`~pyhap.camera.Camera.recording_audio_active` tell whether the hub turned
+recording and its audio on. To react to a change, override
+:meth:`~pyhap.camera.Camera.recording_state_changed`; it runs once per burst of
+writes from the hub, after the state is saved. The recording settings survive
+a restart, see :ref:`advanced-state-camera`. With the ``sensors`` option,
+:attr:`~pyhap.camera.Camera.camera_zones` holds the motion zones the
+controller drew.
 
 The 17.99 stream services
 ==========================
