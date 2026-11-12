@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+import sys
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pyhap import hksv3
+from pyhap import hksv3, media
 from pyhap.camera_stream import StreamError
 from pyhap.camera_webrtc import WebRTCSession
 from pyhap.media import AudioParams, MediaError, VideoParams
@@ -552,3 +553,12 @@ async def test_provider_stream_error_passes(
         await offer(delegate, webrtc_session())
 
     assert err.value is refused
+
+
+def test_needs_the_webrtc_extra(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify the delegate names the extra when pyOpenSSL is missing."""
+    monkeypatch.setitem(sys.modules, "OpenSSL", None)
+    monkeypatch.delitem(sys.modules, "pyhap.media.transport", raising=False)
+    monkeypatch.delattr(media, "transport", raising=False)
+    with pytest.raises(ImportError, match=r"HAP-python\[WebRTC\]"):
+        WebRTCMediaDelegate(MagicMock())

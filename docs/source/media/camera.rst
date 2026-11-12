@@ -271,7 +271,8 @@ For WebRTC, :class:`~pyhap.media.webrtc_delegate.WebRTCMediaDelegate` makes
 the offer the controller asks for (host ICE candidates, DTLS-SRTP, SFrame)
 and sends from the same provider, so a channel watched locally and remotely is
 pulled once. The offer only binds ports; the camera is pulled when the
-controller answers:
+controller answers. It needs the ``WebRTC`` extra
+(``pip install HAP-python[WebRTC]``):
 
 .. code-block:: python
 

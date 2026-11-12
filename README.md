@@ -32,6 +32,7 @@ This will install HAP-python in your Python packages, so that you can import it 
 `pyhap`. The following optional features can be installed via pip extras:
 
 * `QRCode` — print a pairing QR code in the terminal (`base36`, `pyqrcode`).
+* `WebRTC` — WebRTC live view for cameras (`pyOpenSSL`, `ifaddr`).
 * `bench` — dependencies for running the benchmarks (`psutil`, `py-spy`).
 
 ## Demo

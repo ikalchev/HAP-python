@@ -58,9 +58,15 @@ import struct
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
-import ifaddr
-from OpenSSL import SSL
 import pylibsrtp
+
+try:
+    import ifaddr
+    from OpenSSL import SSL
+except ImportError as err:
+    raise ImportError(
+        "WebRTC needs the WebRTC extra: pip install HAP-python[WebRTC]"
+    ) from err
 
 from pyhap import util
 

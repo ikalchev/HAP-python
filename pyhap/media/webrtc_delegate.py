@@ -95,6 +95,9 @@ class WebRTCMediaDelegate:
         sender_options: Mapping[str, Any] | None = None,
     ) -> None:
         """Configure the delegate."""
+        # Fail here, not on the first session, without the WebRTC extra.
+        from . import transport  # noqa: F401, PLC0415
+
         self.source_provider = source_provider
         self.on_audio = on_audio
         self.sender_options = dict(sender_options or {})

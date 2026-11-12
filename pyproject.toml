@@ -29,9 +29,7 @@ dependencies = [
     "orjson>=3.7.2",
     "zeroconf>=0.36.2",
     "h11",
-    "ifaddr>=0.2",
     "pylibsrtp>=0.10",
-    "pyOpenSSL>=24.3",
 ]
 dynamic = ["version"]
 
@@ -42,6 +40,10 @@ QRCode = [
 ]
 # Kept for existing installs: two-way audio needs nothing extra.
 Talkback = []
+WebRTC = [
+    "ifaddr>=0.2",
+    "pyOpenSSL>=24.3",
+]
 bench = [
     "psutil",
     "py-spy",
