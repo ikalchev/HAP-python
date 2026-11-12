@@ -3,6 +3,7 @@ import base64
 from collections.abc import Awaitable, Callable
 import functools
 import inspect
+import ipaddress
 import random
 import socket
 from typing import Any, cast
@@ -126,6 +127,29 @@ def base64_to_bytes(str_input: Any) -> bytes:
 
 def byte_bool(boolv: Any) -> bytes:
     return b"\x01" if boolv else b"\x00"
+
+
+def parse_setup_address(
+    value: bytes, is_ipv6: bool
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """Return the controller address of a Setup Endpoints write.
+
+    The address must be an IP address of the announced version, without an
+    IPv6 scope ID. ``str()`` gives its canonical form, e.g. ``fd00::1`` for
+    ``FD00:0::1``.
+
+    :raises ValueError: If the address is anything else.
+    """
+    try:
+        address = value.decode("utf-8")
+        parsed = ipaddress.ip_address(address)
+    except ValueError as ex:
+        raise ValueError(f"invalid address {value!r}") from ex
+    if isinstance(parsed, ipaddress.IPv6Address) and parsed.scope_id is not None:
+        raise ValueError(f"address {address!r} has a scope ID")
+    if parsed.version != (6 if is_ipv6 else 4):
+        raise ValueError(f"address {address!r} does not match its IP version")
+    return parsed
 
 
 async def event_wait(event: asyncio.Event, timeout: float) -> bool:

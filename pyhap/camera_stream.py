@@ -41,7 +41,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 from uuid import UUID
 
 from pyhap import hksv3
-from pyhap.hap_handler import RESPONSE_TIMEOUT
+from pyhap.const import RESPONSE_TIMEOUT
 
 if TYPE_CHECKING:
     from pyhap.camera import Camera

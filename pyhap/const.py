@@ -11,6 +11,11 @@ BASE_UUID = "-0000-1000-8000-0026BB765291"
 # ### Misc ###
 STANDALONE_AID = 1  # Standalone accessory ID (i.e. not bridged)
 
+# iOS terminates a connection whose response takes longer than 10 seconds,
+# so the server only allows itself 9 to leave time to answer. The stream
+# services size their delegate hook timeouts after it.
+RESPONSE_TIMEOUT = 9
+
 # ### Default values ###
 DEFAULT_CONFIG_VERSION = 1
 DEFAULT_PORT = 51827

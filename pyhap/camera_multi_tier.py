@@ -21,7 +21,6 @@ import secrets
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from pyhap import hksv3
-from pyhap.camera import parse_setup_address
 from pyhap.camera_stream import (
     DEFAULT_HOOK_TIMEOUT,
     HookFailed,
@@ -32,7 +31,7 @@ from pyhap.camera_stream import (
     config_from_option,
     failure_status,
 )
-from pyhap.util import base64_to_bytes, to_base64_str
+from pyhap.util import base64_to_bytes, parse_setup_address, to_base64_str
 
 if TYPE_CHECKING:
     from pyhap.camera import Camera

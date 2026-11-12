@@ -22,6 +22,13 @@ Sections
 
 - Add Python 3.14 and 3.15 to the supported versions (tox envs, CI matrix, and
   package classifiers).
+- Break the import cycle between the camera and its stream services:
+  `parse_setup_address` moved from `pyhap.camera` to `pyhap.util` (still
+  importable from `pyhap.camera`) and `RESPONSE_TIMEOUT` moved from
+  `pyhap.hap_handler` to `pyhap.const` (still importable from
+  `pyhap.hap_handler`). `pyhap.camera` now imports the multi-tier and WebRTC
+  stream services at the top, which makes the cycle gone instead of hidden in
+  a deferred import.
 
 ## [5.2.0] - 2026-11-07
 

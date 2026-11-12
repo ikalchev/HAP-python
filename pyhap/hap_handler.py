@@ -25,6 +25,7 @@ from pyhap.const import (
     HAP_REPR_CHARS,
     HAP_REPR_STATUS,
     HAP_SERVER_STATUS,
+    RESPONSE_TIMEOUT,
 )
 from pyhap.util import long_to_bytes
 
@@ -34,10 +35,6 @@ from .util import from_hap_json, to_hap_json
 
 if TYPE_CHECKING:
     from .accessory_driver import AccessoryDriver
-
-# iOS will terminate the connection if it does not respond within
-# 10 seconds, so we only allow 9 seconds to avoid this.
-RESPONSE_TIMEOUT = 9
 
 
 logger = logging.getLogger(__name__)
