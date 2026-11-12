@@ -40,6 +40,10 @@ QRCode = [
 ]
 # Kept for existing installs: two-way audio needs nothing extra.
 Talkback = []
+WebRTC = [
+    "ifaddr>=0.2",
+    "pyOpenSSL>=24.3",
+]
 bench = [
     "psutil",
     "py-spy",

@@ -1,11 +1,13 @@
 """A reference source provider that pulls each camera channel with ffmpeg.
 
 :class:`FFmpegSourceProvider` is a ``source_provider`` for
-:class:`~pyhap.media.multi_tier_delegate.MultiTierMediaDelegate`: it
+:class:`~pyhap.media.webrtc_delegate.WebRTCMediaDelegate`,
+:class:`~pyhap.media.multi_tier_delegate.MultiTierMediaDelegate` and
+:class:`~pyhap.media.recording_delegate.RecordingMediaDelegate`: it
 resolves the tier of a session to ffmpeg input arguments and leases that
 channel's source from its :class:`~pyhap.media.pool.SourcePool`, with an
-:class:`FFmpegPull` as the channel's pull. All sessions and recordings of a
-channel share one ffmpeg.
+:class:`FFmpegPull` as the channel's pull. One provider for both delegates
+pulls each channel once for local and remote sessions and recordings.
 """
 
 from __future__ import annotations

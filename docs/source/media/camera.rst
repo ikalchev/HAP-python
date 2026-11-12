@@ -267,6 +267,29 @@ one ffmpeg input per tier:
 Start the worker before the first session; see
 :class:`~pyhap.media.multi_tier_delegate.MultiTierMediaDelegate`.
 
+For WebRTC, :class:`~pyhap.media.webrtc_delegate.WebRTCMediaDelegate` makes
+the offer the controller asks for (host ICE candidates, DTLS-SRTP, SFrame)
+and sends from the same provider, so a channel watched locally and remotely is
+pulled once. The offer only binds ports; the camera is pulled when the
+controller answers. It needs the ``WebRTC`` extra
+(``pip install HAP-python[WebRTC]``):
+
+.. code-block:: python
+
+    from pyhap.media.webrtc_delegate import WebRTCMediaDelegate
+
+    camera = Camera(
+        {
+            ...,
+            "multi_tier": {"delegate": MultiTierMediaDelegate(provider)},
+            "webrtc": {"delegate": WebRTCMediaDelegate(provider)},
+        },
+        driver,
+        "Camera",
+    )
+
+Pass ``on_audio`` to receive the controller's talkback as Opus packets.
+
 Talkback
 ========
 

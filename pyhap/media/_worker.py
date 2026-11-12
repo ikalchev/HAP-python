@@ -16,11 +16,12 @@ from logging.handlers import RotatingFileHandler
 import os
 import socket
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from . import MediaError
 from .multi_tier import MultiTierSender
 from .recording import Recorder
+from .sdp import AudioParams, VideoParams
 from .source import MediaSource
 from .worker import (
     LOG_FILE_BACKUPS,
@@ -31,11 +32,25 @@ from .worker import (
     read_message,
 )
 
+if TYPE_CHECKING:
+    from .sender import WebRTCSender
+
 logger = logging.getLogger(__name__)
 
 # Bytes waiting for the parent above which the worker gives up on a parent
 # that stopped reading.
 MAX_OUTPUT_BUFFER = 64 * 1024 * 1024
+
+
+class _Key(NamedTuple):
+    key: bytes
+    kid: int
+
+
+class _Candidate(NamedTuple):
+    candidate: str
+    sdp_mid: str | None
+    sdp_mline_index: int | None
 
 
 class _LogFile(RotatingFileHandler):
@@ -52,7 +67,7 @@ class _LogFile(RotatingFileHandler):
 class _Server:
     def __init__(self, output: asyncio.WriteTransport) -> None:
         self._output = output
-        self._sessions: dict[int, MultiTierSender | Recorder] = {}
+        self._sessions: dict[int, WebRTCSender | MultiTierSender | Recorder] = {}
         self._sources: dict[int, MediaSource] = {}
         self._tasks: set[asyncio.Task[None]] = set()
         self.stopping = asyncio.Event()
@@ -120,6 +135,61 @@ class _Server:
         source = self._sources.pop(int(message["source"]), None)
         if source is not None:
             source.close(str(message.get("reason", "closed")))
+
+    async def _op_offer(self, message: dict[str, Any]) -> dict[str, Any]:
+        session_id = int(message["session"])
+        config = message["config"]
+        source = None
+        if message.get("source") is not None:
+            source = self._sources.get(int(message["source"]))
+            if source is None:
+                raise MediaError("Unknown media source")
+        sframe = config["sframe"]
+        audio = config["audio"]
+        from .sender import WebRTCSender  # noqa: PLC0415 - only for WebRTC sessions
+
+        sender = WebRTCSender(
+            video=VideoParams(**config["video"]),
+            audio=AudioParams(**audio) if audio is not None else None,
+            sframe=None
+            if sframe is None
+            else _Key(bytes.fromhex(sframe[0]), int(sframe[1])),
+            source=source,
+            host_addresses=config["host_addresses"],
+            use_ipv6=bool(config["use_ipv6"]),
+            rtp_input_host=str(config["rtp_input_host"]),
+            **config["options"],
+        )
+        self._wire(session_id, sender)
+        self._sessions[session_id] = sender
+        try:
+            sdp = await sender.create_offer()
+        except BaseException:
+            self._sessions.pop(session_id, None)
+            raise
+        return {"sdp": sdp, "rtp_input": list(sender.rtp_input)}
+
+    def _wire(self, session_id: int, sender: WebRTCSender) -> None:
+        def closed(reason: str) -> None:
+            self._sessions.pop(session_id, None)
+            self.send({"event": "closed", "session": session_id, "reason": reason})
+
+        sender.on_closed = closed
+        sender.on_connected = lambda: self.send(
+            {"event": "connected", "session": session_id}
+        )
+        sender.on_keyframe_request = lambda age, gop: self.send(
+            {"event": "keyframe_request", "session": session_id, "age": age, "gop": gop}
+        )
+        sender.on_audio = lambda opus, timestamp: self.send(
+            {"event": "audio", "session": session_id, "timestamp": timestamp}, opus
+        )
+
+    def _session(self, message: dict[str, Any]) -> WebRTCSender:
+        sender = self._sessions.get(int(message["session"]))
+        if sender is None or isinstance(sender, (MultiTierSender, Recorder)):
+            raise MediaError("Unknown WebRTC session")
+        return sender
 
     def _multi_tier(self, message: dict[str, Any]) -> MultiTierSender:
         sender = self._sessions.get(int(message["session"]))
@@ -200,6 +270,23 @@ class _Server:
 
     async def _op_rec_stop(self, message: dict[str, Any]) -> None:
         await self._recorder(message).stop()
+
+    async def _op_answer(self, message: dict[str, Any]) -> None:
+        candidates = [
+            _Candidate(
+                str(c), None if m is None else str(m), None if i is None else int(i)
+            )
+            for c, m, i in message["candidates"]
+        ]
+        await self._session(message).apply_answer(str(message["sdp"]), candidates)
+
+    async def _op_reoffer(self, message: dict[str, Any]) -> dict[str, Any]:
+        return {"sdp": await self._session(message).reoffer(str(message["sdp"]))}
+
+    async def _op_update_keys(self, message: dict[str, Any]) -> None:
+        add = [_Key(bytes.fromhex(key), int(kid)) for key, kid in message["add"]]
+        remove = [int(kid) for kid in message["remove"]]
+        await self._session(message).update_receive_keys(add, remove)
 
     async def _op_close(self, message: dict[str, Any]) -> None:
         sender = self._sessions.pop(int(message["session"]), None)

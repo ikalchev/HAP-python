@@ -61,6 +61,32 @@ HKSV recording
 .. autoclass:: pyhap.media.mpegts.MpegTsMuxer
    :members:
 
+WebRTC
+======
+
+.. autoclass:: pyhap.media.webrtc_delegate.WebRTCMediaDelegate
+   :members:
+   :special-members: __init__
+
+.. autoclass:: pyhap.media.sender.WebRTCSender
+   :members:
+   :special-members: __init__
+
+.. autoclass:: pyhap.media.transport.DtlsSrtpTransport
+   :members:
+
+.. autoclass:: pyhap.media.ice.IceAgent
+   :members:
+
+.. autoclass:: pyhap.media.sframe.SFrameSender
+   :members:
+
+.. autoclass:: pyhap.media.sframe.SFrameReceiver
+   :members:
+
+.. autoclass:: pyhap.media.sdp.SessionDescription
+   :members:
+
 Worker
 ======
 
@@ -107,4 +133,13 @@ Errors
    :members:
 
 .. autoclass:: pyhap.media.recording_delegate.RecordingError
+   :members:
+
+.. autoclass:: pyhap.media.transport.TransportError
+   :members:
+
+.. autoclass:: pyhap.media.sdp.SdpError
+   :members:
+
+.. autoclass:: pyhap.media.sframe.SFrameError
    :members:

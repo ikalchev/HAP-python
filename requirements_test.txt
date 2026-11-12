@@ -7,3 +7,5 @@ pytest-cov
 pytest-timeout>=1.2.1
 ruff
 ty
+# Interop tests of the own ICE agent run against aioice.
+aioice

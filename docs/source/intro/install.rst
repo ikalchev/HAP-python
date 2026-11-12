@@ -40,6 +40,10 @@ To print a pairing QR code, install the ``QRCode`` extra::
 Without it, HAP-python still pairs — you enter the setup code by hand in
 the Home app.
 
+WebRTC live view for cameras needs the ``WebRTC`` extra::
+
+    (venv) ~/hk_project $ pip install HAP-python[WebRTC]
+
 
 Verifying the install
 =====================
