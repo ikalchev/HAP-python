@@ -313,8 +313,11 @@ class Characteristic:
 
         :return: Current Characteristic Value
         """
-        if self.getter_callback:
-            self.value = self.to_valid_value(value=self.getter_callback())
+        getter_callback = self.getter_callback
+        if getter_callback:
+            self._value = self.to_valid_value(value=getter_callback())
+            # The value-independent representation stays valid.
+            self._to_hap_cache_with_value = None
         return self._value
 
     def valid_value_or_raise(self, value: Any) -> None:
@@ -532,50 +535,64 @@ class Characteristic:
         :return: A HAP representation.
         :rtype: dict
         """
-        if include_value:
-            if self._to_hap_cache_with_value is not None and not self.getter_callback:
-                return self._to_hap_cache_with_value
-        elif self._to_hap_cache is not None:
-            return self._to_hap_cache
+        if (
+            include_value
+            and self._to_hap_cache_with_value is not None
+            and not self.getter_callback
+        ):
+            return self._to_hap_cache_with_value
 
-        properties = self._properties
-        permissions = properties[PROP_PERMISSIONS]
-        prop_format = properties[PROP_FORMAT]
-        assert self.broker is not None  # noqa: S101
-        hap_rep = {
-            HAP_REPR_IID: self.broker.iid_manager.get_iid(self),
-            HAP_REPR_TYPE: self._uuid_str,
-            HAP_REPR_PERM: permissions,
-            HAP_REPR_FORMAT: prop_format,
-        }
-        # HAP_REPR_DESC (description) is optional and takes up
-        # quite a bit of space in the payload. Only include it
-        # if it has been changed from the default loader version
-        loader_display_name = self._loader_display_name
-        display_name = self._display_name
-        if not loader_display_name or loader_display_name != display_name:
-            hap_rep[HAP_REPR_DESC] = display_name
+        # The value-independent representation is cached privately as a
+        # template; every result is a copy so callers cannot alter it.
+        template = self._to_hap_cache
+        if template is None or include_value:
+            assert self.broker is not None  # noqa: S101
+            iid = self.broker.iid_manager.get_iid(self)
+        else:
+            iid = template[HAP_REPR_IID]
+        if template is None:
+            properties = self._properties
+            prop_format = properties[PROP_FORMAT]
+            template = {
+                HAP_REPR_IID: iid,
+                HAP_REPR_TYPE: self._uuid_str,
+                HAP_REPR_PERM: properties[PROP_PERMISSIONS],
+                HAP_REPR_FORMAT: prop_format,
+            }
+            # HAP_REPR_DESC (description) is optional and takes up
+            # quite a bit of space in the payload. Only include it
+            # if it has been changed from the default loader version
+            loader_display_name = self._loader_display_name
+            display_name = self._display_name
+            if not loader_display_name or loader_display_name != display_name:
+                template[HAP_REPR_DESC] = display_name
 
-        if prop_format in HAP_FORMAT_NUMERICS:
-            hap_rep.update(
-                {k: properties[k] for k in PROP_NUMERIC.intersection(properties)}
-            )
-
-            if PROP_VALID_VALUES in properties:
-                hap_rep[HAP_REPR_VALID_VALUES] = sorted(
-                    properties[PROP_VALID_VALUES].values()
+            if prop_format in HAP_FORMAT_NUMERICS:
+                template.update(
+                    {k: properties[k] for k in PROP_NUMERIC.intersection(properties)}
                 )
-        elif prop_format == HAP_FORMAT_STRING:
-            max_length = properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH)
-            if max_length != DEFAULT_MAX_LENGTH:
-                hap_rep[HAP_REPR_MAX_LEN] = max_length
 
-        if include_value and HAP_PERMISSION_READ in permissions:
-            hap_rep[HAP_REPR_VALUE] = self.get_value()
+                if PROP_VALID_VALUES in properties:
+                    template[HAP_REPR_VALID_VALUES] = sorted(
+                        properties[PROP_VALID_VALUES].values()
+                    )
+            elif prop_format == HAP_FORMAT_STRING:
+                max_length = properties.get(HAP_REPR_MAX_LEN, DEFAULT_MAX_LENGTH)
+                if max_length != DEFAULT_MAX_LENGTH:
+                    template[HAP_REPR_MAX_LEN] = max_length
 
+            self._to_hap_cache = template
+
+        hap_rep = {**template, HAP_REPR_IID: iid}
+        valid_values = hap_rep.get(HAP_REPR_VALID_VALUES)
+        if valid_values is not None:
+            hap_rep[HAP_REPR_VALID_VALUES] = valid_values.copy()
         if not include_value:
-            self._to_hap_cache = hap_rep
-        elif not self.getter_callback:
+            return hap_rep
+
+        if HAP_PERMISSION_READ in hap_rep[HAP_REPR_PERM]:
+            hap_rep[HAP_REPR_VALUE] = self.get_value()
+        if not self.getter_callback:
             # Only cache if there is no getter_callback
             self._to_hap_cache_with_value = hap_rep
         return hap_rep
