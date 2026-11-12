@@ -501,7 +501,7 @@ class EndpointAddress:
     """An address of Setup Endpoints and its RTP ports.
 
     ``address`` is the text the controller sent. Check it with
-    :func:`pyhap.camera.parse_setup_address` before using it.
+    :func:`pyhap.util.parse_setup_address` before using it.
     """
 
     address: str

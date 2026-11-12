@@ -26,7 +26,7 @@ import logging
 import os
 import struct
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 from pyhap import (
@@ -39,15 +39,19 @@ from pyhap import (
     tlv,
 )
 from pyhap.accessory import Accessory
+from pyhap.camera_multi_tier import MultiTierConfig, MultiTierController
 from pyhap.camera_talkback import TalkbackReceiver
+from pyhap.camera_webrtc import WebRTCConfig, WebRTCController
 from pyhap.characteristic import Characteristic
 from pyhap.const import CATEGORY_CAMERA
 from pyhap.service import Service
-from pyhap.util import base64_to_bytes, byte_bool, callback, to_base64_str
-
-if TYPE_CHECKING:
-    from pyhap.camera_multi_tier import MultiTierController
-    from pyhap.camera_webrtc import WebRTCController
+from pyhap.util import (
+    base64_to_bytes,
+    byte_bool,
+    callback,
+    parse_setup_address,
+    to_base64_str,
+)
 
 # Seconds before arming a recording delegate is tried again, doubling up to
 # the maximum while it keeps failing.
@@ -273,29 +277,6 @@ PERSISTED_GLOBAL_OPERATING_MODE_CHARS = (
     "CameraOperatingModeIndicator",
     "NightVision",
 )
-
-
-def parse_setup_address(
-    value: bytes, is_ipv6: bool
-) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
-    """Return the controller address of a Setup Endpoints write.
-
-    The address must be an IP address of the announced version, without an
-    IPv6 scope ID. ``str()`` gives its canonical form, e.g. ``fd00::1`` for
-    ``FD00:0::1``.
-
-    :raises ValueError: If the address is anything else.
-    """
-    try:
-        address = value.decode("utf-8")
-        parsed = ipaddress.ip_address(address)
-    except ValueError as ex:
-        raise ValueError(f"invalid address {value!r}") from ex
-    if isinstance(parsed, ipaddress.IPv6Address) and parsed.scope_id is not None:
-        raise ValueError(f"address {address!r} has a scope ID")
-    if parsed.version != (6 if is_ipv6 else 4):
-        raise ValueError(f"address {address!r} does not match its IP version")
-    return parsed
 
 
 def _decode_setup_endpoints(
@@ -822,13 +803,6 @@ class Camera(Accessory):
 
     def _setup_stream_controllers(self, options: dict[str, Any]) -> None:
         """Add the multi-tier and WebRTC controllers of each sensor (17.99)."""
-        # Here, not at the top: these modules import this one.
-        from pyhap.camera_multi_tier import (  # noqa: PLC0415
-            MultiTierConfig,
-            MultiTierController,
-        )
-        from pyhap.camera_webrtc import WebRTCConfig, WebRTCController  # noqa: PLC0415
-
         if options.get("multi_tier") is None or options.get("webrtc") is None:
             raise ValueError(
                 "multi_tier and webrtc need each other, without WebRTC "
