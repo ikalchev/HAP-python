@@ -114,7 +114,11 @@ signature is called with just the value.
 
 A setter's return value is used as the *write response* for characteristics
 with the ``wr`` permission — the value the writing controller reads back in
-the HTTP response.
+the HTTP response. A write response, and the read back value of a
+``read_back_response`` characteristic, belongs to the connection that wrote:
+it wins over the getter and a later ``set_value`` for that connection only,
+and it is dropped when the connection closes — also when a coroutine setter
+answers only after the connection already closed.
 
 Provided utilities
 ==================

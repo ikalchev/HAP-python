@@ -196,6 +196,21 @@ class _PendingWrite(NamedTuple):
     notify: bool  # Whether subscribers learn the value once the setter is done.
 
 
+class _ConnectionWrites:
+    """The pending writes of one controller connection.
+
+    ``connection_lost`` marks them dead, so a response that a setter
+    delivered only after the connection closed is dropped instead of being
+    kept for a later connection that reuses the address. The connection's
+    per-connection responses do not outlive it, whatever a setter does.
+    """
+
+    __slots__ = ("alive",)
+
+    def __init__(self) -> None:
+        self.alive = True
+
+
 def _retrieve_late_result(task: asyncio.Future[Any]) -> None:
     """Retrieve the outcome of a setter that ran on after it was cancelled."""
     if not task.cancelled() and (err := task.exception()) is not None:
@@ -435,6 +450,10 @@ class AccessoryDriver:
         # Write responses of readable characteristics, per client.
         self._write_responses: dict[
             tuple[str, int], dict[Characteristic, HAPValue]
+        ] = {}
+        # The writes still waiting for their connection's coroutine setters.
+        self._pending_connection_writes: dict[
+            tuple[str, int], set[_ConnectionWrites]
         ] = {}
 
     def listen_address(self) -> str | list[str]:
@@ -682,6 +701,13 @@ class AccessoryDriver:
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
         self.prepared_writes.pop(client, None)
+        # Writes whose setters still run answer with their response after
+        # this; mark them so it is dropped instead of kept for a connection
+        # that reuses the address.
+        pending_writes = self._pending_connection_writes.pop(client, None)
+        if pending_writes is not None:
+            for writes in pending_writes:
+                writes.alive = False
         # Deferred, so a write response that is already on its way is dropped too.
         self.loop.call_soon(self._write_responses.pop, client, None)
         accessory = self.accessory
@@ -1229,13 +1255,17 @@ class AccessoryDriver:
         coroutines start. A setter still running after ``timeout`` seconds is
         cancelled and its characteristic answers -70408. Cancelling the
         awaitable, e.g. because the connection closed, cancels the setters.
+        A setter that answers its write response only after the connection
+        closed does not get it kept: it would never be read.
         """
         results, pending = self._apply_characteristic_writes(
             chars_query, client_addr, client_uuid
         )
         if pending:
+            writes = _ConnectionWrites()
+            self._pending_connection_writes.setdefault(client_addr, set()).add(writes)
             return self._async_finish_set_characteristics(
-                results, pending, client_addr, timeout
+                results, pending, client_addr, timeout, writes
             )
         return _set_characteristics_response(results)
 
@@ -1465,53 +1495,67 @@ class AccessoryDriver:
         pending: list[_PendingWrite],
         client_addr: tuple[str, int],
         timeout: float,
+        writes: _ConnectionWrites,
     ) -> dict[str, Any] | None:
         """Wait for the coroutine setters, then build the response."""
         tasks = {asyncio.ensure_future(write.coro): write for write in pending}
         try:
-            done, not_done = await asyncio.wait(tasks, timeout=timeout)
-        except asyncio.CancelledError:
-            for task, write in tasks.items():
-                if task.done():
-                    self._finish_done_write(task, write, client_addr)
-                    continue
+            try:
+                done, not_done = await asyncio.wait(tasks, timeout=timeout)
+            except asyncio.CancelledError:
+                for task, write in tasks.items():
+                    if task.done():
+                        self._finish_done_write(task, write, client_addr)
+                        continue
+                    task.cancel()
+                    task.add_done_callback(_retrieve_late_result)
+                raise
+            for task in not_done:
                 task.cancel()
                 task.add_done_callback(_retrieve_late_result)
-            raise
-        for task in not_done:
-            task.cancel()
-            task.add_done_callback(_retrieve_late_result)
-            write = tasks[task]
-            logger.warning(
-                "%s: Timed out setting characteristic %s",
-                client_addr,
-                write.char.display_name,
-            )
-            write.result[HAP_REPR_STATUS] = HAP_SERVER_STATUS.OPERATION_TIMED_OUT
-        for task in done:
-            write = tasks[task]
-            try:
-                outcome = task.result()
-            except (Exception, asyncio.CancelledError):
-                logger.exception(
-                    "%s: Error while setting characteristic %s",
+                write = tasks[task]
+                logger.warning(
+                    "%s: Timed out setting characteristic %s",
                     client_addr,
                     write.char.display_name,
                 )
-                write.result[HAP_REPR_STATUS] = (
-                    HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+                write.result[HAP_REPR_STATUS] = HAP_SERVER_STATUS.OPERATION_TIMED_OUT
+            for task in done:
+                write = tasks[task]
+                try:
+                    outcome = task.result()
+                except (Exception, asyncio.CancelledError):
+                    logger.exception(
+                        "%s: Error while setting characteristic %s",
+                        client_addr,
+                        write.char.display_name,
+                    )
+                    write.result[HAP_REPR_STATUS] = (
+                        HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+                    )
+                    continue
+                write.char.client_update_finished(
+                    write.previous_value, client_addr, notify=write.notify
                 )
-                continue
-            write.char.client_update_finished(
-                write.previous_value, client_addr, notify=write.notify
-            )
-            if outcome is not None:
-                # A response queued when the connection closes is dropped by
-                # the deferred cleanup in connection_lost.
-                self._keep_response(
-                    write.result, write.char, outcome, write.write_response, client_addr
-                )
-        return _set_characteristics_response(results)
+                if outcome is not None and writes.alive:
+                    # A response of a connection that closed meanwhile is
+                    # dropped, so it cannot wait for one that reuses the
+                    # address. It would never be read: the response of a
+                    # request is answered once, to the writing connection.
+                    self._keep_response(
+                        write.result,
+                        write.char,
+                        outcome,
+                        write.write_response,
+                        client_addr,
+                    )
+            return _set_characteristics_response(results)
+        finally:
+            batches = self._pending_connection_writes.get(client_addr)
+            if batches is not None:
+                batches.discard(writes)
+                if not batches:
+                    del self._pending_connection_writes[client_addr]
 
     @staticmethod
     def _finish_done_write(
@@ -1571,11 +1615,13 @@ class AccessoryDriver:
         offer, is a request. What the accessory answered is its state. If the
         characteristic is readable, only the connection that wrote reads the
         response back, until it closes, and it wins over the getter and a later
-        ``set_value``. Other connections read the characteristic's own value,
-        which the write leaves as it was. A write without ``r`` stays readable
-        for everyone and notifies ``ev`` subscribers as any write does, unless
-        the characteristic has ``read_back_response``, which keeps the response
-        the same way without a write response.
+        ``set_value``. A setter that answers after the connection closed does
+        not get its response kept, whatever it returns. Other connections read
+        the characteristic's own value, which the write leaves as it was. A
+        write without ``r`` stays readable for everyone and notifies ``ev``
+        subscribers as any write does, unless the characteristic has
+        ``read_back_response``, which keeps the response the same way without
+        a write response.
         """
         readable = HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
         try:

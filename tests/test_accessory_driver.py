@@ -901,6 +901,69 @@ async def test_async_write_response_dropped_when_closed_while_queued(
     assert driver._write_responses == {}
 
 
+async def test_async_write_response_dropped_when_closed_before_setter_done(
+    driver: AccessoryDriver,
+) -> None:
+    """A response of a setter finishing after the connection closed is dropped.
+
+    The deferred cleanup in ``connection_lost`` has already run when such a
+    setter answers, so without the guard the response would stay for a later
+    connection that reuses the address.
+    """
+    acc, char, char_id = _add_write_response_char(driver, False)
+    release = asyncio.Event()
+
+    async def _setter(value: int) -> int:
+        await release.wait()
+        return 7
+
+    char.setter_callback = _setter
+    write = asyncio.ensure_future(
+        _controller_write(
+            driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+        )
+    )
+    await asyncio.sleep(0)
+
+    driver.connection_lost(WRITER)
+    # Let the deferred cleanup run, then let the setter finish.
+    await asyncio.sleep(0)
+    release.set()
+    assert await write is None
+
+    assert driver._write_responses == {}
+    assert driver._pending_connection_writes == {}
+    # A connection that reuses the address reads the shared value.
+    assert _read(driver, char_id, WRITER) == 0
+
+
+async def test_async_read_back_dropped_when_closed_before_setter_done(
+    driver: AccessoryDriver,
+) -> None:
+    """A Setup Endpoints style answer of a setter finishing late is dropped."""
+    acc, char = _add_read_back_char(driver)
+    release = asyncio.Event()
+
+    async def _setter(value: int) -> int:
+        await release.wait()
+        return 7
+
+    char.setter_callback = _setter
+    write = asyncio.ensure_future(
+        _controller_write(driver, acc, char, **{HAP_REPR_VALUE: 5})
+    )
+    await asyncio.sleep(0)
+
+    driver.connection_lost(WRITER)
+    await asyncio.sleep(0)
+    release.set()
+    assert await write is None
+
+    assert driver._write_responses == {}
+    char_id = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
+    assert _read(driver, char_id, WRITER) == 0
+
+
 async def test_async_write_response_request_not_shared(
     driver: AccessoryDriver,
 ) -> None:

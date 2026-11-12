@@ -18,6 +18,13 @@ Sections
 
 ## [Unreleased]
 
+### Fixed
+
+- Drop the write response of a coroutine setter that answers only after its
+  connection closed. The per-connection response was kept under the closed
+  connection's address forever, where a later connection reusing the address
+  could read it, e.g. a Setup Endpoints answer with its session's SRTP keys.
+
 ### Changed
 
 - Add Python 3.14 and 3.15 to the supported versions (tox envs, CI matrix, and
