@@ -25,6 +25,7 @@ class SyntheticPull:
         self.starts = 0
         self.stops = 0
         self.keyframe_requests: list[tuple[float | None, float | None]] = []
+        self.frames = 0
         self._task: asyncio.Task[None] | None = None
 
     async def start(self, rtp_input: tuple[str, int, int]) -> None:
@@ -38,6 +39,7 @@ class SyntheticPull:
             while True:
                 source.send_video(KEYFRAME if frame % GOP_FRAMES == 0 else [TRAIL])
                 frame += 1
+                self.frames += 1
                 await asyncio.sleep(FRAME_INTERVAL)
         finally:
             source.close()

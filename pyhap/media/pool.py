@@ -1,12 +1,12 @@
 """Media sources shared by the sessions of a camera channel.
 
-:class:`SourcePool` gives each multi-tier session a
+:class:`SourcePool` gives each multi-tier session or recording a
 :class:`ChannelLease` on the media source of its camera channel. All
 sessions of a channel share one source and one media pull
 (:class:`ChannelPull`, for example an ffmpeg process), so N sessions cost one
 camera connection. Sources live in a
 :class:`~pyhap.media.worker.MediaWorker`, or in process without one;
-a multi-tier sender is created in the same place.
+a lease creates its recorder in the same place.
 
 A multi-tier sender binds its ports before the controller picks a tier, so
 it is created by the pool (:meth:`SourcePool.create_multi_tier_sender`) and
@@ -76,6 +76,31 @@ class MultiTierMediaSender(Protocol):
         """End the session."""
 
 
+class RecorderLike(Protocol):
+    """A :class:`~pyhap.media.recording.Recorder` or its worker proxy."""
+
+    on_data: Callable[[bytes], None] | None
+    on_ended: Callable[[str | None], None] | None
+    on_closed: Callable[[str], None] | None
+
+    @property
+    def closed(self) -> bool:
+        """Whether the recorder or its source ended."""
+
+    @property
+    def recording(self) -> bool:
+        """Whether a recording runs."""
+
+    async def start(self, command: list[str], prebuffer: float) -> None:
+        """Run the transcoder on the buffer and the live media."""
+
+    async def stop(self) -> None:
+        """End the running recording without calling ``on_ended``."""
+
+    async def close(self) -> None:
+        """Stop recording and buffering."""
+
+
 class ChannelPull(Protocol):
     """The media pull of one camera channel, for example an ffmpeg process."""
 
@@ -139,6 +164,22 @@ class ChannelLease:
         """The channel's name."""
         return self._channel.name
 
+    async def open_recorder(
+        self, *, prebuffer: float, audio: bool = True
+    ) -> RecorderLike:
+        """Buffer the channel's source for recordings, in the pool's worker if any.
+
+        See :class:`~pyhap.media.recording.Recorder`; the channel is only
+        pulled while the lease is active.
+        """
+        worker = self._pool.worker
+        source: Any = self.source
+        if worker is not None:
+            return await worker.open_recorder(source, prebuffer=prebuffer, audio=audio)
+        from .recording import Recorder  # noqa: PLC0415
+
+        return cast(RecorderLike, Recorder(source, prebuffer=prebuffer, audio=audio))
+
     async def activate(self) -> None:
         """Count the session as answered; the first one starts the pull."""
         await self._pool._activate(self)
@@ -176,7 +217,8 @@ class SourcePool:
 
         ``options`` are those of
         :class:`~pyhap.media.multi_tier.MultiTierSender`. Start it with the
-        source of a lease of this pool. The pool creates it, not a lease: its ports
+        source of a lease of this pool. Unlike recorders, which a lease
+        creates on its source, the pool creates it: its ports
         are announced in Setup Endpoints, before the controller picks the
         tier, i.e. the lease.
         """

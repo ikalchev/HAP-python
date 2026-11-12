@@ -49,6 +49,11 @@ if TYPE_CHECKING:
     from pyhap.camera_multi_tier import MultiTierController
     from pyhap.camera_webrtc import WebRTCController
 
+# Seconds before arming a recording delegate is tried again, doubling up to
+# the maximum while it keeps failing.
+RECORDING_ARM_RETRY = 1.0
+MAX_RECORDING_ARM_RETRY = 60.0
+
 SETUP_TYPES = {
     "SESSION_ID": b"\x01",
     "STATUS": b"\x02",
@@ -612,6 +617,16 @@ class Camera(Accessory):
               not allowed, the camera refuses to set up live streams and ends
               running ones. Unknown names raise ``ValueError``, a value that is
               not a list raises ``TypeError``.
+            - recording - ``True``, or a dict whose ``delegate`` is a
+              :class:`pyhap.hds_recording.RecordingProducer` such as
+              :class:`pyhap.media.recording_delegate.RecordingMediaDelegate`
+              that makes the recordings: the camera arms it while the hub has
+              recording on and the camera is on, advertises its
+              ``prebuffer_ms`` and records with its ``record``. Without a
+              delegate, override :meth:`handle_recording_stream`. Observed
+              with iOS and tvOS 27: hubs do not upload the HDS recordings of
+              a camera that also has ``multi_tier``, they never appear in the
+              Home app.
             - start_stream_cmd - string specifying the command to be executed to start
               the stream. The string can contain the keywords, corresponding to the
               video and audio configuration that was negotiated between the camera
@@ -634,6 +649,10 @@ class Camera(Accessory):
               management service as not responding. Its services come before
               the RTP stream management services, which then get a new
               ``unique_id``. For a paired camera this changes instance IDs.
+              Observed with iOS and tvOS 27: the hub does not upload the
+              recordings it gets over HDS from a camera with this service, so
+              they do not appear in the Home app. The camera is expected to
+              upload its recordings itself.
             - webrtc - :class:`pyhap.camera_webrtc.WebRTCConfig`, or a dict of
               its fields. Developer Preview of HomeKit Secure Video 17.99,
               experimental. Adds a Camera WebRTC Stream Management service per
@@ -679,6 +698,16 @@ class Camera(Accessory):
         self._hds_listener = None
         self._hds_connections = set()
         self._recording_stream = None
+        recording = options.get("recording")
+        self._recording_media: hds_recording.RecordingProducer | None = (
+            recording.get("delegate") if isinstance(recording, dict) else None
+        )
+        self._recording_media_running = False
+        # What the delegate was last armed to; one task reconciles it.
+        self._recording_media_armed = False
+        self._recording_media_task: asyncio.Task[None] | None = None
+        # Set to cut a retry delay short when the wanted state changes.
+        self._recording_media_wake = asyncio.Event()
         self._homekit_camera_active_char: Characteristic | None = None
         # The HomeKit Camera Active of the Camera Operating Mode service, kept
         # in step with the global one when both exist.
@@ -714,12 +743,25 @@ class Camera(Accessory):
             if transport is not None:
                 for controller in self._stream_controllers():
                     controller.service.add_linked_service(transport)
+            if self._multi_tier and self._records_over_hds():
+                logger.warning(
+                    "%s: hubs with iOS or tvOS 27 do not upload HDS recordings of "
+                    "a camera with multi-tier streams, they will not appear in "
+                    "the Home app",
+                    self.display_name,
+                )
         if self._sensors:
             self._setup_camera_capabilities()
         # Last, so the instance IDs of the other services stay the same.
         if options.get("global_operating_mode") is not None:
             self._setup_global_operating_mode(options["global_operating_mode"])
         self._restore_hksv3_state()
+
+    def _records_over_hds(self) -> bool:
+        """Whether the camera makes HDS recordings, by delegate or override."""
+        return self._recording_media is not None or (
+            type(self).handle_recording_stream is not Camera.handle_recording_stream
+        )
 
     @property
     def streaming_status(self) -> bytes | None:
@@ -928,6 +970,8 @@ class Camera(Accessory):
         ]
         audio = [hksv_recording.AudioCodecConfiguration()]
         general = hksv_recording.SupportedRecordingConfiguration()
+        if self._recording_media is not None:
+            general.prebuffer_length_ms = int(self._recording_media.prebuffer_ms)
         return general, video, audio
 
     def _setup_recording_management(self, options: dict[str, Any]) -> None:
@@ -1204,11 +1248,20 @@ class Camera(Accessory):
         """Produce the fragmented-MP4 recording for ``stream_id``.
 
         Override to yield :class:`pyhap.hds_recording.RecordingPacket` objects,
-        the first being the MP4 initialization segment. The default yields
-        nothing (no recording).
+        the first being the MP4 initialization segment. The default records
+        with the ``delegate`` of the ``recording`` option, without one it
+        yields nothing (no recording).
         """
-        return
-        yield  # pragma: no cover - makes this an async generator
+        delegate = self._recording_media
+        selected = self._selected_recording_config
+        if delegate is None or selected is None:
+            return
+        packets = delegate.record(selected, self.recording_audio_active)
+        try:
+            async for packet in packets:
+                yield packet
+        finally:
+            await packets.aclose()
 
     @property
     def selected_recording_configuration(
@@ -1428,6 +1481,7 @@ class Camera(Accessory):
         recording_changed, self._recording_changed = self._recording_changed, False
         self.driver.async_persist()
         if recording_changed:
+            self._arm_recording_media()
             self.recording_state_changed()
 
     def _persist_hksv3_char(
@@ -1763,6 +1817,7 @@ class Camera(Accessory):
             self._motion_status_active_char.notify()
         if not active and self._recording_stream is not None:
             self._recording_stream.close(hds_recording.RecordingReason.NOT_ALLOWED)
+        self._arm_recording_media()
         self._end_streams_if_not_allowed()
         self._schedule_stream_status()
         self.homekit_camera_active_changed(active)
@@ -2045,6 +2100,61 @@ class Camera(Accessory):
         await super().run()
         await self.start_recording_transport()
 
+    def _recording_media_wanted(self) -> bool:
+        return (
+            self._recording_media_running
+            and self.recording_active
+            and self.homekit_camera_active
+        )
+
+    def _arm_recording_media(self) -> None:
+        """Keep the recording delegate armed exactly while recording may run."""
+        if self._recording_media is None:
+            return
+        if self._recording_media_task is not None:
+            # A task reconciles already; it rechecks now if it waits to retry.
+            self._recording_media_wake.set()
+            return
+        if self._recording_media_wanted() == self._recording_media_armed:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._recording_media_task = loop.create_task(self._reconcile_recording())
+
+    async def _reconcile_recording(self) -> None:
+        """Arm or disarm until the delegate matches what the camera wants."""
+        delegate = self._recording_media
+        assert delegate is not None  # noqa: S101 - only started with a delegate
+        failures = 0
+        try:
+            while (wanted := self._recording_media_wanted()) != (
+                self._recording_media_armed
+            ):
+                self._recording_media_wake.clear()
+                try:
+                    await delegate.set_armed(wanted)
+                except Exception as err:  # noqa: BLE001 - retried with a backoff
+                    # Meanwhile a recording still opens the channel on demand.
+                    self._recording_media_armed = False
+                    delay = min(
+                        RECORDING_ARM_RETRY * 2**failures, MAX_RECORDING_ARM_RETRY
+                    )
+                    failures += 1
+                    logger.warning(
+                        "Could not arm the recording, retrying in %.0f s: %s",
+                        delay,
+                        err,
+                    )
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(self._recording_media_wake.wait(), delay)
+                    continue
+                failures = 0
+                self._recording_media_armed = wanted
+        finally:
+            self._recording_media_task = None
+
     async def start_recording_transport(self) -> None:
         """Start the HDS listener on the HAP server's listen address(es).
 
@@ -2053,6 +2163,8 @@ class Camera(Accessory):
         """
         if self._recording_service is not None:
             await self._ensure_hds_listener()
+            self._recording_media_running = True
+            self._arm_recording_media()
 
     @property
     def recording_transport_port(self) -> int | None:
@@ -2070,6 +2182,13 @@ class Camera(Accessory):
         listener, self._hds_listener = self._hds_listener, None
         if listener is not None:
             await listener.stop()
+        self._recording_media_running = False
+        if self._recording_media is not None:
+            if (task := self._recording_media_task) is not None:
+                self._recording_media_wake.set()
+                await asyncio.gather(task, return_exceptions=True)
+            self._recording_media_armed = False
+            await self._recording_media.close()
 
     async def stop(self) -> None:
         """Stop all streaming sessions and the HDS listener.

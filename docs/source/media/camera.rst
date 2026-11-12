@@ -103,6 +103,27 @@ decides what a fragment contains. Motion and doorbell events are signalled
 through the camera's sensor characteristics, which your code sets like any
 other value.
 
+Instead of overriding the method, you can pass a ``delegate`` that makes the
+recordings, a :class:`~pyhap.hds_recording.RecordingProducer`. The camera
+arms it while the hub has recording on and the camera is on.
+:class:`~pyhap.media.recording_delegate.RecordingMediaDelegate` is one on the
+media core: it transcodes one channel of a source provider to the H.264 the
+hub selected and can keep a prebuffer, so a recording starts a few seconds
+before the motion event:
+
+.. code-block:: python
+
+    from pyhap.media.recording_delegate import RecordingMediaDelegate
+
+    # tier: the pyhap.hksv3.VideoStreamTier of the channel to record
+    recording = RecordingMediaDelegate(provider, tier, prebuffer_ms=4000)
+    camera = Camera({..., "recording": {"delegate": recording}}, driver, "Camera")
+
+The channel comes from the same provider as the live sessions, so a channel
+that is also watched live is pulled once. Observed with iOS and tvOS 27: hubs
+do not upload the HDS recordings of a camera that also has ``multi_tier``,
+so they never appear in the Home app. Use recording on cameras without it.
+
 The 17.99 stream services
 ==========================
 
@@ -219,6 +240,32 @@ The delegates are free to use it or not: the
 :class:`~pyhap.camera_webrtc.WebRTCDelegate` protocols say only what the
 hooks must do. See :doc:`/media/architecture` for the design of that core —
 channels and sessions, the worker, and the lease lifecycle.
+
+For multi-tier RTP there is a ready delegate on that core:
+:class:`~pyhap.media.multi_tier_delegate.MultiTierMediaDelegate` sends each
+session from the source of its tier's channel, and moves it to another
+channel when the controller switches tiers. Give it a source provider with
+one ffmpeg input per tier:
+
+.. code-block:: python
+
+    from pyhap.media.ffmpeg import FFmpegSourceProvider
+    from pyhap.media.multi_tier_delegate import MultiTierMediaDelegate
+    from pyhap.media.worker import MediaWorker
+
+    worker = MediaWorker()
+    provider = FFmpegSourceProvider({"high": [...], "medium": [...]}, worker=worker)
+    camera = Camera(
+        {
+            ...,
+            "multi_tier": {"delegate": MultiTierMediaDelegate(provider)},
+        },
+        driver,
+        "Camera",
+    )
+
+Start the worker before the first session; see
+:class:`~pyhap.media.multi_tier_delegate.MultiTierMediaDelegate`.
 
 Talkback
 ========

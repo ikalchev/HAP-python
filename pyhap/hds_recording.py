@@ -16,14 +16,17 @@ MP4 bytes is the accessory's job.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from dataclasses import dataclass
 from enum import IntEnum
 import functools
 import logging
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from pyhap.hds_protocol import HDSStatus, Message
+
+if TYPE_CHECKING:
+    from pyhap.hksv_recording import SelectedRecordingConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +65,37 @@ class RecordingPacket:
 # A delegate is called with the stream id and yields RecordingPackets. The first
 # yielded packet is the MP4 initialization segment.
 RecordingDelegate = Callable[[int], AsyncIterator[RecordingPacket]]
+
+
+class ByteReader(Protocol):
+    """A byte stream, e.g. an :class:`asyncio.StreamReader`."""
+
+    async def readexactly(self, n: int) -> bytes:
+        """Read ``n`` bytes or raise :class:`asyncio.IncompleteReadError`."""
+
+
+class RecordingProducer(Protocol):
+    """Makes a camera's recordings, see the camera's ``recording`` option.
+
+    :class:`pyhap.media.recording_delegate.RecordingMediaDelegate` is one.
+    """
+
+    @property
+    def prebuffer_ms(self) -> int:
+        """The prebuffer the camera advertises."""
+
+    async def set_armed(self, armed: bool) -> None:
+        """Armed while the hub has recording on and the camera is on."""
+
+    def record(
+        self, selected: SelectedRecordingConfiguration, audio: bool
+    ) -> AsyncGenerator[RecordingPacket, None]:
+        """Yield the selected recording, the init segment first."""
+
+    async def close(self) -> None:
+        """Disarm and release everything."""
+
+
 # An open gate returns a reason to reject a dataSend/open, or None to accept it.
 OpenGate = Callable[["RecordingStreamManager"], RecordingReason | None]
 
@@ -276,7 +310,7 @@ _MAX_INIT_SIZE = 4 * 1024 * 1024
 _MAX_FRAGMENT_SIZE = 64 * 1024 * 1024
 
 
-async def _read_mp4_box(reader: asyncio.StreamReader, max_size: int) -> bytes | None:
+async def _read_mp4_box(reader: ByteReader, max_size: int) -> bytes | None:
     """Read one top-level MP4 box (header + body) from ``reader``.
 
     Returns ``None`` at end of stream (also mid-box) and for a size smaller
@@ -299,7 +333,7 @@ async def _read_mp4_box(reader: asyncio.StreamReader, max_size: int) -> bytes | 
 
 
 async def fmp4_recording_packets(
-    reader: asyncio.StreamReader,
+    reader: ByteReader,
 ) -> AsyncIterator[RecordingPacket]:
     """Turn a fragmented-MP4 byte stream into HKSV recording packets.
 
