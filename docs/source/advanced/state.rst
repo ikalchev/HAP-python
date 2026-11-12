@@ -106,6 +106,19 @@ them in turn.
    Keep the values simple (JSON-compatible) and tolerate missing keys on
    restore — nothing is validated or versioned for you.
 
+.. _advanced-state-camera:
+
+What a camera keeps
+===================
+
+A :class:`~pyhap.camera.Camera` stores its recording settings under its AID:
+whether recording and its audio are on, the selected recording configuration
+and the camera operating mode (snapshots, HomeKit camera active). Hubs do not
+select a configuration again after a restart, so the camera restores the
+selection, unless its supported recording configuration changed. The 17.99
+values a controller writes, like the global operating mode and the motion
+zones, are kept as well. A new home resets all of it.
+
 A new home must not inherit the old one
 =======================================
 
