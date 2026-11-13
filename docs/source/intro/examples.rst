@@ -43,6 +43,11 @@ device.
      - An accessory that fetches its state over HTTP.
    * - ``busy_home.py``
      - A bridge with many accessories of mixed kinds.
+   * - ``busy_lock.py``
+     - Answering with a HAP status: a lock that refuses commands with
+       RESOURCE_BUSY while its bolt is moving, and an offline sensor whose
+       reads answer a status instead of a value
+       (:class:`pyhap.errors.HapStatusError`).
 
 To run one, install the repository and run the file with the project's
 virtualenv active — or copy it into your own script and adapt it. The

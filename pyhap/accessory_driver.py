@@ -1149,6 +1149,15 @@ class AccessoryDriver:
                             else char.get_value()
                         )
                         rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
+            except HapStatusError as e:
+                # The getter answers the controller with its own HAP status.
+                logger.debug(
+                    "%s: Characteristic %s answered status %s",
+                    self.accessory.display_name,
+                    (aid, iid),
+                    e.status,
+                )
+                rep[HAP_REPR_STATUS] = e.status
             except CharacteristicError:
                 logger.error(
                     "%s: Error getting value for characteristic %s.",

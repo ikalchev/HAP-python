@@ -131,6 +131,13 @@ The status set is curated — see :ref:`api-errors` for which statuses a
 callback may decide and why the rest belong to the driver. Every other
 exception keeps answering ``-70402``.
 
+Getters answer the same way: a read of the characteristic returns the
+status instead of a value, while the other characteristics of the request
+keep their own results. The accessories list carries no per-characteristic
+status, so there a failing getter — whatever it raises — answers by listing
+its characteristic without a value, and one broken accessory cannot break
+another one's pairing.
+
 A setter's return value is used as the *write response* for characteristics
 with the ``wr`` permission — the value the writing controller reads back in
 the HTTP response. A write response, and the read back value of a
