@@ -1,8 +1,8 @@
 .. _api-errors:
 
-=====
+=======
 Errors
-=====
+=======
 
 Errors raised by accessory callbacks to answer a HAP request with a status.
 
