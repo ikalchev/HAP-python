@@ -12,6 +12,7 @@ from pyhap.characteristic import (
     PROP_PERMISSIONS,
     Characteristic,
 )
+from pyhap.delegates import CharacteristicDelegate, ServiceDelegate
 from pyhap.service import Service
 
 CHAR_PROPS = {
@@ -246,3 +247,61 @@ def test_from_dict() -> None:
     mock_char_loader.get_char.assert_has_calls(
         [call("Char 1"), call("Char 2")], any_order=True
     )
+
+
+class _AsyncGate(ServiceDelegate):
+    """A service delegate overriding the grouped gate."""
+
+
+class _AsyncCharDelegate(CharacteristicDelegate):
+    """A characteristic delegate."""
+
+
+def test_service_delegate_instance() -> None:
+    """An assigned service delegate is the service's delegate."""
+    service = Service(uuid1())
+    delegate = _AsyncGate()
+
+    service.delegate = delegate
+
+    assert service.delegate is delegate
+
+
+def test_service_delegate_sync_override_fails() -> None:
+    """A grouped on_set that is not async fails the assignment."""
+    service = Service(uuid1())
+
+    class _SyncGate(ServiceDelegate):
+        def on_set(  # ty: ignore[invalid-method-override]
+            self, values: object, context: object
+        ) -> None:
+            pass
+
+    with pytest.raises(TypeError, match="on_set of a service is not a coroutine"):
+        service.delegate = _SyncGate()
+
+
+def test_configure_char_wires_delegate() -> None:
+    """configure_char wires a delegate instance or class onto the char."""
+    service = Service(uuid1())
+    service.add_characteristic(*get_chars())
+    delegate = _AsyncCharDelegate()
+
+    configured = service.configure_char("Char 1", delegate=delegate)
+
+    assert configured.delegate is delegate
+
+    configured_by_class = service.configure_char("Char 2", delegate=_AsyncCharDelegate)
+
+    assert isinstance(configured_by_class.delegate, _AsyncCharDelegate)
+
+
+def test_configure_char_without_delegate() -> None:
+    """configure_char without a delegate leaves the char without one."""
+    service = Service(uuid1())
+    service.add_characteristic(*get_chars())
+
+    configured = service.configure_char("Char 1", value=5)
+
+    assert configured.delegate is None
+    assert configured.value == 5

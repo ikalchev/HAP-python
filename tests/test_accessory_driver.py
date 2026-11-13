@@ -707,7 +707,8 @@ def test_write_response_returned_when_requested(
     service_setter = MagicMock()
     assert char.service is not None
     char.service.setter_callback = service_setter
-    char.setter_callback = MagicMock(return_value=returned)
+    setter = MagicMock(return_value=returned)
+    char.setter_callback = setter
 
     response = _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
 
@@ -721,7 +722,7 @@ def test_write_response_returned_when_requested(
             }
         ]
     }
-    char.setter_callback.assert_called_once_with(0)
+    setter.assert_called_once_with(0)
     service_setter.assert_called_once_with({"Value": 0})
     assert char.value == stored
 
@@ -744,10 +745,11 @@ def test_write_response_not_returned(
 ) -> None:
     """Without a request or the wr permission the write has no response body."""
     acc, char, _ = _add_bridged_or_standalone(driver, permissions, False)
-    char.setter_callback = MagicMock(return_value=1)
+    setter = MagicMock(return_value=1)
+    char.setter_callback = setter
 
     assert _write(driver, acc, char, **query) is None
-    char.setter_callback.assert_called_once_with(0)
+    setter.assert_called_once_with(0)
     assert char.value == 0
 
 

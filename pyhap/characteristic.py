@@ -21,6 +21,7 @@ from .const import (
     HAP_REPR_VALID_VALUES,
     HAP_REPR_VALUE,
 )
+from .delegates import CharacteristicDelegate, _characteristic_delegate
 from .util import hap_type_to_uuid, uuid_to_hap_type
 
 if TYPE_CHECKING:
@@ -184,8 +185,10 @@ class Characteristic:
         "_properties",
         "type_id",
         "_value",
-        "getter_callback",
-        "setter_callback",
+        "_getter_callback",
+        "_setter_callback",
+        "_delegate",
+        "_delegate_hooks",
         "service",
         "_uuid_str",
         "_loader_display_name",
@@ -236,6 +239,8 @@ class Characteristic:
         self._properties: dict[str, Any] = properties
         self.type_id = type_id
         self._value = self._get_default_value()
+        self._delegate: CharacteristicDelegate | None = None
+        self._delegate_hooks: frozenset[str] = frozenset()
         self.getter_callback: Callable[[], Any] | None = None
         # Setters may take just the value or (value, sender_client_addr); see
         # ``_setter_wants_addr``. The return value is sent back as the write
@@ -268,6 +273,78 @@ class Characteristic:
         """Set the display name of the characteristic."""
         self._display_name = value
         self._clear_cache()
+
+    @property
+    def delegate(self) -> CharacteristicDelegate | None:
+        """The characteristic's delegate, or ``None`` without one.
+
+        Assign a :class:`~pyhap.delegates.CharacteristicDelegate` instance,
+        or its class to instantiate one with no arguments. Everything about
+        a delegate is decided at this assignment: the driver records which
+        methods it overrides, and an overridden method that is not a
+        coroutine function fails here with a ``TypeError`` - there is no
+        sync/async detection later. One instance may serve many
+        characteristics; the context of a call says which one it is about.
+        """
+        return self._delegate
+
+    @delegate.setter
+    def delegate(
+        self, delegate: CharacteristicDelegate | type[CharacteristicDelegate] | None
+    ) -> None:
+        """Wire the delegate; ``None`` removes it."""
+        self._delegate, self._delegate_hooks = (
+            (None, frozenset())
+            if delegate is None
+            else _characteristic_delegate(delegate)
+        )
+
+    @delegate.deleter
+    def delegate(self) -> None:
+        """Remove the delegate."""
+        self._delegate, self._delegate_hooks = None, frozenset()
+
+    @property
+    def getter_callback(self) -> Callable[[], Any] | None:
+        """The legacy getter, called with nothing on every read of the value.
+
+        A sync callable; a slow one stalls the server. Replaced over time by
+        a delegate's ``on_get``, assigning one does not remove this.
+        """
+        return self._getter_callback
+
+    @getter_callback.setter
+    def getter_callback(self, callback: Callable[[], Any] | None) -> None:
+        """Set the legacy getter; ``None`` removes it."""
+        self._getter_callback = callback
+
+    @getter_callback.deleter
+    def getter_callback(self) -> None:
+        """Remove the legacy getter."""
+        self._getter_callback = None
+
+    @property
+    def setter_callback(self) -> Callable[..., Any] | None:
+        """The legacy setter, called with the value on a controller's write.
+
+        May take just the value or ``(value, sender_client_addr)``, see
+        ``_setter_wants_addr``. The return value is sent back as the write
+        response when the characteristic has the "wr" permission and the
+        controller asked for one. May also be a coroutine function; a
+        controller's write is answered once it is done. Replaced over time
+        by a delegate's ``on_set``, assigning one does not remove this.
+        """
+        return self._setter_callback
+
+    @setter_callback.setter
+    def setter_callback(self, callback: Callable[..., Any] | None) -> None:
+        """Set the legacy setter; ``None`` removes it."""
+        self._setter_callback = callback
+
+    @setter_callback.deleter
+    def setter_callback(self) -> None:
+        """Remove the legacy setter."""
+        self._setter_callback = None
 
     @property
     def value(self) -> Any:

@@ -17,12 +17,81 @@ read and write paths never introspect a delegate again.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+import inspect
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from .context import CharReadContext, CharWriteContext
 
 if TYPE_CHECKING:
     from .characteristic import Characteristic
+
+_CHARACTERISTIC_HOOKS = ("on_get", "on_set", "on_subscribe", "on_unsubscribe")
+_SERVICE_HOOKS = ("on_set",)
+_Wired = TypeVar("_Wired")
+
+
+def _wire_delegate(
+    delegate: Any, base: type[_Wired], hooks: tuple[str, ...], what: str
+) -> tuple[_Wired, frozenset[str]]:
+    """Validate a delegate at its assignment; return it with its hooks.
+
+    This is the whole of the "handled in init only" promise: the driver
+    records what a delegate overrides and that every overridden hook is a
+    coroutine function, and the read and write paths never introspect a
+    delegate again. Returns the delegate instance, a class is instantiated
+    with no arguments, and the frozenset of its overridden hook names.
+
+    :param delegate: A delegate instance, or its class.
+    :param base: The base class the delegate must derive from.
+    :param hooks: The hook methods ``base`` defines.
+    :param what: What is being wired, e.g. "a characteristic's delegate",
+        for error messages.
+    :raises TypeError: If the delegate is not of the right class, or an
+        overridden hook is not a coroutine function.
+    """
+    if isinstance(delegate, type):
+        if not issubclass(delegate, base):
+            raise TypeError(f"{delegate!r} is not a {base.__name__} subclass")
+        try:
+            delegate = delegate()
+        except TypeError as e:
+            raise TypeError(
+                f"{delegate.__name__} is instantiated with no arguments when"
+                f" it wires {what}: {e}"
+            ) from e
+    elif not isinstance(delegate, base):
+        raise TypeError(f"{delegate!r} is not a {base.__name__} instance")
+
+    overridden = frozenset(
+        hook
+        for hook in hooks
+        if getattr(type(delegate), hook) is not getattr(base, hook)
+    )
+    for hook in overridden:
+        # Async by design: the driver awaits every call, so a hook that is
+        # not a coroutine function never runs. Fail at the assignment
+        # instead, where the mistake is made.
+        if not inspect.iscoroutinefunction(getattr(delegate, hook)):
+            raise TypeError(
+                f"{type(delegate).__name__}.{hook} of {what} is not a coroutine"
+                " function; delegate methods are async by design, declare"
+                f" 'async def {hook}'"
+            )
+    return delegate, overridden
+
+
+def _characteristic_delegate(
+    delegate: Any,
+) -> tuple[CharacteristicDelegate, frozenset[str]]:
+    """Wire a characteristic's delegate; see :func:`_wire_delegate`."""
+    return _wire_delegate(
+        delegate, CharacteristicDelegate, _CHARACTERISTIC_HOOKS, "a characteristic"
+    )
+
+
+def _service_delegate(delegate: Any) -> tuple[ServiceDelegate, frozenset[str]]:
+    """Wire a service's delegate; see :func:`_wire_delegate`."""
+    return _wire_delegate(delegate, ServiceDelegate, _SERVICE_HOOKS, "a service")
 
 
 class CharacteristicDelegate:

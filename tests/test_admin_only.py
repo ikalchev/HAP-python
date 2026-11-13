@@ -295,7 +295,8 @@ def test_admin_only_null_write_reaches_no_setter(
     assert driver.accessory is not None
     service = driver.accessory.get_service("MotionSensor")
     assert service is not None
-    service.setter_callback = MagicMock()
+    service_setter = MagicMock()
+    service.setter_callback = service_setter
     driver.accessory.setter_callback = MagicMock()
     query = {
         HAP_REPR_CHARS: [
@@ -307,7 +308,7 @@ def test_admin_only_null_write_reaches_no_setter(
 
     assert response == _response(char, REFUSED)
     char.setter.assert_not_called()
-    service.setter_callback.assert_not_called()
+    service_setter.assert_not_called()
     driver.accessory.setter_callback.assert_not_called()
 
 

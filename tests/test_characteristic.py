@@ -18,6 +18,7 @@ from pyhap.characteristic import (
     HAP_PERMISSION_READ,
     Characteristic,
 )
+from pyhap.delegates import CharacteristicDelegate
 
 PROPERTIES: dict[str, Any] = {
     "Format": HAP_FORMAT_INT,
@@ -584,3 +585,146 @@ def test_getter_callback() -> None:
         "perms": ["pr"],
         "type": "A1",
     }
+
+
+class _AsyncGetter(CharacteristicDelegate):
+    """A delegate overriding on_get."""
+
+    async def on_get(self, context: object) -> int:
+        return 1
+
+
+class _SyncGetter(CharacteristicDelegate):
+    """A delegate whose override is not async, a mistake to catch at wiring."""
+
+
+def _sync_on_get(self: Any, context: object) -> int:
+    return 1
+
+
+_SyncGetter.on_get = _sync_on_get  # ty: ignore[invalid-assignment]
+
+
+def test_delegate_instance_roundtrip() -> None:
+    """An assigned delegate instance is the characteristic's delegate."""
+    char = get_char(PROPERTIES)
+    delegate = _AsyncGetter()
+
+    char.delegate = delegate
+
+    assert char.delegate is delegate
+
+
+def test_delegate_class_is_instantiated() -> None:
+    """Assigning a class instantiates it with no arguments."""
+    char = get_char(PROPERTIES)
+
+    char.delegate = _AsyncGetter
+
+    assert isinstance(char.delegate, _AsyncGetter)
+
+
+def test_delegate_removed() -> None:
+    """None or del removes the delegate."""
+    char = get_char(PROPERTIES)
+    char.delegate = _AsyncGetter()
+
+    char.delegate = None
+
+    assert char.delegate is None
+
+    char.delegate = _AsyncGetter()
+    del char.delegate
+
+    assert char.delegate is None
+
+
+def test_delegate_replaced() -> None:
+    """A new assignment replaces the previous delegate."""
+    char = get_char(PROPERTIES)
+    first = _AsyncGetter()
+    second = _AsyncGetter()
+
+    char.delegate = first
+    char.delegate = second
+
+    assert char.delegate is second
+
+
+def test_delegate_must_be_a_delegate() -> None:
+    """Something else than a delegate fails the assignment."""
+    char = get_char(PROPERTIES)
+
+    with pytest.raises(TypeError, match="not a CharacteristicDelegate instance"):
+        char.delegate = object()  # ty: ignore[invalid-assignment]
+
+    with pytest.raises(TypeError, match="not a CharacteristicDelegate subclass"):
+        char.delegate = int  # ty: ignore[invalid-assignment]
+
+
+def test_delegate_class_needs_no_arguments() -> None:
+    """A class whose constructor needs arguments fails the assignment."""
+
+    class _NeedsArgs(CharacteristicDelegate):
+        def __init__(self, needed: int) -> None:
+            super().__init__()
+
+    char = get_char(PROPERTIES)
+
+    with pytest.raises(TypeError, match="instantiated with no arguments"):
+        char.delegate = _NeedsArgs
+
+
+def test_delegate_sync_override_fails_assignment() -> None:
+    """An overridden method that is not async fails, naming the method."""
+    char = get_char(PROPERTIES)
+
+    with pytest.raises(
+        TypeError, match="on_get of a characteristic is not a coroutine"
+    ):
+        char.delegate = _SyncGetter()
+
+
+def test_overridden_hooks_are_recorded() -> None:
+    """Wiring records which methods the delegate overrides."""
+    char = get_char(PROPERTIES)
+    char.delegate = _AsyncGetter()
+
+    assert char._delegate_hooks == frozenset({"on_get"})
+
+    char.delegate = CharacteristicDelegate()
+
+    assert char._delegate_hooks == frozenset()
+
+
+def test_legacy_and_delegate_coexist() -> None:
+    """Assigning a delegate does not remove a legacy callback, or the reverse."""
+    char = get_char(PROPERTIES)
+    setter = lambda value: None  # noqa: E731
+    char.setter_callback = setter
+
+    char.delegate = _AsyncGetter()
+
+    assert char.setter_callback is setter
+    assert isinstance(char.delegate, _AsyncGetter)
+
+    getter = lambda: 1  # noqa: E731
+    char.getter_callback = getter
+
+    assert char.getter_callback is getter
+
+
+def test_legacy_callback_removal() -> None:
+    """None or del removes a legacy callback, like before the properties."""
+    char = get_char(PROPERTIES)
+    setter = lambda value: None  # noqa: E731
+    char.setter_callback = setter
+
+    char.setter_callback = None
+
+    assert char.setter_callback is None
+
+    char.setter_callback = setter
+    del char.setter_callback
+
+    assert char.setter_callback is None
