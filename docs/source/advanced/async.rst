@@ -112,6 +112,25 @@ parameter literally named ``sender_client_addr`` — useful when a write must
 be tied to the connection that made it, e.g. Setup Endpoints. Any other
 signature is called with just the value.
 
+**Answering a HAP status.** A callback that fails does not have to answer
+the generic ``-70402`` (service communication failure): raise
+:class:`pyhap.errors.HapStatusError` with a status the controller can act
+on, and the characteristic answers with it instead —
+
+.. code-block:: python
+
+   from pyhap.const import HAP_SERVER_STATUS
+   from pyhap.errors import HapStatusError
+
+   def set_lock_target_state(value):
+       if not lock.is_ready():
+           raise HapStatusError(HAP_SERVER_STATUS.RESOURCE_BUSY)
+       lock.set_state(value)
+
+The status set is curated — see :ref:`api-errors` for which statuses a
+callback may decide and why the rest belong to the driver. Every other
+exception keeps answering ``-70402``.
+
 A setter's return value is used as the *write response* for characteristics
 with the ``wr`` permission — the value the writing controller reads back in
 the HTTP response. A write response, and the read back value of a
