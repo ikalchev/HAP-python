@@ -571,7 +571,15 @@ class Characteristic:
                 hap_rep[HAP_REPR_MAX_LEN] = max_length
 
         if include_value and HAP_PERMISSION_READ in permissions:
-            hap_rep[HAP_REPR_VALUE] = self.get_value()
+            try:
+                hap_rep[HAP_REPR_VALUE] = self.get_value()
+            except Exception:
+                # One failing getter must not fail the whole accessories
+                # response: the characteristic is listed without a value.
+                logger.exception(
+                    "%s: Error getting the value; answering without it",
+                    self._display_name,
+                )
 
         if not include_value:
             self._to_hap_cache = hap_rep

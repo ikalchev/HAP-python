@@ -225,6 +225,56 @@ def test_get_characteristics_requires_read_permission(
     assert getter.call_count == reads
 
 
+def _raise_out_of_resource() -> NoReturn:
+    raise HapStatusError(HAP_SERVER_STATUS.OUT_OF_RESOURCE)
+
+
+def test_get_characteristics_hap_status_answers_request(
+    driver: AccessoryDriver,
+) -> None:
+    """A getter's HapStatusError answers with its status, not -70402."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "ev"], False)
+    char.getter_callback = _raise_out_of_resource
+
+    iid = acc.iid_manager.get_iid(char)
+    result = driver.get_characteristics([f"{acc.aid}.{iid}"])
+
+    assert result == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: iid,
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.OUT_OF_RESOURCE,
+            }
+        ]
+    }
+
+
+def test_get_accessories_isolates_a_failing_getter(
+    driver: AccessoryDriver,
+) -> None:
+    """A failing getter omits its value, and does not fail the whole list."""
+    acc = Accessory(driver, "Test Accessory")
+    service = Service(uuid1(), "Test Service")
+    good = Characteristic("Good", uuid1(), CHAR_PROPS)
+    good.getter_callback = lambda: 1
+    bad = Characteristic("Bad", uuid1(), CHAR_PROPS)
+    bad.getter_callback = _raise_out_of_resource
+    service.add_characteristic(good, bad)
+    acc.add_service(service)
+    driver.add_accessory(acc)
+
+    (acc_rep,) = driver.get_accessories()[HAP_REPR_ACCS]
+    reps = {
+        rep[HAP_REPR_IID]: rep for rep in acc_rep[HAP_REPR_SERVICES][-1][HAP_REPR_CHARS]
+    }
+    good_rep = reps[acc.iid_manager.get_iid(good)]
+    bad_rep = reps[acc.iid_manager.get_iid(bad)]
+
+    assert good_rep[HAP_REPR_VALUE] == 1
+    assert HAP_REPR_VALUE not in bad_rep
+
+
 @pytest.mark.parametrize(
     ("permissions", "values", "reads"),
     [
