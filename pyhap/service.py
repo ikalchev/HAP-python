@@ -13,6 +13,7 @@ from pyhap.const import (
 )
 
 from .characteristic import Characteristic
+from .delegates import CharacteristicDelegate, ServiceDelegate
 from .util import hap_type_to_uuid, uuid_to_hap_type
 
 if TYPE_CHECKING:
@@ -34,7 +35,8 @@ class Service:
         "type_id",
         "linked_services",
         "is_primary_service",
-        "setter_callback",
+        "_setter_callback",
+        "_delegate",
         "unique_id",
         "_uuid_str",
     )
@@ -53,8 +55,61 @@ class Service:
         self.type_id = type_id
         self.is_primary_service = None
         self.setter_callback: Callable[[Any], None] | None = None
+        # The delegate of the grouped writes of this service, see
+        # ``ServiceDelegate``. Either a delegate or the legacy setter,
+        # never both.
+        self.delegate: ServiceDelegate | None = None
         self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
+
+    @property
+    def delegate(self) -> ServiceDelegate | None:
+        """The service's delegate, or ``None`` without one.
+
+        A service has either a delegate or the legacy ``setter_callback``,
+        never both: assigning a delegate to a service that has one raises
+        ``ValueError``, and the reverse.
+        """
+        return self._delegate
+
+    @delegate.setter
+    def delegate(self, delegate: ServiceDelegate | None) -> None:
+        """Assign the delegate; ``None`` removes it."""
+        if delegate is not None and self._setter_callback is not None:
+            raise ValueError(
+                f"{self.display_name} has a legacy setter_callback, remove it"
+                " before assigning a delegate"
+            )
+        self._delegate = delegate
+
+    @delegate.deleter
+    def delegate(self) -> None:
+        """Remove the delegate."""
+        self._delegate = None
+
+    @property
+    def setter_callback(self) -> Callable[[Any], None] | None:
+        """The legacy setter, called with the request's values by name.
+
+        Called with a ``{display_name: value}`` dict after the
+        per-characteristic setters of a write.
+        """
+        return self._setter_callback
+
+    @setter_callback.setter
+    def setter_callback(self, callback: Callable[[Any], None] | None) -> None:
+        """Assign the legacy setter; ``None`` removes it."""
+        if callback is not None and self._delegate is not None:
+            raise ValueError(
+                f"{self.display_name} has a delegate, remove it before"
+                " assigning a legacy setter_callback"
+            )
+        self._setter_callback = callback
+
+    @setter_callback.deleter
+    def setter_callback(self) -> None:
+        """Remove the legacy setter."""
+        self._setter_callback = None
 
     def __repr__(self) -> str:
         """Return the representation of the service."""
@@ -108,8 +163,19 @@ class Service:
         value: Any = None,
         setter_callback: Any = None,
         getter_callback: Any = None,
+        delegate: CharacteristicDelegate | None = None,
     ) -> Characteristic:
-        """Helper method to return fully configured characteristic."""
+        """Helper method to return fully configured characteristic.
+
+        :param char_name: The name of the characteristic to configure.
+        :param properties: Properties to override on the characteristic.
+        :param valid_values: Valid values to set on the characteristic.
+        :param value: The value to set on the characteristic.
+        :param setter_callback: The legacy setter of the characteristic.
+        :param getter_callback: The legacy getter of the characteristic.
+        :param delegate: The characteristic's
+            :class:`~pyhap.delegates.CharacteristicDelegate` instance.
+        """
         char = self.get_characteristic(char_name)
         if properties or valid_values:
             char.override_properties(properties, valid_values)
@@ -119,6 +185,8 @@ class Service:
             char.setter_callback = setter_callback
         if getter_callback:
             char.getter_callback = getter_callback
+        if delegate is not None:
+            char.delegate = delegate
         return char
 
     def to_HAP(self, include_value: bool = True) -> dict[str, Any]:

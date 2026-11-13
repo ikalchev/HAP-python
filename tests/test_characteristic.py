@@ -18,6 +18,7 @@ from pyhap.characteristic import (
     HAP_PERMISSION_READ,
     Characteristic,
 )
+from pyhap.delegates import CharacteristicDelegate
 
 PROPERTIES: dict[str, Any] = {
     "Format": HAP_FORMAT_INT,
@@ -584,3 +585,71 @@ def test_getter_callback() -> None:
         "perms": ["pr"],
         "type": "A1",
     }
+
+
+class _AsyncGetter(CharacteristicDelegate):
+    """A delegate overriding on_get."""
+
+
+def test_delegate_assignment() -> None:
+    """An assigned delegate instance is the characteristic's delegate."""
+    char = get_char(PROPERTIES)
+    delegate = _AsyncGetter()
+
+    char.delegate = delegate
+
+    assert char.delegate is delegate
+    assert char.getter_callback is None
+    assert char.setter_callback is None
+
+    char.delegate = None
+
+    assert char.delegate is None
+
+
+def test_delegate_conflicts_with_legacy_callbacks() -> None:
+    """Either a delegate or the legacy callbacks, never both."""
+    char = get_char(PROPERTIES)
+
+    char.setter_callback = lambda value: None  # noqa: E731
+    with pytest.raises(ValueError, match="has a legacy callback"):
+        char.delegate = _AsyncGetter()
+
+    char.setter_callback = None
+    char.getter_callback = lambda: 1  # noqa: E731
+    with pytest.raises(ValueError, match="has a legacy callback"):
+        char.delegate = _AsyncGetter()
+
+    char.getter_callback = None
+    char.delegate = _AsyncGetter()
+
+    with pytest.raises(ValueError, match="has a delegate"):
+        char.setter_callback = lambda value: None  # noqa: E731
+    with pytest.raises(ValueError, match="has a delegate"):
+        char.getter_callback = lambda: 1  # noqa: E731
+
+
+def test_removing_one_side_allows_the_other() -> None:
+    """Clearing with None or del frees the characteristic for the other."""
+    char = get_char(PROPERTIES)
+    char.setter_callback = lambda value: None  # noqa: E731
+
+    char.setter_callback = None
+    char.delegate = _AsyncGetter()
+
+    assert char.delegate is not None
+
+    char.delegate = None
+    char.getter_callback = lambda: 1  # noqa: E731
+
+    assert char.getter_callback is not None
+
+    del char.getter_callback
+    char.delegate = _AsyncGetter()
+
+    assert char.delegate is not None
+
+    del char.delegate
+    char.setter_callback = lambda value: None  # noqa: E731
+
+    assert char.setter_callback is not None

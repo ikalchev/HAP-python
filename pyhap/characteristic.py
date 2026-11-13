@@ -21,6 +21,7 @@ from .const import (
     HAP_REPR_VALID_VALUES,
     HAP_REPR_VALUE,
 )
+from .delegates import CharacteristicDelegate
 from .util import hap_type_to_uuid, uuid_to_hap_type
 
 if TYPE_CHECKING:
@@ -184,8 +185,9 @@ class Characteristic:
         "_properties",
         "type_id",
         "_value",
-        "getter_callback",
-        "setter_callback",
+        "_getter_callback",
+        "_setter_callback",
+        "_delegate",
         "service",
         "_uuid_str",
         "_loader_display_name",
@@ -243,6 +245,10 @@ class Characteristic:
         # controller asked for one. A setter may also be a coroutine function;
         # a controller's write is answered once it is done.
         self.setter_callback: Callable[..., Any] | None = None
+        # The delegate of the reads, writes and subscriptions of this
+        # characteristic, see ``CharacteristicDelegate``. Either a delegate
+        # or the legacy callbacks, never both.
+        self.delegate: CharacteristicDelegate | None = None
         # Cache of whether ``setter_callback`` opts into the client address,
         # recomputed only when the setter object itself changes.
         self._setter_addr_cache: bool = False
@@ -268,6 +274,82 @@ class Characteristic:
         """Set the display name of the characteristic."""
         self._display_name = value
         self._clear_cache()
+
+    @property
+    def delegate(self) -> CharacteristicDelegate | None:
+        """The characteristic's delegate, or ``None`` without one.
+
+        A characteristic has either a delegate or the legacy callbacks,
+        never both: assigning a delegate to a characteristic that has one
+        raises ``ValueError``, and the reverse. A delegate takes over the
+        reads of the characteristic, see
+        :class:`~pyhap.delegates.CharacteristicDelegate`.
+        """
+        return self._delegate
+
+    @delegate.setter
+    def delegate(self, delegate: CharacteristicDelegate | None) -> None:
+        """Assign the delegate; ``None`` removes it."""
+        if delegate is not None and (
+            self._setter_callback is not None or self._getter_callback is not None
+        ):
+            raise ValueError(
+                f"{self._display_name} has a legacy callback, remove it before"
+                " assigning a delegate"
+            )
+        self._delegate = delegate
+
+    @delegate.deleter
+    def delegate(self) -> None:
+        """Remove the delegate."""
+        self._delegate = None
+
+    @property
+    def getter_callback(self) -> Callable[[], Any] | None:
+        """The legacy getter, called with nothing on every read of the value."""
+        return self._getter_callback
+
+    @getter_callback.setter
+    def getter_callback(self, callback: Callable[[], Any] | None) -> None:
+        """Assign the legacy getter; ``None`` removes it."""
+        if callback is not None and self._delegate is not None:
+            raise ValueError(
+                f"{self._display_name} has a delegate, remove it before"
+                " assigning a legacy callback"
+            )
+        self._getter_callback = callback
+
+    @getter_callback.deleter
+    def getter_callback(self) -> None:
+        """Remove the legacy getter."""
+        self._getter_callback = None
+
+    @property
+    def setter_callback(self) -> Callable[..., Any] | None:
+        """The legacy setter, called with the value on a controller's write.
+
+        May take just the value or ``(value, sender_client_addr)``, see
+        ``_setter_wants_addr``. The return value is sent back as the write
+        response when the characteristic has the "wr" permission and the
+        controller asked for one. May also be a coroutine function; a
+        controller's write is answered once it is done.
+        """
+        return self._setter_callback
+
+    @setter_callback.setter
+    def setter_callback(self, callback: Callable[..., Any] | None) -> None:
+        """Assign the legacy setter; ``None`` removes it."""
+        if callback is not None and self._delegate is not None:
+            raise ValueError(
+                f"{self._display_name} has a delegate, remove it before"
+                " assigning a legacy callback"
+            )
+        self._setter_callback = callback
+
+    @setter_callback.deleter
+    def setter_callback(self) -> None:
+        """Remove the legacy setter."""
+        self._setter_callback = None
 
     @property
     def value(self) -> Any:

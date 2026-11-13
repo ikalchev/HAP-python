@@ -4,14 +4,9 @@ A delegate is an object a characteristic or service is wired up with,
 :class:`CharacteristicDelegate` for one characteristic or several shared
 ones, :class:`ServiceDelegate` for a whole service. Unlike the legacy
 ``setter_callback``/``getter_callback`` attributes it replaces over time,
-a delegate receives a context (:class:`~pyhap.context.CharContext`) that carries what a
-callback needs to know about the request - and grows new fields instead of
-new callback signatures.
-
-Registration, on e.g. ``char.delegate = ...``, is when everything about a
-delegate is decided once: the driver records which methods are overridden
-and rejects an overridden method that is not a coroutine function. The
-read and write paths never introspect a delegate again.
+a delegate receives a context (:class:`~pyhap.context.CharContext`) that
+carries what a callback needs to know about the request - and grows new
+fields instead of new callback signatures.
 """
 
 from __future__ import annotations
@@ -39,21 +34,26 @@ class CharacteristicDelegate:
     blocks the loop and the request; keep such work in a task or an
     executor and await it.
 
-    An unoverridden method means the characteristic has no hook for it;
-    an overridden one that returns ``None`` is an answer - e.g. a getter
-    that answers the null value of a Programmable Switch Event. A
-    callback that fails answers with its status instead of the generic
+    An unoverridden ``on_set``, ``on_subscribe`` or ``on_unsubscribe``
+    does nothing. An unoverridden ``on_get`` raises, see its docstring.
+    An overridden method that returns ``None`` is an answer - e.g. a
+    getter that answers the null value of a Programmable Switch Event.
+    A callback that fails answers with its status instead of the generic
     ``-70402`` when it raises :class:`~pyhap.errors.HapStatusError`.
     """
 
     async def on_get(self, context: CharReadContext) -> Any:
         """Answer a read of the characteristic with its value.
 
-        An unoverridden ``on_get`` reads the characteristic's stored
-        value. An override runs under the context's deadline and answers
-        the read; return the value, which must fit the characteristic's
-        format like any other value.
+        There is no default answer: the base method raises
+        ``NotImplementedError``, so a delegate of a readable
+        characteristic implements this or its reads fail - a delegate
+        takes over the reads of its characteristics. The override runs
+        under the context's deadline and answers the read; return the
+        value, which must fit the characteristic's format like any
+        other value, or ``None`` for a null one.
         """
+        raise NotImplementedError("on_get is not implemented")
 
     async def on_set(self, value: Any, context: CharWriteContext) -> Any:
         """Apply a controller's write of ``value``.

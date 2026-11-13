@@ -6,6 +6,8 @@ import inspect
 from typing import Any
 from uuid import uuid1
 
+import pytest
+
 from pyhap.characteristic import (
     HAP_FORMAT_INT,
     HAP_PERMISSION_READ,
@@ -67,11 +69,17 @@ def test_noop_defaults_are_coroutine_functions() -> None:
         assert inspect.iscoroutinefunction(getattr(delegate, method)), method
 
 
-async def test_noop_defaults_answer_none() -> None:
-    """An unoverridden delegate does nothing and answers None."""
+async def test_noop_defaults_do_nothing_but_on_get_raises() -> None:
+    """An unoverridden delegate does nothing, except on_get which raises.
+
+    A delegate takes over the reads of its characteristics: an
+    unoverridden on_get has no default answer, so a readable
+    characteristic whose delegate implements none fails its reads.
+    """
     delegate = CharacteristicDelegate()
 
-    assert await _run(delegate.on_get(_read_context())) is None
+    with pytest.raises(NotImplementedError):
+        await _run(delegate.on_get(_read_context()))
     assert await _run(delegate.on_set(1, _write_context())) is None
     assert await _run(delegate.on_subscribe(_read_context())) is None
     assert await _run(delegate.on_unsubscribe(_read_context())) is None
@@ -88,6 +96,16 @@ async def test_overrides_answer_values() -> None:
             return value
 
     assert await _run(Getter().on_get(_read_context())) is value
+
+
+async def test_on_get_may_answer_none() -> None:
+    """An overridden on_get returning None is an answer, a null value."""
+
+    class NullGetter(CharacteristicDelegate):
+        async def on_get(self, context: CharReadContext) -> int | None:
+            return None
+
+    assert await _run(NullGetter().on_get(_read_context())) is None
 
 
 async def test_an_override_may_await_inside() -> None:

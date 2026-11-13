@@ -12,6 +12,7 @@ from pyhap.characteristic import (
     PROP_PERMISSIONS,
     Characteristic,
 )
+from pyhap.delegates import CharacteristicDelegate, ServiceDelegate
 from pyhap.service import Service
 
 CHAR_PROPS = {
@@ -246,3 +247,80 @@ def test_from_dict() -> None:
     mock_char_loader.get_char.assert_has_calls(
         [call("Char 1"), call("Char 2")], any_order=True
     )
+
+
+class _AsyncGate(ServiceDelegate):
+    """A service delegate overriding the grouped gate."""
+
+
+class _AsyncCharDelegate(CharacteristicDelegate):
+    """A characteristic delegate."""
+
+
+def test_service_delegate_assignment() -> None:
+    """An assigned delegate is the service's delegate."""
+    service = Service(uuid1())
+    delegate = _AsyncGate()
+
+    service.delegate = delegate
+
+    assert service.delegate is delegate
+
+    service.delegate = None
+
+    assert service.delegate is None
+
+
+def test_configure_char_wires_delegate() -> None:
+    """configure_char wires a delegate instance or class onto the char."""
+    service = Service(uuid1())
+    service.add_characteristic(*get_chars())
+    delegate = _AsyncCharDelegate()
+
+    configured = service.configure_char("Char 1", delegate=delegate)
+
+    assert configured.delegate is delegate
+
+
+def test_service_delegate_conflicts_with_legacy_setter() -> None:
+    """Either a service delegate or the legacy setter, never both."""
+    service = Service(uuid1())
+
+    service.setter_callback = lambda values: None  # noqa: E731
+    with pytest.raises(ValueError, match="has a legacy setter_callback"):
+        service.delegate = _AsyncGate()
+
+    service.setter_callback = None
+    service.delegate = _AsyncGate()
+
+    with pytest.raises(ValueError, match="has a delegate"):
+        service.setter_callback = lambda values: None  # noqa: E731
+
+    service.delegate = None
+    service.setter_callback = lambda values: None  # noqa: E731
+
+    assert service.setter_callback is not None
+
+
+def test_configure_char_with_both_conflicts() -> None:
+    """configure_char rejects a delegate next to a legacy callback."""
+    service = Service(uuid1())
+    service.add_characteristic(*get_chars())
+
+    with pytest.raises(ValueError, match="has a legacy callback"):
+        service.configure_char(
+            "Char 1",
+            setter_callback=lambda value: None,
+            delegate=_AsyncCharDelegate(),
+        )
+
+
+def test_configure_char_without_delegate() -> None:
+    """configure_char without a delegate leaves the char without one."""
+    service = Service(uuid1())
+    service.add_characteristic(*get_chars())
+
+    configured = service.configure_char("Char 1", value=5)
+
+    assert configured.delegate is None
+    assert configured.value == 5
