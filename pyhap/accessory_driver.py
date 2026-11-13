@@ -76,6 +76,7 @@ from pyhap.service import Service
 from pyhap.state import State
 
 from .const import HAP_SERVER_STATUS
+from .errors import HapStatusError
 from .util import callback
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,16 @@ def _wrap_char_setter(
         response = char.client_update_value(
             value, client_addr, notify=notify, defer_notify=True
         )
+    except HapStatusError as e:
+        # The setter answers the controller with its own HAP status.
+        logger.debug(
+            "%s: Characteristic %s answered status %s for value %s",
+            client_addr,
+            char.display_name,
+            e.status,
+            value,
+        )
+        return e.status, None
     except Exception:
         logger.exception(
             "%s: Error while setting characteristic %s to %s",
@@ -153,6 +164,17 @@ def _wrap_acc_setter(acc: Any, updates_by_service: Any, client_addr: Any) -> Any
         _close_unsupported_coroutine(
             acc.setter_callback(updates_by_service), acc.display_name
         )
+    except HapStatusError as e:
+        # The callback answers the controller with its own HAP status,
+        # applied to every characteristic of the accessory in the request.
+        logger.debug(
+            "%s: The %s accessory answered status %s for %s",
+            client_addr,
+            acc.display_name,
+            e.status,
+            updates_by_service,
+        )
+        return e.status
     except Exception:
         logger.exception(
             "%s: Error while setting characteristics to %s for the %s accessory",
@@ -174,6 +196,17 @@ def _wrap_service_setter(service: Any, chars: Any, client_addr: Any) -> Any:
         _close_unsupported_coroutine(
             service.setter_callback(service_chars), service.display_name
         )
+    except HapStatusError as e:
+        # The callback answers the controller with its own HAP status,
+        # applied to every characteristic of the service in the request.
+        logger.debug(
+            "%s: The %s service answered status %s for %s",
+            client_addr,
+            service.display_name,
+            e.status,
+            service_chars,
+        )
+        return e.status
     except Exception:
         logger.exception(
             "%s: Error while setting characteristics to %s for the %s service",
@@ -1524,6 +1557,16 @@ class AccessoryDriver:
                 write = tasks[task]
                 try:
                     outcome = task.result()
+                except HapStatusError as e:
+                    # The setter answers the controller with its own HAP status.
+                    logger.debug(
+                        "%s: Characteristic %s answered status %s",
+                        client_addr,
+                        write.char.display_name,
+                        e.status,
+                    )
+                    write.result[HAP_REPR_STATUS] = e.status
+                    continue
                 except (Exception, asyncio.CancelledError):
                     logger.exception(
                         "%s: Error while setting characteristic %s",

@@ -47,6 +47,7 @@ from pyhap.const import (
     HAP_REPR_WRITE_RESPONSE,
     HAP_SERVER_STATUS,
 )
+from pyhap.errors import HapStatusError
 from pyhap.hap_crypto import hap_hkdf
 from pyhap.hap_protocol import HAPServerProtocol
 from pyhap.service import Service
@@ -843,6 +844,173 @@ async def test_async_setter_result(
         ]
     }
     assert char.value == stored
+
+
+def _raise_resource_busy(value: Any) -> None:
+    raise HapStatusError(HAP_SERVER_STATUS.RESOURCE_BUSY)
+
+
+async def _async_raise_out_of_resource(value: int) -> NoReturn:
+    await asyncio.sleep(0)
+    raise HapStatusError(HAP_SERVER_STATUS.OUT_OF_RESOURCE)
+
+
+@pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
+async def test_sync_setter_hap_status_answers_request(
+    driver: AccessoryDriver, bridged: bool
+) -> None:
+    """A sync setter's HapStatusError answers with its status, not -70402."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw"], bridged)
+    char.setter_callback = _raise_resource_busy
+
+    result = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: acc.iid_manager.get_iid(char),
+                    HAP_REPR_VALUE: 5,
+                }
+            ]
+        },
+        "mock_addr",  # ty: ignore[invalid-argument-type]
+    )
+
+    assert result == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: acc.iid_manager.get_iid(char),
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.RESOURCE_BUSY,
+            }
+        ]
+    }
+
+
+@pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
+async def test_async_setter_hap_status_answers_request(
+    driver: AccessoryDriver, bridged: bool
+) -> None:
+    """A coroutine setter's HapStatusError answers with its status."""
+    acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "wr"], bridged)
+    char.setter_callback = _async_raise_out_of_resource
+
+    result = await _controller_write(
+        driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True}
+    )
+
+    assert result == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: acc.iid_manager.get_iid(char),
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.OUT_OF_RESOURCE,
+            }
+        ]
+    }
+
+
+def test_service_setter_hap_status_answers_all_its_chars(
+    driver: AccessoryDriver,
+) -> None:
+    """A service setter's HapStatusError answers its chars, not the others."""
+    acc = Accessory(driver, "TestAcc")
+    refused = Service(uuid1(), "Refused")
+    char_refused = Characteristic("RefusedValue", uuid1(), CHAR_PROPS)
+    refused.add_characteristic(char_refused)
+    other = Service(uuid1(), "Other")
+    char_other = Characteristic("OtherValue", uuid1(), CHAR_PROPS)
+    other.add_characteristic(char_other)
+    acc.add_service(refused, other)
+    driver.add_accessory(acc)
+    refused.setter_callback = _raise_resource_busy
+
+    response = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: acc.iid_manager.get_iid(char_refused),
+                    HAP_REPR_VALUE: 3,
+                },
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: acc.iid_manager.get_iid(char_other),
+                    HAP_REPR_VALUE: 4,
+                },
+            ]
+        },
+        "mock_addr",  # ty: ignore[invalid-argument-type]
+    )
+
+    assert response == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: acc.iid_manager.get_iid(char_refused),
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.RESOURCE_BUSY,
+            },
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: acc.iid_manager.get_iid(char_other),
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS,
+            },
+        ]
+    }
+
+
+def test_accessory_setter_hap_status_answers_all_its_chars(
+    driver: AccessoryDriver,
+) -> None:
+    """An accessory setter's HapStatusError answers its chars, not the others."""
+    bridge = Bridge(driver, "mybridge")
+    acc = Accessory(driver, "TestAcc", aid=2)
+    acc2 = Accessory(driver, "TestAcc2", aid=3)
+    service = Service(uuid1(), "Service")
+    char_on = Characteristic("On", uuid1(), CHAR_PROPS)
+    service.add_characteristic(char_on)
+    acc.add_service(service)
+    service2 = Service(uuid1(), "Service")
+    char_on2 = Characteristic("On", uuid1(), CHAR_PROPS)
+    service2.add_characteristic(char_on2)
+    acc2.add_service(service2)
+    bridge.add_accessory(acc)
+    bridge.add_accessory(acc2)
+    driver.add_accessory(bridge)
+    acc.setter_callback = _raise_resource_busy
+
+    response = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: acc.iid_manager.get_iid(char_on),
+                    HAP_REPR_VALUE: True,
+                },
+                {
+                    HAP_REPR_AID: acc2.aid,
+                    HAP_REPR_IID: acc2.iid_manager.get_iid(char_on2),
+                    HAP_REPR_VALUE: True,
+                },
+            ]
+        },
+        "mock_addr",  # ty: ignore[invalid-argument-type]
+    )
+
+    assert response == {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: acc.iid_manager.get_iid(char_on),
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.RESOURCE_BUSY,
+            },
+            {
+                HAP_REPR_AID: acc2.aid,
+                HAP_REPR_IID: acc2.iid_manager.get_iid(char_on2),
+                HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS,
+            },
+        ]
+    }
 
 
 @pytest.mark.parametrize(
