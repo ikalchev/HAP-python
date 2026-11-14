@@ -123,6 +123,12 @@ class StreamSession:
         return self.sensor.sensor_uuid
 
     @property
+    def camera(self) -> Camera | None:
+        """The camera of the session, None for one outside a stream service."""
+        controller = self._controller
+        return None if controller is None else controller.camera
+
+    @property
     def ended(self) -> bool:
         return self.state is SessionState.ENDED
 

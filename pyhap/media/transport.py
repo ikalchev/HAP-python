@@ -46,7 +46,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Iterable, Sequence
 import contextlib
-import dataclasses
 from dataclasses import dataclass
 import datetime
 import enum
@@ -70,7 +69,7 @@ except ImportError as err:
 
 from pyhap import util
 
-from .ice import Candidate, IceAgent, resolve_mdns
+from .ice import Candidate, IceAgent
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +78,8 @@ DTLS_RECORD_HEADER = 13
 SRTP_EXPORTER_LABEL = b"EXTRACTOR-dtls_srtp"
 DEFAULT_CONNECT_TIMEOUT = 20.0
 MAX_REMOTE_CANDIDATES = 32
-MAX_MDNS_NAME = 253
-MDNS_TIMEOUT = 2.0
 # The DTLS 1.2 protocol version, which pyOpenSSL has no constant for.
 DTLS1_2_VERSION = 0xFEFD
-# mDNS names resolved per connection; each costs a zeroconf query.
-MAX_MDNS_CANDIDATES = 4
 FINGERPRINT_ALGORITHMS = {
     "sha-256": hashes.SHA256(),
     "sha-384": hashes.SHA384(),
@@ -291,6 +286,7 @@ class DtlsSrtpTransport:
         self._handshake_done = False
         self._connected = False
         self._closed = False
+        self._mdns_ignored = 0
 
     @property
     def local_username(self) -> str:
@@ -312,6 +308,17 @@ class DtlsSrtpTransport:
     def connected(self) -> bool:
         """Whether SRTP is ready."""
         return self._connected and not self._closed
+
+    @property
+    def ice_failure_hint(self) -> str:
+        """What a failure adds to its reason while ICE has selected no pair.
+
+        Names the ignored mDNS candidates: the peer had to get through with
+        its own checks.
+        """
+        if not self._mdns_ignored or self._ice.selected_pair is not None:
+            return ""
+        return f" (mDNS candidates ignored: {self._mdns_ignored})"
 
     @property
     def closed(self) -> bool:
@@ -358,9 +365,15 @@ class DtlsSrtpTransport:
         """Run ICE and the DTLS handshake, then start receiving.
 
         At most :data:`MAX_REMOTE_CANDIDATES` distinct UDP candidates of
-        component 1 are used; adding them (which may resolve mDNS names)
-        counts against ``timeout``. Raises :class:`TransportError` when
-        either step fails, times out or the transport is closed meanwhile.
+        component 1 are used. mDNS ``.local`` candidates are not resolved
+        here; the WebRTC delegate resolves them before, with the driver's
+        Zeroconf instance. Where a name is left, its peer is found when its
+        own checks reach this side, as a peer-reflexive pair; with other
+        candidates in the answer, a pair with one of those may be selected
+        first. An ICE lite peer, or one whose checks are filtered on the way,
+        is not found by a name; the error then ends with
+        :attr:`ice_failure_hint`. Raises :class:`TransportError` when either
+        step fails, times out or the transport is closed meanwhile.
         """
         if self._closed:
             raise TransportError("Transport is closed")
@@ -368,17 +381,19 @@ class DtlsSrtpTransport:
         self._ice.remote_username = remote_username
         self._ice.remote_password = remote_password
         self._ice.remote_is_lite = ice_lite
-        candidates = _remote_candidates(remote_candidates)
+        candidates, self._mdns_ignored = _remote_candidates(remote_candidates)
         try:
             await asyncio.wait_for(
                 self._connect(candidates, remote_fingerprints), timeout
             )
         except TimeoutError as err:
-            raise TransportError("WebRTC connection timed out") from err
+            reason = f"WebRTC connection timed out{self.ice_failure_hint}"
+            raise TransportError(reason) from err
         except (ConnectionError, SSL.Error) as err:
-            raise TransportError(f"WebRTC connection failed: {err}") from err
+            reason = f"WebRTC connection failed: {err}{self.ice_failure_hint}"
+            raise TransportError(reason) from err
         except Exception as err:
-            # For example an mDNS socket that cannot bind, or an SRTP error.
+            # For example an SRTP error.
             raise TransportError(f"WebRTC connection failed: {err!r}") from err
         if self._closed:
             raise TransportError("Transport is closed")
@@ -390,7 +405,7 @@ class DtlsSrtpTransport:
         candidates: list[Candidate],
         remote_fingerprints: Sequence[tuple[str, str]],
     ) -> None:
-        await self._ice.connect(await _resolve_candidates(candidates))
+        await self._ice.connect(candidates)
         self._ssl = SSL.Connection(self.certificate.ssl_context())
         if self.role is DtlsRole.SERVER:
             self._ssl.set_accept_state()
@@ -594,14 +609,12 @@ class DtlsSrtpTransport:
 
 
 def _usable_remote_address(host: str, port: int) -> bool:
-    """Whether a remote candidate has a valid port and a unicast or mDNS host.
+    """Whether a remote candidate has a valid port and a unicast IP address.
 
     Unspecified, multicast and broadcast addresses are not usable peers.
     """
     if not 0 < port < 65536:
         return False
-    if host.lower().endswith(".local"):
-        return len(host) > len(".local") and len(host) <= MAX_MDNS_NAME
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
@@ -616,51 +629,16 @@ def _usable_remote_address(host: str, port: int) -> bool:
     )
 
 
-async def _resolve_candidates(candidates: list[Candidate]) -> list[Candidate]:
-    """Replace mDNS host names by their address; unresolved ones are dropped.
-
-    At most :data:`MAX_MDNS_CANDIDATES` names are resolved, in parallel, and
-    an address a name resolves to must be a usable unicast address too.
-    """
-    names = [c.host for c in candidates if c.host.lower().endswith(".local")]
-    if len(set(names)) > MAX_MDNS_CANDIDATES:
-        logger.debug("Resolving only %d of the mDNS candidates", MAX_MDNS_CANDIDATES)
-    wanted = list(dict.fromkeys(names))[:MAX_MDNS_CANDIDATES]
-    addresses: dict[str, str | None] = {}
-    if wanted:
-        try:
-            addresses = await resolve_mdns(wanted, MDNS_TIMEOUT)
-        except OSError as err:
-            logger.debug("Cannot resolve mDNS candidates: %s", err)
-    resolved = []
-    for candidate in candidates:
-        if not candidate.host.lower().endswith(".local"):
-            resolved.append(candidate)
-            continue
-        address = addresses.get(candidate.host)
-        if address is None or not _usable_resolved_address(address, candidate.port):
-            logger.debug("Ignoring unresolved candidate %s", candidate.host)
-            continue
-        resolved.append(dataclasses.replace(candidate, host=address))
-    return resolved
-
-
-def _usable_resolved_address(address: str, port: int) -> bool:
-    """Whether an mDNS answer names a usable peer: unicast, not loopback."""
-    if address.lower().endswith(".local") or not _usable_remote_address(address, port):
-        return False
-    return not ipaddress.ip_address(address.split("%", 1)[0]).is_loopback
-
-
-def _remote_candidates(values: Iterable[str]) -> list[Candidate]:
+def _remote_candidates(values: Iterable[str]) -> tuple[list[Candidate], int]:
     """Parse distinct UDP candidates of component 1, at most the cap.
 
     Candidates whose port is out of range, whose address is unspecified,
-    multicast or broadcast, or whose host is neither an IP address nor an
-    mDNS ``.local`` name are dropped.
+    multicast or broadcast, or whose host is not an IP address are dropped.
+    Also returns how many of them were mDNS ``.local`` names.
     """
     seen: set[str] = set()
     candidates = []
+    mdns = 0
     for value in values:
         text = value.strip().removeprefix("a=").removeprefix("candidate:")
         if text in seen:
@@ -671,6 +649,10 @@ def _remote_candidates(values: Iterable[str]) -> list[Candidate]:
         except ValueError:
             logger.debug("Ignoring unparsable candidate %r", value)
             continue
+        if parsed.host.lower().endswith(".local"):
+            if parsed.component == 1 and parsed.transport.lower() == "udp":
+                mdns += 1
+            continue
         if not _usable_remote_address(parsed.host, parsed.port):
             logger.debug("Ignoring candidate with an unusable address %r", value)
             continue
@@ -678,4 +660,6 @@ def _remote_candidates(values: Iterable[str]) -> list[Candidate]:
             candidates.append(parsed)
             if len(candidates) == MAX_REMOTE_CANDIDATES:
                 break
-    return candidates
+    if mdns:
+        logger.debug("mDNS candidates ignored, they are not resolved: %d", mdns)
+    return candidates, mdns
