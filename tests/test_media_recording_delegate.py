@@ -19,23 +19,84 @@ from pyhap.media.recording_delegate import RecordingError, RecordingMediaDelegat
 from pyhap.media.worker import MediaWorker
 from pyhap.util import base64_to_bytes, to_base64_str
 
-from .media_hap import GOP_FRAMES, SyntheticPull, bridged
-from .media_peer import KEYFRAME, wait_until
+from .media_hap import FRAME_INTERVAL, GOP_FRAMES, SyntheticPull, bridged
+from .media_peer import KEYFRAME, TRAIL, Source, wait_until
 from .test_media_recording import selected
 
 pytestmark = pytest.mark.timeout(30)
 
-# Stands in for ffmpeg: an init segment, then one fragment per input read
-# whose mdat holds the MPEG-TS it read.
+# Stands in for ffmpeg: like it, nothing before the first input, then an init
+# segment and one fragment per input read whose mdat holds the MPEG-TS it read.
 FAKE_TRANSCODER = """
 import os, struct
 def box(kind, body):
     return struct.pack(">I", 8 + len(body)) + kind + body
-os.write(1, box(b"ftyp", b"isom") + box(b"moov", b""))
+init = box(b"ftyp", b"isom") + box(b"moov", b"")
+while data := os.read(0, 65536):
+    os.write(1, init + box(b"moof", b"") + box(b"mdat", data))
+    init = b""
+"""
+# Stands in for ffmpeg reading a camera that stalls: on the first input the
+# init segment and argv[1] fragments, then fragments from 1.5 s later.
+PAUSING_TRANSCODER = """
+import os, struct, sys, time
+def box(kind, body):
+    return struct.pack(">I", 8 + len(body)) + kind + body
+fragment = box(b"moof", b"") + box(b"mdat", os.read(0, 65536))
+os.write(1, box(b"ftyp", b"isom") + box(b"moov", b"") + fragment * int(sys.argv[1]))
+time.sleep(1.5)
 while data := os.read(0, 65536):
     os.write(1, box(b"moof", b"") + box(b"mdat", data))
 """
 MEDIUM = hksv3.VideoStreamTier(2, hksv3.VideoQuality.MEDIUM, 1500, 1280, 720, 30)
+# NAL units of an H.264 camera, which hold no H.265 IRAP picture.
+H264_IDR = bytes([0x65, 0x88]) + bytes(200)
+H264_SLICE = bytes([0x41, 0x9A]) + bytes(200)
+# Frames a camera sends before its first IRAP picture when it is joined late.
+LATE_IRAP = 15
+NO_VIDEO = (
+    "No video to record within 0.2 s: the camera sent no H.265 IRAP picture"
+    " or stopped after one"
+)
+
+
+def h265(frame: int) -> list[bytes]:
+    """A frame of a camera with an IRAP picture every GOP_FRAMES frames."""
+    return KEYFRAME if frame % GOP_FRAMES == 0 else [TRAIL]
+
+
+def late_irap(frame: int) -> list[bytes]:
+    """A frame of a camera joined LATE_IRAP frames before its IRAP picture."""
+    return [TRAIL] if frame < LATE_IRAP else h265(frame - LATE_IRAP)
+
+
+def h264(frame: int) -> list[bytes]:
+    """A frame of an H.264 camera."""
+    return [H264_IDR] if frame % GOP_FRAMES == 0 else [H264_SLICE]
+
+
+def no_video(_frame: int) -> list[bytes]:
+    """No frame: a camera that sends nothing, or a connection that hangs."""
+    return []
+
+
+class ScriptedPull(SyntheticPull):
+    """Plays a camera channel that sends ``script(n)`` as its n-th frame."""
+
+    def __init__(self, script: Callable[[int], list[bytes]]) -> None:
+        """Not running yet."""
+        super().__init__()
+        self._script = script
+
+    async def _send(self, source: Source) -> None:
+        try:
+            while True:
+                if nals := self._script(self.frames):
+                    source.send_video(nals)
+                self.frames += 1
+                await asyncio.sleep(FRAME_INTERVAL)
+        finally:
+            source.close()
 
 
 class Provider:
@@ -43,9 +104,12 @@ class Provider:
 
     ffmpeg = "ffmpeg"
 
-    def __init__(self, pool: SourcePool) -> None:
-        """Remember the pulls it makes."""
+    def __init__(
+        self, pool: SourcePool, pull: Callable[[], SyntheticPull] = SyntheticPull
+    ) -> None:
+        """Remember the pulls it makes with ``pull``."""
         self.pool = pool
+        self.pull = pull
         self.pulls: dict[str, SyntheticPull] = {}
 
     async def lease_channel(
@@ -55,7 +119,7 @@ class Provider:
         name = hksv3.VideoQuality(tier.quality).name.lower()
 
         def make() -> SyntheticPull:
-            self.pulls[name] = SyntheticPull()
+            self.pulls[name] = self.pull()
             return self.pulls[name]
 
         return await self.pool.lease(name, make, audio=False, name=name)
@@ -425,3 +489,155 @@ async def test_slow_hub_ends_the_recording(
         async for _packet in stream:
             await asyncio.sleep(0.2)
     await delegate.disarm()
+
+
+@pytest.mark.parametrize("prebuffer_ms", [0, 1000])
+@pytest.mark.parametrize("script", [no_video, h264], ids=["no-video", "h264"])
+async def test_recording_without_video_fails(
+    pool: SourcePool,
+    fake_transcoder: list[list[str]],
+    prebuffer_ms: int,
+    script: Callable[[int], list[bytes]],
+) -> None:
+    """Verify a recording that gets no H.265 video in time ends with an error."""
+    provider = Provider(pool, lambda: ScriptedPull(script))
+    delegate = RecordingMediaDelegate(
+        provider, MEDIUM, prebuffer_ms=prebuffer_ms, first_video_timeout=0.2
+    )
+    await delegate.arm()
+    with pytest.raises(RecordingError) as error:
+        await anext(delegate.record(selected(), audio=True))
+    assert str(error.value) == NO_VIDEO
+    assert not delegate.recording
+    await delegate.close()
+    assert pool.counts() == {}
+
+
+@pytest.mark.parametrize(
+    ("prebuffer_ms", "held"),
+    [(0, {}), (1000, {"medium": (1, 1)})],
+    ids=["released", "buffering"],
+)
+async def test_recording_after_one_without_video(
+    pool: SourcePool,
+    fake_transcoder: list[list[str]],
+    prebuffer_ms: int,
+    held: dict[str, tuple[int, int]],
+) -> None:
+    """Verify a recording that got no video leaves the delegate ready to record."""
+    video = False
+    provider = Provider(
+        pool, lambda: ScriptedPull(lambda frame: h265(frame) if video else [])
+    )
+    delegate = RecordingMediaDelegate(
+        provider, MEDIUM, prebuffer_ms=prebuffer_ms, first_video_timeout=0.2
+    )
+    await delegate.arm()
+    with pytest.raises(RecordingError, match=NO_VIDEO):
+        await anext(delegate.record(selected(), audio=True))
+    assert not delegate.recording
+    # A prebuffering delegate keeps its channel, any other gave it back.
+    assert pool.counts() == held
+    video = True
+    delegate.first_video_timeout = delegate_module.DEFAULT_FIRST_VIDEO_TIMEOUT
+    stream = delegate.record(selected(), audio=True)
+    init = await anext(stream)
+    assert init.data.startswith(b"\x00\x00\x00\x0cftyp")
+    first = await anext(stream)
+    assert mpegts.START_CODE + KEYFRAME[0] in first.data
+    await stream.aclose()
+    await delegate.close()
+    assert pool.counts() == {}
+
+
+async def test_late_first_irap_within_the_bound_records(
+    pool: SourcePool, fake_transcoder: list[list[str]]
+) -> None:
+    """Verify a channel whose first IRAP picture comes late, but in time, records."""
+    provider = Provider(pool, lambda: ScriptedPull(late_irap))
+    delegate = RecordingMediaDelegate(provider, MEDIUM, first_video_timeout=5.0)
+    stream = delegate.record(selected(), audio=True)
+    init = await anext(stream)
+    assert init.data.startswith(b"\x00\x00\x00\x0cftyp")
+    # Video came all the while, the recording waited for the IRAP picture.
+    assert provider.pulls["medium"].frames > LATE_IRAP
+    first = await anext(stream)
+    assert mpegts.START_CODE + KEYFRAME[0] in first.data
+    await stream.aclose()
+    assert pool.counts() == {}
+
+
+def pausing_transcoder(monkeypatch: pytest.MonkeyPatch, fragments: int) -> None:
+    """Replace the ffmpeg command with the pausing transcoder."""
+    command = [sys.executable, "-c", PAUSING_TRANSCODER, str(fragments)]
+    monkeypatch.setattr(
+        delegate_module, "recording_ffmpeg_args", lambda *_a, **_k: command
+    )
+
+
+async def test_init_segment_without_fragment_fails(
+    pool: SourcePool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a recording whose first fragment does not come in time fails."""
+    pausing_transcoder(monkeypatch, fragments=0)
+    delegate = RecordingMediaDelegate(Provider(pool), MEDIUM, first_video_timeout=1.0)
+    stream = delegate.record(selected(), audio=True)
+    init = await anext(stream)
+    assert init.data.startswith(b"\x00\x00\x00\x0cftyp")
+    # Its first fragment would come after the pause, past the bound.
+    with pytest.raises(RecordingError, match="No video to record within 1 s"):
+        await anext(stream)
+    assert not delegate.recording
+    assert pool.counts() == {}
+
+
+async def test_bound_counts_from_the_request(
+    pool: SourcePool, fake_transcoder: list[list[str]]
+) -> None:
+    """Verify the time to open the channel counts toward the bound."""
+
+    class Slow(Provider):
+        async def lease_channel(
+            self, tier: hksv3.VideoStreamTier, _audio: Any = None
+        ) -> Any:
+            await asyncio.sleep(1.0)
+            return await super().lease_channel(tier, _audio)
+
+    # The IRAP picture comes LATE_IRAP frames, 0.3 s, after the open: in time
+    # counted from the open, too late counted from the request.
+    provider = Slow(pool, lambda: ScriptedPull(late_irap))
+    delegate = RecordingMediaDelegate(provider, MEDIUM, first_video_timeout=1.0)
+    with pytest.raises(RecordingError, match="No video to record within 1 s"):
+        await anext(delegate.record(selected(), audio=True))
+    assert pool.counts() == {}
+
+
+async def test_bound_ends_with_the_first_fragment(
+    pool: SourcePool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify a recording whose first fragment came in time goes on past the bound."""
+    pausing_transcoder(monkeypatch, fragments=1)
+    delegate = RecordingMediaDelegate(Provider(pool), MEDIUM, first_video_timeout=1.0)
+    stream = delegate.record(selected(), audio=True)
+    await anext(stream)
+    await anext(stream)
+    # The next fragment comes after the pause, past the bound.
+    assert b"moof" in (await anext(stream)).data[:16]
+    await stream.aclose()
+    assert pool.counts() == {}
+
+
+def test_first_video_timeout_defaults_to_10_s() -> None:
+    """Verify a recording gets 10 s to its first fragment by default."""
+    delegate = RecordingMediaDelegate(Provider(SourcePool()), MEDIUM)
+    assert delegate.first_video_timeout == 10.0
+    assert delegate_module.DEFAULT_FIRST_VIDEO_TIMEOUT == 10.0
+
+
+@pytest.mark.parametrize("seconds", [0, -1.0, float("nan")])
+def test_first_video_timeout_must_be_positive(seconds: float) -> None:
+    """Verify a bound that is not a positive number is refused."""
+    with pytest.raises(ValueError, match="first_video_timeout"):
+        RecordingMediaDelegate(
+            Provider(SourcePool()), MEDIUM, first_video_timeout=seconds
+        )

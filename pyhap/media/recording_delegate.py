@@ -49,6 +49,10 @@ from .recording import recording_ffmpeg_args
 logger = logging.getLogger(__name__)
 
 DEFAULT_PREBUFFER_MS = 0
+# Seconds from the hub's request to a recording's first media fragment. A
+# hub waits little longer: one gave up at about 17 s when the first fragment
+# came after about 10 s.
+DEFAULT_FIRST_VIDEO_TIMEOUT = 10.0
 # Seconds before a buffered channel whose recorder ended is opened again,
 # doubling up to the maximum while it keeps failing.
 REOPEN_DELAY = 1.0
@@ -125,6 +129,23 @@ class RecordingMediaDelegate:
     with iOS and tvOS 26 and 27) and record from the trigger on. ``ffmpeg``
     defaults to the provider's; ``video_encoder`` and ``encoder_args`` pick
     the H.264 encoder, e.g. a hardware one.
+
+    The channel must deliver H.265, the only video the source reads. A
+    recording whose first media fragment has not come
+    ``first_video_timeout`` seconds after the hub asked for it, e.g. from an
+    H.264 camera or one that sends nothing or stalls, ends with a
+    :class:`RecordingError` instead of leaving the hub waiting. The bound
+    counts from the request but cuts short only the wait for media, not
+    opening the channel: how long that takes is up to the application's
+    resolver and, with a media worker, the worker's own request timeout.
+
+    A recording starts at an IRAP picture: a filled prebuffer holds one,
+    otherwise the recording waits for the camera's next one, so a camera
+    whose IRAP interval is longer than ``first_video_timeout`` needs a
+    prebuffer. The default is 10 s because a hub gave up at about 17 s on a
+    recording whose first fragment came after about 10 s, so a first
+    fragment after 14 s, as from a camera with a 12 s IRAP interval, is
+    unlikely to be accepted either.
     """
 
     def __init__(
@@ -136,14 +157,21 @@ class RecordingMediaDelegate:
         ffmpeg: str | None = None,
         video_encoder: str = "libx264",
         encoder_args: Sequence[str] = (),
+        first_video_timeout: float = DEFAULT_FIRST_VIDEO_TIMEOUT,
     ) -> None:
-        """Configure the delegate; :meth:`arm` starts buffering."""
+        """Configure the delegate; :meth:`arm` starts buffering.
+
+        :raises ValueError: If ``first_video_timeout`` is not positive.
+        """
+        if not first_video_timeout > 0:  # also refuses NaN
+            raise ValueError("first_video_timeout must be positive")
         self._provider = source_provider
         self.tier = tier
         self.prebuffer_ms = prebuffer_ms
         self.ffmpeg = ffmpeg or source_provider.ffmpeg
         self.video_encoder = video_encoder
         self.encoder_args = tuple(encoder_args)
+        self.first_video_timeout = first_video_timeout
         self._lease: ChannelLease | None = None
         self._recorder: RecorderLike | None = None
         self._armed = False
@@ -270,8 +298,10 @@ class RecordingMediaDelegate:
 
         Without a buffered channel the channel is pulled for this recording
         only, which then starts at the next IRAP picture. Raises
-        :class:`RecordingError` when the transcode fails.
+        :class:`RecordingError` when the transcode fails or its first media
+        fragment has not come ``first_video_timeout`` seconds after the call.
         """
+        deadline = asyncio.get_running_loop().time() + self.first_video_timeout
         async with self._lock:
             recorder = await self._open()
             if recorder.recording:
@@ -311,10 +341,24 @@ class RecordingMediaDelegate:
                 if not self.buffering:
                     await self._release()
                 raise
+        packets = fmp4_recording_packets(reader)
+        received = 0
         try:
-            async for packet in fmp4_recording_packets(reader):
-                if packet.is_last and errors:
+            while True:
+                # The init segment and the first fragment are due by the
+                # deadline. It never spans a yield, and a timeout ends
+                # ``packets`` by cancelling it.
+                try:
+                    async with asyncio.timeout_at(deadline if received < 2 else None):
+                        packet = await anext(packets, None)
+                except TimeoutError:
+                    raise RecordingError(
+                        f"No video to record within {self.first_video_timeout:g} s:"
+                        " the camera sent no H.265 IRAP picture or stopped after one"
+                    ) from None
+                if packet is None or (packet.is_last and errors):
                     break
+                received += 1
                 yield packet
             if errors:
                 raise RecordingError(errors[0])
