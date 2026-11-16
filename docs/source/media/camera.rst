@@ -130,7 +130,9 @@ so they never appear in the Home app. Use recording on cameras without it.
 :attr:`~pyhap.camera.Camera.recording_audio_active` tell whether the hub turned
 recording and its audio on. To react to a change, override
 :meth:`~pyhap.camera.Camera.recording_state_changed`; it runs once per burst of
-writes from the hub, after the state is saved. The recording settings survive
+writes from the hub, after the state is saved. The camera closes a running
+recording before that when the hub turned recording off or changed its audio
+setting. The recording settings survive
 a restart, see :ref:`advanced-state-camera`. With the ``sensors`` option,
 :attr:`~pyhap.camera.Camera.camera_zones` holds the motion zones the
 controller drew.
