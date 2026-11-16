@@ -260,7 +260,9 @@ def test_admin_only_event_subscription_allowed(
         response = driver.set_characteristics(query, CLIENT, client_uuid=client_uuid)
 
     assert response is None
-    subscribe.assert_called_once_with(CLIENT, get_topic(char.aid, char.iid), True)
+    subscribe.assert_called_once_with(
+        driver._connection_of(CLIENT), get_topic(char.aid, char.iid), True
+    )
     char.setter.assert_not_called()
 
 

@@ -400,7 +400,7 @@ class MultiTierController(StreamController[MultiTierSession]):
             logger.warning("[%s] No multi-tier delegate, refusing", session_id)
             return error
         accessory_address = self.camera._stream_address_for(
-            connection.client_addr, endpoint.is_ipv6
+            connection, endpoint.is_ipv6
         )
         if accessory_address is None:
             logger.warning(

@@ -7,7 +7,7 @@ import os
 import tempfile
 import time
 from typing import Any, NoReturn
-from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from uuid import uuid1
 
 from cryptography.hazmat.primitives import serialization
@@ -31,6 +31,7 @@ from pyhap.characteristic import (
     PROP_PERMISSIONS,
     Characteristic,
 )
+from pyhap.connection import HAPConnectionHandle
 from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PERMISSION_WRITE,
@@ -313,7 +314,7 @@ def test_subscribe_with_notify_permission(
 
     subscribe = {HAP_REPR_AID: acc.aid, HAP_REPR_IID: iid, HAP_PERMISSION_NOTIFY: True}
     assert driver.set_characteristics({HAP_REPR_CHARS: [subscribe]}, client) is None
-    assert driver.topics == {f"{acc.aid}.{iid}": {client}}
+    assert driver.topics == {f"{acc.aid}.{iid}": {driver._connection_of(client)}}
 
     unsubscribe = {**subscribe, HAP_PERMISSION_NOTIFY: False}
     assert driver.set_characteristics({HAP_REPR_CHARS: [unsubscribe]}, client) is None
@@ -404,7 +405,7 @@ def test_refused_subscription_lists_the_others(driver: AccessoryDriver) -> None:
             },
         ]
     }
-    assert driver.topics == {f"{acc.aid}.{ok_iid}": {client}}
+    assert driver.topics == {f"{acc.aid}.{ok_iid}": {driver._connection_of(client)}}
 
 
 @pytest.mark.parametrize("ev", [True, False], ids=["subscribe", "unsubscribe"])
@@ -525,7 +526,7 @@ def test_write_with_subscribe_without_write_permission(
         ]
     }
     setter.assert_not_called()
-    assert driver.topics == {f"{acc.aid}.{iid}": {client}}
+    assert driver.topics == {f"{acc.aid}.{iid}": {driver._connection_of(client)}}
 
 
 def test_refused_write_does_not_block_others(driver: AccessoryDriver) -> None:
@@ -803,7 +804,14 @@ ASYNC_TIMEOUT = 1.0
 
 
 async def _controller_write(
-    driver: AccessoryDriver, acc: Accessory, char: Characteristic, **query: Any
+    driver: AccessoryDriver,
+    acc: Accessory,
+    char: Characteristic,
+    *,
+    # ``Any`` so the ``**query`` dicts of ``HAP_REPR_*`` keys type-check,
+    # ty cannot narrow their ``str`` keys away from this parameter.
+    connection: Any = None,
+    **query: Any,
 ) -> dict[str, Any] | None:
     """Write 0 to ``char`` like a controller and wait for the async setters."""
     result = driver._set_characteristics_for_controller(
@@ -819,9 +827,28 @@ async def _controller_write(
         },
         WRITER,
         ASYNC_TIMEOUT,
+        connection=connection,
     )
     assert inspect.isawaitable(result)
     return await result
+
+
+def _live_connection(driver: AccessoryDriver) -> HAPConnectionHandle:
+    """A handle like a live connection's, registered like its protocol.
+
+    A controller's write carries the handle of its connection; "closing"
+    one is the handle leaving ``http_server.connections``, as its
+    protocol's ``close()`` does.
+    """
+    connection = HAPConnectionHandle(WRITER, driver._next_connection_generation())
+    driver.http_server.connections[connection] = MagicMock()
+    return connection
+
+
+def _close_connection(driver: AccessoryDriver, connection: HAPConnectionHandle) -> None:
+    """Close the connection of ``connection`` like its protocol does."""
+    del driver.http_server.connections[connection]
+    driver.connection_lost(WRITER, connection=connection)
 
 
 async def _async_return_one(value: int) -> int:
@@ -1084,6 +1111,7 @@ async def test_async_write_response_dropped_when_closed_while_queued(
     # closes. The cancel in ``HAPServerProtocol.close()`` covers the rest.
     driver.loop = asyncio.get_running_loop()
     acc, char, _ = _add_write_response_char(driver, False)
+    connection = _live_connection(driver)
     release = asyncio.Event()
 
     async def _setter(value: int) -> int:
@@ -1093,7 +1121,11 @@ async def test_async_write_response_dropped_when_closed_while_queued(
     char.setter_callback = _setter
     write = asyncio.ensure_future(
         _controller_write(
-            driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+            driver,
+            acc,
+            char,
+            connection=connection,
+            **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True},
         )
     )
     await asyncio.sleep(0)
@@ -1102,7 +1134,7 @@ async def test_async_write_response_dropped_when_closed_while_queued(
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
-    driver.connection_lost(WRITER)
+    _close_connection(driver, connection)
     await write
     await asyncio.sleep(0)
 
@@ -1114,11 +1146,13 @@ async def test_async_write_response_dropped_when_closed_before_setter_done(
 ) -> None:
     """A response of a setter finishing after the connection closed is dropped.
 
-    The deferred cleanup in ``connection_lost`` has already run when such a
-    setter answers, so without the guard the response would stay for a later
-    connection that reuses the address.
+    The store keeps a read back response only of a still-open connection, see
+    ``AccessoryDriver._is_open``, so an answer that arrives after its
+    connection closed is dropped - it could never be read by the closed
+    connection, and not by one that reuses its address either.
     """
     acc, char, char_id = _add_write_response_char(driver, False)
+    connection = _live_connection(driver)
     release = asyncio.Event()
 
     async def _setter(value: int) -> int:
@@ -1128,19 +1162,23 @@ async def test_async_write_response_dropped_when_closed_before_setter_done(
     char.setter_callback = _setter
     write = asyncio.ensure_future(
         _controller_write(
-            driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+            driver,
+            acc,
+            char,
+            connection=connection,
+            **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True},
         )
     )
     await asyncio.sleep(0)
 
-    driver.connection_lost(WRITER)
-    # Let the deferred cleanup run, then let the setter finish.
-    await asyncio.sleep(0)
+    _close_connection(driver, connection)
     release.set()
-    assert await write is None
+    # The response of the closed connection is answered to nobody - its
+    # task is cancelled - what matters is that its value is not kept for a
+    # connection that reuses the address.
+    await write
 
     assert driver._write_responses == {}
-    assert driver._pending_connection_writes == {}
     # A connection that reuses the address reads the shared value.
     assert _read(driver, char_id, WRITER) == 0
 
@@ -1150,6 +1188,7 @@ async def test_async_read_back_dropped_when_closed_before_setter_done(
 ) -> None:
     """A Setup Endpoints style answer of a setter finishing late is dropped."""
     acc, char = _add_read_back_char(driver)
+    connection = _live_connection(driver)
     release = asyncio.Event()
 
     async def _setter(value: int) -> int:
@@ -1158,12 +1197,13 @@ async def test_async_read_back_dropped_when_closed_before_setter_done(
 
     char.setter_callback = _setter
     write = asyncio.ensure_future(
-        _controller_write(driver, acc, char, **{HAP_REPR_VALUE: 5})
+        _controller_write(
+            driver, acc, char, connection=connection, **{HAP_REPR_VALUE: 5}
+        )
     )
     await asyncio.sleep(0)
 
-    driver.connection_lost(WRITER)
-    await asyncio.sleep(0)
+    _close_connection(driver, connection)
     release.set()
     assert await write is None
 
@@ -1505,14 +1545,14 @@ class _NotifyCheckingSetter:
 
 
 @pytest.mark.parametrize(
-    ("fail", "calls"),
+    ("fail", "notified"),
     [
-        pytest.param(False, [call(WRITER)], id="success"),
-        pytest.param(True, [], id="error"),
+        pytest.param(False, True, id="success"),
+        pytest.param(True, False, id="error"),
     ],
 )
 async def test_async_setter_notifies_once_it_succeeded(
-    driver: AccessoryDriver, fail: bool, calls: list[Any]
+    driver: AccessoryDriver, fail: bool, notified: bool
 ) -> None:
     """Subscribers learn a written value only after the async setter succeeded."""
     acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "ev"], False)
@@ -1524,7 +1564,10 @@ async def test_async_setter_notifies_once_it_succeeded(
         await _controller_write(driver, acc, char)
 
     assert setter.notified_before == [0]
-    assert notify.call_args_list == calls
+    if notified:
+        notify.assert_called_once_with(driver._connection_of(WRITER))
+    else:
+        notify.assert_not_called()
 
 
 class _ValueSettingSetter:
@@ -1562,12 +1605,13 @@ def test_direct_client_update_notifies_at_once(driver: AccessoryDriver) -> None:
     _, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw", "ev"], False)
     char.value = 5
     char.setter_callback = _async_return_none
+    connection = driver._connection_of(WRITER)
 
     with patch.object(Characteristic, "notify") as notify:
-        coro = char.client_update_value(0, WRITER)
+        coro = char.client_update_value(0, connection)
 
     coro.close()
-    notify.assert_called_once_with(WRITER)
+    notify.assert_called_once_with(connection)
 
 
 async def test_public_write_notifies_once_the_async_setter_ran(
@@ -1591,7 +1635,7 @@ async def test_public_write_notifies_once_the_async_setter_ran(
         await asyncio.wait_for(notified.wait(), ASYNC_TIMEOUT)
 
     assert ran_when_notified == [True]
-    notify.assert_called_once_with(WRITER)
+    notify.assert_called_once_with(driver._connection_of(WRITER))
 
 
 async def test_public_write_logs_a_failing_async_setter(
@@ -1622,14 +1666,14 @@ async def test_public_write_logs_a_failing_async_setter(
 
 
 @pytest.mark.parametrize(
-    ("fast_setter", "calls"),
+    ("fast_setter", "notified"),
     [
-        pytest.param(_async_return_none, [call(WRITER)], id="success"),
-        pytest.param(_async_raise, [], id="error"),
+        pytest.param(_async_return_none, True, id="success"),
+        pytest.param(_async_raise, False, id="error"),
     ],
 )
 async def test_cancelled_write_notifies_setters_that_finished(
-    driver: AccessoryDriver, fast_setter: Any, calls: list[Any]
+    driver: AccessoryDriver, fast_setter: Any, notified: bool
 ) -> None:
     """A setter done before the write is cancelled tells subscribers if it worked."""
     acc = Accessory(driver, "Test Accessory")
@@ -1664,7 +1708,10 @@ async def test_cancelled_write_notifies_setters_that_finished(
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
 
-    assert notify.call_args_list == calls
+    if notified:
+        notify.assert_called_once_with(driver._connection_of(WRITER))
+    else:
+        notify.assert_not_called()
     assert task.cancelled()
 
 
@@ -1915,10 +1962,6 @@ async def test_write_response_dropped_on_disconnect(driver: AccessoryDriver) -> 
     _write(driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True})
 
     driver.connection_lost(WRITER)
-    assert _read(driver, char_id, WRITER) == 7
-    # The response is dropped once the loop runs.
-    await asyncio.sleep(0)
-
     assert _read(driver, char_id, WRITER) == 0
 
 
@@ -2040,7 +2083,7 @@ def test_stale_write_response_dropped(driver: AccessoryDriver, second: Any) -> N
 
 
 def test_write_response_without_client_not_kept(driver: AccessoryDriver) -> None:
-    """A write response without a known connection is sent but not kept."""
+    """A direct write without a client is sent and read back without one."""
     acc, char, _ = _add_write_response_char(driver, False)
     request = {
         HAP_REPR_CHARS: [
@@ -2058,7 +2101,9 @@ def test_write_response_without_client_not_kept(driver: AccessoryDriver) -> None
 
     assert response is not None
     assert response[HAP_REPR_CHARS][0][HAP_REPR_VALUE] == 7
-    assert driver._write_responses == {}
+    # The virtual connection of no client in particular pairs up the
+    # direct write and a direct read, like any client address does.
+    assert _read(driver, f"{acc.aid}.{acc.iid_manager.get_iid(char)}", None) == 7
 
 
 @pytest.mark.parametrize("reader", [WRITER, OTHER_CONTROLLER], ids=["writer", "other"])
@@ -2757,7 +2802,9 @@ def test_send_events(driver: AccessoryDriver) -> None:
     # intentionally not a HAPServer subclass.
     driver.http_server = HapServerMock()  # ty: ignore[invalid-assignment]
     driver.loop = LoopMock()
-    driver.topics = {"mocktopic": {"client1", "client2", "client3"}}
+    driver.topics = {  # ty: ignore[invalid-assignment]
+        "mocktopic": {"client1", "client2", "client3"}
+    }
     driver.async_send_event("mocktopic", "bytedata", "client1", True)  # ty: ignore[invalid-argument-type]
 
     # Only client2 and client3 get the event when client1 sent it
@@ -2771,14 +2818,14 @@ def test_send_events(driver: AccessoryDriver) -> None:
 
 def test_async_subscribe_client_topic(driver: AccessoryDriver) -> None:
     """Test subscribe and unsubscribe."""
-    addr_info = ("1.2.3.4", 5)
+    connection = driver._connection_of(("1.2.3.4", 5))
     topic = "any"
     assert driver.topics == {}
-    driver.async_subscribe_client_topic(addr_info, topic, True)
-    assert driver.topics == {topic: {addr_info}}
-    driver.async_subscribe_client_topic(addr_info, topic, False)
+    driver.async_subscribe_client_topic(connection, topic, True)
+    assert driver.topics == {topic: {connection}}
+    driver.async_subscribe_client_topic(connection, topic, False)
     assert driver.topics == {}
-    driver.async_subscribe_client_topic(addr_info, "invalid", False)
+    driver.async_subscribe_client_topic(connection, "invalid", False)
     assert driver.topics == {}
 
 
@@ -3125,20 +3172,25 @@ def test_derive_session_key(driver: AccessoryDriver, client: Any) -> None:
     """Test keys are derived only from the session key of an encrypted connection."""
     driver.add_accessory(Accessory(driver, "TestAcc"))
     salt, info = b"salt", b"info"
-    assert driver.derive_session_key(client, salt, info) is None
+    unknown = HAPConnectionHandle(client, 4096)
+    assert driver.derive_session_key(unknown, salt, info) is None
 
     connection = _hap_connection(driver, client)
-    assert driver.derive_session_key(client, salt, info) is None
+    handle = connection.connection_handle
+    assert handle is not None
+    assert driver.derive_session_key(handle, salt, info) is None
 
     shared_key = os.urandom(32)
     connection._shared_key = shared_key
-    key = driver.derive_session_key(client, salt, info)
+    key = driver.derive_session_key(handle, salt, info)
     assert key == hap_hkdf(shared_key, salt, info)
     assert key != shared_key
-    assert driver.derive_session_key(("10.0.0.9", 5001), salt, info) is None
+    # A connection that reuses the address of another never matches it.
+    reused = HAPConnectionHandle(client, 8192)
+    assert driver.derive_session_key(reused, salt, info) is None
 
     connection.close()
-    assert driver.derive_session_key(client, salt, info) is None
+    assert driver.derive_session_key(handle, salt, info) is None
 
 
 def test_derive_session_key_without_client_addr(driver: AccessoryDriver) -> None:
@@ -3146,6 +3198,9 @@ def test_derive_session_key_without_client_addr(driver: AccessoryDriver) -> None
     driver.add_accessory(Accessory(driver, "TestAcc"))
     _hap_connection(driver, None, os.urandom(32))
     assert driver.derive_session_key(None, b"salt", b"info") is None
+    assert (
+        driver.derive_session_key(driver._connection_of(None), b"salt", b"info") is None
+    )
 
 
 def test_pairing_rate_limit_lockout_and_reset(driver: AccessoryDriver) -> None:
@@ -3179,11 +3234,12 @@ def test_pairing_rate_limit_lockout_and_reset(driver: AccessoryDriver) -> None:
 def test_prepare_bounds_prepared_writes(driver: AccessoryDriver) -> None:
     """Verify the TTL is capped and pending writes per client are bounded."""
     client_addr = ("1.2.3.4", 5)
+    connection = driver._connection_of(client_addr)
 
     # An absurd TTL is clamped to the maximum.
     driver.prepare({HAP_REPR_TTL: 10_000_000_000, HAP_REPR_PID: 1}, client_addr)
     assert (
-        driver.prepared_writes[client_addr][1] - time.monotonic()
+        driver.prepared_writes[connection][1] - time.monotonic()
         <= MAX_PREPARED_WRITE_TTL_SECONDS
     )
 
@@ -3192,7 +3248,7 @@ def test_prepare_bounds_prepared_writes(driver: AccessoryDriver) -> None:
     for pid in range(MAX_PREPARED_WRITES_PER_CLIENT + 5):
         driver.prepare({HAP_REPR_TTL: 10_000, HAP_REPR_PID: pid}, client_addr)
 
-    pending = driver.prepared_writes[client_addr]
+    pending = driver.prepared_writes[connection]
     assert len(pending) == MAX_PREPARED_WRITES_PER_CLIENT
     # The earliest-registered pids were evicted, the latest kept.
     assert 0 not in pending
@@ -3313,14 +3369,15 @@ async def test_connection_lost_without_accessory(driver: AccessoryDriver) -> Non
     """Test a closed connection before an accessory was added is cleaned up."""
     driver.loop = asyncio.get_running_loop()
     assert driver.accessory is None
-    driver.prepared_writes[CLIENT] = {1: 0.0}
-    driver._write_responses[CLIENT] = {}
+    connection = driver._connection_of(CLIENT)
+    driver.prepared_writes[connection] = {1: 0.0}
+    driver._write_responses[connection] = {}
 
     driver.connection_lost(CLIENT)
     await asyncio.sleep(0)
 
-    assert CLIENT not in driver.prepared_writes
-    assert CLIENT not in driver._write_responses
+    assert connection not in driver.prepared_writes
+    assert connection not in driver._write_responses
 
 
 def test_connection_lost_tells_the_accessory(driver: AccessoryDriver) -> None:
@@ -3338,10 +3395,11 @@ def test_connection_lost_logs_accessory_errors(
     """Test a failing accessory does not break the connection cleanup."""
     acc = Accessory(driver, "TestAcc")
     driver.add_accessory(acc)
-    driver.prepared_writes[CLIENT] = {}
+    connection = driver._connection_of(CLIENT)
+    driver.prepared_writes[connection] = {}
     with patch.object(acc, "client_disconnected", side_effect=RuntimeError):
         driver.connection_lost(CLIENT)
-    assert CLIENT not in driver.prepared_writes
+    assert connection not in driver.prepared_writes
     assert "TestAcc failed to handle a closed connection" in caplog.text
 
 

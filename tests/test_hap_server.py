@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from pyhap import hap_server
 from pyhap.accessory import Accessory
 from pyhap.accessory_driver import AccessoryDriver
+from pyhap.connection import HAPConnectionHandle
 from pyhap.hap_protocol import HAPServerProtocol
 
 
@@ -18,8 +19,8 @@ async def test_we_can_start_stop(driver: AccessoryDriver) -> None:
 
     server = hap_server.HAPServer(addr_info, driver)
     await server.async_start(loop)
-    server.connections[client_1_addr_info] = MagicMock()
-    server.connections[client_2_addr_info] = MagicMock()
+    server.connections[HAPConnectionHandle(client_1_addr_info, 1)] = MagicMock()
+    server.connections[HAPConnectionHandle(client_2_addr_info, 2)] = MagicMock()
     server.async_stop()
 
 
@@ -66,7 +67,9 @@ async def test_idle_connection_cleanup() -> None:
         server = hap_server.HAPServer(addr_info, driver)
         await server.async_start(loop)
         check_idle = MagicMock()
-        server.connections[client_1_addr_info] = MagicMock(check_idle=check_idle)
+        server.connections[HAPConnectionHandle(client_1_addr_info, 1)] = MagicMock(
+            check_idle=check_idle
+        )
         for _ in range(3):
             await asyncio.sleep(0)
         assert check_idle.called
@@ -93,25 +96,26 @@ async def test_push_event(driver: AccessoryDriver) -> None:
     # Patch the protocol to capture outgoing events instead of
     # writing them to a socket.
     hap_server_protocol.write = _save_event  # ty: ignore[invalid-assignment]
-    hap_server_protocol.peername = addr_info
-    server.accessory_handler.topics["1.33"] = {addr_info}
-    server.accessory_handler.topics["2.33"] = {addr_info}
-    server.accessory_handler.topics["3.33"] = {addr_info}
+    connection = HAPConnectionHandle(addr_info, 1)
+    hap_server_protocol.connection_handle = connection
+    server.accessory_handler.topics["1.33"] = {connection}
+    server.accessory_handler.topics["2.33"] = {connection}
+    server.accessory_handler.topics["3.33"] = {connection}
 
-    assert server.push_event({"aid": 1, "iid": 33, "value": False}, addr_info) is False
+    assert server.push_event({"aid": 1, "iid": 33, "value": False}, connection) is False
     await asyncio.sleep(0)
-    server.connections[addr_info] = hap_server_protocol
+    server.connections[connection] = hap_server_protocol
 
     assert (
-        server.push_event({"aid": 1, "iid": 33, "value": False}, addr_info, True)
+        server.push_event({"aid": 1, "iid": 33, "value": False}, connection, True)
         is True
     )
     assert (
-        server.push_event({"aid": 2, "iid": 33, "value": False}, addr_info, True)
+        server.push_event({"aid": 2, "iid": 33, "value": False}, connection, True)
         is True
     )
     assert (
-        server.push_event({"aid": 3, "iid": 33, "value": False}, addr_info, True)
+        server.push_event({"aid": 3, "iid": 33, "value": False}, connection, True)
         is True
     )
 
@@ -125,15 +129,15 @@ async def test_push_event(driver: AccessoryDriver) -> None:
 
     hap_events = []
     assert (
-        server.push_event({"aid": 1, "iid": 33, "value": False}, addr_info, False)
+        server.push_event({"aid": 1, "iid": 33, "value": False}, connection, False)
         is True
     )
     assert (
-        server.push_event({"aid": 2, "iid": 33, "value": False}, addr_info, False)
+        server.push_event({"aid": 2, "iid": 33, "value": False}, connection, False)
         is True
     )
     assert (
-        server.push_event({"aid": 3, "iid": 33, "value": False}, addr_info, False)
+        server.push_event({"aid": 3, "iid": 33, "value": False}, connection, False)
         is True
     )
 
@@ -142,7 +146,7 @@ async def test_push_event(driver: AccessoryDriver) -> None:
 
     # Ensure that a the event is not sent if its unsubscribed during
     # the coalesce delay
-    server.accessory_handler.topics["1.33"].remove(addr_info)
+    server.accessory_handler.topics["1.33"].remove(connection)
 
     await asyncio.sleep(0.55)
     assert hap_events == [
@@ -177,20 +181,22 @@ async def test_push_event_overwrites_old_pending_events(
     # Patch the protocol to capture outgoing events instead of
     # writing them to a socket.
     hap_server_protocol.write = _save_event  # ty: ignore[invalid-assignment]
-    hap_server_protocol.peername = addr_info
-    server.accessory_handler.topics["1.33"] = {addr_info}
-    server.accessory_handler.topics["2.33"] = {addr_info}
-    server.connections[addr_info] = hap_server_protocol
+    connection = HAPConnectionHandle(addr_info, 1)
+    hap_server_protocol.connection_handle = connection
+    server.accessory_handler.topics["1.33"] = {connection}
+    server.accessory_handler.topics["2.33"] = {connection}
+    server.connections[connection] = hap_server_protocol
 
     assert (
-        server.push_event({"aid": 1, "iid": 33, "value": False}, addr_info, True)
+        server.push_event({"aid": 1, "iid": 33, "value": False}, connection, True)
         is True
     )
     assert (
-        server.push_event({"aid": 1, "iid": 33, "value": True}, addr_info, True) is True
+        server.push_event({"aid": 1, "iid": 33, "value": True}, connection, True)
+        is True
     )
     assert (
-        server.push_event({"aid": 2, "iid": 33, "value": False}, addr_info, True)
+        server.push_event({"aid": 2, "iid": 33, "value": False}, connection, True)
         is True
     )
 

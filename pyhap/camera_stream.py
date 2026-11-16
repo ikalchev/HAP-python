@@ -467,10 +467,12 @@ class StreamController(Generic[_S]):
     def client_disconnected(self, client_addr: tuple[str, int]) -> None:
         """End the sessions of a connection that closed.
 
-        The address still names the sessions here: the driver reports a
-        closed connection by address, and while a later connection may reuse
-        it, a live one has its own sessions under its own handle - ending by
-        address is the conservative guard of the address-keyed phase.
+        The address still names the sessions here: the accessory's
+        ``client_disconnected`` lifecycle reports a closed connection by
+        address, and ending by it is the conservative choice - a live
+        connection has its own sessions under its own handle, so an end
+        by address can only end too much, never a session of another
+        connection.
         """
         for session in list(self._sessions.values()):
             if session.client_addr == client_addr:

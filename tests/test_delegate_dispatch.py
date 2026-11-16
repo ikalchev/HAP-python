@@ -296,7 +296,7 @@ async def test_on_set_receives_value_and_context(driver: AccessoryDriver) -> Non
     assert context.is_admin is False
     assert context.deadline > 0
     assert char.value == 7
-    notify.assert_called_once_with(WRITER)
+    notify.assert_called_once_with(handle)
     # Every write succeeded without a value to answer: no response body.
     assert result is None
 
@@ -494,7 +494,7 @@ async def test_gate_passes_then_writes_apply(driver: AccessoryDriver) -> None:
     assert result is None
     assert order == ["gate", "on_set"]
     assert char.value == 7
-    notify.assert_called_once_with(WRITER)
+    notify.assert_called_once_with(driver._connection_of(WRITER))
 
 
 async def test_gate_covers_legacy_chars_of_its_service(driver: AccessoryDriver) -> None:
@@ -566,7 +566,7 @@ async def test_gate_veto_only_its_service(driver: AccessoryDriver) -> None:
     setter.assert_called_once_with(2)
     assert plain_char.value == 2
     assert gated_char.value == 0
-    notify.assert_called_once_with(WRITER)
+    notify.assert_called_once_with(driver._connection_of(WRITER))
 
 
 async def test_accessory_setter_sees_delegate_writes(driver: AccessoryDriver) -> None:
@@ -613,16 +613,20 @@ async def test_write_response_dropped_when_closed_before_on_set_done(
     )
     release = asyncio.Event()
     char.delegate = _CharDelegate(answer=7, release=release)
+    handle = HAPConnectionHandle(WRITER, 1)
 
     write = asyncio.ensure_future(
-        _write_chars(driver, acc, [(char, 5)], write_response=True)
+        _write_chars(driver, acc, [(char, 5)], connection=handle, write_response=True)
     )
     await asyncio.sleep(0)
-    driver.connection_lost(WRITER)
+    driver.connection_lost(WRITER, connection=handle)
     await asyncio.sleep(0)
     release.set()
 
-    assert await write is None
+    # The response of the closed connection is answered to nobody - its
+    # task is cancelled - and its value is not kept for a connection that
+    # reuses the address, see ``AccessoryDriver._is_open``.
+    await write
     assert driver._write_responses == {}
 
 
@@ -653,7 +657,7 @@ async def test_on_subscribe_receives_a_full_context(driver: AccessoryDriver) -> 
     assert context.client_uuid == client_uuid
     assert context.connection is handle
     assert context.deadline == float("inf")
-    assert driver.topics == {char_topic: {WRITER}}
+    assert driver.topics == {char_topic: {handle}}
 
 
 async def test_on_unsubscribe_receives_the_context(driver: AccessoryDriver) -> None:
@@ -708,7 +712,7 @@ async def test_on_subscribe_failure_is_isolated(
     await _run_scheduled_jobs()
 
     assert result is None
-    assert driver.topics == {char_topic: {WRITER}}
+    assert driver.topics == {char_topic: {driver._connection_of(WRITER)}}
     assert "failed to run on_subscribe" in caplog.text
 
 
@@ -799,9 +803,9 @@ async def test_direct_set_characteristics_schedules_delegates(
         ((value, context),) = delegate.calls
         assert value == 7
         assert context.client_addr == WRITER
-        assert context.connection.client_addr is None
+        assert context.connection is driver._connection_of(WRITER)
         assert context.deadline == float("inf")
-        notify.assert_called_once_with(WRITER)
+        notify.assert_called_once_with(driver._connection_of(WRITER))
 
 
 async def test_on_get_receives_a_full_context(driver: AccessoryDriver) -> None:

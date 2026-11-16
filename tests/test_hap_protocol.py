@@ -13,6 +13,7 @@ from pyhap import hap_handler, hap_protocol
 from pyhap.accessory import Accessory, Bridge, get_topic
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.characteristic import Characteristic
+from pyhap.connection import HAPConnectionHandle
 from pyhap.const import HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_VALUE
 from pyhap.hap_crypto import HAPCrypto, hap_hkdf
 from pyhap.hap_handler import HAPResponse
@@ -86,39 +87,43 @@ def test_connection_management(driver: AccessoryDriver) -> None:
     addr_info2 = ("1.2.3.5", 6)
 
     transport = MagicMock(get_extra_info=Mock(return_value=addr_info))
-    connections = {}
+    connections: dict[Any, Any] = {}
     driver.add_accessory(Accessory(driver, "TestAcc"))
-    driver.async_subscribe_client_topic(addr_info, "1.1", True)
-    driver.async_subscribe_client_topic(addr_info, "2.2", True)
-    driver.async_subscribe_client_topic(addr_info2, "1.1", True)
+
+    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
+    hap_proto.connection_made(transport)
+    connection = hap_proto.connection_handle
+    assert connection is not None
+    other = HAPConnectionHandle(addr_info2, 4096)
+    driver.async_subscribe_client_topic(connection, "1.1", True)
+    driver.async_subscribe_client_topic(connection, "2.2", True)
+    driver.async_subscribe_client_topic(other, "1.1", True)
 
     assert "1.1" in driver.topics
     assert "2.2" in driver.topics
 
-    assert addr_info in driver.topics["1.1"]
-    assert addr_info in driver.topics["2.2"]
-    assert addr_info2 in driver.topics["1.1"]
+    assert connection in driver.topics["1.1"]
+    assert connection in driver.topics["2.2"]
+    assert other in driver.topics["1.1"]
 
-    hap_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
-    hap_proto.connection_made(transport)
     assert len(connections) == 1
-    assert connections[addr_info] == hap_proto
+    assert connections[connection] == hap_proto
     hap_proto.connection_lost(None)
     assert len(connections) == 0
     assert "1.1" in driver.topics
     assert "2.2" not in driver.topics
-    assert addr_info not in driver.topics["1.1"]
-    assert addr_info2 in driver.topics["1.1"]
+    assert connection not in driver.topics["1.1"]
+    assert other in driver.topics["1.1"]
 
     hap_proto.connection_made(transport)
     assert len(connections) == 1
-    assert connections[addr_info] == hap_proto
+    assert connections[hap_proto.connection_handle] == hap_proto
     hap_proto.close()
     assert len(connections) == 0
 
     hap_proto.connection_made(transport)
     assert len(connections) == 1
-    assert connections[addr_info] == hap_proto
+    assert connections[hap_proto.connection_handle] == hap_proto
     hap_proto.connection_lost(None)
     assert len(connections) == 0
 
@@ -461,7 +466,7 @@ def test_crypto_failure_closes_connection(driver: AccessoryDriver) -> None:
     hap_proto.connection_made(transport)
 
     _enable_encryption(hap_proto)
-    assert connections[addr_info] == hap_proto
+    assert connections[hap_proto.connection_handle] == hap_proto
     with patch.object(hap_proto.hap_crypto, "decrypt", side_effect=InvalidTag):
         hap_proto.data_received(b"any")
 
@@ -750,7 +755,9 @@ async def test_events_wait_for_delayed_response(driver: AccessoryDriver) -> None
     release = asyncio.Event()
     hap_proto, acc, _ = _delayed_snapshot_protocol(driver, release)
     assert acc.aid is not None
-    driver.topics[get_topic(acc.aid, 9)] = {hap_proto.peername}
+    handle = hap_proto.connection_handle
+    assert handle is not None
+    driver.topics[get_topic(acc.aid, 9)] = {handle}
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(SNAPSHOT_REQUEST)
@@ -850,7 +857,9 @@ async def test_events_coalesce_after_delayed_response(
     release = asyncio.Event()
     hap_proto, acc, _ = _delayed_snapshot_protocol(driver, release)
     assert acc.aid is not None
-    driver.topics[get_topic(acc.aid, 9)] = {hap_proto.peername}
+    handle = hap_proto.connection_handle
+    assert handle is not None
+    driver.topics[get_topic(acc.aid, 9)] = {handle}
 
     with patch.object(hap_proto.transport, "writelines") as writelines:
         hap_proto.data_received(SNAPSHOT_REQUEST)
@@ -969,7 +978,12 @@ def _async_setter_protocol(
     driver.add_accessory(acc)
     assert acc.iid_manager.get_iid(char) == 9
 
-    hap_proto = hap_protocol.HAPServerProtocol(MagicMock(), {}, driver)
+    # The server's connections, as a real protocol is given them: the
+    # driver keeps a write response only of a connection it may still
+    # answer, see ``AccessoryDriver._is_open``.
+    hap_proto = hap_protocol.HAPServerProtocol(
+        MagicMock(), driver.http_server.connections, driver
+    )
     hap_proto.connection_made(transport)
     _enable_encryption(hap_proto)
     return hap_proto
@@ -1099,11 +1113,13 @@ def test_close_keeps_newer_connection_with_same_peername(
     new_proto = hap_protocol.HAPServerProtocol(loop, connections, driver)
     new_proto.connection_made(transport)
     _pair_verify(new_proto, b"newkey")
-    assert connections[old_proto.peername] is new_proto
+    # The newer connection has its own handle, even on a reused address.
+    assert connections[new_proto.connection_handle] is new_proto
 
     old_proto.close()
 
-    assert connections[new_proto.peername] is new_proto
+    assert connections[new_proto.connection_handle] is new_proto
+    assert old_proto.connection_handle not in connections
     assert old_proto.derive_key(b"salt", b"info") is None
     assert new_proto.derive_key(b"salt", b"info") is not None
 

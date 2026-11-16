@@ -323,14 +323,13 @@ def _hap_connection(
 
 
 async def _write_setup(
-    camera: Any, client: tuple[str, int], controller_key_salt: bytes
+    camera: Any, connection: HAPServerProtocol, controller_key_salt: bytes
 ) -> dict[bytes, Any]:
     """Write SetupDataStreamTransport through the HAP write-response path."""
     char = camera.get_service("DataStreamTransportManagement").get_characteristic(
         "SetupDataStreamTransport"
     )
     request = tlv.encode(hds.SETUP_TYPES["CONTROLLER_KEY_SALT"], controller_key_salt)
-    connection = camera.driver.http_server.connections.get(client)
     response = camera.driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
@@ -342,9 +341,9 @@ async def _write_setup(
                 }
             ]
         },
-        client,
+        connection.peername,
         RESPONSE_TIMEOUT,
-        connection=connection.connection_handle if connection else None,
+        connection=connection.connection_handle,
     )
     assert inspect.isawaitable(response)
     result = await response
@@ -365,8 +364,8 @@ async def test_setup_data_stream_transport_write_response_plumbing(
         client = ("10.0.0.9", 5000)
         shared_key, controller_key_salt = os.urandom(32), os.urandom(32)
         _hap_connection(camera, ("10.0.0.8", 5000), os.urandom(32))
-        _hap_connection(camera, client, shared_key)
-        objs = await _write_setup(camera, client, controller_key_salt)
+        connection = _hap_connection(camera, client, shared_key)
+        objs = await _write_setup(camera, connection, controller_key_salt)
         assert objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_SUCCESS
         accessory_key_salt = objs[hds.SETUP_RESPONSE_TYPES["ACCESSORY_KEY_SALT"]]
         (pending,) = camera._hds_listener._pending
@@ -386,8 +385,8 @@ async def test_setup_data_stream_transport_unencrypted_connection_errors(
     await camera._ensure_hds_listener()
     try:
         client = ("10.0.0.9", 5000)
-        _hap_connection(camera, client)
-        objs = await _write_setup(camera, client, os.urandom(32))
+        connection = _hap_connection(camera, client)
+        objs = await _write_setup(camera, connection, os.urandom(32))
         assert (
             objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_GENERIC_ERROR
         )

@@ -44,6 +44,7 @@ from pyhap.camera_multi_tier import MultiTierConfig, MultiTierController
 from pyhap.camera_talkback import TalkbackReceiver, TalkbackReceiverProtocol
 from pyhap.camera_webrtc import WebRTCConfig, WebRTCController
 from pyhap.characteristic import Characteristic
+from pyhap.connection import HAPConnectionHandle
 from pyhap.const import CATEGORY_CAMERA
 from pyhap.context import CharReadContext, CharWriteContext
 from pyhap.delegates import CharacteristicDelegate
@@ -945,14 +946,14 @@ class Camera(Accessory):
             controller.update_status()
 
     def _stream_address_for(
-        self, client_addr: tuple[str, int] | None, is_ipv6: bool
+        self, connection: HAPConnectionHandle | None, is_ipv6: bool
     ) -> str | None:
         """The address to stream from to a controller, in the given IP version.
 
         The accessory's address on the controller's connection, else the
         ``address`` option if it has that version.
         """
-        address = self.driver._local_address(client_addr, is_ipv6)
+        address = self.driver._local_address(connection, is_ipv6)
         if address is not None:
             return address
         if (self.stream_address_isv6 == b"\x01") == is_ipv6:
@@ -1264,7 +1265,7 @@ class Camera(Accessory):
         accessory_salt = None
         if listener is not None:
             accessory_salt = listener.register_session_transport(
-                functools.partial(self.driver.derive_session_key, context.client_addr),
+                functools.partial(self.driver.derive_session_key, context.connection),
                 request.controller_key_salt,
             )
         if listener is None or accessory_salt is None:
@@ -1470,11 +1471,11 @@ class Camera(Accessory):
         self,
         value: Any,
         sender: Service | Characteristic,
-        sender_client_addr: Any = None,
+        connection: HAPConnectionHandle | None = None,
         immediate: bool = False,
     ) -> None:
         """Forward the update and store recording and HKSV 17.99 state changes."""
-        super().publish(value, sender, sender_client_addr, immediate)
+        super().publish(value, sender, connection, immediate)
         if sender in self._hksv3_defaults:
             # Local changes too, so a later write of the same value is no change.
             self._hksv3_seen[sender] = value

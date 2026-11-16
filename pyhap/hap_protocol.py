@@ -55,7 +55,7 @@ class HAPServerProtocol(asyncio.Protocol):
     def __init__(
         self,
         loop: asyncio.AbstractEventLoop,
-        connections: dict[tuple[str, int], "HAPServerProtocol"],
+        connections: dict[HAPConnectionHandle, "HAPServerProtocol"],
         accessory_driver: "AccessoryDriver",
     ) -> None:
         self.loop = loop
@@ -132,12 +132,13 @@ class HAPServerProtocol(asyncio.Protocol):
         transport.set_write_buffer_limits(high=HIGH_WRITE_BUFFER_SIZE)
         self.transport = transport
         self.peername = peername
-        self.connections[peername] = self
         # The stable identity of this connection, passed to the delegate
-        # calls made for its requests, see ``HAPConnectionHandle``.
+        # calls made for its requests and keying the driver's per-connection
+        # state, see ``HAPConnectionHandle``.
         self.connection_handle = HAPConnectionHandle(
             peername, self.accessory_driver._next_connection_generation()
         )
+        self.connections[self.connection_handle] = self
         self.handler = HAPServerHandler(
             self.accessory_driver, peername, self.connection_handle
         )
@@ -176,12 +177,10 @@ class HAPServerProtocol(asyncio.Protocol):
 
     def close(self) -> None:
         """Remove the connection and close the transport."""
-        # A newer connection may already be registered under the same peername,
-        # and a connection without a peername must still be removed.
-        if self.connections.get(self.peername) is self:
-            # The identity check above ensures the key belongs to this protocol;
-            # peername is None only for transports without a peername.
-            del self.connections[self.peername]  # ty: ignore[invalid-argument-type]
+        # The handle is unique per connection, so this never removes a newer
+        # connection that reuses this one's address.
+        if self.connection_handle is not None:
+            self.connections.pop(self.connection_handle, None)
         self._shared_key = None
         # Nobody is left to answer; stop work for a delayed response. Cancel
         # on the next iteration so a task created in this one has started and
@@ -337,7 +336,7 @@ class HAPServerProtocol(asyncio.Protocol):
         return [
             event
             for event in self._event_queue.values()
-            if self.peername
+            if self.connection_handle
             in topics.get(get_topic(event[HAP_REPR_AID], event[HAP_REPR_IID]), [])
         ]
 

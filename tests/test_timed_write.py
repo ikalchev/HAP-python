@@ -96,7 +96,7 @@ def test_prepared_write_is_applied(
         assert driver.set_characteristics(_write(door.aid, door.iid, 7), CLIENT) is None
 
     door.setter.assert_called_once_with(1)
-    assert CLIENT in driver.topics[get_topic(door.aid, door.iid)]
+    assert driver._connection_of(CLIENT) in driver.topics[get_topic(door.aid, door.iid)]
 
 
 @pytest.mark.parametrize(

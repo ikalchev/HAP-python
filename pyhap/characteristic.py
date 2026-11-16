@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 from uuid import UUID
 import warnings
 
+from .connection import HAPConnectionHandle
 from .const import (
     HAP_PERMISSION_READ,
     HAP_REPR_DESC,
@@ -526,7 +527,7 @@ class Characteristic:
     def client_update_value(
         self,
         value: Any,
-        sender_client_addr: tuple[str, int] | None = None,
+        connection: HAPConnectionHandle | None = None,
         *,
         notify: bool = True,
         defer_notify: bool = False,
@@ -534,12 +535,14 @@ class Characteristic:
         """Called from broker for value change in Home app.
 
         Change self.value to value and call callback. Returns what the callback
-        returned. With ``notify`` False, subscribers are not told about the
-        written value, e.g. for a request that only the writing connection may
-        read back. With ``defer_notify``, a coroutine the callback returns is
-        for the caller to await, and the caller then calls
-        :meth:`client_update_finished`, so subscribers only learn the value
-        once the setter succeeded.
+        returned. ``connection`` is the identity of the connection the write
+        came over, see :class:`~pyhap.connection.HAPConnectionHandle`; that
+        connection is not told its own write back. With ``notify`` False,
+        subscribers are not told about the written value, e.g. for a request
+        that only the writing connection may read back. With ``defer_notify``,
+        a coroutine the callback returns is for the caller to await, and the
+        caller then calls :meth:`client_update_finished`, so subscribers only
+        learn the value once the setter succeeded.
         """
         original_value = value
         if not self._always_null or original_value is not None:
@@ -551,7 +554,7 @@ class Characteristic:
             self._display_name,
             value,
             original_value,
-            sender_client_addr,
+            connection,
         )
         previous_value = self._value
         self.value = value
@@ -559,9 +562,7 @@ class Characteristic:
         if self.setter_callback:
             response = self.setter_callback(value)
         if not (defer_notify and inspect.iscoroutine(response)):
-            self.client_update_finished(
-                previous_value, sender_client_addr, notify=notify
-            )
+            self.client_update_finished(previous_value, connection, notify=notify)
         return response
 
     def _store_client_value(self, value: Any) -> Any:
@@ -584,22 +585,26 @@ class Characteristic:
     def client_update_finished(
         self,
         previous_value: Any,
-        sender_client_addr: tuple[str, int] | None,
+        connection: HAPConnectionHandle | None,
         *,
         notify: bool = True,
     ) -> None:
         """Finish a client's write, e.g. after awaiting its coroutine setter.
 
         Tells subscribers about the new value if it differs from
-        ``previous_value``, see :meth:`client_update_value`.
+        ``previous_value``, see :meth:`client_update_value`. The connection
+        ``connection`` the write came over is not told its own write back.
         """
         if notify and self._value != previous_value:
-            self.notify(sender_client_addr)
+            self.notify(connection)
         if self._always_null:
             self.value = None
 
-    def notify(self, sender_client_addr: tuple[str, int] | None = None) -> None:
+    def notify(self, connection: HAPConnectionHandle | None = None) -> None:
         """Notify clients about a value change. Sends the value.
+
+        The connection ``connection`` the change came over, if any, is not
+        told its own write back.
 
         .. seealso:: accessory.publish
         .. seealso:: accessory_driver.publish
@@ -609,7 +614,7 @@ class Characteristic:
         if TYPE_CHECKING:
             assert self.broker is not None  # noqa: S101
         immediate = self.type_id in IMMEDIATE_NOTIFY
-        self.broker.publish(self.value, self, sender_client_addr, immediate)
+        self.broker.publish(self.value, self, connection, immediate)
 
     def to_HAP(self, include_value: bool = True) -> dict[str, Any]:
         """Create a HAP representation of this Characteristic.

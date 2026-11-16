@@ -8,6 +8,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from .connection import HAPConnectionHandle
 from .hap_protocol import HAPServerProtocol
 from .util import callback
 
@@ -40,7 +41,8 @@ class HAPServer:
     ) -> None:
         """Create a HAP Server."""
         self._addr_port = addr_port
-        self.connections: dict[tuple[str, int], HAPServerProtocol] = {}
+        # The live connections, keyed by their identity, see HAPConnectionHandle.
+        self.connections: dict[HAPConnectionHandle, HAPServerProtocol] = {}
         self.accessory_handler = accessory_handler
         self.server: asyncio.Server | None = None
         self._connection_cleanup: asyncio.TimerHandle | None = None
@@ -84,7 +86,7 @@ class HAPServer:
     def push_event(
         self,
         data: dict[str, Any],
-        client_addr: tuple[str, int],
+        connection: HAPConnectionHandle,
         immediate: bool = False,
     ) -> bool:
         """Queue an event to the current connection with the provided data.
@@ -92,15 +94,16 @@ class HAPServer:
         :param data: The characteristic changes
         :type data: dict
 
-        :param client_addr: A client (address, port) tuple to which to send the data.
-        :type client_addr: tuple <str, int>
+        :param connection: The identity of the connection to send the data to,
+            see :class:`~pyhap.connection.HAPConnectionHandle`.
+        :type connection: HAPConnectionHandle
 
         :return: True if sending was successful, False otherwise.
         :rtype: bool
         """
-        hap_server_protocol = self.connections.get(client_addr)
+        hap_server_protocol = self.connections.get(connection)
         if hap_server_protocol is None:
-            logger.debug("No socket for %s", client_addr)
+            logger.debug("No socket for %s", connection)
             return False
         hap_server_protocol.queue_event(data, immediate)
         return True

@@ -9,6 +9,7 @@ import warnings
 
 from . import SUPPORT_QR_CODE, util
 from .characteristic import Characteristic
+from .connection import HAPConnectionHandle
 from .const import (
     CATEGORY_BRIDGE,
     CATEGORY_OTHER,
@@ -413,15 +414,17 @@ class Accessory:
         self,
         value: Any,
         sender: Service | Characteristic,
-        sender_client_addr: Any = None,
+        connection: HAPConnectionHandle | None = None,
         immediate: bool = False,
     ) -> None:
         """Append AID and IID of the sender and forward it to the driver.
 
-        Characteristics call this method to send updates.
+        Characteristics call this method to send updates. The connection
+        ``connection`` the change came over, if any, is not told its own
+        write back.
 
-        :param data: Data to publish, usually from a Characteristic.
-        :type data: dict
+        :param value: Data to publish, usually from a Characteristic.
+        :type value: dict
 
         :param sender: The Service or Characteristic from which the call originated.
         :type: Service or Characteristic
@@ -431,7 +434,7 @@ class Accessory:
             HAP_REPR_IID: self.iid_manager.get_iid(sender),
             HAP_REPR_VALUE: value,
         }
-        self.driver.publish(acc_data, sender_client_addr, immediate)
+        self.driver.publish(acc_data, connection, immediate)
 
 
 class Bridge(Accessory):

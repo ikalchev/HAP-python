@@ -158,9 +158,10 @@ class HAPServerHandler:
         self.state: State = self.accessory_handler.state
         self.enc_context: dict[str, Any] | None = None
         self.client_address = client_address
-        self.connection = connection or HAPConnectionHandle(
-            cast("tuple[str, int] | None", client_address),
-            self.accessory_handler._next_connection_generation(),
+        # Without the connection of its protocol, a handler acts as the
+        # virtual connection of its address, like a direct call does.
+        self.connection = connection or self.accessory_handler._connection_of(
+            cast("tuple[str, int] | None", client_address)
         )
         self.is_encrypted = False
         self.client_uuid: uuid.UUID | None = None
@@ -810,7 +811,9 @@ class HAPServerHandler:
         logger.debug("%s: prepare content: %s", self.client_address, request)
 
         response = self.accessory_handler.prepare(
-            request, cast("tuple[str, int]", self.client_address)
+            request,
+            cast("tuple[str, int]", self.client_address),
+            connection=self.connection,
         )
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)

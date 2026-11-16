@@ -17,15 +17,13 @@ class HAPConnectionHandle:
     session, cannot leak to a connection that reused the address of a
     closed one.
 
-    The driver's per-client state is keyed by the client address today,
-    with guards at the connection boundaries (e.g. a write response that
-    arrives after its connection closed is dropped). The refactor moves
-    it to the handle in two phases that do not change this class:
-
-    1. Handles appear in contexts, and camera session ownership uses
-       them; the address-keyed state keeps its guards.
-    2. Event subscriptions, prepared writes, write responses and pending
-       writes are re-keyed by the handle, and the guards are removed.
+    The driver's per-connection state - event subscriptions, prepared
+    writes, write responses and the server's connections - is keyed by
+    the handle, so nothing of a closed connection reaches a later one,
+    and an answer that arrives only after its connection closed is
+    dropped instead of kept. A direct call without a connection acts as
+    a virtual handle of its client address, see
+    ``AccessoryDriver._connection_of``.
     """
 
     __slots__ = ("_client_addr", "_generation")

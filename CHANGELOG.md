@@ -103,6 +103,15 @@ Sections
   author-facing camera methods keep their signatures.
 - A failing getter answers its own status per characteristic instead of
   failing the whole `/accessories` response.
+- The driver's per-controller state is keyed by the connection, not by its
+  address: event subscriptions, prepared timed writes, write responses and
+  the server's connections, all by `HAPConnectionHandle`. Nothing of a
+  closed connection reaches a later one that reuses its address, and a
+  write response that arrives only after its connection closed is dropped
+  instead of kept. A direct call (`driver.set_characteristics` and
+  friends) without a connection acts as a virtual connection of its
+  client address, so its prepared writes and read-backs pair up across
+  calls as before.
 
 ### Deprecated
 
@@ -123,6 +132,15 @@ Sections
 
 ### Breaking Changes
 
+- The notify chain takes the writing connection, not its address: the
+  third parameter of `Accessory.publish` and `Camera.publish` and the
+  second of `Characteristic.client_update_value`,
+  `Characteristic.client_update_finished` and `Characteristic.notify`
+  is a `HAPConnectionHandle` (or `None`), so a controller is not sent its
+  own write back even while another connection reuses its address.
+  `AccessoryDriver.derive_session_key` takes the connection instead of its
+  address (`AccessoryDriver.prepare` and the other direct-call entry points
+  keep their signatures, taking an optional `connection`).
 - A legacy setter is always called with the value alone: the
   `(value, sender_client_addr)` two-argument form, detected by parameter
   name, is gone. What a callback needs to know about the writer arrives

@@ -276,6 +276,28 @@ poll a battery-powered sensor between ``on_subscribe`` and
        async def on_unsubscribe(self, context):
            self.task.cancel()
 
+Connections, not addresses
+==========================
+
+Everything the driver keeps per controller is keyed by the connection,
+not by its address: event subscriptions, prepared timed writes, write
+responses and the server's connections, all by
+:class:`~pyhap.connection.HAPConnectionHandle`. The address of a
+connection is unique only while it lives, so keying by it needed guards
+at every boundary - a response that arrived after its connection closed
+had to be dropped, or a later connection reusing the address could have
+read it. Keyed by the handle, nothing of a closed connection reaches a
+later one at all: it cannot read its write responses or control its
+camera sessions, and an answer that arrives only after its connection
+closed is dropped instead of kept, because the store keeps a response
+only of a connection it may still answer.
+
+A direct call without a connection - ``driver.set_characteristics`` and
+friends - acts as a virtual connection of its client address, so its
+prepared timed writes, its stored write responses and its read-backs
+pair up across calls, like the requests of a controller pair up over its
+one connection.
+
 Provided utilities
 ==================
 
