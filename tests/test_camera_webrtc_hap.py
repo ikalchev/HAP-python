@@ -12,6 +12,7 @@ from pyhap.accessory import Bridge
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 from pyhap.util import base64_to_bytes, to_base64_str
+from tests.conftest import connection_of
 
 WEBRTC = "CameraWebRTCStreamManagement"
 MULTI_TIER = "CameraMultiTierRTPStreamManagement"
@@ -55,7 +56,9 @@ async def _write(
     aid, iid = _char_id(camera, name, service_name)
     char = {"aid": aid, "iid": iid, "value": value, "r": response}
     query = {"characteristics": [char]}
-    result = driver._set_characteristics_for_controller(query, CLIENT, timeout)
+    result = driver._set_characteristics_for_controller(
+        query, CLIENT, timeout, connection=connection_of(CLIENT)
+    )
     assert inspect.isawaitable(result)
     body = await result
     # Without r a write that succeeds has no body.

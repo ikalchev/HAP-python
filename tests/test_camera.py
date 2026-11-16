@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import inspect
 import ipaddress
 import logging
 import socket
@@ -15,6 +16,7 @@ import pytest
 
 from pyhap import camera, tlv
 from pyhap.camera_talkback import TalkbackReceiverProtocol
+from tests.conftest import client_write
 
 # A Setup Endpoints request of a controller at 192.168.1.114.
 _SETUP_ENDPOINTS_REQUEST = (
@@ -82,7 +84,7 @@ def test_init(mock_driver: Any) -> None:
     )
 
 
-def test_setup_endpoints(mock_driver: Any) -> None:
+async def test_setup_endpoints(mock_driver: Any) -> None:
     """Test that the SetupEndpoint response is computed correctly"""
     set_endpoint_res = (
         "ARCszGzBBWNFFY2pdLRQkAaRAgEAAxoBAQACDTE5Mi4xNjguMS4yMjYDAjPFBAK"
@@ -94,14 +96,14 @@ def test_setup_endpoints(mock_driver: Any) -> None:
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    response = setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
+    response = await client_write(setup_endpoints, _SETUP_ENDPOINTS_REQUEST)
 
     assert response[:171] == set_endpoint_res[:171]
     # Without the driver nothing puts the former value back.
     assert setup_endpoints.get_value() == response
 
 
-def test_setup_endpoints_does_not_log_srtp_keys(
+async def test_setup_endpoints_does_not_log_srtp_keys(
     mock_driver: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Verify the negotiated SRTP key material is not written to the logs."""
@@ -111,7 +113,7 @@ def test_setup_endpoints_does_not_log_srtp_keys(
     setup_endpoints = management.get_characteristic("SetupEndpoints")
 
     with caplog.at_level(logging.DEBUG, logger="pyhap.camera"):
-        setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
+        await client_write(setup_endpoints, _SETUP_ENDPOINTS_REQUEST)
 
     # The endpoint configuration was logged at DEBUG level, but without any
     # of the SRTP master key/salt material in it.
@@ -180,7 +182,7 @@ def test_set_selected_stream_start_stop(mock_driver: Any) -> None:
     assert acc.streaming_status == camera.STREAMING_STATUS["AVAILABLE"]
 
 
-def test_no_talkback_by_default(mock_driver: Any) -> None:
+async def test_no_talkback_by_default(mock_driver: Any) -> None:
     """Without the ``talkback`` option, no Speaker service is added and
     SetupEndpoints keeps echoing the controller's port back (unchanged,
     pre-existing behavior for accessories that don't opt in).
@@ -191,7 +193,7 @@ def test_no_talkback_by_default(mock_driver: Any) -> None:
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
+    await client_write(setup_endpoints, _SETUP_ENDPOINTS_REQUEST)
 
     session_id = list(acc.sessions)[0]
     assert acc.sessions[session_id]["audio_backchannel"] is None
@@ -245,7 +247,7 @@ def test_talkback_enabled_adds_speaker_service(mock_driver: Any) -> None:
     assert speaker.get_characteristic("Mute").get_value() is False
 
 
-def test_setup_endpoints_reports_real_port_when_talkback_enabled(
+async def test_setup_endpoints_reports_real_port_when_talkback_enabled(
     mock_driver: Any,
 ) -> None:
     """The accessory must report a real local listening port for the audio
@@ -258,7 +260,7 @@ def test_setup_endpoints_reports_real_port_when_talkback_enabled(
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    response = setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
+    response = await client_write(setup_endpoints, _SETUP_ENDPOINTS_REQUEST)
 
     session_id = list(acc.sessions)[0]
     receiver = acc.sessions[session_id]["audio_backchannel"]
@@ -290,7 +292,7 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver: Any) -> No
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
+    await client_write(setup_endpoints, _SETUP_ENDPOINTS_REQUEST)
 
     session_id = list(acc.sessions)[0]
     receiver = acc.sessions[session_id]["audio_backchannel"]
@@ -333,7 +335,7 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver: Any) -> No
         receiver.stop()
 
 
-def test_custom_talkback_receiver(mock_driver: Any) -> None:
+async def test_custom_talkback_receiver(mock_driver: Any) -> None:
     local_port_mock = Mock()
     start_mock = Mock()
     stop_mock = Mock()
@@ -365,7 +367,7 @@ def test_custom_talkback_receiver(mock_driver: Any) -> None:
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
+    await client_write(setup_endpoints, _SETUP_ENDPOINTS_REQUEST)
 
     session_id = list(acc.sessions)[0]
     receiver = acc.sessions[session_id]["audio_backchannel"]
@@ -524,15 +526,16 @@ def _setup_request_with(address_tlv: bytes, crypto: bytes = b"\x00") -> str:
         (b"fd00:0:0:0:0:0:0:1", True, "fd00::1"),
     ],
 )
-def test_setup_endpoints_accepts_addresses(
+async def test_setup_endpoints_accepts_addresses(
     mock_driver: Any, address: bytes, is_ipv6: bool, expected: str
 ) -> None:
     """Test addresses of the announced version are accepted in canonical form."""
     acc = camera.Camera(_OPTIONS, mock_driver, "Camera")
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
-    management.get_characteristic("SetupEndpoints").client_update_value(
-        _setup_request(address, is_ipv6)
+    await client_write(
+        management.get_characteristic("SetupEndpoints"),
+        _setup_request(address, is_ipv6),
     )
     assert acc.sessions[_SESSION_ID]["address"] == expected
 
@@ -550,7 +553,7 @@ def test_setup_endpoints_accepts_addresses(
         (b"", False),
     ],
 )
-def test_setup_endpoints_refuses_addresses(
+async def test_setup_endpoints_refuses_addresses(
     mock_driver: Any, address: bytes, is_ipv6: bool
 ) -> None:
     """Test other addresses answer an error and set up no session."""
@@ -558,7 +561,7 @@ def test_setup_endpoints_refuses_addresses(
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    answer = setup_endpoints.client_update_value(_setup_request(address, is_ipv6))
+    answer = await client_write(setup_endpoints, _setup_request(address, is_ipv6))
     assert acc.sessions == {}
     assert tlv.decode(answer, from_base64=True) == {
         camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
@@ -595,7 +598,7 @@ def test_setup_endpoints_refuses_addresses(
     ],
     ids=["missing_audio_port", "short_video_port", "empty_crypto"],
 )
-def test_setup_endpoints_refuses_malformed(
+async def test_setup_endpoints_refuses_malformed(
     mock_driver: Any, request_value: str
 ) -> None:
     """Test a malformed write answers an error and sets up no session."""
@@ -603,7 +606,7 @@ def test_setup_endpoints_refuses_malformed(
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
-    answer = setup_endpoints.client_update_value(request_value)
+    answer = await client_write(setup_endpoints, request_value)
     assert acc.sessions == {}
     assert tlv.decode(answer, from_base64=True) == {
         camera.SETUP_TYPES["SESSION_ID"]: _SESSION_ID.bytes,
@@ -618,7 +621,7 @@ def test_setup_endpoints_refuses_malformed(
         (b"192.168.1.114", "Streaming is turned off"),
     ],
 )
-def test_setup_endpoints_refuses_address_before_streaming_off(
+async def test_setup_endpoints_refuses_address_before_streaming_off(
     mock_driver: Any,
     caplog: pytest.LogCaptureFixture,
     address: bytes,
@@ -630,12 +633,12 @@ def test_setup_endpoints_refuses_address_before_streaming_off(
     )
     operating_mode = acc.get_service("CameraGlobalOperatingMode")
     assert operating_mode is not None
-    operating_mode.get_characteristic("HomeKitCameraActive").client_update_value(0)
+    await client_write(operating_mode.get_characteristic("HomeKitCameraActive"), 0)
     management = acc.get_service("CameraRTPStreamManagement")
     assert management is not None
     setup_endpoints = management.get_characteristic("SetupEndpoints")
     with caplog.at_level(logging.INFO):
-        answer = setup_endpoints.client_update_value(_setup_request(address, False))
+        answer = await client_write(setup_endpoints, _setup_request(address, False))
     assert message in caplog.text
     assert acc.sessions == {}
     assert tlv.decode(answer, from_base64=True) == {
@@ -726,7 +729,7 @@ def _read_setup_endpoints(driver: Any, acc: camera.Camera, client_addr: Any) -> 
     [camera.Camera, _WrappingCamera, _ReturningCamera, _SettingCamera],
     ids=["camera", "wrapping-subclass", "returning-subclass", "setting-subclass"],
 )
-def test_setup_endpoints_read_back_by_writer_only(
+async def test_setup_endpoints_read_back_by_writer_only(
     driver: Any,
     camera_cls: type[camera.Camera],
     request_value: str,
@@ -744,12 +747,11 @@ def test_setup_endpoints_read_back_by_writer_only(
         new_callable=PropertyMock,
         return_value=streaming_allowed,
     ):
-        assert (
-            driver.set_characteristics(
-                _setup_endpoints_query(acc, request_value), _WRITER
-            )
-            is None
+        result = driver._set_characteristics_for_controller(
+            _setup_endpoints_query(acc, request_value), _WRITER, 9.0
         )
+        assert inspect.isawaitable(result)
+        assert await result is None
 
     # The writer reads the answer, which carries a status, not its request.
     answer = tlv.decode(_read_setup_endpoints(driver, acc, _WRITER), from_base64=True)

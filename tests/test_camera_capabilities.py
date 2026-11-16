@@ -22,6 +22,7 @@ from pyhap.const import (
     HAP_SERVER_STATUS,
 )
 from pyhap.util import base64_to_bytes, to_base64_str
+from tests.conftest import client_write
 
 CAMERA_AID = 2
 MAIN = UUID("00112233-4455-6677-8899-aabbccddeeff")
@@ -187,7 +188,7 @@ async def test_motion_enabled(driver: Any) -> None:
     enabled = _char(camera, "MotionSensor", "MotionEnabled")
     camera.set_motion_detected(True)
 
-    enabled.client_update_value(False)
+    await client_write(enabled, False)
     camera.motion_enabled_changed.assert_called_once_with(False)
     assert camera.motion_enabled is False
     assert detected.value is False
@@ -195,7 +196,7 @@ async def test_motion_enabled(driver: Any) -> None:
     assert detected.value is False
     assert _contributing(camera) == b""
 
-    enabled.client_update_value(True)
+    await client_write(enabled, True)
     camera.motion_enabled_changed.assert_called_with(True)
     camera.set_motion_detected(True)
     assert detected.value is True
@@ -207,13 +208,13 @@ async def test_motion_zones(driver: Any) -> None:
     camera.motion_zones_changed = MagicMock()
     zones = _char(camera, "CameraMotionZones", "CameraZones")
 
-    _char(camera, "CameraMotionZones", "Active").client_update_value(1)
+    await client_write(_char(camera, "CameraMotionZones", "Active"), 1)
     assert camera.motion_zones_active is True
-    zones.client_update_value(to_base64_str(ZONES.encode()))
+    await client_write(zones, to_base64_str(ZONES.encode()))
     assert camera.camera_zones == ZONES
     assert camera.motion_zones_changed.call_count == 2
 
-    zones.client_update_value("")
+    await client_write(zones, "")
     assert camera.camera_zones is None
     assert camera.motion_zones_changed.call_count == 3
 
@@ -227,12 +228,12 @@ async def test_motion_zones_malformed(
 ) -> None:
     """Test a malformed zones write fails and keeps the previous zones."""
     camera = _camera(driver, sensors=SENSORS)
-    _char(camera, "CameraMotionZones", "Active").client_update_value(1)
+    await client_write(_char(camera, "CameraMotionZones", "Active"), 1)
     zones = _char(camera, "CameraMotionZones", "CameraZones")
-    zones.client_update_value(kept)
+    await client_write(zones, kept)
     camera.motion_zones_changed = MagicMock()
     with pytest.raises(ValueError):
-        zones.client_update_value(value)
+        await client_write(zones, value)
     camera.motion_zones_changed.assert_not_called()
     assert zones.value == kept
     assert camera.camera_zones == previous
@@ -254,15 +255,16 @@ async def test_motion_zones_malformed_write(driver: Any) -> None:
     zones = _char(camera, "CameraMotionZones", "CameraZones")
     iid = camera.iid_manager.get_iid(zones)
     kept = to_base64_str(ZONES.encode())
-    zones.client_update_value(kept)
+    await client_write(zones, kept)
 
-    response = driver.set_characteristics(
+    response = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {HAP_REPR_AID: 1, HAP_REPR_IID: iid, HAP_REPR_VALUE: "AQ=="}
             ]
         },
         ("127.0.0.1", 5000),
+        9.0,
     )
     assert response is not None
     assert response[HAP_REPR_CHARS][0][HAP_REPR_STATUS] == (
@@ -275,11 +277,11 @@ async def test_motion_zones_malformed_write(driver: Any) -> None:
 async def test_settings_survive_restart(driver: Any) -> None:
     """Test zones and motion settings are restored."""
     camera = _camera(driver, sensors=SENSORS)
-    _char(camera, "CameraMotionZones", "Active").client_update_value(1)
-    _char(camera, "CameraMotionZones", "CameraZones").client_update_value(
-        to_base64_str(ZONES.encode())
+    await client_write(_char(camera, "CameraMotionZones", "Active"), 1)
+    await client_write(
+        _char(camera, "CameraMotionZones", "CameraZones"), to_base64_str(ZONES.encode())
     )
-    _char(camera, "MotionSensor", "MotionEnabled").client_update_value(False)
+    await client_write(_char(camera, "MotionSensor", "MotionEnabled"), False)
 
     camera = _camera(driver, sensors=SENSORS)
     assert camera.motion_zones_active is True
@@ -290,11 +292,11 @@ async def test_settings_survive_restart(driver: Any) -> None:
 async def test_reset_calls_hooks(driver: Any) -> None:
     """Test removing the last pairing tells the integration what changed."""
     camera = _camera(driver, sensors=SENSORS)
-    _char(camera, "CameraMotionZones", "Active").client_update_value(1)
-    _char(camera, "CameraMotionZones", "CameraZones").client_update_value(
-        to_base64_str(ZONES.encode())
+    await client_write(_char(camera, "CameraMotionZones", "Active"), 1)
+    await client_write(
+        _char(camera, "CameraMotionZones", "CameraZones"), to_base64_str(ZONES.encode())
     )
-    _char(camera, "MotionSensor", "MotionEnabled").client_update_value(False)
+    await client_write(_char(camera, "MotionSensor", "MotionEnabled"), False)
     camera.motion_zones_changed = MagicMock()
     camera.motion_enabled_changed = MagicMock()
 
@@ -340,9 +342,9 @@ async def test_repeated_write_calls_hook_once(
     setattr(camera, hook, mock)
     char = _char(camera, service, name)
 
-    char.client_update_value(value)
-    char.client_update_value(value)
-    char.client_update_value(value)
+    await client_write(char, value)
+    await client_write(char, value)
+    await client_write(char, value)
     mock.assert_called_once_with(*args)
 
 
@@ -361,7 +363,7 @@ async def test_write_of_current_value_calls_no_hook(
     mock = MagicMock()
     setattr(camera, hook, mock)
 
-    _char(camera, service, name).client_update_value(value)
+    await client_write(_char(camera, service, name), value)
     mock.assert_not_called()
 
 
@@ -369,7 +371,7 @@ async def test_reset_hooks_see_reset_recording(driver: Any) -> None:
     """Test the hooks run after the recording state is reset as well."""
     camera = _camera(driver, sensors=SENSORS, recording=True)
     _char(camera, "CameraRecordingManagement", "Active").client_update_value(1)
-    _char(camera, "CameraMotionZones", "Active").client_update_value(1)
+    await client_write(_char(camera, "CameraMotionZones", "Active"), 1)
     seen: list[bool] = []
     camera.motion_zones_changed = lambda: seen.append(camera.recording_active)
 

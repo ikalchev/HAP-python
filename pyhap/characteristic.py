@@ -31,22 +31,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _setter_wants_client_addr(setter: Callable[..., Any]) -> bool:
-    """Whether ``setter`` opts in to receiving the sender's client address.
-
-    A setter opts in by declaring a parameter literally named
-    ``sender_client_addr`` (used e.g. for HDS transport setup that needs the HAP
-    session). Every other setter - including the common two-argument
-    default-value closures ``lambda value, option=option: ...`` - is called with
-    the value alone, unchanged.
-    """
-    try:
-        parameters = inspect.signature(setter).parameters
-    except (TypeError, ValueError):
-        return False
-    return "sender_client_addr" in parameters
-
-
 # ### HAP Format ###
 # A characteristic value as HAP JSON carries it.
 HAPValue = bool | int | float | str | None
@@ -196,8 +180,6 @@ class Characteristic:
         "_to_hap_cache_with_value",
         "_to_hap_cache",
         "_always_null",
-        "_setter_addr_cache",
-        "_setter_addr_cache_for",
         "read_back_response",
     )
 
@@ -239,20 +221,16 @@ class Characteristic:
         self.type_id = type_id
         self._value = self._get_default_value()
         self.getter_callback: Callable[[], Any] | None = None
-        # Setters may take just the value or (value, sender_client_addr); see
-        # ``_setter_wants_addr``. The return value is sent back as the write
-        # response when the characteristic has the "wr" permission and the
-        # controller asked for one. A setter may also be a coroutine function;
-        # a controller's write is answered once it is done.
+        # The legacy setter is called with the written value. The return
+        # value is sent back as the write response when the characteristic
+        # has the "wr" permission and the controller asked for one. A setter
+        # may also be a coroutine function; a controller's write is answered
+        # once it is done.
         self.setter_callback: Callable[..., Any] | None = None
         # The delegate of the reads, writes and subscriptions of this
         # characteristic, see ``CharacteristicDelegate``. Either a delegate
         # or the legacy callbacks, never both.
         self.delegate: CharacteristicDelegate | None = None
-        # Cache of whether ``setter_callback`` opts into the client address,
-        # recomputed only when the setter object itself changes.
-        self._setter_addr_cache: bool = False
-        self._setter_addr_cache_for: Callable[..., Any] | None = None
         self.service: Service | None = None
         self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
@@ -328,11 +306,12 @@ class Characteristic:
     def setter_callback(self) -> Callable[..., Any] | None:
         """The legacy setter, called with the value on a controller's write.
 
-        May take just the value or ``(value, sender_client_addr)``, see
-        ``_setter_wants_addr``. The return value is sent back as the write
-        response when the characteristic has the "wr" permission and the
-        controller asked for one. May also be a coroutine function; a
-        controller's write is answered once it is done.
+        The return value is sent back as the write response when the
+        characteristic has the "wr" permission and the controller asked
+        for one. May also be a coroutine function; a controller's write is
+        answered once it is done. What a callback needs to know about the
+        request comes through a delegate instead, see
+        :class:`~pyhap.delegates.CharacteristicDelegate`.
         """
         return self._setter_callback
 
@@ -551,10 +530,7 @@ class Characteristic:
         self.value = value
         response = None
         if self.setter_callback:
-            if self._setter_wants_addr():
-                response = self.setter_callback(value, sender_client_addr)
-            else:
-                response = self.setter_callback(value)
+            response = self.setter_callback(value)
         if not (defer_notify and inspect.iscoroutine(response)):
             self.client_update_finished(
                 previous_value, sender_client_addr, notify=notify
@@ -594,21 +570,6 @@ class Characteristic:
             self.notify(sender_client_addr)
         if self._always_null:
             self.value = None
-
-    def _setter_wants_addr(self) -> bool:
-        """Whether the current setter opts into the sender's client address.
-
-        Signature introspection is done once per setter object and cached, so
-        the common write path does not call :func:`inspect.signature` on every
-        client write.
-        """
-        setter = self.setter_callback
-        if setter is not self._setter_addr_cache_for:
-            self._setter_addr_cache_for = setter
-            self._setter_addr_cache = setter is not None and _setter_wants_client_addr(
-                setter
-            )
-        return self._setter_addr_cache
 
     def notify(self, sender_client_addr: tuple[str, int] | None = None) -> None:
         """Notify clients about a value change. Sends the value.

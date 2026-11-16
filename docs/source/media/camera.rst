@@ -217,9 +217,11 @@ machine per session:
 
 Three rules shape the lifecycle:
 
-* **A session belongs to the connection that set it up.** Only that
-  connection may control it, and when the connection closes, its sessions
-  end (the camera calls your ``handle_end`` for them).
+* **A session belongs to the connection that set it up.** Its
+  :class:`~pyhap.connection.HAPConnectionHandle` identifies the connection —
+  stable even when a later connection reuses the same address — and only
+  that connection may control the session. When the connection closes, its
+  sessions end (the camera calls your ``handle_end`` for them).
 * **A hook runs as a task the session owns**, with a deadline; a HAP request
   waits for it until the deadline and is then answered — a slow hook does
   not stall the camera forever.

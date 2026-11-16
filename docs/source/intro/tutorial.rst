@@ -177,10 +177,11 @@ Give the characteristic a setter callback:
             logging.info("Switch turned %s", "on" if value else "off")
             # drive the relay here
 
-The callback runs when a controller writes. It may also be a coroutine
-function — the write is answered once it completes, so it must be quick;
-start slow work as a task. To know *which* controller wrote, declare a
-parameter named ``sender_client_addr`` — see :doc:`/advanced/async`.
+The callback runs when a controller writes, with the written value. It
+may also be a coroutine function — the write is answered once it
+completes, so it must be quick; start slow work as a task. To know *which*
+controller wrote — its connection, privileges, the deadline — use a
+delegate instead, see :doc:`/advanced/async`.
 
 Bridging several accessories
 ============================

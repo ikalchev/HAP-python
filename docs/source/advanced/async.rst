@@ -107,10 +107,10 @@ Characteristic callbacks
   in about 10 seconds: a setter must finish quickly, or start its heavy work
   as a task (``asyncio.create_task`` / ``driver.add_job``) and return.
 
-A setter may opt into receiving the writer's address by declaring a
-parameter literally named ``sender_client_addr`` — useful when a write must
-be tied to the connection that made it, e.g. Setup Endpoints. Any other
-signature is called with just the value.
+A legacy setter is always called with just the value. What a callback
+needs to know about the request — the writer's connection, its privileges,
+the deadline — arrives through the delegate interface below instead; the
+former ``sender_client_addr`` parameter-name opt-in is gone with it.
 
 **Answering a HAP status.** A callback that fails does not have to answer
 the generic ``-70402`` (service communication failure): raise
@@ -182,6 +182,14 @@ keep the legacy dispatch above, byte for byte. A service with a
 delegate, however, is gated as a whole — the legacy callback chars of
 that service are applied after its gate too, so the gate sees every
 value and can refuse the group.
+
+The camera stack itself writes through delegates: every characteristic
+pyhap's own camera code answers — the stream management services' control
+points, the HDS transport setup, the recording and HKSV 17.99 settings —
+runs its handler through the interface above. Its multi-tier and WebRTC
+sessions belong to the connection that set them up, by
+:class:`~pyhap.connection.HAPConnectionHandle`, so a later connection that
+reuses a closed one's address cannot control them.
 
 Provided utilities
 ==================

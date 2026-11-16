@@ -31,10 +31,14 @@ from pyhap.camera_stream import (
     config_from_option,
     failure_status,
 )
+from pyhap.connection import HAPConnectionHandle
+from pyhap.context import CharReadContext, CharWriteContext
+from pyhap.delegates import CharacteristicDelegate
 from pyhap.util import base64_to_bytes, parse_setup_address, to_base64_str
 
 if TYPE_CHECKING:
     from pyhap.camera import Camera
+    from pyhap.characteristic import Characteristic
 
 __all__ = [
     "DEFAULT_IDLE_TIMEOUT",
@@ -222,6 +226,27 @@ def _supported_video_tiers(tiers: list[hksv3.VideoStreamTier]) -> bytes:
     ).encode()
 
 
+class _WriteDelegate(CharacteristicDelegate):
+    """Answers the service's control writes through the controller.
+
+    Setup Endpoints and RTP Streaming Control are write-response
+    characteristics: ``on_set`` returns the answer the writing connection
+    reads back, and the stored value it sees is the request it wrote, put
+    back once the answer was kept for the writer.
+    """
+
+    def __init__(self, controller: MultiTierController) -> None:
+        self._controller = controller
+
+    async def on_get(self, context: CharReadContext) -> Any:
+        # The stored value, like the reads of these characteristics
+        # always answered.
+        return context.characteristic.value
+
+    async def on_set(self, value: Any, context: CharWriteContext) -> Any:
+        return await self._controller._write(context.characteristic, value, context)
+
+
 class MultiTierController(StreamController[MultiTierSession]):
     """The Camera Multi-Tier RTP Stream Management service of one sensor."""
 
@@ -258,15 +283,17 @@ class MultiTierController(StreamController[MultiTierSession]):
         )
         self.streaming_enabled = service.configure_char("StreamingEnabled", value=True)
         self._status_active = service.get_characteristic("StatusActive")
-        setup_endpoints = service.configure_char(
-            "SetupEndpoints", setter_callback=self._set_setup_endpoints
+        write_delegate = _WriteDelegate(self)
+        self._setup_endpoints = setup_endpoints = service.configure_char(
+            "SetupEndpoints"
         )
         # The answer has the session's SRTP keys, only its controller reads it.
         setup_endpoints.read_back_response = True
         # Neither the request nor the status is shared with other connections.
-        service.configure_char(
-            "RTPStreamingControl", setter_callback=self._set_streaming_control
-        ).read_back_response = True
+        self._control_char = control = service.configure_char("RTPStreamingControl")
+        control.read_back_response = True
+        setup_endpoints.delegate = write_delegate
+        control.delegate = write_delegate
 
     @property
     def active(self) -> bool:
@@ -305,18 +332,30 @@ class MultiTierController(StreamController[MultiTierSession]):
     async def _release_hook(self, session: MultiTierSession) -> None:
         await self._delegate.handle_end(session)
 
+    async def _write(
+        self, char: Characteristic, value: Any, context: CharWriteContext
+    ) -> str:
+        """Answer a write of the service's control characteristics."""
+        if char is self._setup_endpoints:
+            return await self._set_setup_endpoints(
+                value, context.connection, context.deadline
+            )
+        assert char is self._control_char  # noqa: S101
+        return await self._set_streaming_control(
+            value, context.connection, context.deadline
+        )
+
     async def _set_setup_endpoints(
-        self, value: str, sender_client_addr: tuple[str, int] | None = None
+        self, value: str, connection: HAPConnectionHandle, deadline: float
     ) -> str:
         """Set up a session, only the writing connection reads the answer."""
-        deadline = self._deadline()
         try:
             request = hksv3.SetupEndpoints.decode(base64_to_bytes(value))
         except ValueError:
             logger.warning("Ignoring a malformed Setup Endpoints write")
             status = hksv3.SetupEndpointsStatus.ERROR
             return to_base64_str(hksv3.SetupEndpointsResponse(None, status).encode())
-        result = await self._setup(request, sender_client_addr, deadline)
+        result = await self._setup(request, connection, deadline)
         if isinstance(result, MultiTierSession):
             return to_base64_str(_answer(result).encode())
         response = hksv3.SetupEndpointsResponse(request.session_id, result)
@@ -325,7 +364,7 @@ class MultiTierController(StreamController[MultiTierSession]):
     async def _setup(
         self,
         request: hksv3.SetupEndpoints,
-        client_addr: tuple[str, int] | None,
+        connection: HAPConnectionHandle,
         deadline: float,
     ) -> MultiTierSession | hksv3.SetupEndpointsStatus:
         session_id = request.session_id
@@ -347,13 +386,13 @@ class MultiTierController(StreamController[MultiTierSession]):
             endpoint.video_port,
             endpoint.audio_port,
         )
-        existing = self._owned(session_id, client_addr)
+        existing = self._owned(session_id, connection)
         if existing is None and session_id in self._sessions:
             return error
         if not self.active:
             logger.warning("[%s] Streaming is turned off, refusing it", session_id)
             return error
-        if existing is None and (no_room := self._no_room(client_addr)):
+        if existing is None and (no_room := self._no_room(connection)):
             logger.warning("[%s] %s", session_id, no_room)
             # Busy asks to try again, a closed service never takes one.
             return error if self._closed else hksv3.SetupEndpointsStatus.BUSY
@@ -361,7 +400,7 @@ class MultiTierController(StreamController[MultiTierSession]):
             logger.warning("[%s] No multi-tier delegate, refusing", session_id)
             return error
         accessory_address = self.camera._stream_address_for(
-            client_addr, endpoint.is_ipv6
+            connection.client_addr, endpoint.is_ipv6
         )
         if accessory_address is None:
             logger.warning(
@@ -383,13 +422,13 @@ class MultiTierController(StreamController[MultiTierSession]):
             if not self.active:
                 logger.warning("[%s] Streaming is turned off, refusing it", session_id)
                 return error
-            if no_room := self._no_room(client_addr):
+            if no_room := self._no_room(connection):
                 logger.warning("[%s] %s", session_id, no_room)
                 return error if self._closed else hksv3.SetupEndpointsStatus.BUSY
         session = MultiTierSession(
             id=session_id,
             sensor=self.sensor,
-            client_addr=client_addr,
+            connection=connection,
             address=address,
             is_ipv6=endpoint.is_ipv6,
             video_port=endpoint.video_port,
@@ -444,10 +483,9 @@ class MultiTierController(StreamController[MultiTierSession]):
         return session
 
     async def _set_streaming_control(
-        self, value: str, sender_client_addr: tuple[str, int] | None = None
+        self, value: str, connection: HAPConnectionHandle, deadline: float
     ) -> str:
         """Start, change or end a stream, the write response is the status."""
-        deadline = self._deadline()
         try:
             request = hksv3.RTPStreamingControl.decode(base64_to_bytes(value))
         except ValueError:
@@ -455,17 +493,17 @@ class MultiTierController(StreamController[MultiTierSession]):
             status = hksv3.encode_streaming_status(None, _STATUS.ERROR)
             return to_base64_str(status)
         logger.debug("RTP Streaming Control: %s", request)
-        result = await self._streaming_control(request, sender_client_addr, deadline)
+        result = await self._streaming_control(request, connection, deadline)
         logger.debug("[%s] RTP Streaming Control: %s", request.session_id, result)
         return to_base64_str(hksv3.encode_streaming_status(request.session_id, result))
 
     async def _streaming_control(
         self,
         request: hksv3.RTPStreamingControl,
-        client_addr: tuple[str, int] | None,
+        connection: HAPConnectionHandle,
         deadline: float,
     ) -> hksv3.RTPStreamingStatus:
-        session = self._owned(request.session_id, client_addr)
+        session = self._owned(request.session_id, connection)
         if session is None:
             return _STATUS.UNKNOWN_SESSION
         if request.command == hksv3.RTPStreamingCommand.END:

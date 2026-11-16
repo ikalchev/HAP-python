@@ -6,7 +6,9 @@ write-response handshake. The HDS fragment transfer itself is covered in
 test_hds_recording.py.
 """
 
+import inspect
 import os
+import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -16,9 +18,18 @@ from pyhap import camera as camera_module, hds, hksv_recording as hr, tlv
 from pyhap.accessory import STANDALONE_AID
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
-from pyhap.const import HAP_REPR_AID, HAP_REPR_CHARS, HAP_REPR_IID, HAP_REPR_VALUE
+from pyhap.connection import HAPConnectionHandle
+from pyhap.const import (
+    HAP_REPR_AID,
+    HAP_REPR_CHARS,
+    HAP_REPR_IID,
+    HAP_REPR_VALUE,
+    RESPONSE_TIMEOUT,
+)
+from pyhap.context import CharWriteContext
 from pyhap.hap_protocol import HAPServerProtocol
 from pyhap.util import base64_to_bytes, to_base64_str
+from tests.conftest import client_write
 
 
 @pytest.fixture(name="recording_camera")
@@ -264,6 +275,21 @@ def test_data_stream_transport_service_present(recording_camera: Any) -> None:
     )
 
 
+def _write_context(camera: Any, client: tuple[str, int]) -> CharWriteContext:
+    """The write context of a SetupDataStreamTransport write of ``client``."""
+    char = camera.get_service("DataStreamTransportManagement").get_characteristic(
+        "SetupDataStreamTransport"
+    )
+    return CharWriteContext(
+        client_addr=client,
+        client_uuid=None,
+        connection=HAPConnectionHandle(client, 1),
+        deadline=time.monotonic() + RESPONSE_TIMEOUT,
+        characteristic=char,
+        is_admin=True,
+    )
+
+
 def test_setup_data_stream_transport_without_session_errors(
     recording_camera: Any,
 ) -> None:
@@ -271,10 +297,10 @@ def test_setup_data_stream_transport_without_session_errors(
     # No session key for this client, and no listener started.
     request = tlv.encode(hds.SETUP_TYPES["CONTROLLER_KEY_SALT"], b"\x11" * 32)
     # SetupDataStreamTransport is a write-response characteristic: the encoded
-    # response is RETURNED from the setter (so HAP puts it in the write
+    # response is RETURNED from the handler (so HAP puts it in the write
     # response), not stored on the characteristic.
     value = camera.set_data_stream_transport(
-        to_base64_str(request), sender_client_addr=("10.0.0.9", 5000)
+        to_base64_str(request), _write_context(camera, ("10.0.0.9", 5000))
     )
     objs = tlv.decode(base64_to_bytes(value))
     assert objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_GENERIC_ERROR
@@ -296,7 +322,7 @@ def _hap_connection(
     return connection
 
 
-def _write_setup(
+async def _write_setup(
     camera: Any, client: tuple[str, int], controller_key_salt: bytes
 ) -> dict[bytes, Any]:
     """Write SetupDataStreamTransport through the HAP write-response path."""
@@ -304,7 +330,8 @@ def _write_setup(
         "SetupDataStreamTransport"
     )
     request = tlv.encode(hds.SETUP_TYPES["CONTROLLER_KEY_SALT"], controller_key_salt)
-    response = camera.driver.set_characteristics(
+    connection = camera.driver.http_server.connections.get(client)
+    response = camera.driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -316,16 +343,22 @@ def _write_setup(
             ]
         },
         client,
+        RESPONSE_TIMEOUT,
+        connection=connection.connection_handle if connection else None,
     )
-    return tlv.decode(base64_to_bytes(response[HAP_REPR_CHARS][0][HAP_REPR_VALUE]))
+    assert inspect.isawaitable(response)
+    result = await response
+    assert result is not None
+    return tlv.decode(base64_to_bytes(result[HAP_REPR_CHARS][0][HAP_REPR_VALUE]))
 
 
 @pytest.mark.asyncio
 async def test_setup_data_stream_transport_write_response_plumbing(
     recording_camera: Any,
 ) -> None:
-    # The HAP write path hands the setter the sender's address and forwards its
-    # RETURN value. The HDS keys come from that connection's session key.
+    # The HAP write path hands the handler the writing connection and
+    # forwards its RETURN value. The HDS keys come from that connection's
+    # session key.
     camera = recording_camera
     await camera._ensure_hds_listener()
     try:
@@ -333,7 +366,7 @@ async def test_setup_data_stream_transport_write_response_plumbing(
         shared_key, controller_key_salt = os.urandom(32), os.urandom(32)
         _hap_connection(camera, ("10.0.0.8", 5000), os.urandom(32))
         _hap_connection(camera, client, shared_key)
-        objs = _write_setup(camera, client, controller_key_salt)
+        objs = await _write_setup(camera, client, controller_key_salt)
         assert objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_SUCCESS
         accessory_key_salt = objs[hds.SETUP_RESPONSE_TYPES["ACCESSORY_KEY_SALT"]]
         (pending,) = camera._hds_listener._pending
@@ -354,7 +387,7 @@ async def test_setup_data_stream_transport_unencrypted_connection_errors(
     try:
         client = ("10.0.0.9", 5000)
         _hap_connection(camera, client)
-        objs = _write_setup(camera, client, os.urandom(32))
+        objs = await _write_setup(camera, client, os.urandom(32))
         assert (
             objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_GENERIC_ERROR
         )
@@ -372,7 +405,6 @@ def test_single_argument_setter_still_called_with_one_argument(
     mute = recording_camera.get_service("Microphone").get_characteristic("Mute")
     seen = []
     mute.setter_callback = seen.append
-    assert mute._setter_wants_addr() is False
     mute.client_update_value(True, ("10.0.0.9", 5000))
     assert seen == [True]
 
@@ -388,7 +420,7 @@ async def test_setup_data_stream_transport_with_session(
         _hap_connection(camera, client, os.urandom(32))
         request = tlv.encode(hds.SETUP_TYPES["CONTROLLER_KEY_SALT"], os.urandom(32))
         value = camera.set_data_stream_transport(
-            to_base64_str(request), sender_client_addr=client
+            to_base64_str(request), _write_context(camera, client)
         )
         objs = tlv.decode(base64_to_bytes(value))
         assert objs[hds.SETUP_RESPONSE_TYPES["STATUS"]] == hds.SETUP_STATUS_SUCCESS
@@ -406,7 +438,7 @@ async def test_setup_data_stream_transport_with_session(
         await camera.stop()
 
 
-def test_camera_off_in_home_app_marks_sensor_inactive(
+async def test_camera_off_in_home_app_marks_sensor_inactive(
     recording_camera: Any,
 ) -> None:
     camera_active = recording_camera.get_service(
@@ -418,7 +450,7 @@ def test_camera_off_in_home_app_marks_sensor_inactive(
     recording_camera.homekit_camera_active_changed = MagicMock()
 
     with patch.object(recording_camera, "publish") as publish:
-        camera_active.client_update_value(0)
+        await client_write(camera_active, 0)
     # Subscribed controllers learn about the inactive sensor, exactly once.
     events = [
         call.args[0] for call in publish.call_args_list if call.args[1] is status_active
@@ -427,7 +459,7 @@ def test_camera_off_in_home_app_marks_sensor_inactive(
     assert status_active.get_value() is False
     recording_camera.homekit_camera_active_changed.assert_called_once_with(False)
 
-    camera_active.client_update_value(1)
+    await client_write(camera_active, 1)
     assert status_active.get_value() is True
     recording_camera.homekit_camera_active_changed.assert_called_with(True)
 
@@ -445,7 +477,7 @@ def test_sensor_follows_camera_active_set_without_write(
     assert status_active.get_value() is False
 
 
-def test_sensor_event_after_restored_camera_off(recording_camera: Any) -> None:
+async def test_sensor_event_after_restored_camera_off(recording_camera: Any) -> None:
     """A restore sets the value without a write, the next write still notifies."""
     camera_active = recording_camera.get_service(
         "CameraOperatingMode"
@@ -456,7 +488,7 @@ def test_sensor_event_after_restored_camera_off(recording_camera: Any) -> None:
     camera_active.set_value(0, should_notify=False)
 
     with patch.object(recording_camera, "publish") as publish:
-        camera_active.client_update_value(1)
+        await client_write(camera_active, 1)
     events = [
         call.args[0] for call in publish.call_args_list if call.args[1] is status_active
     ]

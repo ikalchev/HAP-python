@@ -14,6 +14,7 @@ from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 from pyhap.util import base64_to_bytes, to_base64_str
 
+from .conftest import connection_of
 from .media_peer import KEY, KEYFRAME, TRAIL, Controller, Source, video_count
 from .webrtc_helpers import SFrameKey
 
@@ -87,7 +88,9 @@ async def write(camera: Camera, name: str, value: Any) -> bytes:
             }
         ]
     }
-    pending = camera.driver._set_characteristics_for_controller(query, CLIENT, 9.0)
+    pending = camera.driver._set_characteristics_for_controller(
+        query, CLIENT, 9.0, connection=connection_of(CLIENT)
+    )
     assert inspect.isawaitable(pending)
     result = await pending
     assert result is not None

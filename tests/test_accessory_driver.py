@@ -829,11 +829,6 @@ async def _async_return_one(value: int) -> int:
     return 1
 
 
-async def _async_return_one_with_addr(value: int, sender_client_addr: Any) -> int:
-    await asyncio.sleep(0)
-    return 1
-
-
 async def _async_return_none(value: int) -> None:
     await asyncio.sleep(0)
 
@@ -853,13 +848,6 @@ async def _async_raise(value: int) -> NoReturn:
             {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS, HAP_REPR_VALUE: 1},
             0,
             id="write-response",
-        ),
-        pytest.param(
-            _async_return_one_with_addr,
-            ["pw", "wr"],
-            {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS, HAP_REPR_VALUE: 1},
-            1,
-            id="write-response-with-addr",
         ),
         pytest.param(
             _async_raise,

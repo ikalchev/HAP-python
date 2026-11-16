@@ -15,6 +15,7 @@ from pyhap.camera_multi_tier import MultiTierController, MultiTierSession
 from pyhap.camera_stream import SessionState, StreamError
 from pyhap.camera_webrtc import WebRTCController
 from pyhap.util import base64_to_bytes, to_base64_str
+from tests.conftest import client_write, connection_of
 
 MULTI_TIER = "CameraMultiTierRTPStreamManagement"
 WEBRTC = "CameraWebRTCStreamManagement"
@@ -149,7 +150,7 @@ async def test_status_active(stream_camera: Callable[..., Camera]) -> None:
     camera.set_manually_disabled(True)
     assert _char(camera, MULTI_TIER, "StatusActive").value is False
     camera.set_manually_disabled(False)
-    _char(camera, MULTI_TIER, "StreamingEnabled").client_update_value(False)
+    await client_write(_char(camera, MULTI_TIER, "StreamingEnabled"), False)
     assert _char(camera, MULTI_TIER, "StatusActive").value is True
     await asyncio.sleep(0)
     assert _char(camera, MULTI_TIER, "StatusActive").value is False
@@ -160,7 +161,7 @@ async def test_streaming_enabled_persisted(
 ) -> None:
     """Test the services' Streaming Enabled survive a restart."""
     camera = stream_camera()
-    _char(camera, WEBRTC, "StreamingEnabled").client_update_value(False)
+    await client_write(_char(camera, WEBRTC, "StreamingEnabled"), False)
     restored = stream_camera()
     assert _char(restored, WEBRTC, "StreamingEnabled").value is False
     assert _char(restored, MULTI_TIER, "StreamingEnabled").value is True
@@ -224,12 +225,19 @@ def _setup_request(
     )
 
 
+def _deadline(controller: MultiTierController) -> float:
+    """The deadline of a write, like the request's context carries it."""
+    return asyncio.get_running_loop().time() + controller.hook_timeout
+
+
 async def _setup(
     camera: Camera, request: str | None = None, client: Any = CLIENT
 ) -> dict[bytes, Any]:
     """Write Setup Endpoints and decode the answer the writer reads back."""
     controller = _controller(camera)
-    answer = await controller._set_setup_endpoints(request or _setup_request(), client)
+    answer = await controller._set_setup_endpoints(
+        request or _setup_request(), connection_of(client), _deadline(controller)
+    )
     return tlv.decode(answer, from_base64=True)
 
 
@@ -260,7 +268,9 @@ async def _streaming_control(
 ) -> int:
     """Write RTP Streaming Control and return the status of the answer."""
     controller = _controller(camera)
-    answer = await controller._set_streaming_control(_control(command, **tiers), client)
+    answer = await controller._set_streaming_control(
+        _control(command, **tiers), connection_of(client), _deadline(controller)
+    )
     status = tlv.decode(base64_to_bytes(answer))[b"\x02"]
     return int(status[0])
 
@@ -543,7 +553,10 @@ async def test_setup_busy_per_connection(stream_camera: Callable[..., Camera]) -
 
 async def test_malformed_setup(stream_camera: Callable[..., Camera]) -> None:
     """Test a Setup Endpoints write that does not decode answers an error."""
-    answer = await _controller(stream_camera())._set_setup_endpoints("AQ==", CLIENT)
+    controller = _controller(stream_camera())
+    answer = await controller._set_setup_endpoints(
+        "AQ==", connection_of(CLIENT), _deadline(controller)
+    )
     assert base64_to_bytes(answer) == bytes.fromhex("020102")
 
 
@@ -1000,7 +1013,10 @@ async def test_setup_after_stop(stream_camera: Callable[..., Camera]) -> None:
 
 async def test_malformed_control(stream_camera: Callable[..., Camera]) -> None:
     """Test a write that does not decode answers an error."""
-    answer = await _controller(stream_camera())._set_streaming_control("AQ==", CLIENT)
+    controller = _controller(stream_camera())
+    answer = await controller._set_streaming_control(
+        "AQ==", connection_of(CLIENT), _deadline(controller)
+    )
     assert base64_to_bytes(answer) == bytes.fromhex("020104")
 
 

@@ -15,7 +15,7 @@ the HAP side.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 import logging
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
@@ -32,11 +32,15 @@ from pyhap.camera_stream import (
     config_from_option,
     failure_status,
 )
+from pyhap.connection import HAPConnectionHandle
+from pyhap.context import CharReadContext, CharWriteContext
+from pyhap.delegates import CharacteristicDelegate
 from pyhap.util import base64_to_bytes, to_base64_str
 
 if TYPE_CHECKING:
     from pyhap.camera import Camera
     from pyhap.camera_multi_tier import MultiTierController
+    from pyhap.characteristic import Characteristic
 
 __all__ = [
     "WEBRTC_MIN_SESSIONS",
@@ -201,6 +205,27 @@ def _status(session_id: UUID | None, status: hksv3.WebRTCStreamingStatus) -> str
     return to_base64_str(hksv3.WebRTCSessionStatus(session_id, status).encode())
 
 
+class _WriteDelegate(CharacteristicDelegate):
+    """Answers the service's control writes through the controller.
+
+    Every controlled characteristic is a write-response one: ``on_set``
+    returns the answer the writing connection reads back, and the stored
+    value it sees is the request it wrote, put back once the answer was kept
+    for the writer.
+    """
+
+    def __init__(self, controller: WebRTCController) -> None:
+        self._controller = controller
+
+    async def on_get(self, context: CharReadContext) -> Any:
+        # The stored value, like the reads of these characteristics
+        # always answered.
+        return context.characteristic.value
+
+    async def on_set(self, value: Any, context: CharWriteContext) -> Any:
+        return await self._controller._write(context.characteristic, value, context)
+
+
 class WebRTCController(StreamController[WebRTCSession]):
     """The Camera WebRTC Stream Management service of one sensor."""
 
@@ -241,6 +266,10 @@ class WebRTCController(StreamController[WebRTCSession]):
             service.configure_char(name, value=value)
         self.streaming_enabled = service.configure_char("StreamingEnabled", value=True)
         self._session_count = service.get_characteristic("WebRTCNumberOfActiveSessions")
+        write_delegate = _WriteDelegate(self)
+        self._writers: dict[
+            Characteristic, Callable[[str, HAPConnectionHandle, float], Awaitable[str]]
+        ] = {}
         for name, setter in (
             ("WebRTCSolicitOffer", self._set_solicit_offer),
             ("WebRTCProvideAnswer", self._set_provide_answer),
@@ -250,9 +279,10 @@ class WebRTCController(StreamController[WebRTCSession]):
         ):
             # The requests carry SDPs with ICE passwords and SFrame keys, so
             # neither they nor the answers are shared with other connections.
-            service.configure_char(
-                name, setter_callback=setter
-            ).read_back_response = True
+            char = service.configure_char(name)
+            char.read_back_response = True
+            char.delegate = write_delegate
+            self._writers[char] = setter
 
     def _refusal(self) -> hksv3.WebRTCSolicitOfferStatus | None:
         """Why the sensor may not stream now, None if it may."""
@@ -286,19 +316,23 @@ class WebRTCController(StreamController[WebRTCSession]):
     async def _release_hook(self, session: WebRTCSession) -> None:
         await self._delegate.handle_end(session)
 
-    async def _set_solicit_offer(
-        self, value: str, sender_client_addr: tuple[str, int] | None = None
+    async def _write(
+        self, char: Characteristic, value: Any, context: CharWriteContext
     ) -> str:
-        deadline = self._deadline()
+        """Answer a write of the service's control characteristics."""
+        writer = self._writers[char]
+        return await writer(value, context.connection, context.deadline)
+
+    async def _set_solicit_offer(
+        self, value: str, connection: HAPConnectionHandle, deadline: float
+    ) -> str:
         request = _decode("Solicit Offer", hksv3.WebRTCSolicitOffer.decode, value)
         if request is None:
             response = hksv3.WebRTCSolicitOfferResponse(
                 hksv3.WebRTCSolicitOfferStatus.ERROR
             )
         else:
-            response = await self._solicit_offer(
-                request.options, sender_client_addr, deadline
-            )
+            response = await self._solicit_offer(request.options, connection, deadline)
         logger.debug(
             "[%s] WebRTC Solicit Offer: %s", response.session_id, response.status
         )
@@ -307,7 +341,7 @@ class WebRTCController(StreamController[WebRTCSession]):
     async def _solicit_offer(
         self,
         options: hksv3.WebRTCOfferOptions,
-        client_addr: tuple[str, int] | None,
+        connection: HAPConnectionHandle,
         deadline: float,
     ) -> hksv3.WebRTCSolicitOfferResponse:
         error = hksv3.WebRTCSolicitOfferStatus.ERROR
@@ -316,7 +350,7 @@ class WebRTCController(StreamController[WebRTCSession]):
             logger.info("Refusing a WebRTC offer, streaming is off: %s", refusal)
             return hksv3.WebRTCSolicitOfferResponse(refusal)
         # The guide has no Busy for an offer.
-        if no_room := self._no_room(client_addr):
+        if no_room := self._no_room(connection):
             logger.warning("%s, refusing an offer", no_room)
             return hksv3.WebRTCSolicitOfferResponse(error)
         if self.delegate is None:
@@ -325,7 +359,7 @@ class WebRTCController(StreamController[WebRTCSession]):
         session = WebRTCSession(
             id=uuid4(),
             sensor=self.sensor,
-            client_addr=client_addr,
+            connection=connection,
             sframe=options.sframe_enabled is not False,
             video_tier=self.video_tier,
             audio_tier=self.audio_tier,
@@ -373,13 +407,12 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
 
     async def _set_provide_answer(
-        self, value: str, sender_client_addr: tuple[str, int] | None = None
+        self, value: str, connection: HAPConnectionHandle, deadline: float
     ) -> str:
-        deadline = self._deadline()
         request = _decode("Provide Answer", hksv3.WebRTCProvideAnswer.decode, value)
         if request is None:
             return _status(None, _STATUS.ERROR)
-        session = self._owned(request.session_id, sender_client_addr)
+        session = self._owned(request.session_id, connection)
         if session is None:
             return _status(request.session_id, _STATUS.UNKNOWN_SESSION)
         if session.state is SessionState.ANSWERING:
@@ -405,15 +438,14 @@ class WebRTCController(StreamController[WebRTCSession]):
         return _status(session.id, _STATUS.SUCCESS)
 
     async def _set_streaming_control(
-        self, value: str, sender_client_addr: tuple[str, int] | None = None
+        self, value: str, connection: HAPConnectionHandle, deadline: float
     ) -> str:
-        deadline = self._deadline()
         request = _decode(
             "Streaming Control", hksv3.WebRTCStreamingControl.decode, value
         )
         if request is None:
             return _status(None, _STATUS.ERROR)
-        session = self._owned(request.session_id, sender_client_addr)
+        session = self._owned(request.session_id, connection)
         if session is None:
             return _status(request.session_id, _STATUS.UNKNOWN_SESSION)
         if request.command != hksv3.WebRTCStreamingCommand.END:
@@ -422,10 +454,10 @@ class WebRTCController(StreamController[WebRTCSession]):
         return _status(session.id, _STATUS.SUCCESS if ended else _STATUS.ERROR)
 
     def _active_session(
-        self, session_id: UUID, client_addr: tuple[str, int] | None
+        self, session_id: UUID, connection: HAPConnectionHandle
     ) -> WebRTCSession | hksv3.WebRTCStreamingStatus:
         """The session to renegotiate or update, else the status to answer."""
-        session = self._owned(session_id, client_addr)
+        session = self._owned(session_id, connection)
         if session is None:
             return _STATUS.UNKNOWN_SESSION
         if session.state is not SessionState.ACTIVE:
@@ -435,23 +467,22 @@ class WebRTCController(StreamController[WebRTCSession]):
         return session
 
     async def _set_reoffer(
-        self, value: str, sender_client_addr: tuple[str, int] | None = None
+        self, value: str, connection: HAPConnectionHandle, deadline: float
     ) -> str:
-        deadline = self._deadline()
         request = _decode("Reoffer", hksv3.WebRTCReoffer.decode, value)
         if request is None:
             response = hksv3.WebRTCReofferResponse(None, _STATUS.ERROR)
         else:
-            response = await self._reoffer(request, sender_client_addr, deadline)
+            response = await self._reoffer(request, connection, deadline)
         return to_base64_str(response.encode())
 
     async def _reoffer(
         self,
         request: hksv3.WebRTCReoffer,
-        client_addr: tuple[str, int] | None,
+        connection: HAPConnectionHandle,
         deadline: float,
     ) -> hksv3.WebRTCReofferResponse:
-        session = self._active_session(request.session_id, client_addr)
+        session = self._active_session(request.session_id, connection)
         if not isinstance(session, WebRTCSession):
             return hksv3.WebRTCReofferResponse(request.session_id, session)
         hook = self._delegate.handle_reoffer(
@@ -481,13 +512,12 @@ class WebRTCController(StreamController[WebRTCSession]):
         )
 
     async def _set_update_session(
-        self, value: str, sender_client_addr: tuple[str, int] | None = None
+        self, value: str, connection: HAPConnectionHandle, deadline: float
     ) -> str:
-        deadline = self._deadline()
         request = _decode("Update Session", hksv3.WebRTCUpdateSession.decode, value)
         if request is None:
             return _status(None, _STATUS.ERROR)
-        session = self._active_session(request.session_id, sender_client_addr)
+        session = self._active_session(request.session_id, connection)
         if not isinstance(session, WebRTCSession):
             return _status(request.session_id, session)
         hook = self._delegate.handle_update_session(

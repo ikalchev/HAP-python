@@ -17,7 +17,58 @@ from pyhap.camera import Camera
 from pyhap.camera_multi_tier import MultiTierDelegate
 from pyhap.camera_stream import StreamController, StreamSession
 from pyhap.camera_webrtc import WebRTCDelegate
+from pyhap.connection import HAPConnectionHandle
+from pyhap.const import RESPONSE_TIMEOUT
+from pyhap.context import CharWriteContext
 from pyhap.loader import Loader
+
+_TEST_CONNECTIONS: dict[tuple[str, int] | None, HAPConnectionHandle] = {}
+
+
+def connection_of(client_addr: tuple[str, int] | None) -> HAPConnectionHandle:
+    """The stable handle of a test connection, one identity per address.
+
+    A controller's requests come with the handle of their connection; a
+    test that writes twice as one connection gets the same handle here.
+    """
+    handle = _TEST_CONNECTIONS.get(client_addr)
+    if handle is None:
+        handle = _TEST_CONNECTIONS[client_addr] = HAPConnectionHandle(
+            client_addr, len(_TEST_CONNECTIONS)
+        )
+    return handle
+
+
+async def client_write(
+    char: Any, value: Any, client_addr: tuple[str, int] | None = None
+) -> Any:
+    """Write a characteristic like a controller's request.
+
+    A delegate-wired characteristic goes through its delegate: the value
+    is stored, ``on_set`` runs under the write deadline and the
+    subscribers are told once it succeeded - what the driver's write
+    stage does. A handler that raises restores the previous value, like
+    the driver does. A characteristic without a delegate runs its legacy
+    ``setter_callback``, like ``client_update_value``.
+    """
+    if char.delegate is None:
+        return char.client_update_value(value, client_addr)
+    context = CharWriteContext(
+        client_addr=client_addr,
+        client_uuid=None,
+        connection=connection_of(client_addr),
+        deadline=asyncio.get_running_loop().time() + RESPONSE_TIMEOUT,
+        characteristic=char,
+        is_admin=True,
+    )
+    previous = char._store_client_value(value)
+    try:
+        response = await char.delegate.on_set(value, context)
+    except Exception:
+        char.value = previous
+        raise
+    char.client_update_finished(previous, client_addr)
+    return response
 
 
 @pytest.fixture(scope="session")
@@ -189,7 +240,9 @@ def add_session(
 
     def _add(client_addr: Any) -> StreamSession:
         session = StreamSession(
-            id=uuid4(), sensor=session_controller.sensor, client_addr=client_addr
+            id=uuid4(),
+            sensor=session_controller.sensor,
+            connection=connection_of(client_addr),
         )
         session_controller._add(session)
         return session

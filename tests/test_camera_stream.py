@@ -24,9 +24,16 @@ from pyhap.camera_stream import (
     config_from_option,
     failure_status,
 )
+from pyhap.connection import HAPConnectionHandle
+from tests.conftest import connection_of
 
 CLIENT = ("192.168.1.114", 50000)
 OTHER = ("192.168.1.115", 50000)
+
+
+def _deadline(controller: StreamController[StreamSession]) -> float:
+    """The deadline of a request that arrives now, like the write context carries."""
+    return asyncio.get_running_loop().time() + controller.hook_timeout
 
 
 @dataclass(frozen=True)
@@ -64,7 +71,7 @@ async def test_hook_result(
 ) -> None:
     """Test a hook's result comes back and the session stays."""
     session = add_session(CLIENT)
-    deadline = session_controller._deadline()
+    deadline = _deadline(session_controller)
 
     assert await session_controller._run_hook(session, "test", _hook(5), deadline) == 5
 
@@ -80,7 +87,7 @@ async def test_hook_timeout_ends_the_session(
 ) -> None:
     """Test a slow hook is cancelled, then the session is released once."""
     session = add_session(CLIENT)
-    deadline = session_controller._deadline()
+    deadline = _deadline(session_controller)
 
     with pytest.raises(HookFailed) as failed:
         await session_controller._run_hook(
@@ -114,7 +121,7 @@ async def test_hook_errors(
 
     with pytest.raises(HookFailed) as failed:
         await session_controller._run_hook(
-            session, "test", _raise(error), session_controller._deadline()
+            session, "test", _raise(error), _deadline(session_controller)
         )
 
     assert failed.value.status == status
@@ -134,7 +141,7 @@ async def test_failed_hook_may_end_the_session(
             session,
             "test",
             _raise(RuntimeError()),
-            session_controller._deadline(),
+            _deadline(session_controller),
             end_on_failure=True,
             first=True,
         )
@@ -152,7 +159,7 @@ async def test_end_releases_once(
     """Test ending twice releases a session the delegate saw exactly once."""
     session = add_session(CLIENT)
     await session_controller._run_hook(
-        session, "test", _hook(), session_controller._deadline(), first=True
+        session, "test", _hook(), _deadline(session_controller), first=True
     )
 
     first = session_controller._end(session, "first")
@@ -187,7 +194,7 @@ async def test_end_waits_for_cancelled_hooks(
     session._delegated = True
     hook = asyncio.ensure_future(
         session_controller._run_hook(
-            session, "test", _never(), session_controller._deadline()
+            session, "test", _never(), _deadline(session_controller)
         )
     )
     await asyncio.sleep(0)
@@ -229,7 +236,7 @@ async def test_release_failure_is_logged(
     assert await release_task is True
     assert message in caplog.text
     assert "after its timeout" not in caplog.text
-    assert session_controller._no_room(CLIENT) is None
+    assert session_controller._no_room(connection_of(CLIENT)) is None
 
 
 async def test_cancelled_request_ends_the_session(
@@ -240,7 +247,7 @@ async def test_cancelled_request_ends_the_session(
     session = add_session(CLIENT)
     request = asyncio.ensure_future(
         session_controller._run_hook(
-            session, "test", _never(), session_controller._deadline()
+            session, "test", _never(), _deadline(session_controller)
         )
     )
     await asyncio.sleep(0)
@@ -263,7 +270,7 @@ async def test_hook_of_ended_session(
 
     with pytest.raises(HookFailed):
         await session_controller._run_hook(
-            session, "test", hook, session_controller._deadline()
+            session, "test", hook, _deadline(session_controller)
         )
 
     assert hook.cr_frame is None
@@ -308,10 +315,32 @@ async def test_ownership(
     session = add_session(CLIENT)
     caplog.set_level(logging.DEBUG, logger="pyhap.camera_stream")
 
-    assert session_controller._owned(session.id, CLIENT) is session
-    assert session_controller._owned(session.id, OTHER) is None
-    assert session_controller._owned(uuid4(), CLIENT) is None
+    assert session_controller._owned(session.id, connection_of(CLIENT)) is session
+    assert session_controller._owned(session.id, connection_of(OTHER)) is None
+    assert session_controller._owned(uuid4(), connection_of(CLIENT)) is None
     assert "Not the controller of the session" in caplog.text
+
+
+async def test_ownership_of_a_reused_address(
+    session_controller: StreamController[StreamSession],
+    add_session: Callable[..., StreamSession],
+) -> None:
+    """Test a later connection that reuses an address does not own a session.
+
+    This is what the connection handle is for: the address alone identified
+    a connection only while it lived.
+    """
+    session = add_session(CLIENT)
+    reused = HAPConnectionHandle(CLIENT, 4096)
+
+    assert session.client_addr == CLIENT
+    assert session.connection != reused
+    assert session_controller._owned(session.id, reused) is None
+    assert session_controller._no_room(reused) is None
+
+    # The disconnect guard still ends the session by address.
+    session_controller.client_disconnected(CLIENT)
+    assert session.state is SessionState.ENDED
 
 
 async def test_add_refuses_a_taken_id(
@@ -320,7 +349,9 @@ async def test_add_refuses_a_taken_id(
 ) -> None:
     """Test a session with the ID of another one is not registered."""
     session = add_session(CLIENT)
-    twin = StreamSession(id=session.id, sensor=session.sensor, client_addr=CLIENT)
+    twin = StreamSession(
+        id=session.id, sensor=session.sensor, connection=connection_of(CLIENT)
+    )
 
     with pytest.raises(RuntimeError, match="Another session has the ID"):
         session_controller._add(twin)
@@ -414,7 +445,9 @@ def test_session_end_without_controller(
     stream_sensor: hksv3.SensorConfiguration,
 ) -> None:
     """Test a session no controller registered cannot end itself."""
-    session = StreamSession(id=uuid4(), sensor=stream_sensor, client_addr=CLIENT)
+    session = StreamSession(
+        id=uuid4(), sensor=stream_sensor, connection=connection_of(CLIENT)
+    )
 
     session.end()
 
@@ -435,7 +468,7 @@ async def test_release_after_a_stuck_hook(
     hook = _stubborn(started, finished)
     request = asyncio.ensure_future(
         session_controller._run_hook(
-            session, "test", hook, session_controller._deadline()
+            session, "test", hook, _deadline(session_controller)
         )
     )
     await started.wait()
@@ -459,17 +492,19 @@ async def test_no_room(
     """Test the limits of sessions in all and per connection."""
     add_session(CLIENT)
     add_session(CLIENT)
-    assert session_controller._no_room(CLIENT) is None
+    assert session_controller._no_room(connection_of(CLIENT)) is None
 
     add_session(CLIENT)
-    assert session_controller._no_room(CLIENT) == (
+    assert session_controller._no_room(connection_of(CLIENT)) == (
         "Too many stream sessions of the connection"
     )
-    assert session_controller._no_room(OTHER) is None
+    assert session_controller._no_room(connection_of(OTHER)) is None
 
     add_session(OTHER)
     add_session(OTHER)
-    assert session_controller._no_room(OTHER) == "Too many stream sessions"
+    assert (
+        session_controller._no_room(connection_of(OTHER)) == "Too many stream sessions"
+    )
 
 
 async def test_no_room_once_closed(
@@ -478,7 +513,10 @@ async def test_no_room_once_closed(
     """Test a closed controller takes no new session."""
     await session_controller.close()
 
-    assert session_controller._no_room(CLIENT) == "The stream service is closed"
+    assert (
+        session_controller._no_room(connection_of(CLIENT))
+        == "The stream service is closed"
+    )
 
 
 async def test_releasing_session_keeps_its_room(
@@ -500,13 +538,13 @@ async def test_releasing_session_keeps_its_room(
 
     release = session_controller._end(session, "test")
 
-    assert session_controller._no_room(CLIENT) == (
+    assert session_controller._no_room(connection_of(CLIENT)) == (
         "Too many stream sessions of the connection"
     )
     released.set()
     assert release is not None
     assert await release is True
-    assert session_controller._no_room(CLIENT) is None
+    assert session_controller._no_room(connection_of(CLIENT)) is None
 
 
 async def test_cancelled_hook_ends_the_session(
@@ -523,7 +561,7 @@ async def test_cancelled_hook_ends_the_session(
             session,
             "test",
             _raise(asyncio.CancelledError()),
-            session_controller._deadline(),
+            _deadline(session_controller),
             end_on_failure=True,
             first=True,
         )
@@ -664,5 +702,8 @@ async def test_close_gives_up_on_a_stubborn_release(
     assert unhandled == []
     assert "Releasing the session timed out" in caplog.text
     assert "Closing the stream service while 1 tasks still run" in caplog.text
-    assert session_controller._no_room(OTHER) == "The stream service is closed"
+    assert (
+        session_controller._no_room(connection_of(OTHER))
+        == "The stream service is closed"
+    )
     assert session_controller._releasing == set()
