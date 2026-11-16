@@ -157,16 +157,26 @@ class PrebufferRing:
     def snapshot(self, seconds: float) -> list[BufferedMedia]:
         """The buffered media from the latest IRAP at least ``seconds`` ago.
 
-        Fewer seconds when the ring holds less; empty without an IRAP.
+        Fewer seconds when the ring holds less; empty without an IRAP. Media
+        from before a pause of the ring's seconds or longer is left out, e.g.
+        what came before the camera went offline.
         """
-        limit = self._clock() - seconds
-        start = 0
-        for index, item in enumerate(self._items):
-            if item.arrival > limit:
+        items = list(self._items)
+        later = self._clock()
+        limit = later - seconds
+        start = len(items)
+        for index in reversed(range(len(items))):
+            item = items[index]
+            if later - item.arrival >= self.seconds:
+                # No media for the ring's seconds after this item: it and all
+                # before it are older than the ring is meant to hold.
                 break
+            later = item.arrival
             if item.keyframe:
                 start = index
-        return list(self._items)[start:]
+                if item.arrival <= limit:
+                    break
+        return items[start:]
 
     def _add(self, item: BufferedMedia) -> None:
         self._items.append(item)
