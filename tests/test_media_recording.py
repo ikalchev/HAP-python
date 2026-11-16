@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 import os
 import shutil
 import sys
@@ -447,6 +448,35 @@ async def test_one_recording_at_a_time() -> None:
         await recorder.start(CAT, 4.0)
         with pytest.raises(RuntimeError):
             await recorder.start(CAT, 4.0)
+    finally:
+        await recorder.close()
+        source.close()
+
+
+async def _stop(recorder: Recorder, _source: MediaSource) -> None:
+    await recorder.stop()
+
+
+async def _close_source(_recorder: Recorder, source: MediaSource) -> None:
+    source.close("gone")
+
+
+@pytest.mark.parametrize("end", [_stop, _close_source], ids=["stop", "source-closed"])
+async def test_end_while_the_transcoder_starts(
+    end: Callable[[Recorder, MediaSource], Awaitable[None]],
+) -> None:
+    """Verify a stop or source end while the transcoder starts leaves none."""
+    source = MediaSource()
+    await source.start()
+    recorder = Recorder(source, prebuffer=4.0)
+    try:
+        starting = asyncio.ensure_future(recorder.start(CAT, 4.0))
+        await asyncio.sleep(0)
+        await end(recorder, source)
+        with pytest.raises(RuntimeError, match="stopped while it started"):
+            await starting
+        assert not recorder.recording
+        assert recorder._process is None
     finally:
         await recorder.close()
         source.close()

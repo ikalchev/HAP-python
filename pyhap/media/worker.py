@@ -476,7 +476,9 @@ class RemoteRecorder:
                 prebuffer=prebuffer,
             )
         except BaseException:
-            self._recording = False
+            # The worker may run the transcoder all the same, e.g. when the
+            # request was cancelled before its answer.
+            await asyncio.shield(self.stop())
             raise
 
     async def stop(self) -> None:
