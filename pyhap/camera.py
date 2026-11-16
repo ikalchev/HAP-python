@@ -2133,12 +2133,17 @@ class Camera(Accessory):
         """Start the HDS listener on the HAP server's listen address(es).
 
         ``run()`` calls this. Call it directly when ``run()`` is not awaited.
-        Does nothing without the recording service.
+        Does nothing without the recording service. If
+        :meth:`stop_recording_transport` is called while this still starts,
+        nothing is left listening or armed.
         """
         if self._recording_service is not None:
+            generation = self._hds_generation
             await self._ensure_hds_listener()
-            self._recording_media_running = True
-            self._arm_recording_media()
+            # A stop that came in meanwhile has closed the delegate already.
+            if generation == self._hds_generation:
+                self._recording_media_running = True
+                self._arm_recording_media()
 
     @property
     def recording_transport_port(self) -> int | None:
