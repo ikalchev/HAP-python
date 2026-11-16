@@ -670,6 +670,12 @@ class Camera(Accessory):
         self._selected_recording_config = None
         # Last selection that decoded, the char may hold a rejected write.
         self._selected_recording_raw = None
+        # Logged once, a camera built after the driver loaded its state
+        # restores twice.
+        self._selection_dropped_logged = False
+        # A recording refused without a selection, logged once until the hub
+        # selects.
+        self._no_selection_logged = False
         self._recording_defaults = {}
         self._save_pending = False
         self._recording_changed = False
@@ -1380,6 +1386,7 @@ class Camera(Accessory):
             hksv_recording.SelectedRecordingConfiguration.decode(base64_to_bytes(value))
         )
         self._selected_recording_raw = value
+        self._no_selection_logged = False
         self.recording_configuration_selected(self._selected_recording_config)
 
     def recording_configuration_selected(self, configuration: Any) -> None:
@@ -1520,8 +1527,22 @@ class Camera(Accessory):
         # The hub does not select again after a restart, so keep the selection
         # unless the supported configuration changed.
         selected = stored.get(SELECTED_RECORDING_CHAR)
-        stale = stored.get("supported_hash") != self._supported_recording_hash()
-        if not selected or stale:
+        if not selected:
+            return
+        if stored.get("supported_hash") != self._supported_recording_hash():
+            # Only worth a warning while the hub has recording on.
+            if self.recording_active and not self._selection_dropped_logged:
+                self._selection_dropped_logged = True
+                # The refusals that follow have the same cause.
+                self._no_selection_logged = True
+                logger.warning(
+                    "%s: the supported recording configuration changed, so the "
+                    "configuration the hub selected was dropped and recordings "
+                    "are refused until the hub selects one again. Turning "
+                    "recording off and on in the Home app should make it select "
+                    "one",
+                    self.display_name,
+                )
             return
         try:
             config = hksv_recording.SelectedRecordingConfiguration.decode(
@@ -1611,6 +1632,14 @@ class Camera(Accessory):
         if self._recording_stream is not None and self._recording_stream.streaming:
             return reasons.BUSY
         if self._selected_recording_config is None:
+            if not self._no_selection_logged:
+                self._no_selection_logged = True
+                logger.warning(
+                    "%s: refused a recording, the hub has not selected a "
+                    "recording configuration. Turning recording off and on in "
+                    "the Home app should make it select one",
+                    self.display_name,
+                )
             return reasons.INVALID_CONFIGURATION
         self._recording_stream = manager
         return None
