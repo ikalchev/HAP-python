@@ -328,12 +328,15 @@ class TokenResolver:
     """An input resolver whose input holds the number of the call as a token.
 
     ``failing`` maps the number of a call to the resolver answering it
-    instead.
+    instead; ``fields`` are further fields of the inputs.
     """
 
-    def __init__(self, failing: Mapping[int, InputResolver] | None = None) -> None:
+    def __init__(
+        self, failing: Mapping[int, InputResolver] | None = None, /, **fields: Any
+    ) -> None:
         """Start without a call."""
         self.failing = failing or {}
+        self.fields = fields
         self.calls = 0
 
     async def __call__(
@@ -345,7 +348,7 @@ class TokenResolver:
         return await answer(tier)
 
     async def _resolve(self, _tier: hksv3.VideoStreamTier) -> FFmpegInput:
-        return FFmpegInput(("-i", f"cam?token={self.calls}"))
+        return FFmpegInput(("-i", f"cam?token={self.calls}"), **self.fields)
 
 
 async def raise_error(_tier: hksv3.VideoStreamTier) -> None:
@@ -582,6 +585,67 @@ async def test_stop_does_not_wait_for_a_resolve(
     assert (pull.pid, pull.restarts, len(started(fake_ffmpeg))) == (None, 0, 1)
     # Only the exit: the cut resolve is no failed start.
     assert [error.startswith("exited with") for error in errors] == [True]
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [({"key": "main-stream"}, ["1"]), ({}, ["1", "2"])],
+    ids=["key", "no-key"],
+)
+async def test_ffmpeg_provider_shares_a_channel_by_key(
+    fake_ffmpeg: Path, fields: dict[str, str], expected: list[str]
+) -> None:
+    """Verify inputs that differ share a source and an ffmpeg only by a key."""
+    worker = FakeWorker()
+    resolver = TokenResolver(**fields)
+    provider = FFmpegSourceProvider(
+        resolver, worker=cast(Any, worker), ffmpeg=str(fake_ffmpeg)
+    )
+    first = await provider.lease_channel(MEDIUM, AUDIO)
+    await first.activate()
+    second = await provider.lease_channel(MEDIUM, AUDIO)
+    await second.activate()
+    await wait_until(lambda: len(started(fake_ffmpeg)) == len(expected))
+    await first.release()
+    await second.release()
+    await provider.close()
+
+    assert len(worker.sources) == len(expected)
+    assert (first.source, second.source) == (worker.sources[0], worker.sources[-1])
+    # Each ffmpeg starts on the input of the lease that opened its channel.
+    assert sorted(tokens(fake_ffmpeg)) == expected
+    assert resolver.calls == 2
+
+
+@pytest.mark.parametrize(
+    ("fields", "shared"),
+    [
+        ({}, True),
+        ({"gop": 4.0}, True),
+        ({"audio": False}, False),
+        ({"video_map": "0:v:1"}, False),
+    ],
+    ids=["args", "gop", "audio", "video-map"],
+)
+async def test_ffmpeg_provider_key_stands_for_args_only(
+    fields: dict[str, Any], shared: bool
+) -> None:
+    """Verify a key shares a channel only between inputs differing in args."""
+    worker = FakeWorker()
+    provider = FFmpegSourceProvider(
+        {
+            "low": FFmpegInput(("-i", "cam?token=1"), key="main-stream", **fields),
+            "medium": FFmpegInput(("-i", "cam?token=2"), key="main-stream"),
+        },
+        worker=cast(Any, worker),
+    )
+    first = await provider.lease_channel(LOW, AUDIO)
+    second = await provider.lease_channel(MEDIUM, AUDIO)
+    await first.release()
+    await second.release()
+
+    assert (first.source is second.source) == shared
+    assert second.source.has_audio
 
 
 def pull_on(fake_ffmpeg: Path, gop: float = 10.0) -> FFmpegPull:

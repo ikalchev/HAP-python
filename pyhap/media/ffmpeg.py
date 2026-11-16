@@ -13,7 +13,7 @@ pulls each channel once for local and remote sessions and recordings.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Hashable, Mapping, Sequence
 import contextlib
 from dataclasses import dataclass, replace
 from functools import partial
@@ -75,6 +75,15 @@ class FFmpegInput:
     when set: ``video_map`` and ``audio_map`` select the streams, ``audio``
     turns audio off for inputs without it, and ``gop`` is the expected
     interval between IRAP pictures until the source has measured it.
+
+    ``key`` stands for ``args`` when channels are shared: inputs that differ
+    only in ``args`` and ``gop`` share one source and one ffmpeg if their
+    keys are equal; ffmpeg runs on the input resolved for the tier that
+    opened the channel. Without a key only inputs equal but for ``gop``
+    share, so an input whose arguments change from one resolve to the next,
+    such as a URL with a token that expires, needs a key to be shared. A key
+    must name one stream of the camera, not the camera: tiers of one channel
+    share its source, so switching a session between them changes nothing.
     """
 
     args: tuple[str, ...]
@@ -82,6 +91,7 @@ class FFmpegInput:
     audio_map: str | None = None
     audio: bool | None = None
     gop: float | None = None
+    key: Hashable | None = None
 
 
 InputResolver = Callable[
@@ -98,7 +108,10 @@ class FFmpegSourceProvider:
     be an async callable that resolves a tier to the same, or None when
     nothing fits. Tiers with the same input share one ffmpeg. A restart of
     ffmpeg, after an exit or for a keyframe request, calls it again: the
-    input may have expired meanwhile, e.g. a URL with a token.
+    input may have expired meanwhile, e.g. a URL with a token. Inputs with
+    the same ``key`` (see :class:`FFmpegInput`) share one ffmpeg too: give
+    such an input a key, or each lease with a new URL opens a channel with
+    an ffmpeg of its own.
 
     Video ``video_map`` is copied with ``dump_extra`` so every IRAP picture
     carries its parameter sets (an Annex B input such as RTSP; MP4 needs
@@ -185,6 +198,7 @@ class FFmpegSourceProvider:
             found.audio_map or self.audio_map,
             self.audio if found.audio is None else found.audio,
             found.gop or self.gop,
+            found.key,
         )
 
     def channel_name(self, tier: hksv3.VideoStreamTier) -> str:
@@ -281,7 +295,8 @@ class FFmpegSourceProvider:
             return pull
 
         return await self.pool.lease(
-            replace(found, gop=None),
+            # A key stands for the arguments, which may change with each resolve.
+            replace(found, args=() if found.key is not None else found.args, gop=None),
             make_pull,
             audio=bool(found.audio),
             name=name,
