@@ -669,10 +669,27 @@ class HAPServerHandler:
         if not self.is_encrypted:
             raise UnprivilegedRequestException
 
-        hap_rep = self.accessory_handler.get_accessories()
+        result = self.accessory_handler._get_accessories_for_controller(
+            cast("tuple[str, int]", self.client_address),
+            RESPONSE_TIMEOUT,
+            client_uuid=self.client_uuid,
+            connection=self.connection,
+        )
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(to_hap_json(hap_rep))
+        if inspect.isawaitable(result):
+            # A delegate read is still running, answer once it is done. The
+            # driver times out slow getters itself.
+            assert self.response is not None  # noqa: S101
+            self.response.task = asyncio.ensure_future(self._accessories_body(result))
+            return
+        assert self.response is not None  # noqa: S101
+        self.end_response(to_hap_json(result))
+
+    async def _accessories_body(self, result: Awaitable[dict[str, Any]]) -> bytes:
+        """Wait for the pending delegate reads, then answer the accessories."""
+        body: bytes = to_hap_json(await result)
+        return body
 
     def handle_get_characteristics(self) -> None:
         """Handles a client request to get certain characteristics."""
@@ -682,23 +699,50 @@ class HAPServerHandler:
         # Check that char exists and ...
         assert self.parsed_url is not None  # noqa: S101
         params = parse_qs(self.parsed_url.query)
-        response = self.accessory_handler.get_characteristics(
-            params["id"][0].split(","), cast("tuple[str, int]", self.client_address)
+        result = self.accessory_handler._get_characteristics_for_controller(
+            params["id"][0].split(","),
+            cast("tuple[str, int]", self.client_address),
+            RESPONSE_TIMEOUT,
+            client_uuid=self.client_uuid,
+            connection=self.connection,
         )
-        chars = response[HAP_REPR_CHARS]
+        assert self.response is not None  # noqa: S101
+        if inspect.isawaitable(result):
+            # A delegate read is still running, answer once it is done. The
+            # driver times out slow getters itself.
+            self.response.task = asyncio.ensure_future(
+                self._get_characteristics_body(self.response, result)
+            )
+            return
+        self._fill_get_characteristics_response(self.response, result)
+
+    def _fill_get_characteristics_response(
+        self, response: HAPResponse, result: dict[str, Any]
+    ) -> None:
+        """Fill in the response to a characteristics read."""
+        chars = result[HAP_REPR_CHARS]
 
         had_failure = any(
-            result[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS for result in chars
+            entry[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS for entry in chars
         )
         if had_failure:
-            self.send_response(HTTPStatus.MULTI_STATUS)
+            response.status_code = HTTPStatus.MULTI_STATUS.value
+            response.reason = HTTPStatus.MULTI_STATUS.phrase
         else:
-            self.send_response(HTTPStatus.OK)
-            for result in chars:
-                del result[HAP_REPR_STATUS]
+            response.status_code = HTTPStatus.OK.value
+            response.reason = HTTPStatus.OK.phrase
+            for entry in chars:
+                del entry[HAP_REPR_STATUS]
 
-        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(to_hap_json(response))
+        response.headers.append(("Content-Type", self.JSON_RESPONSE_TYPE))
+        response.body = to_hap_json(result)
+
+    async def _get_characteristics_body(
+        self, response: HAPResponse, result: Awaitable[dict[str, Any]]
+    ) -> bytes:
+        """Wait for the pending delegate reads, then fill in the read response."""
+        self._fill_get_characteristics_response(response, await result)
+        return response.body
 
     def handle_set_characteristics(self) -> None:
         """Handles a client request to update certain characteristics."""

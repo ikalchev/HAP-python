@@ -51,7 +51,12 @@ class CharacteristicDelegate:
         takes over the reads of its characteristics. The override runs
         under the context's deadline and answers the read; return the
         value, which must fit the characteristic's format like any
-        other value, or ``None`` for a null one.
+        other value, or ``None`` for a null one. Like a legacy getter's
+        answer, the value is stored on the characteristic; subscribers
+        are not told, a read is not a change. A read that misses the
+        deadline, fails or raises
+        :class:`~pyhap.errors.HapStatusError` answers its status
+        instead of a value.
         """
         raise NotImplementedError("on_get is not implemented")
 

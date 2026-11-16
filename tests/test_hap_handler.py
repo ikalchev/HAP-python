@@ -27,6 +27,8 @@ from pyhap.characteristic import (
     CharacteristicError,
 )
 from pyhap.const import HAP_PERMISSIONS, HAP_SERVER_STATUS
+from pyhap.context import CharReadContext
+from pyhap.delegates import CharacteristicDelegate
 from pyhap.service import Service
 
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
@@ -1329,3 +1331,84 @@ async def test_handle_set_characteristics_async_setter_timeout(
             b'{"characteristics":[{"status":-70408,"aid":1,"iid":9}]}'
         )
     assert response.status_code == 207
+
+
+class _GetOneDelegate(CharacteristicDelegate):
+    """Answers reads with 1."""
+
+    async def on_get(self, context: CharReadContext) -> int:
+        return 1
+
+
+class _SlowGetDelegate(CharacteristicDelegate):
+    """Never answers a read in time."""
+
+    async def on_get(self, context: CharReadContext) -> None:
+        await asyncio.sleep(10)
+
+
+def _dispatch_read_to_delegate(
+    driver: AccessoryDriver, delegate: CharacteristicDelegate, target: str
+) -> hap_handler.HAPResponse:
+    """Dispatch a GET to a readable characteristic with ``delegate``."""
+    acc = Accessory(driver, "TestAcc")
+    service = Service(uuid1(), "Test Service")
+    char = Characteristic(
+        "Value", uuid1(), {"Format": "int", "Permissions": ["pr", "pw"]}
+    )
+    char.delegate = delegate
+    service.add_characteristic(char)
+    acc.add_service(service)
+    driver.add_accessory(acc)
+    assert acc.iid_manager.get_iid(char) == 9
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+    request = h11.Request(method="GET", target=target, headers=[(b"host", b"t")])
+    return handler.dispatch(request, None)
+
+
+async def test_handle_get_characteristics_waits_for_delegate(
+    driver: AccessoryDriver,
+) -> None:
+    """A read of a delegate char is answered once on_get is done."""
+    response = _dispatch_read_to_delegate(
+        driver, _GetOneDelegate(), "/characteristics?id=1.9"
+    )
+
+    assert response.task is not None
+    assert await response.task == b'{"characteristics":[{"aid":1,"iid":9,"value":1}]}'
+    assert response.status_code == 200
+    assert response.headers == [("Content-Type", "application/hap+json")]
+
+
+async def test_handle_get_characteristics_delegate_timeout(
+    driver: AccessoryDriver,
+) -> None:
+    """A slow on_get answers -70408 for its characteristic."""
+    with patch.object(hap_handler, "RESPONSE_TIMEOUT", 0.01):
+        response = _dispatch_read_to_delegate(
+            driver, _SlowGetDelegate(), "/characteristics?id=1.9"
+        )
+        assert response.task is not None
+        assert await response.task == (
+            b'{"characteristics":[{"aid":1,"iid":9,"status":-70408}]}'
+        )
+    assert response.status_code == 207
+
+
+async def test_handle_accessories_waits_for_delegate(driver: AccessoryDriver) -> None:
+    """An accessories request is answered once its delegate reads are done."""
+    response = _dispatch_read_to_delegate(driver, _GetOneDelegate(), "/accessories")
+
+    assert response.task is not None
+    body = json.loads(await response.task)
+    (rep,) = [
+        rep
+        for acc_rep in body["accessories"]
+        for service_rep in acc_rep["services"]
+        for rep in service_rep["characteristics"]
+        if rep["iid"] == 9
+    ]
+    assert rep["value"] == 1
+    assert response.status_code == 200

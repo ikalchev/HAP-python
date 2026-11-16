@@ -202,6 +202,38 @@ sessions belong to the connection that set them up, by
 :class:`~pyhap.connection.HAPConnectionHandle`, so a later connection that
 reuses a closed one's address cannot control them.
 
+Delegate reads
+================
+
+Reads await delegates the same way writes do — this is the point of the
+getter and the setter having the same async-ness. ``GET
+/characteristics`` and ``GET /accessories`` await the ``on_get`` of every
+delegate-backed characteristic of the request, concurrently, under the
+same deadline as a write:
+
+* a read that misses the deadline answers ``-70408`` for its
+  characteristic; cancelling the response — e.g. because the connection
+  closed — cancels the reads, like it cancels writes;
+* a failing read answers its status: a raised
+  :class:`pyhap.errors.HapStatusError` answers its code, anything else
+  ``-70402``. The accessories list carries no per-characteristic status,
+  so there a failing read lists its characteristic without a value,
+  like a failing getter does;
+* the answer is validated like any value, then stored on the
+  characteristic — like a legacy getter's answer. Subscribers are not
+  told: a read is not a change.
+
+A write response still wins over ``on_get``: the connection that wrote a
+``read_back_response`` characteristic reads back what it wrote, and the
+other connections read ``on_get``'s answer.
+
+Direct calls cannot await: ``driver.get_characteristics(...)`` and
+``driver.get_accessories()`` answer the stored values at once and run the
+delegate reads as a job without a deadline, like a direct write runs its
+setters. The HAP representation cache skips delegate-backed
+characteristics, as it skips getter-backed ones, since a read may answer
+something else than the stored value.
+
 Delegate subscriptions
 ======================
 

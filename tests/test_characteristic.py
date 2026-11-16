@@ -607,6 +607,29 @@ def test_delegate_assignment() -> None:
     assert char.delegate is None
 
 
+def test_to_HAP_cache_skips_delegate() -> None:
+    """A delegate-backed characteristic is not served from the value cache.
+
+    Its ``on_get`` may answer something else than the stored value, like a
+    getter-backed one.
+    """
+    char = Characteristic(
+        display_name="Test Char", type_id="A1", properties=PROPERTIES.copy()
+    )
+    char.broker = Mock()
+
+    # Without a delegate the representation is cached.
+    assert char.to_HAP() is char.to_HAP()
+
+    char.delegate = _AsyncGetter()
+
+    # With one it is rebuilt, so it always answers the current value.
+    assert char.to_HAP() is not char.to_HAP()
+    char.set_value(3)
+    assert char.to_HAP()["value"] == 3
+    assert char.to_HAP(include_value=False) is char.to_HAP(include_value=False)
+
+
 def test_delegate_conflicts_with_legacy_callbacks() -> None:
     """Either a delegate or the legacy callbacks, never both."""
     char = get_char(PROPERTIES)

@@ -63,6 +63,7 @@ from pyhap.const import (
     HAP_REPR_CHARS,
     HAP_REPR_IID,
     HAP_REPR_PID,
+    HAP_REPR_SERVICES,
     HAP_REPR_STATUS,
     HAP_REPR_TTL,
     HAP_REPR_VALUE,
@@ -251,6 +252,26 @@ class _ConnectionWrites:
 
     def __init__(self) -> None:
         self.alive = True
+
+
+class _DelegateRead(NamedTuple):
+    """A delegate-backed read of one characteristic.
+
+    ``rep`` is the HAP entry the read answers; the caller's ``answer``
+    callback fills it with the value or the failure status.
+    """
+
+    rep: dict[str, Any]
+    char: Characteristic
+    delegate: CharacteristicDelegate
+
+
+def _ignore_read_answer(read: _DelegateRead, value: Any, status: int | None) -> None:
+    """Drop the rep answer of a background read of a direct call.
+
+    A direct call answers the stored values at once; the background job
+    only refreshes them, so its per-read answer has nothing left to fill.
+    """
 
 
 class _DelegateWrite(NamedTuple):
@@ -1266,6 +1287,11 @@ class AccessoryDriver:
            }
 
         :rtype: dict
+
+        A direct call answers the stored values of delegate-backed
+        characteristics and runs their reads as a job without a deadline,
+        like a direct write runs its setters; a controller's request
+        awaits them through their ``on_get`` instead.
         """
         assert self.accessory is not None  # noqa: S101
         hap_rep = self.accessory.to_HAP(include_value=include_value)
@@ -1273,8 +1299,93 @@ class AccessoryDriver:
             hap_rep = [
                 hap_rep,
             ]
+        if include_value:
+            # A direct call answers the stored values of delegate-backed
+            # characteristics and runs their reads as a job, like a direct
+            # write runs its setters; a controller's request awaits them
+            # instead, see ``_get_accessories_for_controller``.
+            reads = self._collect_accessory_reads(hap_rep)
+            if reads:
+                self.add_job(
+                    self._read_delegate_values,
+                    reads,
+                    self._request_context(None, None, None, None),
+                    _ignore_read_answer,
+                )
         logger.debug("Get accessories response: %s", hap_rep)
         return {HAP_REPR_ACCS: hap_rep}
+
+    def _get_accessories_for_controller(
+        self,
+        client_addr: tuple[str, int],
+        timeout: float,
+        *,
+        client_uuid: UUID | None = None,
+        connection: HAPConnectionHandle | None = None,
+    ) -> dict[str, Any] | Awaitable[dict[str, Any]]:
+        """Answer a controller's accessories request, awaiting delegate reads.
+
+        Returns an awaitable of the response when a readable characteristic
+        is delegate-backed: its ``on_get`` runs under the deadline like a
+        write's callbacks, and a read that fails or misses it answers its
+        characteristic without a value, like a failing getter does.
+        """
+        assert self.accessory is not None  # noqa: S101
+        hap_rep = self.accessory.to_HAP()
+        if not isinstance(hap_rep, list):
+            hap_rep = [
+                hap_rep,
+            ]
+        reads = self._collect_accessory_reads(hap_rep)
+        if reads:
+            return self._read_accessories_response(
+                hap_rep,
+                reads,
+                self._request_context(client_addr, client_uuid, connection, timeout),
+            )
+        return {HAP_REPR_ACCS: hap_rep}
+
+    async def _read_accessories_response(
+        self,
+        hap_rep: list[dict[str, Any]],
+        reads: list[_DelegateRead],
+        context: Context,
+    ) -> dict[str, Any]:
+        """Answer the delegate reads of an accessories request."""
+        await self._read_delegate_values(reads, context, self._answer_accessory_read)
+        return {HAP_REPR_ACCS: hap_rep}
+
+    def _collect_accessory_reads(
+        self, hap_rep: list[dict[str, Any]]
+    ) -> list[_DelegateRead]:
+        """Pair the delegate-backed readable characteristics with their reps."""
+        accessory = self.accessory
+        reads: list[_DelegateRead] = []
+        if accessory is None:
+            return reads
+        reps_by_iid: dict[tuple[Any, Any], dict[str, Any]] = {}
+        for acc_rep in hap_rep:
+            for service_rep in acc_rep.get(HAP_REPR_SERVICES, ()):
+                for rep in service_rep.get(HAP_REPR_CHARS, ()):
+                    reps_by_iid[(acc_rep[HAP_REPR_AID], rep[HAP_REPR_IID])] = rep
+        accessories: list[Accessory] = (
+            [accessory, *accessory.accessories.values()]
+            if isinstance(accessory, Bridge)
+            else [accessory]
+        )
+        for acc in accessories:
+            for service in acc.services:
+                for char in service.characteristics:
+                    if char.delegate is None:
+                        continue
+                    if HAP_PERMISSION_READ not in char.properties[PROP_PERMISSIONS]:
+                        continue
+                    # An unpublished accessory has no (AID, IID) pair in the
+                    # response, so it has no rep to answer either.
+                    rep = reps_by_iid.get((acc.aid, acc.iid_manager.get_iid(char)))
+                    if rep is not None:
+                        reads.append(_DelegateRead(rep, char, char.delegate))
+        return reads
 
     def get_characteristics(
         self, char_ids: Any, client_addr: tuple[str, int] | None = None
@@ -1301,12 +1412,78 @@ class AccessoryDriver:
            }
 
         :rtype: dict
+
+        A characteristic with a delegate answers its stored value here:
+        ``on_get`` is async, so a direct call answers at once and runs the
+        reads as a job without a deadline, like a direct write runs its
+        setters. A controller's read goes through
+        ``_get_characteristics_for_controller`` instead and awaits them.
+        """
+        chars, reads = self._collect_characteristic_reads(char_ids, client_addr)
+        if reads:
+            self.add_job(
+                self._read_delegate_values,
+                reads,
+                self._request_context(client_addr, None, None, None),
+                _ignore_read_answer,
+            )
+        logger.debug("Get chars response: %s", chars)
+        return {HAP_REPR_CHARS: chars}
+
+    def _get_characteristics_for_controller(
+        self,
+        char_ids: Any,
+        client_addr: tuple[str, int],
+        timeout: float,
+        *,
+        client_uuid: UUID | None = None,
+        connection: HAPConnectionHandle | None = None,
+    ) -> dict[str, Any] | Awaitable[dict[str, Any]]:
+        """Read characteristics for a controller, awaiting the delegate reads.
+
+        Returns an awaitable of the response when a read characteristic is
+        delegate-backed: its ``on_get`` runs under the deadline and a read
+        not done by it answers ``-70408``. Cancelling the awaitable, e.g.
+        because the connection closed, cancels the reads. Reads of legacy
+        characteristics run inline as before; a mixed request answers its
+        legacy parts in the same pass and its delegate parts once they
+        are done.
+        """
+        chars, reads = self._collect_characteristic_reads(char_ids, client_addr)
+        if reads:
+            return self._read_characteristics_response(
+                chars,
+                reads,
+                self._request_context(client_addr, client_uuid, connection, timeout),
+            )
+        return {HAP_REPR_CHARS: chars}
+
+    async def _read_characteristics_response(
+        self,
+        chars: list[dict[str, Any]],
+        reads: list[_DelegateRead],
+        context: Context,
+    ) -> dict[str, Any]:
+        """Answer the delegate reads of a characteristics request."""
+        await self._read_delegate_values(reads, context, self._answer_char_read)
+        return {HAP_REPR_CHARS: chars}
+
+    def _collect_characteristic_reads(
+        self, char_ids: Any, client_addr: tuple[str, int] | None
+    ) -> tuple[list[dict[str, Any]], list[_DelegateRead]]:
+        """Answer a read per requested characteristic, collecting delegate reads.
+
+        Legacy getters run inline, exactly as before. A characteristic with
+        a delegate answers its stored value optimistically and its read is
+        collected for the caller to run: a controller's request awaits it
+        through ``on_get``, a direct call runs it as a background job.
         """
         assert self.accessory is not None  # noqa: S101
         write_responses = (
             self._write_responses.get(client_addr, {}) if client_addr else {}
         )
         chars = []
+        reads: list[_DelegateRead] = []
         for aid_iid in char_ids:
             aid, iid = (int(i) for i in aid_iid.split("."))
             rep = {
@@ -1343,12 +1520,19 @@ class AccessoryDriver:
                             HAP_SERVER_STATUS.WRITE_ONLY_CHARACTERISTIC
                         )
                     elif available:
-                        rep[HAP_REPR_VALUE] = (
-                            write_responses[char]
-                            if char in write_responses
-                            else char.get_value()
-                        )
-                        rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
+                        if char in write_responses:
+                            # The connection that wrote reads its write
+                            # response back; it wins over any read callback.
+                            rep[HAP_REPR_VALUE] = write_responses[char]
+                            rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
+                        elif char.delegate is not None:
+                            # Optimistic, the caller runs the read.
+                            rep[HAP_REPR_VALUE] = char.value
+                            rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
+                            reads.append(_DelegateRead(rep, char, char.delegate))
+                        else:
+                            rep[HAP_REPR_VALUE] = char.get_value()
+                            rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             except HapStatusError as e:
                 # The getter answers the controller with its own HAP status.
                 logger.debug(
@@ -1372,8 +1556,7 @@ class AccessoryDriver:
                 )
 
             chars.append(rep)
-        logger.debug("Get chars response: %s", chars)
-        return {HAP_REPR_CHARS: chars}
+        return chars, reads
 
     def derive_session_key(
         self, client_addr: tuple[str, int] | None, salt: bytes, info: bytes
@@ -1901,7 +2084,7 @@ class AccessoryDriver:
 
     def _request_context(
         self,
-        client_addr: tuple[str, int],
+        client_addr: tuple[str, int] | None,
         client_uuid: UUID | None,
         connection: HAPConnectionHandle | None,
         timeout: float | None,
@@ -1910,7 +2093,9 @@ class AccessoryDriver:
 
         A direct call has no controller waiting on a timeout, so a
         ``timeout`` of ``None`` means no deadline. A call without a
-        connection gets a handle that belongs to no connection.
+        connection gets a handle that belongs to no connection; its
+        address is ``None`` when it has no controller at all, e.g. a
+        direct read.
         """
         if connection is None:
             connection = HAPConnectionHandle(None, self._next_connection_generation())
@@ -1928,6 +2113,142 @@ class AccessoryDriver:
         if math.isinf(deadline):
             return None
         return max(0.0, deadline - time.monotonic())
+
+    async def _read_delegate_values(
+        self,
+        reads: list[_DelegateRead],
+        context: Context,
+        answer: Callable[[_DelegateRead, Any, int | None], None],
+    ) -> None:
+        """Run the delegate reads of a request concurrently, answering each.
+
+        Every read runs under the context's deadline; one that is not done
+        by it is cancelled and answers ``-70408``. Its answer is validated
+        and stored like a legacy getter's, then handed to ``answer`` with
+        the rep it fills - a failure arrives with its status instead of
+        a value.
+        """
+        tasks: dict[asyncio.Future[Any], _DelegateRead] = {}
+        for read in reads:
+            char_context = CharReadContext(
+                client_addr=context.client_addr,
+                client_uuid=context.client_uuid,
+                connection=context.connection,
+                deadline=context.deadline,
+                characteristic=read.char,
+            )
+            try:
+                tasks[asyncio.ensure_future(read.delegate.on_get(char_context))] = read
+            except TypeError:
+                logger.exception(
+                    "%s: on_get of %s is not a coroutine function",
+                    context.client_addr,
+                    read.char.display_name,
+                )
+                self._finish_read(
+                    read,
+                    answer,
+                    HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
+                )
+        if not tasks:
+            return
+        try:
+            done, not_done = await asyncio.wait(
+                tasks, timeout=self._remaining(context.deadline)
+            )
+        except asyncio.CancelledError:
+            for task in tasks:
+                task.cancel()
+                task.add_done_callback(_retrieve_late_result)
+            raise
+        for task in not_done:
+            task.cancel()
+            task.add_done_callback(_retrieve_late_result)
+            read = tasks[task]
+            logger.warning(
+                "%s: Timed out getting characteristic %s",
+                context.client_addr,
+                read.char.display_name,
+            )
+            self._finish_read(read, answer, HAP_SERVER_STATUS.OPERATION_TIMED_OUT)
+        for task in done:
+            read = tasks[task]
+            try:
+                value = task.result()
+            except HapStatusError as e:
+                # The read answers the controller with its own HAP status.
+                logger.debug(
+                    "%s: Characteristic %s answered status %s",
+                    context.client_addr,
+                    read.char.display_name,
+                    e.status,
+                )
+                self._finish_read(read, answer, e.status)
+            except Exception:
+                logger.exception(
+                    "%s: Error getting value for characteristic %s",
+                    context.client_addr,
+                    read.char.display_name,
+                )
+                self._finish_read(
+                    read, answer, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+                )
+            else:
+                self._finish_read(read, answer, None, value)
+
+    @staticmethod
+    def _finish_read(
+        read: _DelegateRead,
+        answer: Callable[[_DelegateRead, Any, int | None], None],
+        status: int | None,
+        value: Any = None,
+    ) -> None:
+        """Validate and store a delegate's read answer, then shape its rep.
+
+        Like a legacy getter's answer, the value is stored on the
+        characteristic - subscribers are not told, a read is not a change.
+        An answer that does not fit the characteristic's format fails with
+        ``-70402``, like a getter's would.
+        """
+        if status is None:
+            try:
+                if read.char._always_null or value is None:
+                    value = None
+                else:
+                    value = read.char.to_valid_value(value)
+                read.char.value = value
+            except Exception:
+                logger.exception(
+                    "Error while storing the value read of characteristic %s",
+                    read.char.display_name,
+                )
+                value = None
+                status = HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+        answer(read, value, status)
+
+    @staticmethod
+    def _answer_char_read(read: _DelegateRead, value: Any, status: int | None) -> None:
+        """Answer a characteristics read: the value or the failure status."""
+        if status is None:
+            read.rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
+            read.rep[HAP_REPR_VALUE] = value
+        else:
+            read.rep.pop(HAP_REPR_VALUE, None)
+            read.rep[HAP_REPR_STATUS] = status
+
+    @staticmethod
+    def _answer_accessory_read(
+        read: _DelegateRead, value: Any, status: int | None
+    ) -> None:
+        """Answer an accessories read, which carries no per-char status.
+
+        A failure lists the characteristic without a value, like a failing
+        getter does.
+        """
+        if status is None:
+            read.rep[HAP_REPR_VALUE] = value
+        else:
+            read.rep.pop(HAP_REPR_VALUE, None)
 
     async def _dispatch_delegates(
         self,

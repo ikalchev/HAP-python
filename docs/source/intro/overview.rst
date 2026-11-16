@@ -135,6 +135,17 @@ applies its write — and a refused or failed write restores the
 previous value and answers its status. The full contract lives in
 :doc:`/advanced/async`.
 
+A controller's read
+-------------------
+
+Reads are served by the same two interfaces: a getter callback runs
+inline and answers at once, while the ``on_get`` of a delegate-backed
+characteristic is awaited — concurrently with the rest of the request,
+under a deadline — so a getter may do IO without blocking the loop. Its
+answer is validated, stored on the characteristic and sent to the
+reading controller; a read that fails answers its status, and one bad
+characteristic never fails the whole request.
+
 A value change to subscribers
 -----------------------------
 

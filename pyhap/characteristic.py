@@ -372,6 +372,11 @@ class Characteristic:
     def get_value(self) -> Any:
         """This is to allow for calling `getter_callback`
 
+        The legacy read: runs ``getter_callback`` when one is set and stores
+        its answer. A delegate-backed characteristic answers its stored value
+        here — the driver's read path calls its ``on_get`` instead, see
+        :class:`~pyhap.delegates.CharacteristicDelegate`.
+
         :return: Current Characteristic Value
         """
         if self.getter_callback:
@@ -593,7 +598,11 @@ class Characteristic:
         :rtype: dict
         """
         if include_value:
-            if self._to_hap_cache_with_value is not None and not self.getter_callback:
+            if (
+                self._to_hap_cache_with_value is not None
+                and self.getter_callback is None
+                and self.delegate is None
+            ):
                 return self._to_hap_cache_with_value
         elif self._to_hap_cache is not None:
             return self._to_hap_cache
@@ -643,8 +652,10 @@ class Characteristic:
 
         if not include_value:
             self._to_hap_cache = hap_rep
-        elif not self.getter_callback:
-            # Only cache if there is no getter_callback
+        elif self.getter_callback is None and self.delegate is None:
+            # Only cache if nothing answers reads dynamically: a getter
+            # callback or a delegate's on_get may answer something else
+            # than the stored value.
             self._to_hap_cache_with_value = hap_rep
         return hap_rep
 

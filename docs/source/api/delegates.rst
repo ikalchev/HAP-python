@@ -65,16 +65,16 @@ above, and answers with the per-characteristic statuses. The subscription
 hooks dispatch too: ``on_subscribe`` and ``on_unsubscribe`` run when a
 controller (un)subscribes, isolated from the request, and
 ``on_unsubscribe`` again when its connection closes while subscribed.
-pyhap's own camera stack writes through delegates - every characteristic
-its camera code answers is served by one, and its stream sessions belong
-to the connection that set them up, by
-:class:`~pyhap.connection.HAPConnectionHandle`. Reads still use the
-legacy path - the async read pipeline is the last piece of the callback
-interface refactor that follows. The legacy
+Reads dispatch as well: the ``on_get`` of a delegate-backed characteristic
+answers ``GET /characteristics`` and ``GET /accessories`` under the read
+deadline, like a write's callbacks. pyhap's own camera stack uses delegates
+for everything its camera code answers - its reads, writes, its stream
+sessions belong to the connection that set them up, by
+:class:`~pyhap.connection.HAPConnectionHandle`. The legacy
 :attr:`~pyhap.characteristic.Characteristic.setter_callback` /
 :attr:`~pyhap.characteristic.Characteristic.getter_callback` attributes
-keep working unchanged for code that uses them alone, and are deprecated
-once the read pipeline dispatches delegates too.
+keep working unchanged for code that uses them alone; their deprecation
+is announced separately when it happens.
 
 A request may mix both interfaces. A characteristic with a legacy
 callback keeps its legacy dispatch, byte for byte, unless its service

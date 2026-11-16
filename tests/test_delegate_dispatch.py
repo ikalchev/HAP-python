@@ -1,15 +1,16 @@
-"""Tests for the delegate write dispatch of the driver."""
+"""Tests for the delegate dispatch of the driver."""
 
 import asyncio
 from collections.abc import Mapping
 import inspect
+import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid1, uuid4
 
 import pytest
 
-from pyhap.accessory import STANDALONE_AID, Accessory
+from pyhap.accessory import STANDALONE_AID, Accessory, Bridge
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.characteristic import (
     HAP_FORMAT_INT,
@@ -23,9 +24,11 @@ from pyhap.const import (
     HAP_PERMISSION_NOTIFY,
     HAP_PERMISSION_WRITE,
     HAP_PERMISSION_WRITE_RESPONSE,
+    HAP_REPR_ACCS,
     HAP_REPR_AID,
     HAP_REPR_CHARS,
     HAP_REPR_IID,
+    HAP_REPR_SERVICES,
     HAP_REPR_STATUS,
     HAP_REPR_VALUE,
     HAP_REPR_WRITE_RESPONSE,
@@ -35,6 +38,7 @@ from pyhap.context import CharReadContext, CharWriteContext, ServiceWriteContext
 from pyhap.delegates import CharacteristicDelegate, ServiceDelegate
 from pyhap.errors import HapStatusError
 from pyhap.service import Service
+from tests.conftest import connection_of
 
 WRITER = ("1.2.3.4", 5)
 OTHER_CONTROLLER = ("5.6.7.8", 9)
@@ -131,6 +135,58 @@ def _status_of(
     raise AssertionError(f"No result for {char}")
 
 
+async def _read_chars(
+    driver: AccessoryDriver,
+    acc: Accessory,
+    chars: list[Characteristic],
+    client: Any = WRITER,
+    timeout: float = ASYNC_TIMEOUT,
+    client_uuid: UUID | None = None,
+    connection: HAPConnectionHandle | None = None,
+) -> dict[str, Any]:
+    """Read ``chars`` like a controller and wait for the dispatch."""
+    result = driver._get_characteristics_for_controller(
+        [f"{acc.aid}.{acc.iid_manager.get_iid(char)}" for char in chars],
+        client,
+        timeout,
+        client_uuid=client_uuid,
+        connection=connection,
+    )
+    if inspect.isawaitable(result):
+        result = await result
+    return result
+
+
+def _read_of(
+    result: dict[str, Any], acc: Accessory, char: Characteristic
+) -> dict[str, Any]:
+    """The rep one characteristic was answered with."""
+    aid = acc.aid
+    assert aid is not None
+    iid = acc.iid_manager.get_iid(char)
+    for entry in result[HAP_REPR_CHARS]:
+        if entry[HAP_REPR_AID] == aid and entry[HAP_REPR_IID] == iid:
+            return entry
+    raise AssertionError(f"No result for {char}")
+
+
+def _accessories_rep_of(
+    response: dict[str, Any], acc: Accessory, char: Characteristic
+) -> dict[str, Any]:
+    """The accessories rep of one characteristic."""
+    aid = acc.aid
+    assert aid is not None
+    iid = acc.iid_manager.get_iid(char)
+    for acc_rep in response[HAP_REPR_ACCS]:
+        if acc_rep[HAP_REPR_AID] != aid:
+            continue
+        for service_rep in acc_rep[HAP_REPR_SERVICES]:
+            for rep in service_rep[HAP_REPR_CHARS]:
+                if rep[HAP_REPR_IID] == iid:
+                    return rep
+    raise AssertionError(f"No rep for {char}")
+
+
 class _CharDelegate(CharacteristicDelegate):
     """A characteristic delegate that records its calls."""
 
@@ -143,6 +199,25 @@ class _CharDelegate(CharacteristicDelegate):
 
     async def on_set(self, value: Any, context: CharWriteContext) -> Any:
         self.calls.append((value, context))
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        if self.release is not None:
+            await self.release.wait()
+        return self.answer
+
+
+class _GetDelegate(CharacteristicDelegate):
+    """A characteristic delegate that records its reads."""
+
+    def __init__(
+        self, answer: Any = None, release: asyncio.Event | None = None
+    ) -> None:
+        self.calls: list[CharReadContext] = []
+        self.answer = answer
+        self.release = release
+
+    async def on_get(self, context: CharReadContext) -> Any:
+        self.calls.append(context)
         if isinstance(self.answer, Exception):
             raise self.answer
         if self.release is not None:
@@ -726,3 +801,257 @@ async def test_direct_set_characteristics_schedules_delegates(
         assert context.connection.client_addr is None
         assert context.deadline == float("inf")
         notify.assert_called_once_with(WRITER)
+
+
+async def test_on_get_receives_a_full_context(driver: AccessoryDriver) -> None:
+    """A controller read runs on_get and answers its value."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    client_uuid = uuid4()
+    connection = connection_of(WRITER)
+    delegate = _GetDelegate(answer=11)
+    char.delegate = delegate
+    before = time.monotonic()
+
+    result = await _read_chars(
+        driver, acc, [char], client_uuid=client_uuid, connection=connection
+    )
+
+    rep = _read_of(result, acc, char)
+    assert rep[HAP_REPR_VALUE] == 11
+    assert rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SUCCESS
+    # The answer is stored on the characteristic, like a getter's.
+    assert char.value == 11
+    (context,) = delegate.calls
+    assert context.characteristic is char
+    assert context.client_addr == WRITER
+    assert context.client_uuid == client_uuid
+    assert context.connection is connection
+    assert before <= context.deadline <= time.monotonic() + ASYNC_TIMEOUT
+
+
+async def test_on_get_timeout_answers_70408(driver: AccessoryDriver) -> None:
+    """An on_get that misses the deadline answers -70408, keeping the value."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    char.set_value(3)
+    char.delegate = _GetDelegate(release=asyncio.Event())
+
+    result = await _read_chars(driver, acc, [char], timeout=0.01)
+
+    rep = _read_of(result, acc, char)
+    assert rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.OPERATION_TIMED_OUT
+    assert HAP_REPR_VALUE not in rep
+    assert char.value == 3
+
+
+async def test_on_get_hap_status_answers(driver: AccessoryDriver) -> None:
+    """A curated HapStatusError of on_get answers its status."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    char.delegate = _GetDelegate(answer=HapStatusError(HAP_SERVER_STATUS.RESOURCE_BUSY))
+
+    result = await _read_chars(driver, acc, [char])
+
+    rep = _read_of(result, acc, char)
+    assert rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.RESOURCE_BUSY
+    assert HAP_REPR_VALUE not in rep
+
+
+async def test_on_get_failure_answers_70402(driver: AccessoryDriver) -> None:
+    """Any other exception of on_get answers -70402."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    char.delegate = _GetDelegate(answer=RuntimeError("no"))
+
+    result = await _read_chars(driver, acc, [char])
+
+    rep = _read_of(result, acc, char)
+    assert rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+    assert HAP_REPR_VALUE not in rep
+
+
+async def test_on_get_not_a_coroutine_function(driver: AccessoryDriver) -> None:
+    """An on_get that is not a coroutine function answers -70402."""
+
+    class _SyncGet(CharacteristicDelegate):
+        def on_get(self, context: CharReadContext) -> Any:
+            return 1
+
+    acc, _, (char,) = _add_service_with_chars(driver)
+    char.delegate = _SyncGet()
+
+    result = await _read_chars(driver, acc, [char])
+
+    rep = _read_of(result, acc, char)
+    assert rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+
+
+async def test_on_get_null_answer(driver: AccessoryDriver) -> None:
+    """An on_get returning None answers the null value."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    char.delegate = _GetDelegate(answer=None)
+
+    result = await _read_chars(driver, acc, [char])
+
+    rep = _read_of(result, acc, char)
+    assert rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SUCCESS
+    assert rep[HAP_REPR_VALUE] is None
+    assert char.value is None
+
+
+async def test_on_get_answer_is_validated(driver: AccessoryDriver) -> None:
+    """An answer is coerced to the format; one that does not fit answers -70402."""
+    acc, _, (coerced, broken) = _add_service_with_chars(driver, count=2)
+    coerced.delegate = _GetDelegate(answer=5.7)
+    broken.delegate = _GetDelegate(answer="not an int")
+
+    result = await _read_chars(driver, acc, [coerced, broken])
+
+    coerced_rep = _read_of(result, acc, coerced)
+    assert coerced_rep[HAP_REPR_VALUE] == 5
+    assert coerced_rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SUCCESS
+    broken_rep = _read_of(result, acc, broken)
+    assert (
+        broken_rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+    )
+    assert HAP_REPR_VALUE not in broken_rep
+
+
+async def test_read_mixes_legacy_getter_and_delegate(driver: AccessoryDriver) -> None:
+    """A request reads its legacy chars inline, its delegate chars awaited."""
+    acc, _, (legacy, delegated) = _add_service_with_chars(driver, count=2)
+    legacy.getter_callback = lambda: 7  # noqa: E731
+    delegated.delegate = _GetDelegate(answer=11)
+
+    result = await _read_chars(driver, acc, [legacy, delegated])
+
+    legacy_rep = _read_of(result, acc, legacy)
+    assert legacy_rep[HAP_REPR_VALUE] == 7
+    assert legacy_rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SUCCESS
+    delegated_rep = _read_of(result, acc, delegated)
+    assert delegated_rep[HAP_REPR_VALUE] == 11
+    assert delegated_rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SUCCESS
+
+
+async def test_write_response_wins_over_on_get(driver: AccessoryDriver) -> None:
+    """The connection that wrote reads its write response back, not on_get."""
+    acc, _, (char,) = _add_service_with_chars(
+        driver,
+        permissions=[
+            HAP_PERMISSION_READ,
+            HAP_PERMISSION_WRITE,
+            HAP_PERMISSION_WRITE_RESPONSE,
+        ],
+    )
+    char.read_back_response = True
+    char.delegate = _CharDelegate(answer=7)
+    await _write_chars(driver, acc, [(char, 5)], write_response=True)
+    char.delegate = _GetDelegate(answer=11)
+
+    writer_result = await _read_chars(driver, acc, [char], client=WRITER)
+    other_result = await _read_chars(driver, acc, [char], client=OTHER_CONTROLLER)
+
+    assert _read_of(writer_result, acc, char)[HAP_REPR_VALUE] == 7
+    assert _read_of(other_result, acc, char)[HAP_REPR_VALUE] == 11
+
+
+async def test_direct_get_characteristics_answers_stored_and_schedules(
+    driver: AccessoryDriver,
+) -> None:
+    """A direct read answers the stored value and runs the reads as a job."""
+    driver.loop = asyncio.get_running_loop()
+    acc, _, (char,) = _add_service_with_chars(driver)
+    char.set_value(3)
+    delegate = _GetDelegate(answer=11)
+    char.delegate = delegate
+    char_id = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
+
+    result = driver.get_characteristics([char_id])
+
+    (rep,) = result[HAP_REPR_CHARS]
+    # The optimistic answer of a direct call, like a coroutine setter's.
+    assert rep[HAP_REPR_VALUE] == 3
+    assert rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SUCCESS
+    assert delegate.calls == []
+
+    await _run_scheduled_jobs()
+
+    assert char.value == 11
+    (context,) = delegate.calls
+    assert context.characteristic is char
+    assert context.client_addr is None
+    assert context.connection.client_addr is None
+    assert context.deadline == float("inf")
+
+
+async def test_on_get_answers_an_accessories_request(driver: AccessoryDriver) -> None:
+    """An accessories request reads delegate-backed chars through on_get."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    delegate = _GetDelegate(answer=11)
+    char.delegate = delegate
+
+    result = driver._get_accessories_for_controller(WRITER, ASYNC_TIMEOUT)
+    assert inspect.isawaitable(result)
+    response = await result
+
+    rep = _accessories_rep_of(response, acc, char)
+    assert rep[HAP_REPR_VALUE] == 11
+    assert char.value == 11
+    assert len(delegate.calls) == 1
+
+
+async def test_accessories_request_failure_lists_no_value(
+    driver: AccessoryDriver,
+) -> None:
+    """A failing read of an accessories request lists the char without a value."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    char.set_value(3)
+    char.delegate = _GetDelegate(answer=RuntimeError("no"))
+
+    result = driver._get_accessories_for_controller(WRITER, ASYNC_TIMEOUT)
+    assert inspect.isawaitable(result)
+    response = await result
+
+    rep = _accessories_rep_of(response, acc, char)
+    assert HAP_REPR_VALUE not in rep
+    assert char.value == 3
+
+
+async def test_accessories_request_reads_bridged_accessories(
+    driver: AccessoryDriver,
+) -> None:
+    """A bridged accessories request reads the bridged delegate chars too."""
+    bridge = Bridge(driver, "Test Bridge")
+    acc = Accessory(driver, "Bridged")
+    service = Service(uuid1(), "Test Service")
+    char = Characteristic("Value", uuid1(), CHAR_PROPS)
+    service.add_characteristic(char)
+    acc.add_service(service)
+    bridge.add_accessory(acc)
+    driver.add_accessory(bridge)
+    char.delegate = _GetDelegate(answer=11)
+
+    result = driver._get_accessories_for_controller(WRITER, ASYNC_TIMEOUT)
+    assert inspect.isawaitable(result)
+    response = await result
+
+    rep = _accessories_rep_of(response, acc, char)
+    assert rep[HAP_REPR_VALUE] == 11
+
+
+async def test_direct_get_accessories_answers_stored_and_schedules(
+    driver: AccessoryDriver,
+) -> None:
+    """A direct accessories request answers stored values, then refreshes."""
+    driver.loop = asyncio.get_running_loop()
+    acc, _, (char,) = _add_service_with_chars(driver)
+    char.set_value(3)
+    delegate = _GetDelegate(answer=11)
+    char.delegate = delegate
+
+    response = driver.get_accessories()
+
+    rep = _accessories_rep_of(response, acc, char)
+    assert rep[HAP_REPR_VALUE] == 3
+    assert delegate.calls == []
+
+    await _run_scheduled_jobs()
+
+    assert char.value == 11
