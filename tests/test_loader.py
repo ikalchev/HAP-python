@@ -46,6 +46,19 @@ def test_loader_get_char_error() -> None:
             loader.get_char("Char")
 
 
+@pytest.mark.parametrize("name", ["ConfiguredName", "DisplayOrder", "IsConfigured"])
+def test_loader_chars_a_controller_configures(name: str) -> None:
+    """Test a controller may write them, though Apple's metadata says read-only.
+
+    The releases up to 5.2.0 had them writable.
+    """
+    assert set(Loader().get_char(name).properties[PROP_PERMISSIONS]) == {
+        "pr",
+        "pw",
+        "ev",
+    }
+
+
 def test_loader_service() -> None:
     """Test if method returns a Service object."""
     loader = Loader()

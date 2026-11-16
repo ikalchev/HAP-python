@@ -447,6 +447,7 @@
       "Format": "string",
       "Permissions": [
          "pr",
+         "pw",
          "ev"
       ],
       "UUID": "000000E3-0000-1000-8000-0026BB765291"
@@ -737,6 +738,7 @@
       "Format": "tlv8",
       "Permissions": [
          "pr",
+         "pw",
          "ev"
       ],
       "UUID": "00000136-0000-1000-8000-0026BB765291"
@@ -983,6 +985,7 @@
       "Format": "uint8",
       "Permissions": [
          "pr",
+         "pw",
          "ev"
       ],
       "UUID": "000000D6-0000-1000-8000-0026BB765291",
