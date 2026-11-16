@@ -40,6 +40,7 @@ from collections.abc import Callable, Iterable, Sequence
 import contextlib
 import itertools
 import logging
+import math
 import os
 import socket
 import struct
@@ -62,6 +63,10 @@ DEFAULT_START_TIMEOUT = 15.0
 # Requests run inside HAP writes, whose hooks get at most 9 s; one second less
 # than the shortest sensible hook timeout leaves time to answer the write.
 DEFAULT_REQUEST_TIMEOUT = 5.0
+# The last share of a request's timeout is waited on its own, so it starts only
+# when the caller's loop runs: after the loop was blocked, the reader gets that
+# long to deliver an answer that arrived meanwhile.
+REQUEST_TIMEOUT_TAIL = 0.1
 STOP_TIMEOUT = 5.0
 WORKER_MODULE = "pyhap.media._worker"
 # A worker process logs with this logger, at the parent's effective level of
@@ -887,10 +892,24 @@ class MediaWorker:
             raise MediaWorkerError(f"Request {op} not sent: {err}") from err
         future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
+        timeout = self._request_timeout
+        # Only a finite timeout has a last share to wait on its own.
+        tail = (
+            timeout * REQUEST_TIMEOUT_TAIL
+            if timeout is not None and math.isfinite(timeout)
+            else 0
+        )
         try:
-            return await asyncio.wait_for(
-                self._exchange(runner.writer, data, future), self._request_timeout
-            )
+            try:
+                async with asyncio.timeout(None if timeout is None else timeout - tail):
+                    return await self._exchange(runner.writer, data, future)
+            except TimeoutError:
+                # After the caller's loop was blocked the answer may sit unread
+                # in the socket, see REQUEST_TIMEOUT_TAIL.
+                await asyncio.wait((future,), timeout=tail)
+                if not future.done():
+                    raise
+                return future.result()
         except (ConnectionError, BrokenPipeError) as err:
             raise MediaWorkerError("Media worker is not running") from err
         except TimeoutError as err:
@@ -901,15 +920,21 @@ class MediaWorker:
             raise MediaWorkerError(f"Media worker did not answer {op}") from err
         finally:
             self._pending.pop(request_id, None)
+            future.cancel()
 
     @staticmethod
     async def _exchange(
         writer: asyncio.StreamWriter, data: bytes, future: asyncio.Future[Any]
     ) -> Any:
-        """Send a request and wait for its answer, under one deadline."""
+        """Send a request and wait for its answer.
+
+        The answer is waited for without cancelling it: a deadline that
+        passed must not cancel the answer the reader is about to deliver.
+        """
         writer.write(data)
         await writer.drain()
-        return await future
+        await asyncio.wait((future,))
+        return future.result()
 
     async def _read_loop(
         self, runner: _ProcessRunner | _ThreadRunner, generation: int
