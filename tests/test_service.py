@@ -2,6 +2,7 @@
 
 from unittest.mock import Mock, call, patch
 from uuid import uuid1
+import warnings
 
 import pytest
 
@@ -313,6 +314,30 @@ def test_configure_char_with_both_conflicts() -> None:
             setter_callback=lambda value: None,
             delegate=_AsyncCharDelegate(),
         )
+
+
+def test_legacy_setter_warns_deprecated() -> None:
+    """Assigning a legacy grouped setter announces its deprecation."""
+    service = Service(uuid1())
+
+    with pytest.deprecated_call(match="legacy setter_callback is deprecated"):
+        service.setter_callback = lambda values: None  # noqa: E731
+
+
+def test_configure_char_legacy_callbacks_warn_deprecated() -> None:
+    """The legacy configure_char parameters announce their deprecation."""
+    service = Service(uuid1())
+    service.add_characteristic(*get_chars())
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        service.configure_char("Char 1", setter_callback=lambda value: None)
+        service.configure_char("Char 2", getter_callback=lambda: 1)
+    (setter_warning, getter_warning) = caught
+    assert "legacy setter_callback is deprecated" in str(setter_warning.message)
+    assert setter_warning.filename == __file__
+    assert "legacy getter_callback is deprecated" in str(getter_warning.message)
+    assert getter_warning.filename == __file__
 
 
 def test_configure_char_without_delegate() -> None:

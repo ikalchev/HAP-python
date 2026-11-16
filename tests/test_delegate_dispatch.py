@@ -572,12 +572,13 @@ async def test_gate_veto_only_its_service(driver: AccessoryDriver) -> None:
 async def test_accessory_setter_sees_delegate_writes(driver: AccessoryDriver) -> None:
     """The legacy accessory setter still learns every written value."""
     acc, service, (char,) = _add_service_with_chars(driver)
-    acc.setter_callback = MagicMock()
+    acc_setter = MagicMock()
+    acc.setter_callback = acc_setter
     char.delegate = _CharDelegate()
 
     await _write_chars(driver, acc, [(char, 7)])
 
-    acc.setter_callback.assert_called_once_with({service: {char: 7}})
+    acc_setter.assert_called_once_with({service: {char: 7}})
 
 
 async def test_on_set_is_admin(driver: AccessoryDriver) -> None:

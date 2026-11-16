@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
+import warnings
 
 from pyhap.const import (
     HAP_REPR_CHARS,
@@ -54,7 +55,7 @@ class Service:
         self.display_name = display_name
         self.type_id = type_id
         self.is_primary_service = None
-        self.setter_callback: Callable[[Any], None] | None = None
+        self._setter_callback: Callable[[Any], None] | None = None
         # The delegate of the grouped writes of this service, see
         # ``ServiceDelegate``. Either a delegate or the legacy setter,
         # never both.
@@ -103,6 +104,13 @@ class Service:
             raise ValueError(
                 f"{self.display_name} has a delegate, remove it before"
                 " assigning a legacy setter_callback"
+            )
+        if callback is not None:
+            warnings.warn(
+                "The legacy setter_callback is deprecated, use a ServiceDelegate"
+                " instead",
+                DeprecationWarning,
+                stacklevel=2,
             )
         self._setter_callback = callback
 
@@ -182,9 +190,13 @@ class Service:
         if value:
             char.set_value(value, should_notify=False)
         if setter_callback:
-            char.setter_callback = setter_callback
+            char._assign_legacy_callback(
+                "setter_callback", setter_callback, warn_stacklevel=3
+            )
         if getter_callback:
-            char.getter_callback = getter_callback
+            char._assign_legacy_callback(
+                "getter_callback", getter_callback, warn_stacklevel=3
+            )
         if delegate is not None:
             char.delegate = delegate
         return char

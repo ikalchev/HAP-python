@@ -3,6 +3,7 @@
 from typing import Any
 from unittest.mock import ANY, MagicMock, Mock, patch
 from uuid import uuid1
+import warnings
 
 import pytest
 
@@ -676,3 +677,27 @@ def test_removing_one_side_allows_the_other() -> None:
     char.setter_callback = lambda value: None  # noqa: E731
 
     assert char.setter_callback is not None
+
+
+def test_legacy_callbacks_warn_deprecated() -> None:
+    """Assigning a legacy callback announces its deprecation."""
+    char = get_char(PROPERTIES)
+
+    with pytest.deprecated_call(match="legacy setter_callback is deprecated"):
+        char.setter_callback = lambda value: None  # noqa: E731
+    with pytest.deprecated_call(match="legacy getter_callback is deprecated"):
+        char.getter_callback = lambda: 1  # noqa: E731
+
+    # The warning names the assigning code, not the library.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        char.setter_callback = lambda value: None  # noqa: E731
+    (warning,) = caught
+    assert warning.category is DeprecationWarning
+    assert warning.filename == __file__
+
+    # Removing stays silent.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        char.setter_callback = None
+        del char.getter_callback

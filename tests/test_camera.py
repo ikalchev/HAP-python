@@ -10,6 +10,7 @@ import struct
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 from uuid import UUID
+import warnings
 
 import pylibsrtp
 import pytest
@@ -59,6 +60,27 @@ _OPTIONS = {
     "srtp": True,
     "address": "192.168.1.226",
 }
+
+
+def test_camera_wiring_is_delegate_based(mock_driver: Any) -> None:
+    """The camera wires no legacy callbacks, so it never trips its warning."""
+    options = {**_OPTIONS, "recording": True, "global_operating_mode": []}
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        acc = camera.Camera(options, mock_driver, "Camera")
+
+    streaming_status = _char_of(acc, "CameraRTPStreamManagement", "StreamingStatus")
+    status_active = _char_of(acc, "MotionSensor", "StatusActive")
+    for char in (streaming_status, status_active):
+        assert char.getter_callback is None
+        assert char.delegate is not None
+
+
+def _char_of(acc: Any, service_name: str, char_name: str) -> Any:
+    """The characteristic ``char_name`` of the camera's service."""
+    service = acc.get_service(service_name)
+    assert service is not None  # noqa: S101
+    return service.get_characteristic(char_name)
 
 
 def test_init(mock_driver: Any) -> None:

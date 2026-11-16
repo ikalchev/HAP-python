@@ -286,14 +286,16 @@ class _CameraDelegate(CharacteristicDelegate):
     """Serves the camera's own characteristics through their handlers.
 
     One instance serves every characteristic the camera itself answers -
-    the context identifies the one being written, and each has its handler
-    in ``handlers``. A handler runs as part of ``on_set`` and returns the
-    write response of a write-response characteristic; the driver restores
+    the context identifies the one being read or written, and each has its
+    handler in ``handlers`` and, for a read of a derived value, in
+    ``get_handlers``. A write handler runs as part of ``on_set`` and returns
+    the write response of a write-response characteristic; the driver restores
     the previous value and tells nobody when it raises.
     """
 
     def __init__(self) -> None:
         self.handlers: dict[Characteristic, Callable[[Any, CharWriteContext], Any]] = {}
+        self.get_handlers: dict[Characteristic, Callable[[CharReadContext], Any]] = {}
 
     def wire(
         self, char: Characteristic, handler: Callable[[Any, CharWriteContext], Any]
@@ -306,9 +308,26 @@ class _CameraDelegate(CharacteristicDelegate):
         self.handlers[char] = handler
         char.delegate = self
 
+    def wire_get(
+        self, char: Characteristic, handler: Callable[[CharReadContext], Any]
+    ) -> None:
+        """Serve ``char``'s reads with ``handler(context)``.
+
+        Wiring again replaces the handler. A characteristic without a read
+        handler answers its stored value.
+        """
+        self.get_handlers[char] = handler
+        char.delegate = self
+
     async def on_get(self, context: CharReadContext) -> Any:
-        # Reads answer the stored value, like the camera always has.
-        return context.characteristic.value
+        handler = self.get_handlers.get(context.characteristic)
+        if handler is None:
+            # Reads answer the stored value, like the camera always has.
+            return context.characteristic.value
+        result = handler(context)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
 
     async def on_set(self, value: Any, context: CharWriteContext) -> Any:
         handler = self.handlers[context.characteristic]
@@ -811,9 +830,9 @@ class Camera(Accessory):
         # management service (value 1 = active); iOS' camera validation expects
         # it, and it is required for Secure Video eligibility.
         management.configure_char("Active", value=1)
-        management.configure_char(
-            "StreamingStatus",
-            getter_callback=lambda: self._get_streaming_status(stream_idx),
+        self._wire_get(
+            management.configure_char("StreamingStatus"),
+            lambda context: self._get_streaming_status(stream_idx),
         )
         management.configure_char(
             "SupportedRTPConfiguration",
@@ -1024,7 +1043,11 @@ class Camera(Accessory):
         # HAP-NodeJS marks the HKSV event-trigger sensor as active; iOS expects it.
         # A restored HomeKitCameraActive bypasses the setter, so reads derive it.
         self._motion_status_active_char = motion.configure_char(
-            "StatusActive", value=True, getter_callback=self._homekit_camera_on
+            "StatusActive", value=True
+        )
+        self._wire_get(
+            self._motion_status_active_char,
+            lambda context: self._homekit_camera_on(),
         )
 
         general, video, audio = self._default_recording_configs(options)
@@ -1518,6 +1541,16 @@ class Camera(Accessory):
         :class:`_CameraDelegate`; wiring again replaces the handler.
         """
         self._camera_delegate.wire(char, handler)
+
+    def _wire_get(
+        self, char: Characteristic, handler: Callable[[CharReadContext], Any]
+    ) -> None:
+        """Serve ``char``'s reads with ``handler(context)``.
+
+        All of the camera's own characteristics go through one
+        :class:`_CameraDelegate`; wiring again replaces the handler.
+        """
+        self._camera_delegate.wire_get(char, handler)
 
     def _persist_hksv3_char(
         self, char: Characteristic, key: str, handler: Callable[[Any], None]

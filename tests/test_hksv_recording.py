@@ -26,7 +26,7 @@ from pyhap.const import (
     HAP_REPR_VALUE,
     RESPONSE_TIMEOUT,
 )
-from pyhap.context import CharWriteContext
+from pyhap.context import CharReadContext, CharWriteContext
 from pyhap.hap_protocol import HAPServerProtocol
 from pyhap.util import base64_to_bytes, to_base64_str
 from tests.conftest import client_write
@@ -464,17 +464,34 @@ async def test_camera_off_in_home_app_marks_sensor_inactive(
     recording_camera.homekit_camera_active_changed.assert_called_with(True)
 
 
-def test_sensor_follows_camera_active_set_without_write(
+async def test_sensor_follows_camera_active_set_without_write(
     recording_camera: Any,
 ) -> None:
-    """E.g. a restored or locally set value, which runs no setter."""
-    recording_camera.get_service("CameraOperatingMode").get_characteristic(
+    """E.g. a restored or locally set value, which runs no setter.
+
+    A sync ``get_value`` answers the stored value until a read runs: a
+    delegate answers the reads, deriving the sensor status from the
+    camera's active state.
+    """
+    camera = recording_camera
+    camera.get_service("CameraOperatingMode").get_characteristic(
         "HomeKitCameraActive"
     ).set_value(0)
-    status_active = recording_camera.get_service("MotionSensor").get_characteristic(
+    status_active = camera.get_service("MotionSensor").get_characteristic(
         "StatusActive"
     )
-    assert status_active.get_value() is False
+
+    assert status_active.get_value() is True
+
+    context = CharReadContext(
+        client_addr=None,
+        client_uuid=None,
+        connection=HAPConnectionHandle(None, 1),
+        deadline=float("inf"),
+        characteristic=status_active,
+    )
+    assert status_active.delegate is not None
+    assert await status_active.delegate.on_get(context) is False
 
 
 async def test_sensor_event_after_restored_camera_off(recording_camera: Any) -> None:

@@ -73,8 +73,9 @@ sessions belong to the connection that set them up, by
 :class:`~pyhap.connection.HAPConnectionHandle`. The legacy
 :attr:`~pyhap.characteristic.Characteristic.setter_callback` /
 :attr:`~pyhap.characteristic.Characteristic.getter_callback` attributes
-keep working unchanged for code that uses them alone; their deprecation
-is announced separately when it happens.
+keep working unchanged for code that uses them alone; assigning one warns
+``DeprecationWarning`` from this release on (see
+:doc:`/advanced/async`).
 
 A request may mix both interfaces. A characteristic with a legacy
 callback keeps its legacy dispatch, byte for byte, unless its service

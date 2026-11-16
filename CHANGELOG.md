@@ -19,7 +19,6 @@ Sections
 ## [Unreleased]
 
 ### Added
-
 - `pyhap.client`: a HAP client (controller) package speaking the real
   protocol - pair-verify, encrypted transport, characteristic reads/writes,
   event subscriptions and `EVENT` push frames. Moved out of
@@ -63,16 +62,30 @@ Sections
   awaitables zeroconf returns (the
   [#580](https://github.com/ikalchev/HAP-python/pull/580) bug class).
   `tests/test_asyncio_guards.py` guards the `filterwarnings` config itself.
-
-### Fixed
-
-- Drop the write response of a coroutine setter that answers only after its
-  connection closed. The per-connection response was kept under the closed
-  connection's address forever, where a later connection reusing the address
-  could read it, e.g. a Setup Endpoints answer with its session's SRTP keys.
-- Cancel tasks still pending on the loop before `AccessoryDriver.start`
-  closes it, so e.g. a `run_at_interval` wrapper is not destroyed pending at
-  shutdown ("Task was destroyed but it is pending!").
+- Characteristic and service delegates (`pyhap.delegates`) with request
+  contexts (`pyhap.context`): the reads, writes and event subscriptions of a
+  characteristic dispatch to a delegate — every call an awaited coroutine
+  function under a request deadline, with a frozen context carrying the
+  controller's connection, identity and privileges. A service delegate gates
+  the grouped writes of its service: it may refuse them by raising
+  `HapStatusError`, which restores the previous values and notifies nobody.
+- `HapStatusError` (`pyhap.errors`): a callback answers a curated HAP status
+  code by raising it, so a busy or refusing accessory no longer fails with
+  the generic `-70402`. A legacy callback may raise it too.
+  [#75](https://github.com/ikalchev/HAP-python/issues/75)
+- Async getters: `GET /characteristics` and `GET /accessories` await a
+  delegate's `on_get` under the request deadline, so a getter may do IO. A
+  getter that fails or misses the deadline answers per characteristic
+  (`-70402` / `-70408`).
+- Connection lifecycle hooks on `Accessory`: `client_connected` and
+  `client_verified`, async and isolated like the existing
+  `client_disconnected`.
+- A stable per-connection identity (`HAPConnectionHandle`,
+  `pyhap.connection`), which camera streaming sessions are keyed by: a new
+  connection reusing a closed one's address can no longer control its
+  sessions.
+- `accessories/busy_lock.py`, an example accessory that refuses a lock with
+  `RESOURCE_BUSY` instead of answering a silent failure.
 
 ### Changed
 
@@ -85,6 +98,35 @@ Sections
   `pyhap.hap_handler`). `pyhap.camera` now imports the multi-tier and WebRTC
   stream services at the top, which makes the cycle gone instead of hidden in
   a deferred import.
+- The camera stack (stream management, recording, operating mode, multi-tier
+  and WebRTC) dispatches through delegates and contexts internally; the
+  author-facing camera methods keep their signatures.
+- A failing getter answers its own status per characteristic instead of
+  failing the whole `/accessories` response.
+
+### Deprecated
+
+- The legacy callbacks: assigning `setter_callback` or `getter_callback` on
+  a characteristic, `setter_callback` on a service or an accessory, or
+  passing them to `configure_char`, warns `DeprecationWarning`. They keep
+  working, byte for byte; move new code to the delegates.
+
+### Fixed
+
+- Drop the write response of a coroutine setter that answers only after its
+  connection closed. The per-connection response was kept under the closed
+  connection's address forever, where a later connection reusing the address
+  could read it, e.g. a Setup Endpoints answer with its session's SRTP keys.
+- Cancel tasks still pending on the loop before `AccessoryDriver.start`
+  closes it, so e.g. a `run_at_interval` wrapper is not destroyed pending at
+  shutdown ("Task was destroyed but it is pending!").
+
+### Breaking Changes
+
+- A legacy setter is always called with the value alone: the
+  `(value, sender_client_addr)` two-argument form, detected by parameter
+  name, is gone. What a callback needs to know about the writer arrives
+  through a delegate's context instead.
 
 ## [5.2.0] - 2026-11-07
 

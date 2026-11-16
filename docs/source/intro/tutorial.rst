@@ -181,7 +181,9 @@ The callback runs when a controller writes, with the written value. It
 may also be a coroutine function — the write is answered once it
 completes, so it must be quick; start slow work as a task. To know *which*
 controller wrote — its connection, privileges, the deadline — use a
-delegate instead, see :doc:`/advanced/async`.
+delegate instead, see :doc:`/advanced/async`. The legacy
+``setter_callback`` keeps working, but assigning one warns
+``DeprecationWarning``; new code should use the delegates.
 
 Bridging several accessories
 ============================

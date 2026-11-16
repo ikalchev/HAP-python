@@ -123,6 +123,16 @@ needs to know about the request — the writer's connection, its privileges,
 the deadline — arrives through the delegate interface below instead; the
 former ``sender_client_addr`` parameter-name opt-in is gone with it.
 
+**The legacy callbacks are deprecated.** They keep working, byte for
+byte, but assigning one — a characteristic's
+:attr:`~pyhap.characteristic.Characteristic.setter_callback` or
+:attr:`~pyhap.characteristic.Characteristic.getter_callback`, the
+``setter_callback``/``getter_callback`` parameters of
+:meth:`~pyhap.service.Service.configure_char`, or a service's or an
+accessory's ``setter_callback`` — announces a ``DeprecationWarning``
+that names the assigning line. Watch for it in your test runs and move
+new code to the delegates below.
+
 **Answering a HAP status.** A callback that fails does not have to answer
 the generic ``-70402`` (service communication failure): raise
 :class:`pyhap.errors.HapStatusError` with a status the controller can act

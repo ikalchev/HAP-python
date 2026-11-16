@@ -297,7 +297,8 @@ def test_admin_only_null_write_reaches_no_setter(
     assert service is not None
     service_setter = MagicMock()
     service.setter_callback = service_setter
-    driver.accessory.setter_callback = MagicMock()
+    acc_setter = MagicMock()
+    driver.accessory.setter_callback = acc_setter
     query = {
         HAP_REPR_CHARS: [
             {HAP_REPR_AID: char.aid, HAP_REPR_IID: char.iid, HAP_REPR_VALUE: None}
@@ -309,7 +310,7 @@ def test_admin_only_null_write_reaches_no_setter(
     assert response == _response(char, REFUSED)
     char.setter.assert_not_called()
     service_setter.assert_not_called()
-    driver.accessory.setter_callback.assert_not_called()
+    acc_setter.assert_not_called()
 
 
 def _write_through_handler(

@@ -5,6 +5,7 @@ import itertools
 import logging
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
+import warnings
 
 from . import SUPPORT_QR_CODE, util
 from .characteristic import Characteristic
@@ -66,7 +67,7 @@ class Accessory:
         self.driver = driver
         self.services: list[Service] = []
         self.iid_manager = iid_manager or IIDManager()
-        self.setter_callback: Callable[[Any], None] | None = None
+        self._setter_callback: Callable[[Any], None] | None = None
 
         self.add_info_service()
         if aid == STANDALONE_AID:
@@ -76,6 +77,29 @@ class Accessory:
         """Return the representation of the accessory."""
         services = [s.display_name for s in self.services]
         return f"<accessory display_name='{self.display_name}' services={services}>"
+
+    @property
+    def setter_callback(self) -> Callable[[Any], None] | None:
+        """The legacy grouped setter, called with the request's values by name.
+
+        Called with a ``{display_name: value}`` dict of every write of every
+        service after the per-characteristic setters. Deprecated: a
+        :class:`~pyhap.delegates.ServiceDelegate` gates the grouped writes of
+        its service instead, and can refuse them.
+        """
+        return self._setter_callback
+
+    @setter_callback.setter
+    def setter_callback(self, callback: Callable[[Any], None] | None) -> None:
+        """Assign the legacy grouped setter; ``None`` removes it."""
+        if callback is not None:
+            warnings.warn(
+                "The legacy setter_callback is deprecated, use a ServiceDelegate"
+                " instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        self._setter_callback = callback
 
     @property
     def available(self) -> bool:

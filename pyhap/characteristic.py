@@ -9,6 +9,7 @@ import inspect
 import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 from uuid import UUID
+import warnings
 
 from .const import (
     HAP_PERMISSION_READ,
@@ -220,13 +221,13 @@ class Characteristic:
         self._properties: dict[str, Any] = properties
         self.type_id = type_id
         self._value = self._get_default_value()
-        self.getter_callback: Callable[[], Any] | None = None
+        self._getter_callback: Callable[[], Any] | None = None
         # The legacy setter is called with the written value. The return
         # value is sent back as the write response when the characteristic
         # has the "wr" permission and the controller asked for one. A setter
         # may also be a coroutine function; a controller's write is answered
         # once it is done.
-        self.setter_callback: Callable[..., Any] | None = None
+        self._setter_callback: Callable[..., Any] | None = None
         # The delegate of the reads, writes and subscriptions of this
         # characteristic, see ``CharacteristicDelegate``. Either a delegate
         # or the legacy callbacks, never both.
@@ -284,18 +285,17 @@ class Characteristic:
 
     @property
     def getter_callback(self) -> Callable[[], Any] | None:
-        """The legacy getter, called with nothing on every read of the value."""
+        """The legacy getter, called with nothing on every read of the value.
+
+        Deprecated: a delegate's :meth:`~pyhap.delegates.CharacteristicDelegate.on_get`
+        answers the reads instead.
+        """
         return self._getter_callback
 
     @getter_callback.setter
     def getter_callback(self, callback: Callable[[], Any] | None) -> None:
         """Assign the legacy getter; ``None`` removes it."""
-        if callback is not None and self._delegate is not None:
-            raise ValueError(
-                f"{self._display_name} has a delegate, remove it before"
-                " assigning a legacy callback"
-            )
-        self._getter_callback = callback
+        self._assign_legacy_callback("getter_callback", callback, warn_stacklevel=3)
 
     @getter_callback.deleter
     def getter_callback(self) -> None:
@@ -318,17 +318,39 @@ class Characteristic:
     @setter_callback.setter
     def setter_callback(self, callback: Callable[..., Any] | None) -> None:
         """Assign the legacy setter; ``None`` removes it."""
-        if callback is not None and self._delegate is not None:
-            raise ValueError(
-                f"{self._display_name} has a delegate, remove it before"
-                " assigning a legacy callback"
-            )
-        self._setter_callback = callback
+        self._assign_legacy_callback("setter_callback", callback, warn_stacklevel=3)
 
     @setter_callback.deleter
     def setter_callback(self) -> None:
         """Remove the legacy setter."""
         self._setter_callback = None
+
+    def _assign_legacy_callback(
+        self, name: str, callback: Callable[..., Any] | None, *, warn_stacklevel: int
+    ) -> None:
+        """Store a legacy callback, announcing its deprecation.
+
+        The delegate conflict is checked first. Both the property setters
+        above and :meth:`~pyhap.service.Service.configure_char` call this
+        with ``warn_stacklevel=3``, so the warning names the user code
+        that assigns the callback.
+        """
+        if callback is not None and self._delegate is not None:
+            raise ValueError(
+                f"{self._display_name} has a delegate, remove it before"
+                " assigning a legacy callback"
+            )
+        if callback is not None:
+            warnings.warn(
+                f"The legacy {name} is deprecated, use a CharacteristicDelegate"
+                " instead",
+                DeprecationWarning,
+                stacklevel=warn_stacklevel,
+            )
+        if name == "getter_callback":
+            self._getter_callback = callback
+        else:
+            self._setter_callback = callback
 
     @property
     def value(self) -> Any:
