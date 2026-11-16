@@ -64,6 +64,7 @@ class HAPServerProtocol(asyncio.Protocol):
         self.accessory_driver = accessory_driver
         self.handler: HAPServerHandler | None = None
         self.peername: tuple[str, int] | None = None
+        self.connection_handle: HAPConnectionHandle | None = None
         self.transport: asyncio.Transport | None = None
 
         self.request: h11.Request | None = None
@@ -104,7 +105,11 @@ class HAPServerProtocol(asyncio.Protocol):
             accessory.display_name,
             exc,
         )
-        self.accessory_driver.connection_lost(self.peername)
+        self.accessory_driver.connection_lost(
+            self.peername,
+            connection=self.connection_handle,
+            client_uuid=self._handler.client_uuid,
+        )
         self.close()
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
@@ -136,6 +141,7 @@ class HAPServerProtocol(asyncio.Protocol):
         self.handler = HAPServerHandler(
             self.accessory_driver, peername, self.connection_handle
         )
+        self.accessory_driver.client_connected(peername)
 
     def derive_key(self, salt: bytes, info: bytes) -> bytes | None:
         """Derive a key from this connection's pair-verify session key.

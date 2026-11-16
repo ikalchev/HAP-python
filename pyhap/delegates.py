@@ -71,15 +71,22 @@ class CharacteristicDelegate:
         """A controller subscribed to the characteristic's events.
 
         Use this to start work only while someone listens, e.g. polling
-        a sensor that costs battery. Failures are logged and isolated;
-        the subscription itself always registers.
+        a sensor that costs battery. The hook runs isolated, without a
+        deadline: the request never waits for it, its failure is only
+        logged, and the subscription itself has already registered.
+
+        The hook runs on the change: subscribing a controller that is
+        already subscribed, or unsubscribing one that is not, runs
+        nothing.
         """
 
     async def on_unsubscribe(self, context: CharReadContext) -> None:
         """A controller unsubscribed from the characteristic's events.
 
-        This also runs when its connection closes while subscribed.
-        Failures are logged and isolated.
+        This also runs when its connection closes while subscribed. The
+        hook runs isolated, without a deadline: the request or the
+        connection close never waits for it, its failure is only logged,
+        and the subscription itself is already gone.
         """
 
 

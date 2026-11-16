@@ -61,14 +61,16 @@ one per characteristic.
 **Rollout state.** The driver dispatches the writes of delegates from
 this release on: a write to a characteristic with a delegate, or to a
 service with one, runs its gates and its ``on_set`` calls as described
-above, and answers with the per-characteristic statuses. pyhap's own
-camera stack writes through delegates - every characteristic its camera
-code answers is served by one, and its stream sessions belong to the
-connection that set them up, by
+above, and answers with the per-characteristic statuses. The subscription
+hooks dispatch too: ``on_subscribe`` and ``on_unsubscribe`` run when a
+controller (un)subscribes, isolated from the request, and
+``on_unsubscribe`` again when its connection closes while subscribed.
+pyhap's own camera stack writes through delegates - every characteristic
+its camera code answers is served by one, and its stream sessions belong
+to the connection that set them up, by
 :class:`~pyhap.connection.HAPConnectionHandle`. Reads still use the
-legacy path - the async read pipeline and the ``on_subscribe`` /
-``on_unsubscribe`` hooks follow in the next releases of the callback
-interface refactor. The legacy
+legacy path - the async read pipeline is the last piece of the callback
+interface refactor that follows. The legacy
 :attr:`~pyhap.characteristic.Characteristic.setter_callback` /
 :attr:`~pyhap.characteristic.Characteristic.getter_callback` attributes
 keep working unchanged for code that uses them alone, and are deprecated

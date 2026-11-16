@@ -20,7 +20,7 @@ send to happen.
 import asyncio
 import base64
 from collections import defaultdict
-from collections.abc import Awaitable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import inspect
@@ -69,7 +69,12 @@ from pyhap.const import (
     HAP_REPR_WRITE_RESPONSE,
     STANDALONE_AID,
 )
-from pyhap.context import CharWriteContext, Context, ServiceWriteContext
+from pyhap.context import (
+    CharReadContext,
+    CharWriteContext,
+    Context,
+    ServiceWriteContext,
+)
 from pyhap.delegates import CharacteristicDelegate
 from pyhap.encoder import AccessoryEncoder
 from pyhap.hap_server import HAPServer
@@ -805,13 +810,93 @@ class AccessoryDriver:
         if not subscribed_clients:
             del self.topics[topic]
 
-    def connection_lost(self, client: Any) -> None:
+    def client_connected(self, client_addr: tuple[str, int] | None) -> None:
+        """Tell the accessory that a controller's connection was accepted.
+
+        Schedules the accessory's
+        :meth:`~pyhap.accessory.Accessory.client_connected` as an isolated
+        job: the connection never waits for it and its exception is logged,
+        not raised. Called by the HAP server in the event loop.
+        """
+        accessory = self.accessory
+        if accessory is None:
+            return
+        self.add_job(
+            self._run_isolated_hook,
+            accessory.client_connected,
+            (client_addr,),
+            "client_connected",
+            client_addr,
+        )
+
+    def client_verified(
+        self, client_addr: tuple[str, int] | None, client_uuid: UUID
+    ) -> None:
+        """Tell the accessory that a controller finished pair verify on a connection.
+
+        Schedules the accessory's
+        :meth:`~pyhap.accessory.Accessory.client_verified` as an isolated
+        job: the pair verify response never waits for it and its exception
+        is logged, not raised. Called by the HAP server in the event loop.
+        """
+        accessory = self.accessory
+        if accessory is None:
+            return
+        self.add_job(
+            self._run_isolated_hook,
+            accessory.client_verified,
+            (client_addr, client_uuid),
+            "client_verified",
+            client_addr,
+        )
+
+    async def _run_isolated_hook(
+        self,
+        hook: Callable[..., Awaitable[None]],
+        hook_args: tuple[Any, ...],
+        name: str,
+        client_addr: tuple[str, int] | None,
+    ) -> None:
+        """Await a lifecycle or subscription hook, logging its failure.
+
+        The hook is called here, not by the scheduling caller, so it only
+        runs once its job does. It runs isolated from what caused it: an
+        accessory's exception never reaches the connection or the request,
+        it is only logged.
+        """
+        try:
+            await hook(*hook_args)
+        except Exception:
+            accessory = self.accessory
+            logger.exception(
+                "%s failed to run %s for %s",
+                accessory.display_name if accessory else "the accessory",
+                name,
+                client_addr,
+            )
+
+    def connection_lost(
+        self,
+        client: Any,
+        connection: HAPConnectionHandle | None = None,
+        client_uuid: UUID | None = None,
+    ) -> None:
         """Called when a connection is lost to a client.
 
         This method must be run in the event loop.
 
         :param client: A client (address, port) tuple that should be unsubscribed.
         :type client: tuple <str, int>
+
+        :param connection: The identity of the closed connection, when the
+            caller knows it. It reaches the ``on_unsubscribe`` calls of the
+            subscribed characteristics' delegates.
+        :type connection: HAPConnectionHandle or None
+
+        :param client_uuid: The paired controller of the closed connection,
+            or None when it never finished pair verify or the caller does
+            not know it.
+        :type client_uuid: uuid.UUID or None
         """
         client_topics = []
         for topic, subscribed_clients in self.topics.items():
@@ -820,8 +905,13 @@ class AccessoryDriver:
                 # self.topics during iteration
                 client_topics.append(topic)
 
+        accessory = self.accessory
         for topic in client_topics:
             self.async_subscribe_client_topic(client, topic, subscribe=False)
+            if accessory is not None:
+                self._dispatch_close_unsubscribe(
+                    topic, accessory, client, client_uuid, connection
+                )
         self.prepared_writes.pop(client, None)
         # Writes whose setters still run answer with their response after
         # this; mark them so it is dropped instead of kept for a connection
@@ -832,7 +922,6 @@ class AccessoryDriver:
                 writes.alive = False
         # Deferred, so a write response that is already on its way is dropped too.
         self.loop.call_soon(self._write_responses.pop, client, None)
-        accessory = self.accessory
         if accessory is None:
             return
         try:
@@ -840,6 +929,22 @@ class AccessoryDriver:
         except Exception:
             logger.exception(
                 "%s failed to handle a closed connection", accessory.display_name
+            )
+
+    def _dispatch_close_unsubscribe(
+        self,
+        topic: str,
+        accessory: Accessory,
+        client_addr: Any,
+        client_uuid: UUID | None,
+        connection: HAPConnectionHandle | None,
+    ) -> None:
+        """Run ``on_unsubscribe`` of a topic a closed connection was subscribed to."""
+        aid, iid = (int(i) for i in topic.split("."))
+        char = accessory.get_characteristic(aid, iid)
+        if char is not None and char.delegate is not None:
+            self._dispatch_subscription(
+                char.delegate, char, False, client_addr, client_uuid, connection
             )
 
     def publish(
@@ -1359,7 +1464,7 @@ class AccessoryDriver:
             call without one.
         """
         results, pending, work = self._apply_characteristic_writes(
-            chars_query, client_addr, client_uuid
+            chars_query, client_addr, client_uuid, connection
         )
         for write in pending:
             self.add_job(self._finish_pending_write(write, client_addr))
@@ -1409,7 +1514,7 @@ class AccessoryDriver:
         closed does not get it kept: it would never be read.
         """
         results, pending, work = self._apply_characteristic_writes(
-            chars_query, client_addr, client_uuid
+            chars_query, client_addr, client_uuid, connection
         )
         if work:
             writes = _ConnectionWrites()
@@ -1434,6 +1539,7 @@ class AccessoryDriver:
         chars_query: dict[str, Any],
         client_addr: tuple[str, int],
         client_uuid: UUID | None,
+        connection: HAPConnectionHandle | None,
     ) -> tuple[
         dict[int, dict[int, dict[str, Any]]], list[_PendingWrite], _DelegateWork
     ]:
@@ -1442,7 +1548,7 @@ class AccessoryDriver:
         work = _DelegateWork(self.state.is_admin(client_uuid))
         try:
             results, pending = self._run_characteristic_writes(
-                chars_query, client_addr, client_uuid, pending, work
+                chars_query, client_addr, client_uuid, connection, pending, work
             )
         except BaseException:
             # A malformed later entry must not leave a setter coroutine
@@ -1457,6 +1563,7 @@ class AccessoryDriver:
         chars_query: dict[str, Any],
         client_addr: tuple[str, int],
         client_uuid: UUID | None,
+        connection: HAPConnectionHandle | None,
         pending: list[_PendingWrite],
         delegate_work: _DelegateWork,
     ) -> tuple[dict[int, dict[int, dict[str, Any]]], list[_PendingWrite]]:
@@ -1475,7 +1582,7 @@ class AccessoryDriver:
                 }
             return ignored, []
 
-        not_notifiable = self._notify(queries, client_addr)
+        not_notifiable = self._notify(queries, client_addr, client_uuid, connection)
 
         updates_by_accessories_services: dict[
             Accessory, dict[Service, dict[Characteristic, Any]]
@@ -2265,13 +2372,20 @@ class AccessoryDriver:
             raise
 
     def _notify(
-        self, queries: list[CharacteristicWrite], client_addr: tuple[str, int]
+        self,
+        queries: list[CharacteristicWrite],
+        client_addr: tuple[str, int],
+        client_uuid: UUID | None,
+        connection: HAPConnectionHandle | None,
     ) -> set[tuple[int, int]]:
         """Notify the driver that the client has subscribed or unsubscribed.
 
         Characteristics without the notify permission are left alone; their
         ``(aid, iid)`` pairs are returned so the request can report
-        -70406 for them.
+        -70406 for them. A characteristic with a delegate also gets its
+        ``on_subscribe`` / ``on_unsubscribe`` hook, on the transition: a
+        request that subscribes an already subscribed controller, or
+        unsubscribes one that is not, runs no hook.
         """
         assert self.accessory is not None  # noqa: S101
         not_notifiable: set[tuple[int, int]] = set()
@@ -2291,7 +2405,53 @@ class AccessoryDriver:
                 continue
 
             char_topic = get_topic(aid, iid)
+            was_subscribed = client_addr in self.topics.get(char_topic, ())
             action = "Subscribed" if ev else "Unsubscribed"
             logger.debug("%s client %s to topic %s", action, client_addr, char_topic)
             self.async_subscribe_client_topic(client_addr, char_topic, ev)
+            if char is not None and char.delegate is not None and ev != was_subscribed:
+                self._dispatch_subscription(
+                    char.delegate, char, ev, client_addr, client_uuid, connection
+                )
         return not_notifiable
+
+    def _dispatch_subscription(
+        self,
+        delegate: CharacteristicDelegate,
+        characteristic: Characteristic,
+        subscribe: bool,
+        client_addr: tuple[str, int] | None,
+        client_uuid: UUID | None,
+        connection: HAPConnectionHandle | None,
+    ) -> None:
+        """Run a delegate's ``on_subscribe`` or ``on_unsubscribe``, isolated.
+
+        The hook runs as a job without a deadline: the request, or the
+        connection close, that caused it never waits for it. Its exception
+        is logged, and the subscription itself has already registered by
+        the time the hook runs.
+        """
+        context = CharReadContext(
+            client_addr=client_addr,
+            client_uuid=client_uuid,
+            connection=connection
+            or HAPConnectionHandle(client_addr, self._next_connection_generation()),
+            deadline=float("inf"),
+            characteristic=characteristic,
+        )
+        if subscribe:
+            self.add_job(
+                self._run_isolated_hook,
+                delegate.on_subscribe,
+                (context,),
+                "on_subscribe",
+                client_addr,
+            )
+        else:
+            self.add_job(
+                self._run_isolated_hook,
+                delegate.on_unsubscribe,
+                (context,),
+                "on_unsubscribe",
+                client_addr,
+            )

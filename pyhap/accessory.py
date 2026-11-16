@@ -337,7 +337,43 @@ class Accessory:
         """Called in the event loop when a controller's connection closed.
 
         Override to end what the controller started, e.g. its streams. Does
-        nothing by default.
+        nothing by default. Exceptions are logged by the driver, so an
+        accessory cannot fail a connection by handling its close.
+
+        .. seealso:: :meth:`client_connected` and :meth:`client_verified`,
+            the other connection hooks.
+        """
+
+    async def client_connected(self, client_addr: tuple[str, int] | None) -> None:
+        """Called in the event loop when a controller's connection is accepted.
+
+        Runs as an isolated task when the TCP connection is made, before the
+        controller has proven anything about itself: it may never pair.
+        Override it to prepare for a controller's requests, e.g. to count
+        connections. Does nothing by default.
+
+        Exceptions are logged by the driver and never affect the connection,
+        and the hook never delays it: the driver does not wait for it.
+
+        .. seealso:: :meth:`client_verified` follows once the controller
+            proves its identity, and :meth:`client_disconnected` when the
+            connection closes.
+        """
+
+    async def client_verified(
+        self, client_addr: tuple[str, int] | None, client_uuid: UUID
+    ) -> None:
+        """Called in the event loop when a controller finishes pair verify.
+
+        The controller proved its identity: its requests on the connection
+        are encrypted from now on and ``client_uuid`` says who it is - one
+        identity per pairing, the same one for every connection of that
+        controller. Override it to keep per-controller state, e.g. to answer
+        requests differently for known controllers. Does nothing by default.
+
+        Exceptions are logged by the driver and never affect the connection,
+        and the hook never delays the pair verify response: the driver does
+        not wait for it.
         """
 
     def reset_accessory_state(self) -> None:
@@ -471,6 +507,28 @@ class Bridge(Accessory):
             except Exception:
                 logger.exception(
                     "%s failed to handle a closed connection", acc.display_name
+                )
+
+    async def client_connected(self, client_addr: tuple[str, int] | None) -> None:
+        """Tell each bridged accessory about the new connection."""
+        for acc in self.accessories.values():
+            try:
+                await acc.client_connected(client_addr)
+            except Exception:
+                logger.exception(
+                    "%s failed to handle a new connection", acc.display_name
+                )
+
+    async def client_verified(
+        self, client_addr: tuple[str, int] | None, client_uuid: UUID
+    ) -> None:
+        """Tell each bridged accessory about the verified controller."""
+        for acc in self.accessories.values():
+            try:
+                await acc.client_verified(client_addr, client_uuid)
+            except Exception:
+                logger.exception(
+                    "%s failed to handle a verified connection", acc.display_name
                 )
 
     def reset_accessory_state(self) -> None:

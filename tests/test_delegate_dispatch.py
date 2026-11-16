@@ -7,6 +7,8 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid1, uuid4
 
+import pytest
+
 from pyhap.accessory import STANDALONE_AID, Accessory
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.characteristic import (
@@ -29,7 +31,7 @@ from pyhap.const import (
     HAP_REPR_WRITE_RESPONSE,
     HAP_SERVER_STATUS,
 )
-from pyhap.context import CharWriteContext, ServiceWriteContext
+from pyhap.context import CharReadContext, CharWriteContext, ServiceWriteContext
 from pyhap.delegates import CharacteristicDelegate, ServiceDelegate
 from pyhap.errors import HapStatusError
 from pyhap.service import Service
@@ -71,6 +73,12 @@ def _add_service_with_chars(
     return acc, service, chars
 
 
+async def _run_scheduled_jobs(rounds: int = 8) -> None:
+    """Let jobs scheduled by the driver and their tasks run."""
+    for _ in range(rounds):
+        await asyncio.sleep(0)
+
+
 async def _write_chars(
     driver: AccessoryDriver,
     acc: Accessory,
@@ -80,6 +88,7 @@ async def _write_chars(
     client_uuid: UUID | None = None,
     connection: HAPConnectionHandle | None = None,
     write_response: bool = False,
+    ev: bool | None = None,
 ) -> dict[str, Any] | None:
     """Write ``char_values`` like a controller and wait for the dispatch."""
     queries = []
@@ -92,6 +101,8 @@ async def _write_chars(
             entry[HAP_REPR_VALUE] = value
         if write_response:
             entry[HAP_REPR_WRITE_RESPONSE] = True
+        if ev is not None:
+            entry[HAP_PERMISSION_NOTIFY] = ev
         queries.append(entry)
     result = driver._set_characteristics_for_controller(
         {HAP_REPR_CHARS: queries},
@@ -137,6 +148,25 @@ class _CharDelegate(CharacteristicDelegate):
         if self.release is not None:
             await self.release.wait()
         return self.answer
+
+
+class _SubDelegate(CharacteristicDelegate):
+    """A delegate that records its (un)subscription calls."""
+
+    def __init__(self, answer: Any = None) -> None:
+        self.subscribes: list[CharReadContext] = []
+        self.unsubscribes: list[CharReadContext] = []
+        self.answer = answer
+
+    async def on_subscribe(self, context: CharReadContext) -> None:
+        self.subscribes.append(context)
+        if isinstance(self.answer, Exception):
+            raise self.answer
+
+    async def on_unsubscribe(self, context: CharReadContext) -> None:
+        self.unsubscribes.append(context)
+        if isinstance(self.answer, Exception):
+            raise self.answer
 
 
 class _GateDelegate(ServiceDelegate):
@@ -518,6 +548,143 @@ async def test_write_response_dropped_when_closed_before_on_set_done(
 
     assert await write is None
     assert driver._write_responses == {}
+
+
+async def test_on_subscribe_receives_a_full_context(driver: AccessoryDriver) -> None:
+    """A controller's subscription runs on_subscribe with a full context."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    driver.loop = asyncio.get_running_loop()
+    handle = HAPConnectionHandle(WRITER, 1)
+    client_uuid = uuid4()
+    delegate = _SubDelegate()
+    char.delegate = delegate
+    char_topic = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
+
+    result = await _write_chars(
+        driver,
+        acc,
+        [(char, NO_VALUE)],
+        ev=True,
+        client_uuid=client_uuid,
+        connection=handle,
+    )
+    await _run_scheduled_jobs()
+
+    assert result is None
+    (context,) = delegate.subscribes
+    assert context.characteristic is char
+    assert context.client_addr == WRITER
+    assert context.client_uuid == client_uuid
+    assert context.connection is handle
+    assert context.deadline == float("inf")
+    assert driver.topics == {char_topic: {WRITER}}
+
+
+async def test_on_unsubscribe_receives_the_context(driver: AccessoryDriver) -> None:
+    """A controller's unsubscription runs on_unsubscribe."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    driver.loop = asyncio.get_running_loop()
+    delegate = _SubDelegate()
+    char.delegate = delegate
+
+    await _write_chars(driver, acc, [(char, NO_VALUE)], ev=True)
+    await _run_scheduled_jobs()
+    result = await _write_chars(driver, acc, [(char, NO_VALUE)], ev=False)
+    await _run_scheduled_jobs()
+
+    assert result is None
+    (context,) = delegate.unsubscribes
+    assert context.characteristic is char
+    assert context.client_addr == WRITER
+    assert driver.topics == {}
+
+
+async def test_subscription_hooks_run_only_on_the_change(
+    driver: AccessoryDriver,
+) -> None:
+    """Repeated (un)subscriptions of the same controller run no hook."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    driver.loop = asyncio.get_running_loop()
+    delegate = _SubDelegate()
+    char.delegate = delegate
+
+    await _write_chars(driver, acc, [(char, NO_VALUE)], ev=True)
+    await _write_chars(driver, acc, [(char, NO_VALUE)], ev=True)
+    await _write_chars(driver, acc, [(char, NO_VALUE)], ev=False)
+    await _write_chars(driver, acc, [(char, NO_VALUE)], ev=False)
+    await _run_scheduled_jobs()
+
+    assert len(delegate.subscribes) == 1
+    assert len(delegate.unsubscribes) == 1
+
+
+async def test_on_subscribe_failure_is_isolated(
+    driver: AccessoryDriver, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failing on_subscribe is logged and the subscription registers."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    driver.loop = asyncio.get_running_loop()
+    delegate = _SubDelegate(answer=RuntimeError("no"))
+    char.delegate = delegate
+    char_topic = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
+
+    result = await _write_chars(driver, acc, [(char, NO_VALUE)], ev=True)
+    await _run_scheduled_jobs()
+
+    assert result is None
+    assert driver.topics == {char_topic: {WRITER}}
+    assert "failed to run on_subscribe" in caplog.text
+
+
+async def test_close_runs_on_unsubscribe(driver: AccessoryDriver) -> None:
+    """A connection that closes while subscribed runs on_unsubscribe."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    driver.loop = asyncio.get_running_loop()
+    handle = HAPConnectionHandle(WRITER, 1)
+    client_uuid = uuid4()
+    delegate = _SubDelegate()
+    char.delegate = delegate
+
+    await _write_chars(
+        driver,
+        acc,
+        [(char, NO_VALUE)],
+        ev=True,
+        client_uuid=client_uuid,
+        connection=handle,
+    )
+    await _run_scheduled_jobs()
+    driver.connection_lost(WRITER, connection=handle, client_uuid=client_uuid)
+    await _run_scheduled_jobs()
+
+    (context,) = delegate.unsubscribes
+    assert context.characteristic is char
+    assert context.client_addr == WRITER
+    assert context.client_uuid == client_uuid
+    assert context.connection is handle
+    assert driver.topics == {}
+
+
+async def test_close_without_connection_info_runs_on_unsubscribe(
+    driver: AccessoryDriver,
+) -> None:
+    """A close without its connection's identity still runs on_unsubscribe."""
+    acc, _, (char,) = _add_service_with_chars(driver)
+    driver.loop = asyncio.get_running_loop()
+    delegate = _SubDelegate()
+    char.delegate = delegate
+
+    await _write_chars(driver, acc, [(char, NO_VALUE)], ev=True)
+    await _run_scheduled_jobs()
+    driver.connection_lost(WRITER)
+    await _run_scheduled_jobs()
+
+    (context,) = delegate.unsubscribes
+    assert context.client_uuid is None
+    # Without the closed connection's handle the hook still learns the
+    # address, on a handle of its own.
+    assert context.connection.client_addr == WRITER
+    assert driver.topics == {}
 
 
 async def test_direct_set_characteristics_schedules_delegates(

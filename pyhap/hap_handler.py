@@ -660,6 +660,9 @@ class HAPServerHandler:
         self.is_encrypted = True
         self.client_uuid = client_uuid
         del self.enc_context
+        self.accessory_handler.client_verified(
+            cast("tuple[str, int] | None", self.client_address), client_uuid
+        )
 
     def handle_accessories(self) -> None:
         """Handles a client request to get the accessories."""

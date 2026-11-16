@@ -94,6 +94,17 @@ Your accessory's code
    started — e.g. its camera streams; a controller that just walks away
    never sends anything else.
 
+``client_connected`` / ``client_verified``
+   The other two connection hooks, async by design like the delegates.
+   ``client_connected`` runs when a controller's TCP connection is
+   accepted — before it has proven anything about itself — and
+   ``client_verified`` when it finishes pair verify, with its UUID as the
+   second argument: the same identity as the context's
+   :attr:`~pyhap.context.Context.client_uuid`, stable across all of that
+   controller's connections. Both run as isolated jobs: their exceptions
+   are logged, and the connection or the pair verify response never waits
+   for them.
+
 Characteristic callbacks
 ========================
 
@@ -190,6 +201,38 @@ runs its handler through the interface above. Its multi-tier and WebRTC
 sessions belong to the connection that set them up, by
 :class:`~pyhap.connection.HAPConnectionHandle`, so a later connection that
 reuses a closed one's address cannot control them.
+
+Delegate subscriptions
+======================
+
+A controller enables events for a characteristic by writing it with
+``ev``, and a delegate hears about that: the
+``on_subscribe``/``on_unsubscribe`` of the characteristic's
+:class:`~pyhap.delegates.CharacteristicDelegate` run with a
+:class:`~pyhap.context.CharReadContext` — the same context as a read,
+without a deadline.
+
+The hooks are isolated from what caused them: they run as background
+jobs, so the write request (or the connection close) never waits for
+one, and a failing hook is logged without affecting the subscription —
+the subscription itself has already registered. They run on the change
+only: subscribing a controller that is already subscribed, or
+unsubscribing one that is not, runs nothing.
+
+``on_unsubscribe`` also runs when a subscribed controller's connection
+closes, with the connection's identity and its UUID when the driver
+knows them. Use the pair to run work only while someone listens — e.g.
+poll a battery-powered sensor between ``on_subscribe`` and
+``on_unsubscribe``:
+
+.. code-block:: python
+
+   class SensorDelegate(CharacteristicDelegate):
+       async def on_subscribe(self, context):
+           self.task = asyncio.create_task(self._poll())
+
+       async def on_unsubscribe(self, context):
+           self.task.cancel()
 
 Provided utilities
 ==================
