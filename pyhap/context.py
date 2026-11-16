@@ -30,6 +30,15 @@ class Context:
         :class:`~pyhap.connection.HAPConnectionHandle`.
     :ivar deadline: Monotonic time; the driver answers ``-70408`` for a
         callback that is not done by it.
+
+    Contexts identify their target by the object itself, a
+    :class:`~pyhap.characteristic.Characteristic` or a
+    :class:`~pyhap.service.Service`, never by an id: iids are the wire
+    protocol's identity, assigned by the driver at publish time and
+    meaningless outside a running driver, while a delegate is wired at
+    construction time, before iids exist. The object is both the
+    identity for dispatch and the handle to what a callback needs -
+    display name, stored value, properties, the owning service.
     """
 
     client_addr: tuple[str, int] | None
