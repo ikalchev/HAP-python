@@ -6,7 +6,7 @@ Delegates
 
 The delegate interfaces of the callback interface: an object a
 characteristic or service is wired up with, receiving a
-:class:`~pyhap.context.CharContext` per call.
+:class:`~pyhap.context.Context` per call.
 
 .. currentmodule:: pyhap.delegates
 

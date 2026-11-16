@@ -10,11 +10,14 @@ changes.
 
 .. currentmodule:: pyhap.context
 
-.. autoclass:: CharContext
+.. autoclass:: Context
    :members:
 
 .. autoclass:: CharReadContext
    :members:
 
 .. autoclass:: CharWriteContext
+   :members:
+
+.. autoclass:: ServiceWriteContext
    :members:

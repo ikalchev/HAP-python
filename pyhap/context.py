@@ -10,11 +10,12 @@ from .connection import HAPConnectionHandle
 
 if TYPE_CHECKING:
     from .characteristic import Characteristic
+    from .service import Service
 
 
 @dataclass(frozen=True)
-class CharContext:
-    """What a characteristic callback knows about the controller it serves.
+class Context:
+    """What a delegate call knows about the controller it serves.
 
     Contexts are the input side of the callback interface: new input data
     arrives as new fields of this class, so a callback's signature never
@@ -38,7 +39,7 @@ class CharContext:
 
 
 @dataclass(frozen=True)
-class CharReadContext(CharContext):
+class CharReadContext(Context):
     """The context of a read, e.g. of ``on_get``.
 
     :ivar characteristic: The characteristic being read.
@@ -48,14 +49,24 @@ class CharReadContext(CharContext):
 
 
 @dataclass(frozen=True)
-class CharWriteContext(CharContext):
-    """The context of a write, e.g. of ``on_set``.
+class CharWriteContext(Context):
+    """The context of a write of one characteristic, e.g. of ``on_set``.
 
-    :ivar characteristic: The characteristic being written, or ``None``
-        for a grouped call that carries several, e.g. a service's or an
-        accessory's ``on_set``.
+    :ivar characteristic: The characteristic being written.
     :ivar is_admin: Whether the writing controller has admin privileges.
     """
 
-    characteristic: Characteristic | None
+    characteristic: Characteristic
+    is_admin: bool
+
+
+@dataclass(frozen=True)
+class ServiceWriteContext(Context):
+    """The context of a grouped write of a service, its ``on_set`` gate.
+
+    :ivar service: The service whose characteristics are written.
+    :ivar is_admin: Whether the writing controller has admin privileges.
+    """
+
+    service: Service
     is_admin: bool

@@ -14,7 +14,13 @@ from pyhap.characteristic import (
 )
 from pyhap.connection import HAPConnectionHandle
 from pyhap.const import HAP_PERMISSION_WRITE
-from pyhap.context import CharContext, CharReadContext, CharWriteContext
+from pyhap.context import (
+    CharReadContext,
+    CharWriteContext,
+    Context,
+    ServiceWriteContext,
+)
+from pyhap.service import Service
 
 
 def _char() -> Characteristic:
@@ -28,6 +34,10 @@ def _char() -> Characteristic:
     )
 
 
+def _service() -> Service:
+    return Service(uuid1(), "Test Service")
+
+
 def _handle() -> HAPConnectionHandle:
     return HAPConnectionHandle(("1.2.3.4", 5), 3)
 
@@ -35,7 +45,7 @@ def _handle() -> HAPConnectionHandle:
 def test_context_fields() -> None:
     """The context carries what a callback knows about the controller."""
     client_uuid = uuid4()
-    context = CharContext(
+    context = Context(
         client_addr=("1.2.3.4", 5),
         client_uuid=client_uuid,
         connection=_handle(),
@@ -62,21 +72,6 @@ def test_contexts_are_frozen() -> None:
         context.deadline = 2.0  # ty: ignore[invalid-assignment]
 
 
-def test_write_context_groups_and_admin() -> None:
-    """A grouped write carries no characteristic, and the admin flag."""
-    context = CharWriteContext(
-        client_addr=("1.2.3.4", 5),
-        client_uuid=None,
-        connection=_handle(),
-        deadline=1.0,
-        characteristic=None,
-        is_admin=False,
-    )
-
-    assert context.characteristic is None
-    assert context.is_admin is False
-
-
 def test_write_context_of_one_characteristic() -> None:
     """A per-characteristic write carries its characteristic."""
     characteristic = _char()
@@ -86,11 +81,28 @@ def test_write_context_of_one_characteristic() -> None:
         connection=_handle(),
         deadline=1.0,
         characteristic=characteristic,
-        is_admin=True,
+        is_admin=False,
     )
 
     assert context.characteristic is characteristic
+    assert context.is_admin is False
+
+
+def test_service_write_context_carries_the_service() -> None:
+    """A grouped write carries the service it is about, and the admin flag."""
+    service = _service()
+    context = ServiceWriteContext(
+        client_addr=("1.2.3.4", 5),
+        client_uuid=None,
+        connection=_handle(),
+        deadline=1.0,
+        service=service,
+        is_admin=True,
+    )
+
+    assert context.service is service
     assert context.is_admin is True
+    assert not hasattr(context, "characteristic")
 
 
 def test_read_context_carries_the_characteristic() -> None:

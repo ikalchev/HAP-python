@@ -17,8 +17,9 @@ from pyhap.characteristic import (
 )
 from pyhap.connection import HAPConnectionHandle
 from pyhap.const import HAP_PERMISSION_WRITE
-from pyhap.context import CharReadContext, CharWriteContext
+from pyhap.context import CharReadContext, CharWriteContext, ServiceWriteContext
 from pyhap.delegates import CharacteristicDelegate, ServiceDelegate
+from pyhap.service import Service
 
 
 def _char() -> Characteristic:
@@ -48,7 +49,18 @@ def _write_context() -> CharWriteContext:
         client_uuid=None,
         connection=HAPConnectionHandle(("1.2.3.4", 5), 3),
         deadline=1.0,
-        characteristic=None,
+        characteristic=_char(),
+        is_admin=True,
+    )
+
+
+def _service_write_context() -> ServiceWriteContext:
+    return ServiceWriteContext(
+        client_addr=("1.2.3.4", 5),
+        client_uuid=None,
+        connection=HAPConnectionHandle(("1.2.3.4", 5), 3),
+        deadline=1.0,
+        service=Service(uuid1(), "Test Service"),
         is_admin=True,
     )
 
@@ -84,7 +96,7 @@ async def test_noop_defaults_do_nothing_but_on_get_raises() -> None:
     assert await _run(delegate.on_subscribe(_read_context())) is None
     assert await _run(delegate.on_unsubscribe(_read_context())) is None
     service = ServiceDelegate()
-    assert await _run(service.on_set({}, _write_context())) is None
+    assert await _run(service.on_set({}, _service_write_context())) is None
 
 
 async def test_overrides_answer_values() -> None:
@@ -114,9 +126,9 @@ async def test_an_override_may_await_inside() -> None:
 
     class Setter(ServiceDelegate):
         async def on_set(
-            self, values: Mapping[Characteristic, Any], context: CharWriteContext
+            self, values: Mapping[Characteristic, Any], context: ServiceWriteContext
         ) -> None:
             await done.wait()
 
     done.set()
-    assert await _run(Setter().on_set({}, _write_context())) is None
+    assert await _run(Setter().on_set({}, _service_write_context())) is None

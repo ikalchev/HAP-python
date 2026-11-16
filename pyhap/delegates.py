@@ -4,7 +4,7 @@ A delegate is an object a characteristic or service is wired up with,
 :class:`CharacteristicDelegate` for one characteristic or several shared
 ones, :class:`ServiceDelegate` for a whole service. Unlike the legacy
 ``setter_callback``/``getter_callback`` attributes it replaces over time,
-a delegate receives a context (:class:`~pyhap.context.CharContext`) that
+a delegate receives a context (:class:`~pyhap.context.Context`) that
 carries what a callback needs to know about the request - and grows new
 fields instead of new callback signatures.
 """
@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from .context import CharReadContext, CharWriteContext
+from .context import CharReadContext, CharWriteContext, ServiceWriteContext
 
 if TYPE_CHECKING:
     from .characteristic import Characteristic
@@ -91,10 +91,14 @@ class ServiceDelegate:
     Raise :class:`~pyhap.errors.HapStatusError` to refuse the whole
     request before anything is applied: values are restored, subscribers
     are told nothing, and per-characteristic ``on_set`` calls do not run.
+
+    One instance may serve many services, like a characteristic
+    delegate may serve many characteristics: the context carries
+    ``service`` and identifies which one a call is about.
     """
 
     async def on_set(
-        self, values: Mapping[Characteristic, Any], context: CharWriteContext
+        self, values: Mapping[Characteristic, Any], context: ServiceWriteContext
     ) -> None:
         """Veto or accept a grouped write before it is applied.
 
