@@ -13,6 +13,7 @@ from cryptography.exceptions import InvalidTag
 import h11
 
 from pyhap.accessory import get_topic
+from pyhap.connection import HAPConnectionHandle
 from pyhap.const import HAP_REPR_AID, HAP_REPR_IID
 
 from .hap_crypto import HAPCrypto, hap_hkdf
@@ -127,7 +128,14 @@ class HAPServerProtocol(asyncio.Protocol):
         self.transport = transport
         self.peername = peername
         self.connections[peername] = self
-        self.handler = HAPServerHandler(self.accessory_driver, peername)
+        # The stable identity of this connection, passed to the delegate
+        # calls made for its requests, see ``HAPConnectionHandle``.
+        self.connection_handle = HAPConnectionHandle(
+            peername, self.accessory_driver._next_connection_generation()
+        )
+        self.handler = HAPServerHandler(
+            self.accessory_driver, peername, self.connection_handle
+        )
 
     def derive_key(self, salt: bytes, info: bytes) -> bytes | None:
         """Derive a key from this connection's pair-verify session key.

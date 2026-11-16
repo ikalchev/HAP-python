@@ -146,6 +146,43 @@ it wins over the getter and a later ``set_value`` for that connection only,
 and it is dropped when the connection closes — also when a coroutine setter
 answers only after the connection already closed.
 
+Delegate writes
+================
+
+The new-style interface of the write path is the delegate, see
+:ref:`api-delegates`. A write that touches a characteristic with a
+delegate, or a service with one, leaves the legacy path above and runs
+the delegate pipeline instead:
+
+1. Validation, privileges and timed-write checks — the same ones as
+   before.
+2. The values are stored, but subscribers are not told yet.
+3. The gate: the ``on_set`` of each written service's
+   :class:`~pyhap.delegates.ServiceDelegate` runs, concurrently, with
+   every written value of its service. A
+   :class:`pyhap.errors.HapStatusError` refuses the writes of that
+   service — their values are restored, nobody is notified, their
+   per-characteristic ``on_set`` calls do not run, and the raised
+   status is answered. A timeout (``-70408``) or any other failure
+   (``-70402``) refuses the same way.
+4. The per-characteristic ``on_set`` calls of the surviving writes run
+   concurrently, in request order, under the same deadline.
+5. Subscribers learn the values of the writes that succeeded; a write
+   that raised, failed or missed its deadline restores the previous
+   value and notifies nobody, answering its status.
+
+The deadline in the context is one per request — the driver answers a
+request it cannot finish in time with ``-70408`` per characteristic. A
+direct ``set_characteristics`` call has no controller waiting on a
+timeout: it stores the values, answers at once and runs the dispatch
+as a job without a deadline.
+
+A request may mix both interfaces: characteristics without delegates
+keep the legacy dispatch above, byte for byte. A service with a
+delegate, however, is gated as a whole — the legacy callback chars of
+that service are applied after its gate too, so the gate sees every
+value and can refuse the group.
+
 Provided utilities
 ==================
 

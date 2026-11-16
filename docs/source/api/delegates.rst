@@ -58,11 +58,20 @@ carries :attr:`~pyhap.context.CharReadContext.characteristic` and says
 which one a call is about, e.g. one delegate per accessory rather than
 one per characteristic.
 
-**Rollout state.** The driver stores delegates from this release on;
-the write and read pipelines dispatch them in the following releases of
-the callback interface refactor. Until then, a delegate is wired but
-not yet called. The legacy
+**Rollout state.** The driver dispatches the writes of delegates from
+this release on: a write to a characteristic with a delegate, or to a
+service with one, runs its gates and its ``on_set`` calls as described
+above, and answers with the per-characteristic statuses. Reads still
+use the legacy path - the async read pipeline and the
+``on_subscribe`` / ``on_unsubscribe`` hooks follow in the next
+releases of the callback interface refactor. The legacy
 :attr:`~pyhap.characteristic.Characteristic.setter_callback` /
 :attr:`~pyhap.characteristic.Characteristic.getter_callback` attributes
 keep working unchanged for code that uses them alone, and are
-deprecated once the delegates are dispatched.
+deprecated once the read pipeline dispatches delegates too.
+
+A request may mix both interfaces. A characteristic with a legacy
+callback keeps its legacy dispatch, byte for byte, unless its service
+has a delegate: the writes of a gated service - delegate or legacy
+callback - all pass its gate first, so the gate can refuse them as a
+group.

@@ -63,6 +63,8 @@ class CharacteristicDelegate:
         once this call is done. A return value is the write response for
         a characteristic with the ``wr`` permission, else it is dropped;
         raise :class:`~pyhap.errors.HapStatusError` to answer a status.
+        A write that raises, fails or misses its deadline restores the
+        characteristic's previous value and tells subscribers nothing.
         """
 
     async def on_subscribe(self, context: CharReadContext) -> None:
@@ -88,9 +90,11 @@ class ServiceDelegate:
     that writes several characteristics of the service runs it before
     any per-characteristic ``on_set``, with every value of the request -
     so a thermostat sees target mode and target temperature together.
-    Raise :class:`~pyhap.errors.HapStatusError` to refuse the whole
-    request before anything is applied: values are restored, subscribers
-    are told nothing, and per-characteristic ``on_set`` calls do not run.
+    Raise :class:`~pyhap.errors.HapStatusError` to refuse the writes
+    of the service before anything is applied: their values are
+    restored, subscribers are told nothing, and their
+    per-characteristic ``on_set`` calls do not run. Writes of other
+    services in the same request are not affected.
 
     One instance may serve many services, like a characteristic
     delegate may serve many characteristics: the context carries

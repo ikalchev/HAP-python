@@ -561,6 +561,23 @@ class Characteristic:
             )
         return response
 
+    def _store_client_value(self, value: Any) -> Any:
+        """Store a controller's write without running any callback.
+
+        The new-style write path of the driver: validate and store the
+        value like :meth:`client_update_value` does, tell no subscriber
+        and call no callback - the driver runs the characteristic's
+        ``on_set`` and notifies once it succeeded, or restores this value
+        if the write is refused. Returns the value's previous state.
+        """
+        if not self._always_null or value is not None:
+            value = self.to_valid_value(value)
+        if not self.allow_invalid_client_values:
+            self.valid_value_or_raise(value)
+        previous_value = self._value
+        self.value = value
+        return previous_value
+
     def client_update_finished(
         self,
         previous_value: Any,

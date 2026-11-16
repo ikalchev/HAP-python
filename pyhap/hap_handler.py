@@ -20,6 +20,7 @@ import h11
 
 from pyhap import tlv
 from pyhap.accessory import Bridge
+from pyhap.connection import HAPConnectionHandle
 from pyhap.const import (
     HAP_PERMISSIONS,
     HAP_REPR_CHARS,
@@ -145,14 +146,22 @@ class HAPServerHandler:
         self,
         accessory_handler: "AccessoryDriver",
         client_address: tuple[str, int] | str,
+        connection: HAPConnectionHandle | None = None,
     ) -> None:
         """@param accessory_handler: An object that controls an accessory's state.
         @type accessory_handler: AccessoryDriver
+
+        :param connection: The connection the requests of this handler come
+            over, see :class:`~pyhap.connection.HAPConnectionHandle`.
         """
         self.accessory_handler: AccessoryDriver = accessory_handler
         self.state: State = self.accessory_handler.state
         self.enc_context: dict[str, Any] | None = None
         self.client_address = client_address
+        self.connection = connection or HAPConnectionHandle(
+            cast("tuple[str, int] | None", client_address),
+            self.accessory_handler._next_connection_generation(),
+        )
         self.is_encrypted = False
         self.client_uuid: uuid.UUID | None = None
 
@@ -708,13 +717,14 @@ class HAPServerHandler:
             cast("tuple[str, int]", self.client_address),
             RESPONSE_TIMEOUT,
             client_uuid=self.client_uuid,
+            connection=self.connection,
         )
         assert self.response is not None  # noqa: S101
         if inspect.isawaitable(result):
             # A setter is still running, answer once it is done. The driver
             # times out slow setters itself.
             self.response.task = asyncio.ensure_future(
-                self._async_set_characteristics_body(self.response, result)
+                self._set_characteristics_body(self.response, result)
             )
             return
         self._fill_set_characteristics_response(self.response, result)
@@ -732,7 +742,7 @@ class HAPServerHandler:
         response.headers.append(("Content-Type", self.JSON_RESPONSE_TYPE))
         response.body = to_hap_json(result)
 
-    async def _async_set_characteristics_body(
+    async def _set_characteristics_body(
         self, response: HAPResponse, result: Awaitable[dict[str, Any] | None]
     ) -> bytes:
         """Wait for the pending setters, then fill in the write response."""

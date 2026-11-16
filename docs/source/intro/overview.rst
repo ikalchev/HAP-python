@@ -127,6 +127,14 @@ done. Other subscribers then learn the new value as an event.
        D->>H: EVENT for the other subscribers of aid.iid
        H-->>C: EVENT aid.iid = value
 
+A write served by a delegate (see :ref:`api-delegates`) runs the
+delegate pipeline instead: the values are stored without notifying
+anyone, the written services' gates run first and may refuse their
+writes as a group, then each written characteristic's ``on_set``
+applies its write — and a refused or failed write restores the
+previous value and answers its status. The full contract lives in
+:doc:`/advanced/async`.
+
 A value change to subscribers
 -----------------------------
 
