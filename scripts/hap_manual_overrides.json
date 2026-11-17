@@ -14,6 +14,7 @@
       "Apple ships them again. NOTE: the generator never removes a required or",
       "optional characteristic from an existing service - demotions in Apple's",
       "metadata are ignored by design; use serviceOverrides to remove one deliberately.",
+      "An existing required list also keeps its order; extra required ones become optional.",
       "",
       "characteristicOverrides also carries deliberate corrections of Apple's",
       "plain-metadata.config, mirroring HAP-NodeJS's CharacteristicOverriding:",

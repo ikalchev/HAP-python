@@ -75,11 +75,17 @@ following rules apply on top of the raw metadata:
   committed catalog for a given UUID (Apple's descriptions drift over time,
   e.g. "CarbonDioxideDetected" vs "Carbon dioxide Detected", "Slat" vs
   "Slats"). New UUIDs get a name derived from the description.
-- SERVICES: pyhap's Service() auto-instantiates the REQUIRED characteristics
-  at runtime, so a required->optional demotion in Apple's metadata would
-  silently strip characteristics from existing accessories. Required stays
-  Required, Optional lists only ever grow; deliberate removals must go
-  through serviceOverrides.
+- SERVICES: Loader.get_service() (through Service.from_dict()) instantiates
+  the REQUIRED characteristics in list order, and the default IIDManager
+  numbers them in that order. Any change to the Required list of an existing
+  service would strip characteristics from existing accessories or shift
+  their instance IDs, which HAP requires to stay stable for a pairing. So an
+  existing service keeps its previous Required list in order, minus
+  characteristics that no longer exist, and a characteristic the metadata
+  lists as required beyond it becomes Optional; a differing Required list in
+  the metadata is reported. Optional lists only ever grow. New services take
+  Apple's lists as they are. serviceOverrides and serviceAdditions still
+  replace whole entries; deliberate removals must go through them.
 - VALID VALUES: when a characteristic has enumerated ValidValues, the numeric
   min/max/step constraints are dropped. HAP-python clamps values to min/max
   BEFORE checking ValidValues, so keeping both would turn invalid values into
@@ -438,32 +444,45 @@ def generate_services(
             )
 
         # COMPATIBILITY INHERITANCE from the previously generated catalog:
-        # pyhap's Service() auto-instantiates the REQUIRED characteristics at
-        # runtime, so a required->optional demotion in Apple's metadata would
-        # silently remove characteristics from existing accessories. Apple
-        # occasionally does this (e.g. FirmwareRevision on AccessoryInformation)
-        # while the HAP specification still lists them as required. Rule:
-        #   - a characteristic that was Required stays Required;
-        #   - a characteristic that was Optional stays Optional (allowed lists
-        #     only ever grow).
+        # Loader.get_service() instantiates the REQUIRED characteristics in
+        # list order and the default IIDManager numbers them in that order, so
+        # any change to an existing Required list removes characteristics from
+        # accessories or shifts their instance IDs, which must stay stable for
+        # a pairing. The metadata lists some required characteristics
+        # differently from the committed catalog: in another order, as
+        # optional (e.g. FirmwareRevision on AccessoryInformation) or an
+        # optional one as required. Rule:
+        #   - the previous Required list is kept in order, minus
+        #     characteristics that no longer exist;
+        #   - a characteristic that was Optional, or that the metadata lists as
+        #     required beyond that list, is Optional (allowed lists only grow).
         # Genuine removals must be done explicitly via a serviceOverride entry
-        # in the manual overrides file.
+        # in the manual overrides file, which replaces the whole entry.
         prev = existing_services.get(name)
         if prev and prev.get("UUID") == entry["UUID"]:
-            # Required characteristics that were demoted to Optional by Apple
-            # are re-promoted to Required.
-            for c in prev.get("RequiredCharacteristics", []):
-                if c not in characteristics or c in entry["RequiredCharacteristics"]:
-                    continue
-                entry["RequiredCharacteristics"].append(c)
-                if c in entry["OptionalCharacteristics"]:
-                    entry["OptionalCharacteristics"].remove(c)
-            # Optional characteristics that were dropped entirely are re-added
-            # (the allowed list only ever grows).
-            for c in prev.get("OptionalCharacteristics", []):
+            apple_required = entry["RequiredCharacteristics"]
+            required = [
+                c
+                for c in prev.get("RequiredCharacteristics", [])
+                if c in characteristics
+            ]
+            if required != apple_required:
+                print(
+                    f"  ! service {name}: keeping required {required} "
+                    f"(metadata says {apple_required})",
+                    file=sys.stderr,
+                )
+            entry["RequiredCharacteristics"] = required
+            entry["OptionalCharacteristics"] = [
+                c for c in entry["OptionalCharacteristics"] if c not in required
+            ]
+            # Optional characteristics the metadata dropped are re-added, then
+            # the ones it lists as required beyond the kept list; in this order
+            # a rerun reproduces the committed list.
+            for c in prev.get("OptionalCharacteristics", []) + apple_required:
                 if (
                     c in characteristics
-                    and c not in entry["RequiredCharacteristics"]
+                    and c not in required
                     and c not in entry["OptionalCharacteristics"]
                 ):
                     entry["OptionalCharacteristics"].append(c)
