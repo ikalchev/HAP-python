@@ -139,7 +139,7 @@ known-first-party = [
 dynamic-function-decorator-return = "error"
 missing-type-argument = "error"
 possibly-unresolved-reference = "warn"
-unsound-return-statement = "error"
+unsound-return = "error"
 
 [tool.ty.src]
 include = [
