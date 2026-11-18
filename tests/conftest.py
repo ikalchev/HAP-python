@@ -23,13 +23,17 @@ def mock_driver() -> Iterator["MockDriver"]:
     yield MockDriver()
 
 
+async def _noop() -> None:
+    pass
+
+
 @pytest.fixture(name="async_zeroconf")
 def async_zc() -> Iterator[MagicMock]:
     with patch("pyhap.accessory_driver.AsyncZeroconf") as mock_async_zeroconf:
         aiozc = mock_async_zeroconf.return_value
-        aiozc.async_register_service = AsyncMock()
-        aiozc.async_update_service = AsyncMock()
-        aiozc.async_unregister_service = AsyncMock()
+        aiozc.async_register_service = AsyncMock(side_effect=lambda *a, **k: _noop())
+        aiozc.async_update_service = AsyncMock(side_effect=lambda *a, **k: _noop())
+        aiozc.async_unregister_service = AsyncMock(side_effect=lambda *a, **k: _noop())
         aiozc.async_close = AsyncMock()
         yield aiozc
 

@@ -553,8 +553,10 @@ class AccessoryDriver:
                 if self.interface_choice is not None:
                     zc_args["interfaces"] = self.interface_choice
                 self.advertiser = AsyncZeroconf(**zc_args)
-            await self.advertiser.async_register_service(
-                self.mdns_service_info, cooperating_responders=True
+            await (
+                await self.advertiser.async_register_service(
+                    self.mdns_service_info, cooperating_responders=True
+                )
             )
 
         # Print accessory setup message
@@ -583,7 +585,9 @@ class AccessoryDriver:
             assert self.advertiser is not None  # noqa: S101
             assert self.mdns_service_info is not None  # noqa: S101
             logger.debug("Stopping mDNS advertising for %s", accessory.display_name)
-            await self.advertiser.async_unregister_service(self.mdns_service_info)
+            await (
+                await self.advertiser.async_unregister_service(self.mdns_service_info)
+            )
             await self.advertiser.async_close()
 
         self.aio_stop_event.set()
@@ -807,6 +811,10 @@ class AccessoryDriver:
         """Updates the mDNS service info for the accessory."""
         self.loop.call_soon_threadsafe(self.async_update_advertisement)
 
+    async def _async_update_service(self) -> None:
+        """Update the mDNS service and wait for the broadcast to finish."""
+        await (await self.advertiser.async_update_service(self.mdns_service_info))
+
     @callback
     def async_update_advertisement(self) -> None:
         """Updates the mDNS service info for the accessory from the event loop."""
@@ -818,9 +826,7 @@ class AccessoryDriver:
         self.mdns_service_info = AccessoryMDNSServiceInfo(
             self.accessory, self.state, self.zeroconf_server
         )
-        util.async_create_background_task(
-            self.advertiser.async_update_service(self.mdns_service_info)
-        )
+        util.async_create_background_task(self._async_update_service())
 
     def accessory_state(self, aid: int) -> dict[str, Any]:
         """Return the persisted state dict of accessory ``aid``.
