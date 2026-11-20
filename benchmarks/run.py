@@ -49,10 +49,10 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 try:
-    from benchmarks.client import BenchController, ClientIdentity
-except ImportError:  # running as a plain script, not ``-m benchmarks.run``
+    from pyhap.client import ClientIdentity, HAPClient
+except ImportError:  # running as a plain script without the package installed
     sys.path.insert(0, str(REPO_ROOT))
-    from benchmarks.client import BenchController, ClientIdentity
+    from pyhap.client import ClientIdentity, HAPClient
 
 try:
     import psutil
@@ -489,10 +489,10 @@ async def run_scenario(scenario: Scenario, args: argparse.Namespace) -> dict[str
 
         # ### Connect and pair-verify ###
         sampler.mark("connect")
-        clients: list[BenchController] = []
+        clients: list[HAPClient] = []
         pair_verify_ms: list[float] = []
         for identity in identities:
-            controller = BenchController(identity, ltpk)
+            controller = HAPClient(identity, ltpk)
             started = time.perf_counter()
             await controller.connect("127.0.0.1", port)
             pair_verify_ms.append((time.perf_counter() - started) * 1000)

@@ -18,6 +18,15 @@ Sections
 
 ## [Unreleased]
 
+### Added
+
+- `pyhap.client`: a HAP client (controller) package speaking the real
+  protocol - pair-verify, encrypted transport, characteristic reads/writes,
+  event subscriptions and `EVENT` push frames. Moved out of
+  `benchmarks/client.py` (now `pyhap.client.HAPClient`) and extended with
+  batch reads/writes, unsubscribe and raw event access. Covered by the new
+  integration tests in `tests/integration/`.
+
 ### Fixed
 
 - Drop the write response of a coroutine setter that answers only after its
