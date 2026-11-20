@@ -115,9 +115,13 @@ A :class:`~pyhap.camera.Camera` stores its recording settings under its AID:
 whether recording and its audio are on, the selected recording configuration
 and the camera operating mode (snapshots, HomeKit camera active). Hubs do not
 select a configuration again after a restart, so the camera restores the
-selection, unless its supported recording configuration changed. The 17.99
-values a controller writes, like the global operating mode and the motion
-zones, are kept as well. A new home resets all of it.
+selection, unless its supported recording configuration changed. Changing
+what a paired camera advertises, like its recording resolutions or prebuffer,
+therefore drops the selection: the camera logs a warning and refuses
+recordings until the hub selects a configuration again. Turning recording off
+and on in the Home app should make it select one. The 17.99 values a
+controller writes, like the global operating mode and the motion zones, are
+kept as well. A new home resets all of it.
 
 A new home must not inherit the old one
 =======================================
