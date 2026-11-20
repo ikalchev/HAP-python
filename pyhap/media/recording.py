@@ -406,7 +406,7 @@ class Recorder:
             mux(item)
         self.ring.listener = mux
         try:
-            self._process = await asyncio.create_subprocess_exec(
+            process = await asyncio.create_subprocess_exec(
                 *command,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
@@ -416,8 +416,15 @@ class Recorder:
             self.ring.listener = None
             self._queue = None
             raise
-        logger.info("Recording transcoder started, pid %d", self._process.pid)
-        process = self._process
+        if self._queue is not queue or self._closed:
+            # stop() ran, or the source ended, while the transcoder started
+            # and found none to end.
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
+            raise RuntimeError("The recording was stopped while it started")
+        self._process = process
+        logger.info("Recording transcoder started, pid %d", process.pid)
         loop = asyncio.get_running_loop()
         self._stderr_tail.clear()
         self._stderr_done = loop.create_task(_log_stderr(process, self._stderr_tail))

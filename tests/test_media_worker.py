@@ -9,6 +9,7 @@ import logging
 import os
 import pathlib
 import signal
+import sys
 import time
 from typing import Any
 
@@ -464,6 +465,49 @@ async def test_worker_crash_ends_its_sources(worker: MediaWorker) -> None:
     again = await worker.open_source()
     assert worker.pid != pid
     assert not again.closed
+
+
+# Stands in for the recording transcoder: names a file in the directory it is
+# given after its process ID, then runs until it is stopped.
+TRANSCODER = """
+import os, sys, time
+open(os.path.join(sys.argv[1], f"{os.getpid()}.pid"), "w").close()
+time.sleep(60)
+"""
+
+
+def transcoders(directory: pathlib.Path) -> list[int]:
+    """The process IDs of the transcoders started in ``directory`` that still run."""
+    running = []
+    for path in directory.glob("*.pid"):
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(int(path.stem), 0)
+            running.append(int(path.stem))
+    return running
+
+
+@pytest.mark.parametrize("separate_process", [False, True], ids=["thread", "process"])
+async def test_cancelled_recording_start_leaves_no_transcoder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, separate_process: bool
+) -> None:
+    """Verify a recording whose start is cancelled mid-request ends in the worker."""
+    worker = MediaWorker(separate_process=separate_process, log_dir=tmp_path / "log")
+    recorder = await worker.open_recorder(await worker.open_source(), prebuffer=0)
+    command = [sys.executable, "-c", TRANSCODER, str(tmp_path)]
+    # The worker starts the transcoder, its answer does not arrive in time.
+    monkeypatch.setattr(worker, "_dispatch", ignore_message)
+    starting = asyncio.ensure_future(recorder.start(command, 0))
+    await wait_until(lambda: len(transcoders(tmp_path)) == 1)
+    monkeypatch.undo()
+    starting.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await starting
+    assert not recorder.recording
+    await recorder.start(command, 0)
+    assert recorder.recording
+    await recorder.stop()
+    assert transcoders(tmp_path) == []
+    await worker.close()
 
 
 async def wait_for_line(path: pathlib.Path, text: str) -> str:
