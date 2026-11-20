@@ -261,6 +261,35 @@ def test_ring_closed_source() -> None:
     assert ring.snapshot(4.0) == []
 
 
+@pytest.mark.parametrize(
+    ("pause", "arrivals"),
+    [(3.0, [106.0, 107.0]), (4.0, []), (12.0, [])],
+)
+def test_ring_hands_out_no_stale_media(pause: float, arrivals: list[float]) -> None:
+    """Verify media that stopped coming for the ring's seconds is not handed out."""
+    clock = Clock()
+    ring = PrebufferRing(4.0, clock=clock)
+    for second in range(8):
+        clock.now = 100.0 + second
+        ring.on_source_video(unit(second % 2 == 0, second), 1)
+    clock.now += pause
+    assert [item.arrival for item in ring.snapshot(4.0)] == arrivals
+
+
+def test_ring_starts_over_at_an_irap_after_a_pause() -> None:
+    """Verify media that comes after a pause is handed out from its first IRAP."""
+    clock = Clock()
+    ring = PrebufferRing(4.0, clock=clock)
+    ring.on_source_video(unit(True), 1)
+    clock.now = 112.0
+    ring.on_source_video(unit(False, 1), 1)
+    ring.on_source_audio(audio(1))
+    assert ring.snapshot(4.0) == []
+    ring.on_source_video(unit(True, 2), 1)
+    ring.on_source_video(unit(False, 3), 1)
+    assert [item.unit for item in ring.snapshot(4.0)] == [unit(True, 2), unit(False, 3)]
+
+
 def test_timestamps_map_to_a_common_timeline() -> None:
     """Verify RTP timestamps wrap and re-anchor after a jump."""
     video = _Timestamps(90000, origin=10.0)
