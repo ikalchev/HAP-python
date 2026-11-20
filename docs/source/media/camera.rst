@@ -122,7 +122,14 @@ before the motion event:
     camera = Camera({..., "recording": {"delegate": recording}}, driver, "Camera")
 
 The channel comes from the same provider as the live sessions, so a channel
-that is also watched live is pulled once. Observed with iOS and tvOS 27: hubs
+that is also watched live is pulled once. It must deliver H.265: a recording
+whose first fragment has not come ``first_video_timeout`` seconds (10 s by
+default) after the hub asked, e.g. from an H.264 camera or one that sends
+nothing or stalls once its channel is open, fails and the hub is told so
+instead of waiting. Opening the channel counts toward that time but is not cut
+short: an input resolver and the media worker's own request timeout decide how
+long it takes. A camera whose keyframe interval is longer than the bound needs
+a prebuffer. Observed with iOS and tvOS 27: hubs
 do not upload the HDS recordings of a camera that also has ``multi_tier``,
 so they never appear in the Home app. Use recording on cameras without it.
 
