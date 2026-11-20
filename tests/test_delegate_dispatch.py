@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import Mapping
 import inspect
+import math
 import time
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -374,6 +375,28 @@ async def test_on_set_failure_answers_70402(driver: AccessoryDriver) -> None:
     notify.assert_not_called()
 
 
+async def test_on_set_raising_at_call_time_answers_70402(
+    driver: AccessoryDriver,
+) -> None:
+    """A sync on_set that raises when called fails its write, not the request."""
+
+    class _SyncRaise(CharacteristicDelegate):
+        def on_set(self, value: Any, context: CharWriteContext) -> Any:
+            raise RuntimeError("no")
+
+    acc, _, (char,) = _add_service_with_chars(driver)
+    char.delegate = _SyncRaise()
+
+    with patch.object(Characteristic, "notify") as notify:
+        result = await _write_chars(driver, acc, [(char, 7)])
+
+    assert (
+        _status_of(result, acc, char) == HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+    )
+    assert char.value == 0
+    notify.assert_not_called()
+
+
 async def test_on_set_timeout_answers_70408(driver: AccessoryDriver) -> None:
     """An on_set that misses the deadline answers -70408 and restores."""
     acc, _, (char,) = _add_service_with_chars(driver)
@@ -404,15 +427,17 @@ async def test_invalid_value_answers_70402_without_on_set(
     assert char.value == 0
 
 
-async def test_null_write_runs_no_on_set(driver: AccessoryDriver) -> None:
-    """A null write applies nothing and runs no on_set, like the legacy path."""
+async def test_null_write_answers_invalid_and_runs_no_on_set(
+    driver: AccessoryDriver,
+) -> None:
+    """A null write answers invalid and runs no on_set, like the legacy path."""
     acc, _, (char,) = _add_service_with_chars(driver)
     delegate = _CharDelegate()
     char.delegate = delegate
 
     result = await _write_chars(driver, acc, [(char, None)])
 
-    assert result is None
+    assert _status_of(result, acc, char) == HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
     assert delegate.calls == []
     assert char.value == 0
 
@@ -471,6 +496,31 @@ async def test_gate_failure_answers_70402(driver: AccessoryDriver) -> None:
     )
     assert delegate.calls == []
     assert char.value == 0
+
+
+async def test_gate_raising_at_call_time_refuses_70402(
+    driver: AccessoryDriver,
+) -> None:
+    """A sync gate on_set raising at call time refuses the writes, not the request."""
+
+    class _SyncRaiseGate(ServiceDelegate):
+        def on_set(self, values: Any, context: Any) -> Any:
+            raise RuntimeError("no")
+
+    acc, service, (char,) = _add_service_with_chars(driver)
+    service.delegate = _SyncRaiseGate()
+    delegate = _CharDelegate()
+    char.delegate = delegate
+
+    with patch.object(Characteristic, "notify") as notify:
+        result = await _write_chars(driver, acc, [(char, 7)])
+
+    assert (
+        _status_of(result, acc, char) == HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+    )
+    assert delegate.calls == []
+    assert char.value == 0
+    notify.assert_not_called()
 
 
 async def test_gate_passes_then_writes_apply(driver: AccessoryDriver) -> None:
@@ -656,7 +706,7 @@ async def test_on_subscribe_receives_a_full_context(driver: AccessoryDriver) -> 
     assert context.client_addr == WRITER
     assert context.client_uuid == client_uuid
     assert context.connection is handle
-    assert context.deadline == float("inf")
+    assert context.deadline == math.inf
     assert driver.topics == {char_topic: {handle}}
 
 
@@ -804,7 +854,7 @@ async def test_direct_set_characteristics_schedules_delegates(
         assert value == 7
         assert context.client_addr == WRITER
         assert context.connection is driver._connection_of(WRITER)
-        assert context.deadline == float("inf")
+        assert context.deadline == math.inf
         notify.assert_called_once_with(driver._connection_of(WRITER))
 
 
@@ -886,6 +936,25 @@ async def test_on_get_not_a_coroutine_function(driver: AccessoryDriver) -> None:
 
     rep = _read_of(result, acc, char)
     assert rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+
+
+async def test_on_get_raising_at_call_time_answers_70402(
+    driver: AccessoryDriver,
+) -> None:
+    """A sync on_get that raises when called fails its read, not the request."""
+
+    class _SyncRaiseGet(CharacteristicDelegate):
+        def on_get(self, context: CharReadContext) -> Any:
+            raise RuntimeError("no")
+
+    acc, _, (char,) = _add_service_with_chars(driver)
+    char.delegate = _SyncRaiseGet()
+
+    result = await _read_chars(driver, acc, [char])
+
+    rep = _read_of(result, acc, char)
+    assert rep[HAP_REPR_STATUS] == HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+    assert HAP_REPR_VALUE not in rep
 
 
 async def test_on_get_null_answer(driver: AccessoryDriver) -> None:
@@ -983,7 +1052,7 @@ async def test_direct_get_characteristics_answers_stored_and_schedules(
     assert context.characteristic is char
     assert context.client_addr is None
     assert context.connection.client_addr is None
-    assert context.deadline == float("inf")
+    assert context.deadline == math.inf
 
 
 async def test_on_get_answers_an_accessories_request(driver: AccessoryDriver) -> None:

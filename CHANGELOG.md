@@ -66,16 +66,21 @@ Sections
   contexts (`pyhap.context`): the reads, writes and event subscriptions of a
   characteristic dispatch to a delegate — every call an awaited coroutine
   function under a request deadline, with a frozen context carrying the
-  controller's connection, identity and privileges. A service delegate gates
-  the grouped writes of its service: it may refuse them by raising
-  `HapStatusError`, which restores the previous values and notifies nobody.
+  controller's connection, identity and privileges. A service delegate is
+  the pre-check of the grouped writes of its service: it may refuse them by
+  raising `HapStatusError`, which restores the previous values and notifies
+  nobody. `delegate` is never `None`: without an assigned one the default
+  delegate — the wrapper of the legacy callbacks without any — answers,
+  and reading the legacy callbacks of a delegate-wired object raises
+  `ValueError`.
 - `HapStatusError` (`pyhap.errors`): a callback answers a curated HAP status
   code by raising it, so a busy or refusing accessory no longer fails with
   the generic `-70402`. A legacy callback may raise it too.
   [#75](https://github.com/ikalchev/HAP-python/issues/75)
-- Async getters: `GET /characteristics` and `GET /accessories` await a
-  delegate's `on_get` under the request deadline, so a getter may do IO. A
-  getter that fails or misses the deadline answers per characteristic
+- Async getters: `GET /characteristics` and `GET /accessories` await the
+  `on_get` of every readable characteristic under the request deadline — a
+  legacy getter wrapped into the delegate — so a getter may do IO. A getter
+  that fails or misses the deadline answers per characteristic
   (`-70402` / `-70408`).
 - Connection lifecycle hooks on `Accessory`: `client_connected` and
   `client_verified`, async and isolated like the existing
@@ -86,6 +91,8 @@ Sections
   sessions.
 - `accessories/busy_lock.py`, an example accessory that refuses a lock with
   `RESOURCE_BUSY` instead of answering a silent failure.
+- `accessories/delegate_lightbulb.py`, an example accessory built on
+  delegates, contexts and `HapStatusError`.
 
 ### Changed
 
@@ -98,11 +105,21 @@ Sections
   `pyhap.hap_handler`). `pyhap.camera` now imports the multi-tier and WebRTC
   stream services at the top, which makes the cycle gone instead of hidden in
   a deferred import.
+- A failing getter answers its own status per characteristic instead of
+  failing the whole `/accessories` response.
+- One dispatch pipeline for every write and read: the legacy callbacks run
+  wrapped inside the delegate calls, so a characteristic without a delegate
+  and one with one take the same path — the values are stored, the written
+  services' pre-checks run first (a legacy grouped setter of a service or an
+  accessory among them), then each written characteristic's `on_set`, and
+  a refused or failed write is restored and notifies nobody. An explicit
+  `null` write answers `-70410`, like before, without reaching a callback.
+- A camera delegate hook gets at most `hook_timeout` seconds, or as long as
+  the request has left: whichever ends first, the answer still fits in the
+  request.
 - The camera stack (stream management, recording, operating mode, multi-tier
   and WebRTC) dispatches through delegates and contexts internally; the
   author-facing camera methods keep their signatures.
-- A failing getter answers its own status per characteristic instead of
-  failing the whole `/accessories` response.
 - The driver's per-controller state is keyed by the connection, not by its
   address: event subscriptions, prepared timed writes, write responses and
   the server's connections, all by `HAPConnectionHandle`. Nothing of a
@@ -118,7 +135,7 @@ Sections
 - The legacy callbacks: assigning `setter_callback` or `getter_callback` on
   a characteristic, `setter_callback` on a service or an accessory, or
   passing them to `configure_char`, warns `DeprecationWarning`. They keep
-  working, byte for byte; move new code to the delegates.
+  working, wrapped into the delegate calls; move new code to the delegates.
 
 ### Fixed
 
@@ -132,6 +149,18 @@ Sections
 
 ### Breaking Changes
 
+- Direct calls answer at once, optimistically: `driver.set_characteristics`
+  answers a plain success and runs the setters as a job, and
+  `driver.get_characteristics` / `driver.get_accessories` answer the stored
+  values and run the reads as a job — a write response or a getter's fresh
+  value is no longer part of the synchronous answer. The HAP representation
+  (`to_HAP`) answers the stored value; a fresh answer comes from the read
+  path.
+- A legacy grouped setter — `Service.setter_callback` or
+  `Accessory.setter_callback` — runs *before* the per-characteristic
+  setters, as the pre-check of its service or accessory, and its
+  `HapStatusError` now refuses the writes (restores the values, notifies
+  nobody) instead of answering a status after they were applied.
 - The notify chain takes the writing connection, not its address: the
   third parameter of `Accessory.publish` and `Camera.publish` and the
   second of `Characteristic.client_update_value`,

@@ -48,6 +48,13 @@ device.
        RESOURCE_BUSY while its bolt is moving, and an offline sensor whose
        reads answer a status instead of a value
        (:class:`pyhap.errors.HapStatusError`).
+   * - ``delegate_lightbulb.py``
+     - The delegate interface end to end: one
+       :class:`~pyhap.delegates.CharacteristicDelegate` serving several
+       characteristics through the context, a
+       :class:`~pyhap.delegates.ServiceDelegate` gate refusing a grouped
+       write, async ``on_get``/``on_set`` and ``HapStatusError`` refusals
+       (see :doc:`/api/delegates`).
 
 To run one, install the repository and run the file with the project's
 virtualenv active — or copy it into your own script and adapt it. The

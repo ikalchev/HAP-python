@@ -123,8 +123,11 @@ needs to know about the request — the writer's connection, its privileges,
 the deadline — arrives through the delegate interface below instead; the
 former ``sender_client_addr`` parameter-name opt-in is gone with it.
 
-**The legacy callbacks are deprecated.** They keep working, byte for
-byte, but assigning one — a characteristic's
+**The legacy callbacks are deprecated.** They keep working, wrapped
+into the delegate calls below: a sync setter runs inside the awaited
+``on_set``, a coroutine setter is awaited, and the grouped callbacks of a
+service or an accessory run as its pre-check. But assigning one — a
+characteristic's
 :attr:`~pyhap.characteristic.Characteristic.setter_callback` or
 :attr:`~pyhap.characteristic.Characteristic.getter_callback`, the
 ``setter_callback``/``getter_callback`` parameters of
@@ -170,18 +173,29 @@ answers only after the connection already closed.
 Delegate writes
 ================
 
-The new-style interface of the write path is the delegate, see
-:ref:`api-delegates`. A write that touches a characteristic with a
-delegate, or a service with one, leaves the legacy path above and runs
-the delegate pipeline instead:
+Every write runs through the delegates, see :ref:`api-delegates` — a
+legacy callback above is wrapped into one, so one pipeline serves both:
 
 1. Validation, privileges and timed-write checks — the same ones as
-   before.
-2. The values are stored, but subscribers are not told yet.
-3. The gate: the ``on_set`` of each written service's
+   before. An explicit ``null`` value answers ``-70410``: nothing is
+   applied and no callback runs.
+2. The values are stored, but subscribers are not told yet — and the
+   request of a *private* write (a write response or a
+   ``read_back_response`` characteristic) is put back at once, so no
+   other controller reads it while the setters run. A controller's write
+   is recorded as a *client update* of the characteristic's value: the
+   legacy :meth:`Characteristic.client_update_value
+   <pyhap.characteristic.Characteristic.client_update_value>` runs the
+   whole update in one call, while this path splits it into storing the
+   value, the delegates' ``on_set`` and step 5's
+   :meth:`Characteristic.client_update_finished
+   <pyhap.characteristic.Characteristic.client_update_finished` telling
+   the subscribers.
+3. The service-level pre-check: the ``on_set`` of each written service's
    :class:`~pyhap.delegates.ServiceDelegate` runs, concurrently, with
-   every written value of its service. A
-   :class:`pyhap.errors.HapStatusError` refuses the writes of that
+   every written value of its service — the legacy grouped setter of a
+   service or an accessory without a delegate runs here too, wrapped.
+   A :class:`pyhap.errors.HapStatusError` refuses the writes of that
    service — their values are restored, nobody is notified, their
    per-characteristic ``on_set`` calls do not run, and the raised
    status is answered. A timeout (``-70408``) or any other failure
@@ -195,14 +209,10 @@ the delegate pipeline instead:
 The deadline in the context is one per request — the driver answers a
 request it cannot finish in time with ``-70408`` per characteristic. A
 direct ``set_characteristics`` call has no controller waiting on a
-timeout: it stores the values, answers at once and runs the dispatch
-as a job without a deadline.
-
-A request may mix both interfaces: characteristics without delegates
-keep the legacy dispatch above, byte for byte. A service with a
-delegate, however, is gated as a whole — the legacy callback chars of
-that service are applied after its gate too, so the gate sees every
-value and can refuse the group.
+timeout: it stores the values, answers at once — optimistically, all
+successes — and runs the delegates as a job without a deadline; the
+write responses and read back answers arrive through the store, read
+back by the writing connection.
 
 The camera stack itself writes through delegates: every characteristic
 pyhap's own camera code answers — the stream management services' control
@@ -218,8 +228,8 @@ Delegate reads
 Reads await delegates the same way writes do — this is the point of the
 getter and the setter having the same async-ness. ``GET
 /characteristics`` and ``GET /accessories`` await the ``on_get`` of every
-delegate-backed characteristic of the request, concurrently, under the
-same deadline as a write:
+readable characteristic of the request — a legacy getter is wrapped into
+one — concurrently, under the same deadline as a write:
 
 * a read that misses the deadline answers ``-70408`` for its
   characteristic; cancelling the response — e.g. because the connection
@@ -239,10 +249,12 @@ other connections read ``on_get``'s answer.
 
 Direct calls cannot await: ``driver.get_characteristics(...)`` and
 ``driver.get_accessories()`` answer the stored values at once and run the
-delegate reads as a job without a deadline, like a direct write runs its
-setters. The HAP representation cache skips delegate-backed
-characteristics, as it skips getter-backed ones, since a read may answer
-something else than the stored value.
+reads as a job without a deadline, like a direct write runs its setters.
+The HAP representation — ``to_HAP`` — answers the stored value too; a
+fresh answer comes from the read path, since ``on_get`` or a legacy
+getter may answer something else. The representation cache skips every
+characteristic whose reads are answered dynamically, and
+``get_value()`` keeps running a legacy getter inline for a direct call.
 
 Delegate subscriptions
 ======================

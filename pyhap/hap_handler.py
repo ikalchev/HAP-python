@@ -6,7 +6,6 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 import asyncio
 from collections.abc import Awaitable
 from http import HTTPStatus
-import inspect
 import logging
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import ParseResult, parse_qs, urlparse
@@ -678,17 +677,13 @@ class HAPServerHandler:
         )
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        if inspect.isawaitable(result):
-            # A delegate read is still running, answer once it is done. The
-            # driver times out slow getters itself.
-            assert self.response is not None  # noqa: S101
-            self.response.task = asyncio.ensure_future(self._accessories_body(result))
-            return
+        # The reads run under the request deadline; answer once they are
+        # done. The driver times out slow getters itself.
         assert self.response is not None  # noqa: S101
-        self.end_response(to_hap_json(result))
+        self.response.task = asyncio.ensure_future(self._accessories_body(result))
 
     async def _accessories_body(self, result: Awaitable[dict[str, Any]]) -> bytes:
-        """Wait for the pending delegate reads, then answer the accessories."""
+        """Wait for the pending reads, then answer the accessories."""
         body: bytes = to_hap_json(await result)
         return body
 
@@ -708,14 +703,11 @@ class HAPServerHandler:
             connection=self.connection,
         )
         assert self.response is not None  # noqa: S101
-        if inspect.isawaitable(result):
-            # A delegate read is still running, answer once it is done. The
-            # driver times out slow getters itself.
-            self.response.task = asyncio.ensure_future(
-                self._get_characteristics_body(self.response, result)
-            )
-            return
-        self._fill_get_characteristics_response(self.response, result)
+        # The reads run under the request deadline; answer once they are
+        # done. The driver times out slow getters itself.
+        self.response.task = asyncio.ensure_future(
+            self._get_characteristics_body(self.response, result)
+        )
 
     def _fill_get_characteristics_response(
         self, response: HAPResponse, result: dict[str, Any]
@@ -768,14 +760,12 @@ class HAPServerHandler:
             connection=self.connection,
         )
         assert self.response is not None  # noqa: S101
-        if inspect.isawaitable(result):
-            # A setter is still running, answer once it is done. The driver
-            # times out slow setters itself.
-            self.response.task = asyncio.ensure_future(
-                self._set_characteristics_body(self.response, result)
-            )
-            return
-        self._fill_set_characteristics_response(self.response, result)
+        # The writes run under the request deadline - their pre-checks,
+        # then their setters; answer once they are done. The driver times
+        # out slow setters itself.
+        self.response.task = asyncio.ensure_future(
+            self._set_characteristics_body(self.response, result)
+        )
 
     def _fill_set_characteristics_response(
         self, response: HAPResponse, result: dict[str, Any] | None

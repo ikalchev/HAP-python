@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator
 import io
 import json
+import math
 import pathlib
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -188,7 +189,7 @@ async def test_stale_selected_configuration_dropped(driver: Any) -> None:
     _assert_state(camera, {**WRITES, SELECTED_CHAR: ""}, selected=False)
 
 
-@pytest.mark.parametrize("value", [None, 7, "1", float("inf"), float("nan")])
+@pytest.mark.parametrize("value", [None, 7, "1", math.inf, float("nan")])
 async def test_invalid_stored_value_keeps_its_default(
     driver: Any, caplog: pytest.LogCaptureFixture, value: Any
 ) -> None:

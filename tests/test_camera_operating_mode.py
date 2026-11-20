@@ -13,7 +13,7 @@ import pytest
 from pyhap import camera as camera_module, hds_recording, tlv
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import SETUP_STATUS, SETUP_TYPES, STREAMING_STATUS, Camera
-from pyhap.characteristic import PROP_PERMISSIONS
+from pyhap.characteristic import PROP_PERMISSIONS, _LegacyCallbackDelegateWrapper
 from tests.conftest import client_write
 
 CAMERA_AID = 2
@@ -122,7 +122,10 @@ async def test_third_party_camera_active(driver: Any) -> None:
     camera.global_operating_mode_changed = MagicMock()
     char = _char(camera, GLOBAL, "ThirdPartyCameraActive")
     assert char.properties[PROP_PERMISSIONS] == ["pr", "ev"]
-    assert char.setter_callback is None
+    # Nothing is wired: the camera wires no legacy callback on the char.
+    assert isinstance(char.delegate, _LegacyCallbackDelegateWrapper)
+    assert char.delegate.getter_callback is None
+    assert char.delegate.setter_callback is None
     camera.set_third_party_camera_active(False)
     assert char.value is False
     assert camera.streaming_allowed is True

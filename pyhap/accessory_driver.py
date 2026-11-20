@@ -1,6 +1,54 @@
 """AccessoryDriver - glues together the HAP Server, accessories and mDNS advertising.
 
+The :class:`AccessoryDriver` is the server side of a pyhap accessory: it answers
+the controller requests that arrive over the HAP server (reads and writes of
+characteristics, prepared timed writes, pairing), advertises the accessory over
+mDNS, persists its state and fans value changes out to subscribed controllers.
+
+Request flow
+------------
+
+Every request enters through a public entry point - ``get_accessories``,
+``get_characteristics``, ``set_characteristics``, ``prepare`` - and then splits
+by caller:
+
+- A controller's request comes from the ``HAPServerHandler`` through the
+  ``*_for_controller`` variants. They return an awaitable which the handler
+  schedules as the response task: the driver runs the delegates in-request,
+  under a deadline (``RESPONSE_TIMEOUT``), and answers per-characteristic
+  statuses - ``-70408`` for any call still running when the deadline passes.
+- A direct call (tests, embedders) answers at once, optimistically with the
+  stored values, and runs the delegates as a background job without a
+  deadline.
+
+Write flow (``PUT /characteristics``)::
+
+    handle_set_characteristics
+      -> _set_characteristics_for_controller    (or set_characteristics)
+      -> _apply_characteristic_writes          validate + store + collect
+      -> _dispatch_delegates                   awaited in-request, or a job
+           -> _run_pre_checks                  service-level gates, may veto
+           -> _run_char_writes                 per-characteristic on_set
+      -> _finish_task_write per write          status, write response, notify
+      -> _set_characteristics_response
+
+Read flow (``GET /characteristics``, ``GET /accessories``)::
+
+    handle_get_characteristics / handle_accessories
+      -> _get_characteristics_for_controller / _get_accessories_for_controller
+      -> _collect_characteristic_reads         stored value + collect the reads
+      -> _read_delegate_values                 on_get under the deadline
+      -> _finish_read + an answer callback     fill the characteristic's rep
+
+Every delegate call receives a frozen context - client address and uuid,
+connection handle, deadline - see ``pyhap.context``. The driver's
+per-connection state (event topics, prepared writes, write responses) is keyed
+by the connection handle, not by the address, so a connection that reuses a
+closed one's address inherits none of its state, see
+``pyhap.connection.HAPConnectionHandle``.
+
 Sending updates to clients
+--------------------------
 
 The process of sending value changes to clients happens in two parts - on one hand,
 the value change is indicated by a Characteristic and, on the other, that change is
@@ -18,17 +66,14 @@ send to happen.
 """
 
 import asyncio
-import base64
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
-import inspect
 import ipaddress
 import logging
 import math
 import os
-import re
 import sys
 import tempfile
 import threading
@@ -57,7 +102,6 @@ from pyhap.const import (
     HAP_PERMISSION_TIMED_WRITE,
     HAP_PERMISSION_WRITE,
     HAP_PERMISSION_WRITE_RESPONSE,
-    HAP_PROTOCOL_SHORT_VERSION,
     HAP_REPR_ACCS,
     HAP_REPR_AID,
     HAP_REPR_CHARS,
@@ -70,17 +114,12 @@ from pyhap.const import (
     HAP_REPR_WRITE_RESPONSE,
     STANDALONE_AID,
 )
-from pyhap.context import (
-    CharReadContext,
-    CharWriteContext,
-    Context,
-    ServiceWriteContext,
-)
-from pyhap.delegates import CharacteristicDelegate
+from pyhap.context import Context
 from pyhap.encoder import AccessoryEncoder
 from pyhap.hap_server import HAPServer
 from pyhap.hsrp import Server as SrpServer
 from pyhap.loader import Loader
+from pyhap.mdns import AccessoryMDNSServiceInfo
 from pyhap.params import get_srp_context
 from pyhap.service import Service
 from pyhap.state import State
@@ -94,10 +133,6 @@ logger = logging.getLogger(__name__)
 SERVICE_CALLBACK = "callback"
 SERVICE_CHARS = "chars"
 SERVICE_IIDS = "iids"
-HAP_SERVICE_TYPE = "_hap._tcp.local."
-VALID_MDNS_REGEX = re.compile(r"[^A-Za-z0-9\-]+")
-LEADING_TRAILING_SPACE_DASH = re.compile(r"^[ -]+|[ -]+$")
-DASH_REGEX = re.compile(r"[-]+")
 KEYS_TO_EXCLUDE = {HAP_REPR_IID, HAP_REPR_AID}
 
 # Consecutive failed pair-setup proofs (each is a setup-code guess) before
@@ -126,119 +161,6 @@ def _stored_value(char: Characteristic, value: HAPValue) -> HAPValue:
     return stored
 
 
-def _wrap_char_setter(
-    char: Any, value: Any, connection: HAPConnectionHandle, notify: bool = True
-) -> tuple[int, Any]:
-    """Process an characteristic setter callback trapping and logging all exceptions."""
-    try:
-        # The driver finishes the update of a coroutine setter once it is done.
-        response = char.client_update_value(
-            value, connection, notify=notify, defer_notify=True
-        )
-    except HapStatusError as e:
-        # The setter answers the controller with its own HAP status.
-        logger.debug(
-            "%s: Characteristic %s answered status %s for value %s",
-            connection.client_addr,
-            char.display_name,
-            e.status,
-            value,
-        )
-        return e.status, None
-    except Exception:
-        logger.exception(
-            "%s: Error while setting characteristic %s to %s",
-            connection.client_addr,
-            char.display_name,
-            value,
-        )
-        return HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE, None
-    return HAP_SERVER_STATUS.SUCCESS, response
-
-
-def _close_unsupported_coroutine(result: Any, name: str) -> None:
-    """Close a coroutine an accessory or service setter returned.
-
-    Only characteristic setters may be coroutine functions.
-    """
-    if inspect.iscoroutine(result):
-        result.close()
-        logger.warning(
-            "%s: only characteristic setters may be coroutine functions", name
-        )
-
-
-def _wrap_acc_setter(acc: Any, updates_by_service: Any, client_addr: Any) -> Any:
-    """Process an accessory setter callback trapping and logging all exceptions."""
-    try:
-        _close_unsupported_coroutine(
-            acc.setter_callback(updates_by_service), acc.display_name
-        )
-    except HapStatusError as e:
-        # The callback answers the controller with its own HAP status,
-        # applied to every characteristic of the accessory in the request.
-        logger.debug(
-            "%s: The %s accessory answered status %s for %s",
-            client_addr,
-            acc.display_name,
-            e.status,
-            updates_by_service,
-        )
-        return e.status
-    except Exception:
-        logger.exception(
-            "%s: Error while setting characteristics to %s for the %s accessory",
-            updates_by_service,
-            client_addr,
-            acc,
-        )
-        return HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-    return HAP_SERVER_STATUS.SUCCESS
-
-
-def _wrap_service_setter(service: Any, chars: Any, client_addr: Any) -> Any:
-    """Process a service setter callback trapping and logging all exceptions."""
-    # Ideally this would pass the chars as is without converting
-    # them to the display_name, but that would break existing
-    # consumers of the data.
-    service_chars = {char.display_name: value for char, value in chars.items()}
-    try:
-        _close_unsupported_coroutine(
-            service.setter_callback(service_chars), service.display_name
-        )
-    except HapStatusError as e:
-        # The callback answers the controller with its own HAP status,
-        # applied to every characteristic of the service in the request.
-        logger.debug(
-            "%s: The %s service answered status %s for %s",
-            client_addr,
-            service.display_name,
-            e.status,
-            service_chars,
-        )
-        return e.status
-    except Exception:
-        logger.exception(
-            "%s: Error while setting characteristics to %s for the %s service",
-            service_chars,
-            client_addr,
-            service.display_name,
-        )
-        return HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-    return HAP_SERVER_STATUS.SUCCESS
-
-
-class _PendingWrite(NamedTuple):
-    """A characteristic write whose setter returned a coroutine."""
-
-    result: dict[str, Any]  # The result entry to complete.
-    coro: Coroutine[Any, Any, Any]
-    write_response: bool  # Whether the controller asked for a write response.
-    char: Characteristic
-    previous_value: Any  # The value before the write, to tell if it changed.
-    notify: bool  # Whether subscribers learn the value once the setter is done.
-
-
 class _DelegateRead(NamedTuple):
     """A delegate-backed read of one characteristic.
 
@@ -248,7 +170,6 @@ class _DelegateRead(NamedTuple):
 
     rep: dict[str, Any]
     char: Characteristic
-    delegate: CharacteristicDelegate
 
 
 def _ignore_read_answer(read: _DelegateRead, value: Any, status: int | None) -> None:
@@ -260,42 +181,57 @@ def _ignore_read_answer(read: _DelegateRead, value: Any, status: int | None) -> 
 
 
 class _DelegateWrite(NamedTuple):
-    """A characteristic write the delegate stage applies.
+    """A characteristic write the delegates of a request apply.
 
-    ``delegate`` is the characteristic's delegate, or ``None`` for a
-    legacy callback characteristic of a gated service, which the stage
-    applies after the gate like the legacy path applies it.
+    ``value`` is the validated value ``on_set`` receives, already
+    stored: a write the pre-checks or ``on_set`` refuse is restored.
     """
 
     char: Characteristic
-    value: Any  # The validated value ``on_set`` receives, the raw one otherwise.
+    value: Any
     previous_value: Any
     result: dict[str, Any]  # The result entry to complete.
     write_response: bool
     private_write: bool
     service: Service
-    delegate: CharacteristicDelegate | None
 
 
-class _DelegateWork:
-    """The writes of a request that its delegate stage gates and applies.
+class _ReadRequest(NamedTuple):
+    """One read request's collected delegate reads and its base context."""
 
-    A service with a delegate is gated as a whole: every value the
-    request writes to it goes to its gate first, and the writes of the
-    service - delegate or legacy callback - are applied only after the
-    gate accepted.
+    reads: list[_DelegateRead]
+    context: Context
+
+
+class _WriteRequest:
+    """One write request's collected delegate work.
+
+    Carries the request's base context its delegate calls share, plus the
+    writes collected while validating: every written service gets a
+    pre-check first - the ``on_set`` of its delegate with every written
+    value of the request, which may refuse them as a group - and the
+    per-characteristic ``on_set`` calls apply the surviving writes.
     """
 
-    __slots__ = ("gates", "is_admin", "writes")
+    __slots__ = ("context", "is_admin", "pre_checks", "writes")
 
-    def __init__(self, is_admin: bool) -> None:
-        self.gates: dict[Service, dict[Characteristic, Any]] = {}
-        self.writes: list[_DelegateWrite] = []
+    def __init__(self, context: Context, is_admin: bool) -> None:
+        self.context = context
         self.is_admin = is_admin
+        self.pre_checks: dict[Service, dict[Characteristic, Any]] = {}
+        self.writes: list[_DelegateWrite] = []
 
     def __bool__(self) -> bool:
-        """Whether the request has anything for the delegate stage."""
-        return bool(self.gates or self.writes)
+        """Whether the request has any write for the delegates to apply."""
+        return bool(self.pre_checks or self.writes)
+
+
+class _CallOutcome(NamedTuple):
+    """The outcome of a finished delegate call: its answer or its status."""
+
+    value: Any
+    status: int | None
+    error: BaseException | None
 
 
 def _settle_private_write(
@@ -347,81 +283,30 @@ def _set_characteristics_response(
     return {HAP_REPR_CHARS: characteristics} if nonempty_results_exist else None
 
 
-class AccessoryMDNSServiceInfo(ServiceInfo):
-    """A mDNS service info representation of an accessory."""
-
-    def __init__(
-        self, accessory: Any, state: State, zeroconf_server: Any = None
-    ) -> None:
-        self.accessory = accessory
-        self.state: State = state
-
-        adv_data = self._get_advert_data()
-        valid_name = self._valid_name()
-        short_mac = self.state.mac[-8:].replace(":", "")
-        # Append part of MAC address to prevent name conflicts
-        name = f"{valid_name} {short_mac}.{HAP_SERVICE_TYPE}"
-        valid_host_name = self._valid_host_name()
-        server = zeroconf_server or f"{valid_host_name}-{short_mac}.local."
-        super().__init__(
-            HAP_SERVICE_TYPE,
-            name=name,
-            server=server,
-            port=self.state.port,
-            weight=0,
-            priority=0,
-            properties=adv_data,
-            parsed_addresses=self.state.addresses,
-        )
-
-    def _valid_name(self) -> str:
-        return re.sub(
-            LEADING_TRAILING_SPACE_DASH,
-            "",
-            re.sub(VALID_MDNS_REGEX, " ", self.accessory.display_name),
-        )
-
-    def _valid_host_name(self) -> str:
-        return re.sub(
-            DASH_REGEX,
-            "-",
-            re.sub(VALID_MDNS_REGEX, " ", self.accessory.display_name)
-            .strip()
-            .replace(" ", "-")
-            .strip("-"),
-        )
-
-    def _setup_hash(self) -> str:
-        setup_hash_material = self.state.setup_id + self.state.mac
-        temp_hash = hashlib.sha512()
-        temp_hash.update(setup_hash_material.encode())
-        return base64.b64encode(temp_hash.digest()[:4]).decode()
-
-    def _get_advert_data(self) -> dict[str, str]:
-        """Generate advertisement data from the accessory."""
-        return {
-            "md": self._valid_name(),
-            "pv": HAP_PROTOCOL_SHORT_VERSION,
-            "id": self.state.mac,
-            # represents the 'configuration version' of an Accessory.
-            # Increasing this 'version number' signals iOS devices to
-            # re-fetch accessories data.
-            "c#": str(self.state.config_version),
-            "s#": "1",  # 'accessory state'
-            "ff": "0",
-            "ci": str(self.accessory.category),
-            # 'sf == 1' means "discoverable by HomeKit iOS clients"
-            "sf": "0" if self.state.paired else "1",
-            "sh": self._setup_hash(),
-        }
-
-
 class AccessoryDriver:
     """An AccessoryDriver mediates between incoming requests from the HAPServer and
     the Accessory.
 
     The driver starts and stops the HAPServer, the mDNS advertisements and responds
-    to events from the HAPServer.
+    to events from the HAPServer. Concretely, it:
+
+    - answers the controller requests of the HAP server: reads and writes of
+      characteristics (``GET``/``PUT /characteristics``, ``GET /accessories``),
+      prepared timed writes (``PUT /prepare``) and pairing;
+    - runs the delegates of the accessory tree for those requests - the
+      read/write flow is sketched in this module's docstring;
+    - keeps the per-connection state of controllers - event subscriptions
+      (``topics``), prepared writes and write responses - keyed by
+      :class:`~pyhap.connection.HAPConnectionHandle`, so a connection that
+      reuses a closed one's address inherits none of its state;
+    - publishes value changes to the subscribed connections, skipping the
+      connection a write came over;
+    - persists the accessory state and advertises the accessory over mDNS.
+
+    A controller's request runs its delegates in-request under a deadline and
+    is answered once they are done; a direct call, e.g. to
+    :meth:`set_characteristics`, is answered optimistically with the stored
+    values and runs the delegates as a background job.
     """
 
     def __init__(
@@ -467,6 +352,16 @@ class AccessoryDriver:
 
         :param encoder: The encoder to use when persisting/loading the Accessory state.
         :type encoder: AccessoryEncoder
+
+        :param loader: The loader to use when loading the Accessory state.
+        :type loader: Loader
+
+        :param loop: The asyncio event loop to run on. If not given, a new loop
+            is created and a default executor is set on it, so plain callables
+            added with :meth:`add_job` run in a thread pool and the driver owns
+            the loop (see :meth:`start`). When a loop is given, the driver runs
+            on it as-is - typical for embedders - and sets no executor.
+        :type loop: asyncio.AbstractEventLoop
 
         :param mac: The MAC address which will be used to identify the accessory.
             If not given, the driver will try to select a MAC address.
@@ -626,27 +521,33 @@ class AccessoryDriver:
             )
 
     def start_service(self) -> None:
-        """Start the service."""
+        """Start the accessory on an already running event loop.
+
+        Validates the driver and schedules :meth:`async_start` on its loop.
+        Use this instead of :meth:`start` when the caller runs the loop, e.g.
+        an embedder.
+        """
         self._validate_start()
         self.add_job(self.async_start)
 
     def _validate_start(self) -> None:
-        """Validate we can start."""
+        """Raise ValueError when no accessory is assigned to the driver yet."""
         if self.accessory is None:
             raise ValueError(
                 "You must assign an accessory to the driver, before you can start it."
             )
 
     async def async_start(self) -> None:
-        """Starts the accessory.
+        """Starts the accessory. Must run in the event loop.
 
-        - Call the accessory's run method.
-        - Start handling accessory events.
         - Start the HAP server.
-        - Publish a mDNS advertisement.
+        - Update the accessories hash (persisting the state when it changed,
+          so iOS drops its cached ``/accessories``).
+        - Publish a mDNS advertisement (unless ``advertise`` is False).
         - Print the setup QR code if the accessory is not paired.
+        - Call the accessory's run method as a job.
 
-        All of the above are started in separate threads. Accessory thread is set as
+        All of the above are started as separate jobs. Accessory thread is set as
         daemon.
         """
         self._validate_start()
@@ -701,11 +602,19 @@ class AccessoryDriver:
         )
 
     def stop(self) -> None:
-        """Method to stop pyhap."""
+        """Stop the driver, from any thread.
+
+        Schedules :meth:`async_stop` on the event loop.
+        """
         self.add_job(self.async_stop)
 
     async def async_stop(self) -> None:
-        """Stops the AccessoryDriver and shutdown all remaining tasks."""
+        """Stops the AccessoryDriver and shutdown all remaining tasks.
+
+        Must run in the event loop. Unregisters the mDNS advertisement, stops
+        the HAP server and the accessory, and - when the driver created its
+        loop - shuts the executor down and stops the loop.
+        """
         self.stop_event.set()
         accessory = self.accessory
         assert accessory is not None  # noqa: S101
@@ -746,14 +655,26 @@ class AccessoryDriver:
         logger.debug("Stop completed")
 
     def add_job(self, target: Any, *args: Any) -> None:
-        """Add job to executor pool."""
+        """Add a job to the event loop, from any thread.
+
+        The target may be a coroutine, a :func:`~pyhap.util.callback`
+        function, a coroutine function - called with ``args`` - or a plain
+        callable, which runs in the loop's executor. See :meth:`async_add_job`
+        for the dispatch.
+        """
         if target is None:
             raise ValueError("Don't call add_job with None.")
         self.loop.call_soon_threadsafe(self.async_add_job, target, *args)
 
     @util.callback
     def async_add_job(self, target: Any, *args: Any) -> Any:
-        """Add job from within the event loop."""
+        """Add a job from within the event loop, dispatching on the target's kind.
+
+        A coroutine becomes a task; a :func:`~pyhap.util.callback` function is
+        scheduled with ``loop.call_soon``; a coroutine function is called with
+        ``args`` and becomes a task; anything else runs in the executor.
+        Returns the task, or None for a callback.
+        """
         task = None
 
         if asyncio.iscoroutine(target):
@@ -768,7 +689,13 @@ class AccessoryDriver:
         return task
 
     def add_accessory(self, accessory: Accessory) -> None:
-        """Add top level accessory to driver."""
+        """Add the top level accessory to the driver.
+
+        The top-level accessory must have the standalone AID (1); it is
+        assigned automatically when the accessory has none. When a persist
+        file exists, the accessory state is loaded from it and restored into
+        the accessory; otherwise the current state is persisted.
+        """
         self.accessory = accessory
         if accessory.aid is None:
             accessory.aid = STANDALONE_AID
@@ -944,9 +871,9 @@ class AccessoryDriver:
         """Run ``on_unsubscribe`` of a topic a closed connection was subscribed to."""
         aid, iid = (int(i) for i in topic.split("."))
         char = accessory.get_characteristic(aid, iid)
-        if char is not None and char.delegate is not None:
+        if char is not None:
             self._dispatch_subscription(
-                char.delegate, char, False, client_addr, client_uuid, connection
+                char, False, client_addr, client_uuid, connection
             )
 
     def publish(
@@ -955,15 +882,25 @@ class AccessoryDriver:
         connection: HAPConnectionHandle | None = None,
         immediate: bool = False,
     ) -> None:
-        """Publishes an event to the client.
+        """Publishes an event to the subscribed clients.
 
-        The publishing occurs only if the current client is subscribed to the topic for
-        the aid and iid contained in the data. The connection ``connection`` is not
-        sent its own write back.
+        The event is sent only to the connections subscribed to the topic of
+        the aid and iid contained in the data; the connection ``connection``
+        - the one a write came over - is not sent its own write back. Safe to
+        call from any thread: called from another thread, the send is
+        scheduled onto the event loop.
 
         :param data: The data to publish. It must at least contain the keys "aid" and
             "iid".
         :type data: dict
+
+        :param connection: The connection that caused the change, skipped in
+            the fan-out, see :class:`~pyhap.connection.HAPConnectionHandle`.
+        :type connection: HAPConnectionHandle or None
+
+        :param immediate: Whether the server should send the event at once
+            instead of batching it with the next one.
+        :type immediate: bool
         """
         topic = get_topic(data[HAP_REPR_AID], data[HAP_REPR_IID])
         if topic not in self.topics:
@@ -984,9 +921,12 @@ class AccessoryDriver:
         sender: HAPConnectionHandle | None,
         immediate: bool,
     ) -> None:
-        """Send an event to a client.
+        """Send an event to every connection subscribed to ``topic``.
 
-        Must be called in the event loop
+        Must be called in the event loop. The ``sender`` connection, when
+        given, is skipped - a controller is not sent its own write back. A
+        connection whose socket turns out to be stale is unsubscribed from
+        the topic. Does nothing once the driver is stopping.
         """
         assert self.aio_stop_event is not None  # noqa: S101
         if self.aio_stop_event.is_set():
@@ -1034,12 +974,20 @@ class AccessoryDriver:
         self.update_advertisement()
 
     def update_advertisement(self) -> None:
-        """Updates the mDNS service info for the accessory."""
+        """Update the mDNS advertisement, from any thread.
+
+        Schedules :meth:`async_update_advertisement` on the event loop.
+        """
         self.loop.call_soon_threadsafe(self.async_update_advertisement)
 
     @callback
     def async_update_advertisement(self) -> None:
-        """Updates the mDNS service info for the accessory from the event loop."""
+        """Update the mDNS service info for the accessory, from the event loop.
+
+        Rebuilds the advertisement from the current state - configuration
+        version, pairing state, setup hash - so HomeKit sees the change, and
+        re-registers it with the advertiser.
+        """
         logger.debug("Updating mDNS advertisement")
         if not self.advertise:
             logger.debug("Not updating mDNS advertisement: advertising is disabled")
@@ -1076,9 +1024,11 @@ class AccessoryDriver:
         util.async_create_background_task(self.loop.run_in_executor(None, self.persist))
 
     def persist(self) -> None:
-        """Saves the state of the accessory.
+        """Save the state of the accessory to the persist file.
 
-        Must run in executor.
+        Must run in executor. Writes to a temporary file first and then
+        atomically replaces the persist file, so a crash mid-write cannot
+        corrupt the stored state.
         """
         logger.debug("Writing of accessory state to disk")
         tmp_filename = None
@@ -1110,7 +1060,7 @@ class AccessoryDriver:
                 os.remove(tmp_filename)
 
     def load(self) -> None:
-        """Load the persist file.
+        """Load the persist file into the driver's state via the encoder.
 
         Must run in executor.
         """
@@ -1225,7 +1175,13 @@ class AccessoryDriver:
         return self._srp_verifier
 
     def setup_srp_verifier(self) -> None:
-        """Create an SRP verifier for the accessory's info."""
+        """Create the SRP verifier for pair-setup, stored as :attr:`srp_verifier`.
+
+        The verifier uses the 3072-bit group with SHA-512 and the pincode as
+        the password. Each pair-setup regenerates it, which is part of why
+        failed attempts are rate limited, see
+        :meth:`register_failed_pairing_attempt`.
+        """
         # TODO: Move the below hard-coded values somewhere nice.
         ctx = get_srp_context(3072, hashlib.sha512, 16)
         verifier = SrpServer(ctx, b"Pair-Setup", self.state.pincode)
@@ -1233,47 +1189,24 @@ class AccessoryDriver:
 
     @property
     def accessories_hash(self) -> str:
-        """Hash the get_accessories response to track configuration changes."""
-        # We pass include_value=False to avoid including the value
-        # of the characteristics in the hash. This is because the
-        # value of the characteristics is not used by iOS to determine
-        # if the accessory configuration has changed. It only uses the
-        # characteristics metadata. If we included the value in the hash
-        # then iOS would think the accessory configuration has changed
-        # every time a characteristic value changed.
+        """Hash of the ``/accessories`` metadata, to track configuration changes.
+
+        The hash covers the accessories' metadata only
+        (``get_accessories(include_value=False)``): iOS decides from the
+        metadata whether its cached configuration is stale, and a changed
+        characteristic value must not look like a configuration change. A
+        changed hash makes :meth:`async_start` persist the state, so the new
+        configuration version reaches the mDNS advertisement.
+        """
         return hashlib.sha512(
             util.to_sorted_hap_json(self.get_accessories(include_value=False))
         ).hexdigest()
 
-    def get_accessories(self, include_value: bool = True) -> dict[str, Any]:
-        """Returns the accessory in HAP format.
+    def _hap_reps(self, include_value: bool = True) -> list[dict[str, Any]]:
+        """The HAP reps of the accessory tree, as a list.
 
-        :return: An example HAP representation is:
-
-        .. code-block:: python
-
-           {
-              "accessories": [
-                 "aid": 1,
-                 "services": [
-                    "iid": 1,
-                    "type": ...,
-                    "characteristics": [{
-                       "iid": 2,
-                       "type": ...,
-                       "description": "CurrentTemperature",
-                       ...
-                    }]
-                 ]
-              ]
-           }
-
-        :rtype: dict
-
-        A direct call answers the stored values of delegate-backed
-        characteristics and runs their reads as a job without a deadline,
-        like a direct write runs its setters; a controller's request
-        awaits them through their ``on_get`` instead.
+        A standalone accessory answers a single rep; a Bridge answers one per
+        accessory, including the bridge itself.
         """
         assert self.accessory is not None  # noqa: S101
         hap_rep = self.accessory.to_HAP(include_value=include_value)
@@ -1281,6 +1214,47 @@ class AccessoryDriver:
             hap_rep = [
                 hap_rep,
             ]
+        return hap_rep
+
+    def get_accessories(self, include_value: bool = True) -> dict[str, Any]:
+        """Return the accessory tree in HAP format.
+
+        :param include_value: Whether to include the characteristics' current
+            values.
+        :type include_value: bool
+
+        :return: An example HAP representation is:
+
+        .. code-block:: python
+
+           {
+              "accessories": [
+                 {
+                    "aid": 1,
+                    "services": [
+                       {
+                          "iid": 1,
+                          "type": ...,
+                          "characteristics": [{
+                             "iid": 2,
+                             "type": ...,
+                             "description": "CurrentTemperature",
+                             ...
+                          }]
+                       }
+                    ]
+                 }
+              ]
+           }
+
+        :rtype: dict
+
+        A direct call answers the stored values and runs the delegate reads
+        as a background job without a deadline, like a direct write runs its
+        setters; a controller's request awaits them through their ``on_get``
+        instead, see :meth:`_get_accessories_for_controller`.
+        """
+        hap_rep = self._hap_reps(include_value=include_value)
         if include_value:
             # A direct call answers the stored values of delegate-backed
             # characteristics and runs their reads as a job, like a direct
@@ -1290,8 +1264,12 @@ class AccessoryDriver:
             if reads:
                 self.add_job(
                     self._read_delegate_values,
-                    reads,
-                    self._request_context(None, None, self._connection_of(None), None),
+                    _ReadRequest(
+                        reads,
+                        self._build_request_context(
+                            None, None, self._connection_of(None), None
+                        ),
+                    ),
                     _ignore_read_answer,
                 )
         logger.debug("Get accessories response: %s", hap_rep)
@@ -1304,38 +1282,34 @@ class AccessoryDriver:
         *,
         client_uuid: UUID | None = None,
         connection: HAPConnectionHandle | None = None,
-    ) -> dict[str, Any] | Awaitable[dict[str, Any]]:
-        """Answer a controller's accessories request, awaiting delegate reads.
+    ) -> Awaitable[dict[str, Any]]:
+        """Answer a controller's accessories request, awaiting the reads.
 
-        Returns an awaitable of the response when a readable characteristic
-        is delegate-backed: its ``on_get`` runs under the deadline like a
-        write's callbacks, and a read that fails or misses it answers its
-        characteristic without a value, like a failing getter does.
+        Returns an awaitable of the response. Every readable
+        characteristic's ``on_get`` runs under the deadline like a
+        write's callbacks, and a read that fails or misses it answers
+        its characteristic without a value, like a failing getter does.
         """
-        assert self.accessory is not None  # noqa: S101
         connection = connection or self._connection_of(client_addr)
-        hap_rep = self.accessory.to_HAP()
-        if not isinstance(hap_rep, list):
-            hap_rep = [
-                hap_rep,
-            ]
+        hap_rep = self._hap_reps()
         reads = self._collect_accessory_reads(hap_rep)
-        if reads:
-            return self._read_accessories_response(
-                hap_rep,
+        return self._read_accessories_response(
+            hap_rep,
+            _ReadRequest(
                 reads,
-                self._request_context(client_addr, client_uuid, connection, timeout),
-            )
-        return {HAP_REPR_ACCS: hap_rep}
+                self._build_request_context(
+                    client_addr, client_uuid, connection, timeout
+                ),
+            ),
+        )
 
     async def _read_accessories_response(
         self,
         hap_rep: list[dict[str, Any]],
-        reads: list[_DelegateRead],
-        context: Context,
+        request: _ReadRequest,
     ) -> dict[str, Any]:
         """Answer the delegate reads of an accessories request."""
-        await self._read_delegate_values(reads, context, self._answer_accessory_read)
+        await self._read_delegate_values(request, self._answer_accessory_read)
         return {HAP_REPR_ACCS: hap_rep}
 
     def _collect_accessory_reads(
@@ -1359,15 +1333,13 @@ class AccessoryDriver:
         for acc in accessories:
             for service in acc.services:
                 for char in service.characteristics:
-                    if char.delegate is None:
-                        continue
                     if HAP_PERMISSION_READ not in char.properties[PROP_PERMISSIONS]:
                         continue
                     # An unpublished accessory has no (AID, IID) pair in the
                     # response, so it has no rep to answer either.
                     rep = reps_by_iid.get((acc.aid, acc.iid_manager.get_iid(char)))
                     if rep is not None:
-                        reads.append(_DelegateRead(rep, char, char.delegate))
+                        reads.append(_DelegateRead(rep, char))
         return reads
 
     def get_characteristics(
@@ -1396,10 +1368,10 @@ class AccessoryDriver:
 
         :rtype: dict
 
-        A characteristic with a delegate answers its stored value here:
-        ``on_get`` is async, so a direct call answers at once and runs the
+        A direct call answers the stored values at once and runs the
         reads as a job without a deadline, like a direct write runs its
-        setters. A controller's read goes through
+        setters - a legacy getter is wrapped into the delegate the job
+        calls. A controller's read goes through
         ``_get_characteristics_for_controller`` instead and awaits them.
         """
         connection = self._connection_of(client_addr)
@@ -1407,8 +1379,10 @@ class AccessoryDriver:
         if reads:
             self.add_job(
                 self._read_delegate_values,
-                reads,
-                self._request_context(client_addr, None, connection, None),
+                _ReadRequest(
+                    reads,
+                    self._build_request_context(client_addr, None, connection, None),
+                ),
                 _ignore_read_answer,
             )
         logger.debug("Get chars response: %s", chars)
@@ -1422,46 +1396,49 @@ class AccessoryDriver:
         *,
         client_uuid: UUID | None = None,
         connection: HAPConnectionHandle | None = None,
-    ) -> dict[str, Any] | Awaitable[dict[str, Any]]:
-        """Read characteristics for a controller, awaiting the delegate reads.
+    ) -> Awaitable[dict[str, Any]]:
+        """Read characteristics for a controller, awaiting the reads.
 
-        Returns an awaitable of the response when a read characteristic is
-        delegate-backed: its ``on_get`` runs under the deadline and a read
-        not done by it answers ``-70408``. Cancelling the awaitable, e.g.
-        because the connection closed, cancels the reads. Reads of legacy
-        characteristics run inline as before; a mixed request answers its
-        legacy parts in the same pass and its delegate parts once they
-        are done.
+        Returns an awaitable of the response. Every read characteristic's
+        ``on_get`` runs under the deadline - a legacy getter is wrapped
+        into the delegate - and a read not done by it answers ``-70408``.
+        Cancelling the awaitable, e.g. because the connection closed,
+        cancels the reads.
         """
         connection = connection or self._connection_of(client_addr)
         chars, reads = self._collect_characteristic_reads(char_ids, connection)
-        if reads:
-            return self._read_characteristics_response(
-                chars,
+        return self._read_characteristics_response(
+            chars,
+            _ReadRequest(
                 reads,
-                self._request_context(client_addr, client_uuid, connection, timeout),
-            )
-        return {HAP_REPR_CHARS: chars}
+                self._build_request_context(
+                    client_addr, client_uuid, connection, timeout
+                ),
+            ),
+        )
 
     async def _read_characteristics_response(
         self,
         chars: list[dict[str, Any]],
-        reads: list[_DelegateRead],
-        context: Context,
+        request: _ReadRequest,
     ) -> dict[str, Any]:
         """Answer the delegate reads of a characteristics request."""
-        await self._read_delegate_values(reads, context, self._answer_char_read)
+        await self._read_delegate_values(request, self._answer_char_read)
         return {HAP_REPR_CHARS: chars}
 
     def _collect_characteristic_reads(
         self, char_ids: Any, connection: HAPConnectionHandle
     ) -> tuple[list[dict[str, Any]], list[_DelegateRead]]:
-        """Answer a read per requested characteristic, collecting delegate reads.
+        """Answer a read per requested characteristic, collecting the reads.
 
-        Legacy getters run inline, exactly as before. A characteristic with
-        a delegate answers its stored value optimistically and its read is
-        collected for the caller to run: a controller's request awaits it
-        through ``on_get``, a direct call runs it as a background job.
+        Every readable characteristic answers its stored value
+        optimistically, and its read is collected for the caller to run
+        through the delegate's ``on_get`` - a legacy getter is wrapped
+        into one: a controller's request awaits it, a direct call runs
+        it as a background job. A characteristic the connection wrote
+        reads its write response back, which wins over any read callback.
+        Unknown ids and unreadable characteristics keep the per-read
+        failure status of their rep.
         """
         assert self.accessory is not None  # noqa: S101
         write_responses = self._write_responses.get(connection, {})
@@ -1477,22 +1454,21 @@ class AccessoryDriver:
 
             try:
                 if aid == STANDALONE_AID:
-                    char = self.accessory.iid_manager.get_obj(iid)
-                    available = self.accessory.available
+                    acc = self.accessory
                 else:
                     # Accessory IIDs other than the standalone one only exist
                     # on bridged accessories; anything else is unknown and
                     # keeps the per-characteristic failure status.
-                    bridge = self.accessory
-                    if isinstance(bridge, Bridge):
-                        acc = bridge.accessories.get(aid)
-                        if acc is None:
-                            continue
-                        char = acc.iid_manager.get_obj(iid)
-                        available = acc.available
-                    else:
-                        char = None
-                        available = False
+                    acc = self._bridged_accessory(aid)
+                    if acc is None and isinstance(self.accessory, Bridge):
+                        # An unknown bridged aid gets no rep at all.
+                        continue
+                if acc is not None:
+                    char = acc.iid_manager.get_obj(iid)
+                    available = acc.available
+                else:
+                    char = None
+                    available = False
 
                 # A characteristic IID may resolve to a Service or be unknown;
                 # only a Characteristic can report a value, and only when it
@@ -1508,23 +1484,12 @@ class AccessoryDriver:
                             # response back; it wins over any read callback.
                             rep[HAP_REPR_VALUE] = write_responses[char]
                             rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
-                        elif char.delegate is not None:
-                            # Optimistic, the caller runs the read.
+                        else:
+                            # The stored value, optimistically: the read
+                            # runs the delegate's ``on_get`` and refreshes it.
                             rep[HAP_REPR_VALUE] = char.value
                             rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
-                            reads.append(_DelegateRead(rep, char, char.delegate))
-                        else:
-                            rep[HAP_REPR_VALUE] = char.get_value()
-                            rep[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
-            except HapStatusError as e:
-                # The getter answers the controller with its own HAP status.
-                logger.debug(
-                    "%s: Characteristic %s answered status %s",
-                    self.accessory.display_name,
-                    (aid, iid),
-                    e.status,
-                )
-                rep[HAP_REPR_STATUS] = e.status
+                            reads.append(_DelegateRead(rep, char))
             except CharacteristicError:
                 logger.error(
                     "%s: Error getting value for characteristic %s.",
@@ -1593,14 +1558,12 @@ class AccessoryDriver:
         Returns ``None`` when every write succeeded without a write response,
         otherwise the per-characteristic results.
 
-        A characteristic setter may be a coroutine function. Writes from a
-        controller wait for it before they are answered. Called directly, this
-        method only schedules the coroutine and does not wait for it. Either
-        way subscribers learn the value once the coroutine succeeded, and it
-        should use its argument, not the characteristic's value, which a write
-        response request has already put back. Accessory and service setters
-        must not be coroutine functions. A coroutine they return is closed
-        with a warning.
+        Every write runs through the delegates of its characteristic and its
+        service: the service-level pre-checks first, then the
+        per-characteristic ``on_set``. Called directly, this method answers
+        at once, optimistically, and runs the delegates as a job without a
+        deadline; a controller's request awaits them instead, see
+        :meth:`_set_characteristics_for_controller`.
 
         :param chars_query: A configuration query. For example:
 
@@ -1629,36 +1592,12 @@ class AccessoryDriver:
             ``client_addr``, see :meth:`_connection_of`.
         """
         connection = connection or self._connection_of(client_addr)
-        results, pending, work = self._apply_characteristic_writes(
-            chars_query, client_addr, client_uuid, connection
+        results, request = self._apply_characteristic_writes(
+            chars_query, client_addr, client_uuid, connection, None
         )
-        for write in pending:
-            self.add_job(self._finish_pending_write(write, connection))
-        if work:
-            self.add_job(
-                self._dispatch_delegates(
-                    work,
-                    self._request_context(client_addr, client_uuid, connection, None),
-                )
-            )
+        if request:
+            self.add_job(self._dispatch_delegates(request))
         return _set_characteristics_response(results)
-
-    async def _finish_pending_write(
-        self, write: _PendingWrite, connection: HAPConnectionHandle
-    ) -> None:
-        """Run a coroutine setter of a direct call, then tell subscribers."""
-        try:
-            await write.coro
-        except Exception:
-            logger.exception(
-                "%s: Error while setting characteristic %s",
-                connection.client_addr,
-                write.char.display_name,
-            )
-            return
-        write.char.client_update_finished(
-            write.previous_value, connection, notify=write.notify
-        )
 
     def _set_characteristics_for_controller(
         self,
@@ -1668,34 +1607,25 @@ class AccessoryDriver:
         *,
         client_uuid: UUID | None = None,
         connection: HAPConnectionHandle | None = None,
-    ) -> dict[str, Any] | None | Awaitable[dict[str, Any] | None]:
-        """Apply a controller's write, waiting for coroutine setters.
+    ) -> Awaitable[dict[str, Any] | None]:
+        """Apply a controller's write through its delegates, awaiting them.
 
-        Returns an awaitable of the response if a characteristic setter is a
-        coroutine function. Accessory and service setters run before those
-        coroutines start. A setter still running after ``timeout`` seconds is
-        cancelled and its characteristic answers -70408. Cancelling the
-        awaitable, e.g. because the connection closed, cancels the setters.
-        A setter that answers its write response only after the connection
-        closed does not get it kept: the store drops it, see
+        Returns an awaitable of the response. The service-level pre-checks
+        run first, each with every written value of its service, then the
+        per-characteristic ``on_set`` calls apply the surviving writes, all
+        under the request deadline: a call still running after ``timeout``
+        seconds is cancelled and its characteristic answers -70408, a
+        refused or failed write is restored and notifies nobody. Cancelling
+        the awaitable, e.g. because the connection closed, cancels the
+        calls. A setter that answers its write response only after the
+        connection closed does not get it kept: the store drops it, see
         :meth:`_store_write_response`.
         """
         connection = connection or self._connection_of(client_addr)
-        results, pending, work = self._apply_characteristic_writes(
-            chars_query, client_addr, client_uuid, connection
+        results, request = self._apply_characteristic_writes(
+            chars_query, client_addr, client_uuid, connection, timeout
         )
-        if work:
-            return self._set_characteristics_with_delegates(
-                results,
-                pending,
-                work,
-                self._request_context(client_addr, client_uuid, connection, timeout),
-            )
-        if pending:
-            return self._finish_set_characteristics(
-                results, pending, connection, timeout
-            )
-        return _set_characteristics_response(results)
+        return self._apply_delegate_writes(results, request)
 
     def _apply_characteristic_writes(
         self,
@@ -1703,23 +1633,22 @@ class AccessoryDriver:
         client_addr: tuple[str, int],
         client_uuid: UUID | None,
         connection: HAPConnectionHandle,
-    ) -> tuple[
-        dict[int, dict[int, dict[str, Any]]], list[_PendingWrite], _DelegateWork
-    ]:
-        """Run the setters of a write and collect the per-characteristic results."""
-        pending: list[_PendingWrite] = []
-        work = _DelegateWork(self.state.is_admin(client_uuid))
-        try:
-            results, pending = self._run_characteristic_writes(
-                chars_query, client_addr, client_uuid, connection, pending, work
-            )
-        except BaseException:
-            # A malformed later entry must not leave a setter coroutine
-            # un-awaited.
-            for write in pending:
-                write.coro.close()
-            raise
-        return results, pending, work
+        timeout: float | None,
+    ) -> tuple[dict[int, dict[int, dict[str, Any]]], _WriteRequest]:
+        """Validate and store the writes, collecting them for the delegates.
+
+        The values are only stored here: the delegates of the request
+        apply them, see :meth:`_dispatch_delegates` - a write its
+        pre-checks or its ``on_set`` refuse is restored.
+        """
+        context = self._build_request_context(
+            client_addr, client_uuid, connection, timeout
+        )
+        request = _WriteRequest(context, self.state.is_admin(client_uuid))
+        results = self._run_characteristic_writes(
+            chars_query, client_addr, client_uuid, connection, request
+        )
+        return results, request
 
     def _run_characteristic_writes(
         self,
@@ -1727,9 +1656,20 @@ class AccessoryDriver:
         client_addr: tuple[str, int],
         client_uuid: UUID | None,
         connection: HAPConnectionHandle,
-        pending: list[_PendingWrite],
-        delegate_work: _DelegateWork,
-    ) -> tuple[dict[int, dict[int, dict[str, Any]]], list[_PendingWrite]]:
+        request: _WriteRequest,
+    ) -> dict[int, dict[int, dict[str, Any]]]:
+        """Validate the writes of a request, storing them and collecting the work.
+
+        A timed write (the request carries a ``pid``) first consumes its
+        prepared write: one that was never prepared, was used already or has
+        expired is ignored as a whole with -70410, as the spec requires. The
+        ``ev`` flags of the request then (un)subscribe the connection and
+        dispatch the subscribe hooks, see :meth:`_notify`; characteristics
+        without the notify permission are reported -70406. Every remaining
+        write is checked and stored per query, see :meth:`_store_write_query`.
+        The delegates apply the collected writes later, see
+        :meth:`_dispatch_delegates` - a write they refuse is restored.
+        """
         queries: list[CharacteristicWrite] = chars_query[HAP_REPR_CHARS]
 
         timed_write = HAP_REPR_PID in chars_query
@@ -1743,294 +1683,172 @@ class AccessoryDriver:
                 ignored[query[HAP_REPR_AID]][query[HAP_REPR_IID]] = {
                     HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
                 }
-            return ignored, []
+            return ignored
 
         not_notifiable = self._notify(queries, client_addr, client_uuid, connection)
 
-        updates_by_accessories_services: dict[
-            Accessory, dict[Service, dict[Characteristic, Any]]
-        ] = defaultdict(lambda: defaultdict(dict))
         results: dict[int, dict[int, dict[str, Any]]] = defaultdict(
             lambda: defaultdict(dict)
         )
-        char_to_iid: dict[Characteristic, int] = {}
-
-        primary_accessory = self.accessory
-        assert primary_accessory is not None  # noqa: S101
-        primary_aid = primary_accessory.aid
-
         for aid, iid in not_notifiable:
             results[aid][iid] = {
                 HAP_REPR_STATUS: HAP_SERVER_STATUS.NOTIFICATION_NOT_SUPPORTED
             }
 
-        is_admin = delegate_work.is_admin
         for query in queries:
-            aid = query[HAP_REPR_AID]
-            iid = query[HAP_REPR_IID]
-            if (aid, iid) in not_notifiable:
-                continue
-            if HAP_REPR_VALUE not in query:
-                # Listed with status 0 if the response has other results.
-                results[aid][iid] = {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
-                continue
-            value = query.get(HAP_REPR_VALUE)
-
-            if aid == primary_aid:
-                acc = primary_accessory
-            else:
-                # Accessory IIDs other than the primary one only exist on
-                # bridged accessories.
-                bridge = self.accessory
-                if not isinstance(bridge, Bridge):
-                    continue
-                acc = bridge.accessories.get(aid)
-            if acc is None:
-                continue
-            char = acc.get_characteristic(aid, iid)
-            if char is None:
-                continue
-
-            # Privileges are checked before the permissions, so a controller
-            # that may not write the characteristic learns nothing else.
-            # Also for an explicit null, so no setter sees the characteristic.
-            if not is_admin and ADMIN_ONLY_WRITE in char.properties.get(
-                PROP_ADMIN_ONLY_ACCESS, ()
-            ):
-                results[aid][iid] = {
-                    HAP_REPR_STATUS: HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
-                }
-                continue
-
-            if (
-                value is not None
-                and HAP_PERMISSION_WRITE not in char.properties[PROP_PERMISSIONS]
-            ):
-                results[aid][iid] = {
-                    HAP_REPR_STATUS: HAP_SERVER_STATUS.READ_ONLY_CHARACTERISTIC
-                }
-                continue
-
-            if (
-                value is not None
-                and not timed_write
-                and HAP_PERMISSION_TIMED_WRITE in char.properties[PROP_PERMISSIONS]
-            ):
-                if self.enforce_timed_writes:
-                    results[aid][iid] = {
-                        HAP_REPR_STATUS: HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
-                    }
-                    continue
-                logger.debug(
-                    "%s: %s requires a timed write but was written without one",
-                    client_addr,
-                    char.display_name,
-                )
-
-            # Only characteristics with the write response permission answer
-            # a write with a value, and only when the controller asks for it.
-            write_response = (
-                bool(query.get(HAP_REPR_WRITE_RESPONSE))
-                and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
+            self._store_write_query(
+                results,
+                request,
+                query,
+                not_notifiable,
+                timed_write,
+                connection,
+                client_addr,
             )
-            # A new write replaces a former response of this connection. The
-            # request of a readable write response or read back characteristic
-            # is not shared, whatever the setter does, also not with ev
-            # subscribers.
-            if value is not None:
-                self._write_responses.get(connection, {}).pop(char, None)
-            private_write = (
-                (write_response or char.read_back_response)
-                and value is not None
-                and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
-            )
-            previous_value = char.value
-            service = char.service
-            assert service is not None  # noqa: S101
 
-            if char.delegate is not None or service.delegate is not None:
-                # The write goes to the delegate stage: gated by its
-                # service's delegate, applied by its own on_set, or both.
-                # A legacy callback char of a gated service is applied
-                # there too, after the gate, so the gate sees every value
-                # of the request and can refuse them all.
-                result = self._collect_delegate_write(
-                    delegate_work,
-                    client_addr,
-                    char,
-                    service,
-                    value,
-                    previous_value,
-                    write_response,
-                    private_write,
-                )
-                results[aid][iid] = result
-                char_to_iid[char] = iid
-                updates_by_accessories_services[acc][service][char] = value
-                continue
+        return results
 
-            set_result = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
-            set_result_value = None
+    def _bridged_accessory(self, aid: int) -> Accessory | None:
+        """The bridged accessory ``aid`` addresses, None when there is none.
 
-            if value is not None:
-                set_result, set_result_value = _wrap_char_setter(
-                    char, value, connection, notify=not private_write
-                )
-            # A write with ``r`` to a readable characteristic is a request,
-            # e.g. a Setup Endpoints offer with the writer's SRTP keys. Only
-            # the writer reads the answer back, see _store_write_response.
-            # client_update_value stored the request as the value, so put
-            # back the former one unless the setter set a value of its own,
-            # see _settle_private_write.
-            if private_write:
-                set_result_value = _settle_private_write(
-                    char, previous_value, value, set_result_value
-                )
+        Accessory IIDs other than the primary accessory's only exist on
+        bridged accessories.
+        """
+        accessory = self.accessory
+        if isinstance(accessory, Bridge):
+            return accessory.accessories.get(aid)
+        return None
 
-            result: dict[str, Any] = {HAP_REPR_STATUS: set_result}
-            if inspect.iscoroutine(set_result_value):
-                pending.append(
-                    _PendingWrite(
-                        result,
-                        set_result_value,
-                        write_response,
-                        char,
-                        previous_value,
-                        not private_write,
-                    )
-                )
-            elif set_result_value is not None:
-                self._keep_response(
-                    result, char, set_result_value, write_response, connection
-                )
-
-            results[aid][iid] = result
-            char_to_iid[char] = iid
-            updates_by_accessories_services[acc][service][char] = value
-
-        # Proccess accessory and service level setter callbacks
-        for acc, updates_by_service in updates_by_accessories_services.items():
-            aid = acc.aid
-            assert aid is not None  # noqa: S101
-            aid_results = results[aid]
-
-            # Accessory level setter callbacks
-            acc_set_result = None
-            if acc.setter_callback:
-                acc_set_result = _wrap_acc_setter(acc, updates_by_service, client_addr)
-
-            # Service level setter callbacks
-            for service, chars in updates_by_service.items():
-                char_set_result = None
-                if service.setter_callback:
-                    char_set_result = _wrap_service_setter(service, chars, client_addr)
-                set_result = char_set_result or acc_set_result
-
-                if not set_result:
-                    continue
-
-                for char in chars:
-                    aid_results[char_to_iid[char]][HAP_REPR_STATUS] = set_result
-
-        return results, pending
-
-    async def _finish_set_characteristics(
+    def _store_write_query(
         self,
         results: dict[int, dict[int, dict[str, Any]]],
-        pending: list[_PendingWrite],
+        request: _WriteRequest,
+        query: CharacteristicWrite,
+        not_notifiable: set[tuple[int, int]],
+        timed_write: bool,
         connection: HAPConnectionHandle,
-        timeout: float,
-    ) -> dict[str, Any] | None:
-        """Wait for the coroutine setters, then build the response."""
-        deadline = time.monotonic() + timeout
-        return await self._wait_pending(results, pending, connection, deadline)
+        client_addr: tuple[str, int],
+    ) -> None:
+        """Validate one write of a request, store its value, collect its delegates.
 
-    async def _wait_pending(
-        self,
-        results: dict[int, dict[int, dict[str, Any]]],
-        pending: list[_PendingWrite],
-        connection: HAPConnectionHandle,
-        deadline: float,
-    ) -> dict[str, Any] | None:
-        """Wait for the coroutine setters, then build the response."""
-        if not pending:
-            return _set_characteristics_response(results)
-        tasks = {asyncio.ensure_future(write.coro): write for write in pending}
-        try:
-            done, not_done = await asyncio.wait(
-                tasks, timeout=self._remaining(deadline)
-            )
-        except asyncio.CancelledError:
-            for task, write in tasks.items():
-                if task.done():
-                    self._finish_done_write(task, write, connection)
-                    continue
-                task.cancel()
-                task.add_done_callback(_retrieve_late_result)
-            raise
-        for task in not_done:
-            task.cancel()
-            task.add_done_callback(_retrieve_late_result)
-            write = tasks[task]
-            logger.warning(
-                "%s: Timed out setting characteristic %s",
-                connection.client_addr,
-                write.char.display_name,
-            )
-            write.result[HAP_REPR_STATUS] = HAP_SERVER_STATUS.OPERATION_TIMED_OUT
-        for task in done:
-            write = tasks[task]
-            try:
-                outcome = task.result()
-            except HapStatusError as e:
-                # The setter answers the controller with its own HAP status.
-                logger.debug(
-                    "%s: Characteristic %s answered status %s",
-                    connection.client_addr,
-                    write.char.display_name,
-                    e.status,
-                )
-                write.result[HAP_REPR_STATUS] = e.status
-                continue
-            except (Exception, asyncio.CancelledError):
-                logger.exception(
-                    "%s: Error while setting characteristic %s",
-                    connection.client_addr,
-                    write.char.display_name,
-                )
-                write.result[HAP_REPR_STATUS] = (
-                    HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-                )
-                continue
-            write.char.client_update_finished(
-                write.previous_value, connection, notify=write.notify
-            )
-            if outcome is not None:
-                # A response of a connection that closed meanwhile is
-                # dropped by the store, so it cannot wait for one that
-                # reuses the address: the response of a request is
-                # answered once, to the writing connection.
-                self._keep_response(
-                    write.result,
-                    write.char,
-                    outcome,
-                    write.write_response,
-                    connection,
-                )
-        return _set_characteristics_response(results)
+        A query without a value - a plain (un)subscribe - is listed with
+        status 0, so the response reports it when other results exist. A
+        query whose characteristic is unknown gets no result entry at all.
+        What survives the checks - privileges, write permission, timed-write
+        requirement, see :meth:`_write_permission_status` - is stored and
+        collected for the delegates, see :meth:`_collect_delegate_write`.
+        """
+        aid = query[HAP_REPR_AID]
+        iid = query[HAP_REPR_IID]
+        if (aid, iid) in not_notifiable:
+            return
+        if HAP_REPR_VALUE not in query:
+            # Listed with status 0 if the response has other results.
+            results[aid][iid] = {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
+            return
+        value = query.get(HAP_REPR_VALUE)
 
-    async def _set_characteristics_with_delegates(
-        self,
-        results: dict[int, dict[int, dict[str, Any]]],
-        pending: list[_PendingWrite],
-        work: _DelegateWork,
-        context: Context,
-    ) -> dict[str, Any] | None:
-        """Gate and apply the delegate writes, then wait for the rest."""
-        await self._dispatch_delegates(work, context)
-        return await self._wait_pending(
-            results, pending, context.connection, context.deadline
+        primary_accessory = self.accessory
+        assert primary_accessory is not None  # noqa: S101
+        if aid == primary_accessory.aid:
+            acc = primary_accessory
+        else:
+            acc = self._bridged_accessory(aid)
+        if acc is None:
+            return
+        char = acc.get_characteristic(aid, iid)
+        if char is None:
+            return
+
+        status = self._write_permission_status(
+            char, value, request.is_admin, timed_write, client_addr
         )
+        if status is not None:
+            results[aid][iid] = {HAP_REPR_STATUS: status}
+            return
+
+        # Only characteristics with the write response permission answer
+        # a write with a value, and only when the controller asks for it.
+        write_response = (
+            bool(query.get(HAP_REPR_WRITE_RESPONSE))
+            and HAP_PERMISSION_WRITE_RESPONSE in char.properties[PROP_PERMISSIONS]
+        )
+        # A new write replaces a former response of this connection. The
+        # request of a readable write response or read back characteristic
+        # is not shared, whatever the setter does, also not with ev
+        # subscribers.
+        if value is not None:
+            self._write_responses.get(connection, {}).pop(char, None)
+        private_write = (
+            (write_response or char.read_back_response)
+            and value is not None
+            and HAP_PERMISSION_READ in char.properties[PROP_PERMISSIONS]
+        )
+        previous_value = char.value
+        service = char.service
+        assert service is not None  # noqa: S101
+
+        results[aid][iid] = self._collect_delegate_write(
+            request,
+            client_addr,
+            char,
+            service,
+            value,
+            previous_value,
+            write_response,
+            private_write,
+        )
+
+    def _write_permission_status(
+        self,
+        char: Characteristic,
+        value: Any,
+        is_admin: bool,
+        timed_write: bool,
+        client_addr: tuple[str, int],
+    ) -> int | None:
+        """The status a write is refused with before any callback runs, or None.
+
+        Privileges are checked before the permissions, so a controller that
+        may not write the characteristic learns nothing else. Also for an
+        explicit null, so no setter sees the characteristic.
+        """
+        if not is_admin and ADMIN_ONLY_WRITE in char.properties.get(
+            PROP_ADMIN_ONLY_ACCESS, ()
+        ):
+            return HAP_SERVER_STATUS.INSUFFICIENT_PRIVILEGES
+        if (
+            value is not None
+            and HAP_PERMISSION_WRITE not in char.properties[PROP_PERMISSIONS]
+        ):
+            return HAP_SERVER_STATUS.READ_ONLY_CHARACTERISTIC
+        if (
+            value is not None
+            and not timed_write
+            and HAP_PERMISSION_TIMED_WRITE in char.properties[PROP_PERMISSIONS]
+        ):
+            if self.enforce_timed_writes:
+                return HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
+            logger.debug(
+                "%s: %s requires a timed write but was written without one",
+                client_addr,
+                char.display_name,
+            )
+        return None
+
+    async def _apply_delegate_writes(
+        self,
+        results: dict[int, dict[int, dict[str, Any]]],
+        request: _WriteRequest,
+    ) -> dict[str, Any] | None:
+        """Apply the writes of a request through their delegates, build its response.
+
+        This is the awaitable body of :meth:`_set_characteristics_for_controller`:
+        once :meth:`_dispatch_delegates` is done, every write has its status and
+        optional write response, and the response is built from them.
+        """
+        await self._dispatch_delegates(request)
+        return _set_characteristics_response(results)
 
     def _next_connection_generation(self) -> int:
         """The identity number of the next connection, see HAPConnectionHandle."""
@@ -2069,7 +1887,7 @@ class AccessoryDriver:
             or connection in self.http_server.connections
         )
 
-    def _request_context(
+    def _build_request_context(
         self,
         client_addr: tuple[str, int] | None,
         client_uuid: UUID | None,
@@ -2084,7 +1902,7 @@ class AccessoryDriver:
         connection, a direct call the virtual handle of its address, see
         :meth:`_connection_of`.
         """
-        deadline = float("inf") if timeout is None else time.monotonic() + timeout
+        deadline = math.inf if timeout is None else time.monotonic() + timeout
         return Context(
             client_addr=client_addr,
             client_uuid=client_uuid,
@@ -2094,15 +1912,62 @@ class AccessoryDriver:
 
     @staticmethod
     def _remaining(deadline: float) -> float | None:
-        """Seconds left of the deadline, ``None`` without one."""
+        """Seconds left of the deadline, or None when it is infinite."""
         if math.isinf(deadline):
             return None
         return max(0.0, deadline - time.monotonic())
 
+    async def _await_calls(
+        self,
+        tasks: dict[asyncio.Future[Any], Any],
+        deadline: float,
+        on_cancel: Callable[[asyncio.Future[Any]], None] | None = None,
+    ) -> tuple[set[asyncio.Future[Any]], set[asyncio.Future[Any]]]:
+        """Wait for ``tasks`` until ``deadline``, cancelling the ones not done.
+
+        Returns the (done, not done) sets; every not-done task is cancelled
+        with a late-result retriever attached. When the wait itself is
+        cancelled, every task is cancelled the same way - or settled with
+        ``on_cancel`` when it is already done - and the CancelledError
+        re-raised.
+        """
+        try:
+            done, not_done = await asyncio.wait(
+                tasks, timeout=self._remaining(deadline)
+            )
+        except asyncio.CancelledError:
+            for task in tasks:
+                if on_cancel is not None and task.done():
+                    on_cancel(task)
+                else:
+                    task.cancel()
+                    task.add_done_callback(_retrieve_late_result)
+            raise
+        for task in not_done:
+            task.cancel()
+            task.add_done_callback(_retrieve_late_result)
+        return done, not_done
+
+    @staticmethod
+    def _outcome_of(task: asyncio.Future[Any]) -> _CallOutcome:
+        """The outcome of a finished delegate call.
+
+        A curated :class:`~pyhap.errors.HapStatusError` answers with its
+        status; any other failure answers ``-70402``, like the legacy
+        callbacks do.
+        """
+        try:
+            return _CallOutcome(task.result(), None, None)
+        except HapStatusError as e:
+            return _CallOutcome(None, e.status, e)
+        except (Exception, asyncio.CancelledError) as e:  # noqa: BLE001 - carried for the caller to log
+            return _CallOutcome(
+                None, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE, e
+            )
+
     async def _read_delegate_values(
         self,
-        reads: list[_DelegateRead],
-        context: Context,
+        request: _ReadRequest,
         answer: Callable[[_DelegateRead, Any, int | None], None],
     ) -> None:
         """Run the delegate reads of a request concurrently, answering each.
@@ -2113,42 +1978,14 @@ class AccessoryDriver:
         the rep it fills - a failure arrives with its status instead of
         a value.
         """
+        context = request.context
         tasks: dict[asyncio.Future[Any], _DelegateRead] = {}
-        for read in reads:
-            char_context = CharReadContext(
-                client_addr=context.client_addr,
-                client_uuid=context.client_uuid,
-                connection=context.connection,
-                deadline=context.deadline,
-                characteristic=read.char,
-            )
-            try:
-                tasks[asyncio.ensure_future(read.delegate.on_get(char_context))] = read
-            except TypeError:
-                logger.exception(
-                    "%s: on_get of %s is not a coroutine function",
-                    context.client_addr,
-                    read.char.display_name,
-                )
-                self._finish_read(
-                    read,
-                    answer,
-                    HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE,
-                )
+        for read in request.reads:
+            tasks[asyncio.ensure_future(read.char.dispatch_get(context))] = read
         if not tasks:
             return
-        try:
-            done, not_done = await asyncio.wait(
-                tasks, timeout=self._remaining(context.deadline)
-            )
-        except asyncio.CancelledError:
-            for task in tasks:
-                task.cancel()
-                task.add_done_callback(_retrieve_late_result)
-            raise
+        done, not_done = await self._await_calls(tasks, context.deadline)
         for task in not_done:
-            task.cancel()
-            task.add_done_callback(_retrieve_late_result)
             read = tasks[task]
             logger.warning(
                 "%s: Timed out getting characteristic %s",
@@ -2158,28 +1995,26 @@ class AccessoryDriver:
             self._finish_read(read, answer, HAP_SERVER_STATUS.OPERATION_TIMED_OUT)
         for task in done:
             read = tasks[task]
-            try:
-                value = task.result()
-            except HapStatusError as e:
-                # The read answers the controller with its own HAP status.
-                logger.debug(
-                    "%s: Characteristic %s answered status %s",
-                    context.client_addr,
-                    read.char.display_name,
-                    e.status,
-                )
-                self._finish_read(read, answer, e.status)
-            except Exception:
-                logger.exception(
-                    "%s: Error getting value for characteristic %s",
-                    context.client_addr,
-                    read.char.display_name,
-                )
-                self._finish_read(
-                    read, answer, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-                )
+            outcome = self._outcome_of(task)
+            if outcome.error is not None:
+                if isinstance(outcome.error, HapStatusError):
+                    # The read answers the controller with its own HAP status.
+                    logger.debug(
+                        "%s: Characteristic %s answered status %s",
+                        context.client_addr,
+                        read.char.display_name,
+                        outcome.status,
+                    )
+                else:
+                    logger.error(
+                        "%s: Error getting value for characteristic %s",
+                        context.client_addr,
+                        read.char.display_name,
+                        exc_info=outcome.error,
+                    )
+                self._finish_read(read, answer, outcome.status)
             else:
-                self._finish_read(read, answer, None, value)
+                self._finish_read(read, answer, None, outcome.value)
 
     @staticmethod
     def _finish_read(
@@ -2235,152 +2070,117 @@ class AccessoryDriver:
         else:
             read.rep.pop(HAP_REPR_VALUE, None)
 
-    async def _dispatch_delegates(
-        self,
-        work: _DelegateWork,
-        context: Context,
-    ) -> None:
-        """Gate the writes of services with a delegate, then apply the rest.
+    async def _dispatch_delegates(self, request: _WriteRequest) -> None:
+        """Call the delegates of the writes of a request.
 
-        The gates run first, concurrently, each with every written value
-        of its service: a curated :class:`~pyhap.errors.HapStatusError`
-        refuses the writes of its service - values are restored,
-        subscribers are told nothing - and so does a timeout or any other
-        gate failure, with its status. The surviving writes run
-        concurrently, each under the context's deadline; one that fails
-        or misses it restores the previous value and notifies nobody.
+        The service-level pre-checks run first, concurrently, each with
+        every written value of its service: a curated
+        :class:`~pyhap.errors.HapStatusError` refuses the writes of its
+        service - values are restored, subscribers are told nothing - and
+        so does a timeout or any other pre-check failure, with its status.
+        The surviving writes run concurrently, each under the context's
+        deadline; one that fails or misses it restores the previous value
+        and notifies nobody.
         """
-        if work.gates:
-            await self._run_gates(work, context)
-        if work.writes:
-            await self._run_char_writes(work, context)
+        if request.pre_checks:
+            await self._run_pre_checks(request)
+        if request.writes:
+            await self._run_char_writes(request)
 
-    async def _run_gates(self, work: _DelegateWork, context: Context) -> None:
-        """Run the gates of the request's services, refusing what they refuse."""
+    async def _run_pre_checks(self, request: _WriteRequest) -> None:
+        """Run the pre-checks of the request, refusing the writes they refuse.
+
+        Every written service gets one: the ``on_set`` of its delegate,
+        with every written value of the service - the legacy grouped
+        setter of a service without a delegate runs here too, wrapped.
+        An accessory with a legacy grouped setter gets one as well, with
+        the values of all its written services.
+        """
+        context = request.context
         client_addr = context.client_addr
-        tasks: dict[asyncio.Future[Any], Service] = {}
-        for service, values in work.gates.items():
-            delegate = service.delegate
-            assert delegate is not None  # noqa: S101
-            gate_context = ServiceWriteContext(
-                client_addr=context.client_addr,
-                client_uuid=context.client_uuid,
-                connection=context.connection,
-                deadline=context.deadline,
-                service=service,
-                is_admin=work.is_admin,
-            )
-            try:
-                tasks[asyncio.ensure_future(delegate.on_set(values, gate_context))] = (
-                    service
+        # The services each pre-check refuses the writes of: its own for a
+        # service pre-check, all written services of the accessory for an
+        # accessory one.
+        tasks: dict[asyncio.Future[Any], tuple[Service, ...]] = {}
+        for service, values in request.pre_checks.items():
+            tasks[
+                asyncio.ensure_future(
+                    service.dispatch_set(values, context, is_admin=request.is_admin)
                 )
-            except TypeError:
-                logger.exception(
-                    "%s: on_set of the %s service is not a coroutine function",
-                    client_addr,
-                    service.display_name,
-                )
-                self._veto_writes(
-                    work, service, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-                )
+            ] = (service,)
+        accessories: dict[Accessory, dict[Service, dict[Characteristic, Any]]] = {}
+        for service, values in request.pre_checks.items():
+            acc = service.broker
+            if acc is not None and acc.setter_callback:
+                accessories.setdefault(acc, {})[service] = values
+        for acc, updates_by_service in accessories.items():
+            services = tuple(updates_by_service)
+            tasks[
+                asyncio.ensure_future(acc._dispatch_legacy_setter(updates_by_service))
+            ] = services
         if not tasks:
             return
-        try:
-            done, not_done = await asyncio.wait(
-                tasks, timeout=self._remaining(context.deadline)
-            )
-        except asyncio.CancelledError:
-            for task in tasks:
-                task.cancel()
-                task.add_done_callback(_retrieve_late_result)
-            raise
+        done, not_done = await self._await_calls(tasks, context.deadline)
         for task in not_done:
-            task.cancel()
-            task.add_done_callback(_retrieve_late_result)
-            service = tasks[task]
+            services = tasks[task]
             logger.warning(
-                "%s: Timed out gating the writes of the %s service",
+                "%s: Timed out checking the writes of %s",
                 client_addr,
-                service.display_name,
+                ", ".join(service.display_name or "" for service in services),
             )
-            self._veto_writes(work, service, HAP_SERVER_STATUS.OPERATION_TIMED_OUT)
+            self._veto_writes(request, services, HAP_SERVER_STATUS.OPERATION_TIMED_OUT)
         for task in done:
-            service = tasks[task]
-            try:
-                task.result()
-            except HapStatusError as e:
-                # The gate answers the controller with its own HAP status.
-                logger.debug(
-                    "%s: The %s service refused its writes with status %s",
-                    client_addr,
-                    service.display_name,
-                    e.status,
-                )
-                self._veto_writes(work, service, e.status)
-            except Exception:
-                logger.exception(
-                    "%s: Error gating the writes of the %s service",
-                    client_addr,
-                    service.display_name,
-                )
-                self._veto_writes(
-                    work, service, HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-                )
+            services = tasks[task]
+            outcome = self._outcome_of(task)
+            if outcome.error is not None:
+                status = outcome.status
+                assert status is not None  # noqa: S101 - an error outcome carries a status
+                if isinstance(outcome.error, HapStatusError):
+                    # The pre-check answers the controller with its own status.
+                    logger.debug(
+                        "%s: A pre-check refused the writes of %s with status %s",
+                        client_addr,
+                        ", ".join(service.display_name or "" for service in services),
+                        status,
+                    )
+                else:
+                    logger.error(
+                        "%s: Error checking the writes of %s",
+                        client_addr,
+                        ", ".join(service.display_name or "" for service in services),
+                        exc_info=outcome.error,
+                    )
+                self._veto_writes(request, services, status)
 
-    async def _run_char_writes(
-        self,
-        work: _DelegateWork,
-        context: Context,
-    ) -> None:
-        """Apply the writes the gates left standing, in request order."""
+    async def _run_char_writes(self, request: _WriteRequest) -> None:
+        """Apply the writes the gates left standing, concurrently.
+
+        Every write's delegate call runs under the request's deadline, see
+        :meth:`_await_calls`: one still running when it passes is cancelled,
+        answers -70408 and has its previous value restored. A finished call
+        is settled by :meth:`_finish_task_write`. When the wait itself is
+        cancelled, e.g. because the connection closed, finished calls are
+        still settled and the rest are cancelled.
+        """
+        context = request.context
         client_addr = context.client_addr
         tasks: dict[asyncio.Future[Any], _DelegateWrite] = {}
-        for write in work.writes:
-            if write.value is None:
-                # A null write applies nothing and runs no callback, like
-                # in the legacy path.
-                continue
-            if write.delegate is None:
-                coro: Any = self._apply_legacy_in_stage(write, context)
-            else:
-                char_context = CharWriteContext(
-                    client_addr=context.client_addr,
-                    client_uuid=context.client_uuid,
-                    connection=context.connection,
-                    deadline=context.deadline,
-                    characteristic=write.char,
-                    is_admin=work.is_admin,
+        for write in request.writes:
+            tasks[
+                asyncio.ensure_future(
+                    write.char.dispatch_set(
+                        write.value, context, is_admin=request.is_admin
+                    )
                 )
-                coro = write.delegate.on_set(write.value, char_context)
-            try:
-                tasks[asyncio.ensure_future(coro)] = write
-            except TypeError:
-                logger.exception(
-                    "%s: on_set of %s is not a coroutine function",
-                    client_addr,
-                    write.char.display_name,
-                )
-                write.result[HAP_REPR_STATUS] = (
-                    HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-                )
-                self._restore_write_value(write)
+            ] = write
         if not tasks:
             return
-        try:
-            done, not_done = await asyncio.wait(
-                tasks, timeout=self._remaining(context.deadline)
-            )
-        except asyncio.CancelledError:
-            for task, write in tasks.items():
-                if task.done():
-                    self._finish_task_write(task, write, context)
-                    continue
-                task.cancel()
-                task.add_done_callback(_retrieve_late_result)
-            raise
+        done, not_done = await self._await_calls(
+            tasks,
+            context.deadline,
+            on_cancel=lambda task: self._finish_task_write(task, tasks[task], context),
+        )
         for task in not_done:
-            task.cancel()
-            task.add_done_callback(_retrieve_late_result)
             write = tasks[task]
             logger.warning(
                 "%s: Timed out setting characteristic %s",
@@ -2392,65 +2192,45 @@ class AccessoryDriver:
         for task in done:
             self._finish_task_write(task, tasks[task], context)
 
-    async def _apply_legacy_in_stage(
-        self, write: _DelegateWrite, context: Context
-    ) -> Any:
-        """Apply a legacy callback write of a gated service, after its gate.
-
-        Mirrors the legacy path: the value is stored and the callback run
-        inline, a coroutine it returns is awaited, and subscribers are
-        told once it is done.
-        """
-        response = write.char.client_update_value(
-            write.value,
-            context.connection,
-            notify=not write.private_write,
-            defer_notify=True,
-        )
-        if inspect.iscoroutine(response):
-            outcome = await response
-            write.char.client_update_finished(
-                write.previous_value,
-                context.connection,
-                notify=not write.private_write,
-            )
-            return outcome
-        return response
-
     def _finish_task_write(
         self,
         task: asyncio.Future[Any],
         write: _DelegateWrite,
         context: Context,
     ) -> None:
-        """Settle one applied write: status, response, subscribers."""
+        """Settle one finished write: its status, its response, its notify.
+
+        A failed write answers its status - a curated
+        :class:`~pyhap.errors.HapStatusError` status, else -70402 - and puts
+        the previous value back, notifying nobody. An applied write settles
+        its private read-back bookkeeping, keeps the response for the
+        writing connection (dropped when it closed meanwhile, see
+        :meth:`_store_write_response`) and notifies the subscribers of the
+        new value, unless the write is private.
+        """
         client_addr = context.client_addr
-        try:
-            outcome = task.result()
-        except HapStatusError as e:
-            # The delegate answers the controller with its own HAP status.
-            logger.debug(
-                "%s: Characteristic %s answered status %s",
-                client_addr,
-                write.char.display_name,
-                e.status,
-            )
-            write.result[HAP_REPR_STATUS] = e.status
-            self._restore_write_value(write)
-            return
-        except (Exception, asyncio.CancelledError):
-            logger.exception(
-                "%s: Error while setting characteristic %s",
-                client_addr,
-                write.char.display_name,
-            )
-            write.result[HAP_REPR_STATUS] = (
-                HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-            )
+        outcome = self._outcome_of(task)
+        if outcome.error is not None:
+            if isinstance(outcome.error, HapStatusError):
+                # The delegate answers the controller with its own HAP status.
+                logger.debug(
+                    "%s: Characteristic %s answered status %s",
+                    client_addr,
+                    write.char.display_name,
+                    outcome.status,
+                )
+            else:
+                logger.error(
+                    "%s: Error while setting characteristic %s",
+                    client_addr,
+                    write.char.display_name,
+                    exc_info=outcome.error,
+                )
+            write.result[HAP_REPR_STATUS] = outcome.status
             self._restore_write_value(write)
             return
         # Complete the applied write: read back bookkeeping, response, notify.
-        response = outcome
+        response = outcome.value
         if write.private_write:
             response = _settle_private_write(
                 write.char, write.previous_value, write.value, response
@@ -2466,31 +2246,35 @@ class AccessoryDriver:
                 write.write_response,
                 context.connection,
             )
-        if write.delegate is not None:
-            write.char.client_update_finished(
-                write.previous_value, context.connection, notify=not write.private_write
-            )
+        write.char.client_update_finished(
+            write.previous_value, context.connection, notify=not write.private_write
+        )
 
     @staticmethod
     def _restore_write_value(write: _DelegateWrite) -> None:
-        """Put back what a refused write of a delegate changed."""
-        if write.delegate is not None and write.char.value != write.previous_value:
+        """Put back what a refused write changed."""
+        if write.char.value != write.previous_value:
             write.char.value = write.previous_value
 
-    def _veto_writes(self, work: _DelegateWork, service: Service, status: int) -> None:
-        """Refuse every write of ``service``: restore, tell nobody, answer status."""
+    def _veto_writes(
+        self,
+        request: _WriteRequest,
+        services: tuple[Service, ...],
+        status: int,
+    ) -> None:
+        """Refuse the writes of ``services``: restore, tell nobody, answer status."""
         kept: list[_DelegateWrite] = []
-        for write in work.writes:
-            if write.service is not service:
+        for write in request.writes:
+            if write.service not in services:
                 kept.append(write)
                 continue
             write.result[HAP_REPR_STATUS] = status
             self._restore_write_value(write)
-        work.writes = kept
+        request.writes = kept
 
     def _collect_delegate_write(
         self,
-        work: _DelegateWork,
+        request: _WriteRequest,
         client_addr: tuple[str, int],
         char: Characteristic,
         service: Service,
@@ -2499,35 +2283,40 @@ class AccessoryDriver:
         write_response: bool,
         private_write: bool,
     ) -> dict[str, Any]:
-        """Collect a write for the delegate stage, return its result entry.
+        """Store a write and collect it for its delegates, return its result.
 
-        A service with a delegate is gated as a whole, so the value goes
-        to its gate whatever the characteristic itself uses. A char with
-        a delegate stores the value now and its ``on_set`` applies it
-        once the gates accepted; a legacy callback char of a gated
-        service is applied after them, like the value writes of the
-        legacy path.
+        The written service gets a pre-check whatever the characteristic
+        itself uses, so the pre-check sees every value of the request.
+        The value is validated and stored now: the delegates apply it once
+        the pre-checks accepted, and a write they refuse is restored. An
+        explicit null answers invalid, like the legacy path - nothing is
+        applied and no callback runs.
         """
-        if service.delegate is not None:
-            work.gates.setdefault(service, {})[char] = value
-        delegate = char.delegate
+        request.pre_checks.setdefault(service, {})[char] = value
         result: dict[str, Any] = {HAP_REPR_STATUS: HAP_SERVER_STATUS.SUCCESS}
-        if delegate is not None and value is not None:
-            try:
-                previous_value = char._store_client_value(value)
-            except Exception:
-                logger.exception(
-                    "%s: Error while setting characteristic %s to %s",
-                    client_addr,
-                    char.display_name,
-                    value,
-                )
-                result[HAP_REPR_STATUS] = (
-                    HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
-                )
-                return result
-            value = char.value
-        work.writes.append(
+        if value is None:
+            result[HAP_REPR_STATUS] = HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
+            return result
+        try:
+            previous_value = char._store_client_update(value)
+        except Exception:
+            logger.exception(
+                "%s: Error while setting characteristic %s to %s",
+                client_addr,
+                char.display_name,
+                value,
+            )
+            result[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SERVICE_COMMUNICATION_FAILURE
+            return result
+        value = char.value
+        if private_write:
+            # The request of a readable write response or read back
+            # characteristic is not shared, whatever the delegates do: it
+            # never lives in the value while they run, they receive it as
+            # their argument, and the finish settles what they answer, see
+            # ``_settle_private_write``.
+            char.value = previous_value
+        request.writes.append(
             _DelegateWrite(
                 char,
                 value,
@@ -2536,29 +2325,9 @@ class AccessoryDriver:
                 write_response,
                 private_write,
                 service,
-                delegate,
             )
         )
         return result
-
-    @staticmethod
-    def _finish_done_write(
-        task: asyncio.Future[Any], write: _PendingWrite, connection: HAPConnectionHandle
-    ) -> None:
-        """Tell subscribers about a setter done before the write was cancelled."""
-        if task.cancelled():
-            return
-        if (err := task.exception()) is not None:
-            logger.error(
-                "%s: Error while setting characteristic %s",
-                connection.client_addr,
-                write.char.display_name,
-                exc_info=err,
-            )
-            return
-        write.char.client_update_finished(
-            write.previous_value, connection, notify=write.notify
-        )
 
     def _keep_response(
         self,
@@ -2735,48 +2504,35 @@ class AccessoryDriver:
             action = "Subscribed" if ev else "Unsubscribed"
             logger.debug("%s client %s to topic %s", action, client_addr, char_topic)
             self.async_subscribe_client_topic(connection, char_topic, ev)
-            if char is not None and char.delegate is not None and ev != was_subscribed:
+            if char is not None and ev != was_subscribed:
                 self._dispatch_subscription(
-                    char.delegate, char, ev, client_addr, client_uuid, connection
+                    char, ev, client_addr, client_uuid, connection
                 )
         return not_notifiable
 
     def _dispatch_subscription(
         self,
-        delegate: CharacteristicDelegate,
         characteristic: Characteristic,
         subscribe: bool,
         client_addr: tuple[str, int] | None,
         client_uuid: UUID | None,
         connection: HAPConnectionHandle,
     ) -> None:
-        """Run a delegate's ``on_subscribe`` or ``on_unsubscribe``, isolated.
+        """Run a characteristic's ``on_subscribe`` or ``on_unsubscribe``, isolated.
 
         The hook runs as a job without a deadline: the request, or the
         connection close, that caused it never waits for it. Its exception
         is logged, and the subscription itself has already registered by
         the time the hook runs.
         """
-        context = CharReadContext(
-            client_addr=client_addr,
-            client_uuid=client_uuid,
-            connection=connection,
-            deadline=float("inf"),
-            characteristic=characteristic,
+        context = self._build_request_context(
+            client_addr, client_uuid, connection, None
         )
-        if subscribe:
-            self.add_job(
-                self._run_isolated_hook,
-                delegate.on_subscribe,
-                (context,),
-                "on_subscribe",
-                client_addr,
-            )
-        else:
-            self.add_job(
-                self._run_isolated_hook,
-                delegate.on_unsubscribe,
-                (context,),
-                "on_unsubscribe",
-                client_addr,
-            )
+        hook, args = characteristic.subscription_hook(subscribe, context)
+        self.add_job(
+            self._run_isolated_hook,
+            hook,
+            args,
+            "on_subscribe" if subscribe else "on_unsubscribe",
+            client_addr,
+        )

@@ -350,12 +350,13 @@ def test_client_update_value() -> None:
     with patch(path_notify) as mock_notify:
         char.client_update_value(4)
         assert char.value == 4
-        with patch.object(char, "setter_callback") as mock_callback:
-            char.client_update_value(3)
+        setter = MagicMock()
+        char.setter_callback = setter
+        char.client_update_value(3)
 
     assert char.value == 3
     assert mock_notify.call_count == 2
-    mock_callback.assert_called_with(3)
+    setter.assert_called_with(3)
 
     with patch(path_notify) as mock_notify:
         char.client_update_value(9, "mock_client_addr")  # ty: ignore[invalid-argument-type]
@@ -567,6 +568,8 @@ def test_getter_callback() -> None:
         "type": "A1",
     }
     char.getter_callback = lambda: 5
+    # ``to_HAP`` answers the stored value: a fresh answer comes from the
+    # read path, the delegate's ``on_get`` - ``get_value`` for a direct call.
     assert char.to_HAP() == {
         "description": "Test Char",
         "format": "int",
@@ -575,8 +578,9 @@ def test_getter_callback() -> None:
         "minValue": 4,
         "perms": ["pr"],
         "type": "A1",
-        "value": 5,
+        "value": 4,
     }
+    assert char.get_value() == 5
     assert char.to_HAP(include_value=False) == {
         "description": "Test Char",
         "format": "int",
@@ -590,22 +594,6 @@ def test_getter_callback() -> None:
 
 class _AsyncGetter(CharacteristicDelegate):
     """A delegate overriding on_get."""
-
-
-def test_delegate_assignment() -> None:
-    """An assigned delegate instance is the characteristic's delegate."""
-    char = get_char(PROPERTIES)
-    delegate = _AsyncGetter()
-
-    char.delegate = delegate
-
-    assert char.delegate is delegate
-    assert char.getter_callback is None
-    assert char.setter_callback is None
-
-    char.delegate = None
-
-    assert char.delegate is None
 
 
 def test_to_HAP_cache_skips_delegate() -> None:
@@ -654,7 +642,7 @@ def test_delegate_conflicts_with_legacy_callbacks() -> None:
 
 
 def test_removing_one_side_allows_the_other() -> None:
-    """Clearing with None or del frees the characteristic for the other."""
+    """Clearing one side with ``None`` frees the characteristic for the other."""
     char = get_char(PROPERTIES)
     char.setter_callback = lambda value: None  # noqa: E731
 
@@ -668,12 +656,12 @@ def test_removing_one_side_allows_the_other() -> None:
 
     assert char.getter_callback is not None
 
-    del char.getter_callback
+    char.getter_callback = None
     char.delegate = _AsyncGetter()
 
     assert char.delegate is not None
 
-    del char.delegate
+    char.delegate = None
     char.setter_callback = lambda value: None  # noqa: E731
 
     assert char.setter_callback is not None
@@ -700,4 +688,3 @@ def test_legacy_callbacks_warn_deprecated() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         char.setter_callback = None
-        del char.getter_callback

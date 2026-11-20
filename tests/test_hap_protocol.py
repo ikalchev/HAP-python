@@ -18,6 +18,7 @@ from pyhap.const import HAP_REPR_AID, HAP_REPR_IID, HAP_REPR_VALUE
 from pyhap.hap_crypto import HAPCrypto, hap_hkdf
 from pyhap.hap_handler import HAPResponse
 from pyhap.service import Service
+from tests.conftest import run_scheduled_jobs
 
 
 class MockTransport(asyncio.Transport):
@@ -353,10 +354,11 @@ def test_get_accessories_without_crypto(driver: AccessoryDriver) -> None:
     assert b"-70401" in writer.call_args_list[0][0][0]
 
 
-def test_get_accessories_with_crypto(driver: AccessoryDriver) -> None:
+async def test_get_accessories_with_crypto(driver: AccessoryDriver) -> None:
     """Verify an encrypt accessories request."""
-    loop = MagicMock()
+    loop = asyncio.get_running_loop()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
     driver.add_accessory(Accessory(driver, "TestAcc"))
 
@@ -372,15 +374,17 @@ def test_get_accessories_with_crypto(driver: AccessoryDriver) -> None:
             b"\r\n"
             b""
         )
+        await run_scheduled_jobs()
 
     hap_proto.close()
     assert b"accessories" in b"".join(writelines.call_args_list[0][0])
 
 
-def test_get_characteristics_with_crypto(driver: AccessoryDriver) -> None:
+async def test_get_characteristics_with_crypto(driver: AccessoryDriver) -> None:
     """Verify an encrypt characteristics request."""
-    loop = MagicMock()
+    loop = asyncio.get_running_loop()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
 
     acc = Accessory(driver, "TestAcc", aid=1)
@@ -401,12 +405,14 @@ def test_get_characteristics_with_crypto(driver: AccessoryDriver) -> None:
             b"\r\n"
             b""
         )
+        await run_scheduled_jobs()
         hap_proto.data_received(
             b"GET /characteristics?id=1.5 HTTP/1.1\r\n"
             b"Host: HASS\\032Bridge\\032YPHW\\032B223AD._hap._tcp.local\r\n"
             b"\r\n"
             b""
         )
+        await run_scheduled_jobs()
 
     hap_proto.close()
     joined0 = b"".join(writelines.call_args_list[0][0])
@@ -420,10 +426,11 @@ def test_get_characteristics_with_crypto(driver: AccessoryDriver) -> None:
     assert b"TestAcc" in joined1
 
 
-def test_set_characteristics_with_crypto(driver: AccessoryDriver) -> None:
+async def test_set_characteristics_with_crypto(driver: AccessoryDriver) -> None:
     """Verify an encrypt characteristics request."""
-    loop = MagicMock()
+    loop = asyncio.get_running_loop()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
 
     acc = Accessory(driver, "TestAcc", aid=1)
@@ -446,6 +453,7 @@ def test_set_characteristics_with_crypto(driver: AccessoryDriver) -> None:
             b"\r\n"
             b'{"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
         )
+        await run_scheduled_jobs()
 
     hap_proto.close()
     assert (
@@ -473,10 +481,11 @@ def test_crypto_failure_closes_connection(driver: AccessoryDriver) -> None:
     assert len(connections) == 0
 
 
-def test_empty_encrypted_data(driver: AccessoryDriver) -> None:
+async def test_empty_encrypted_data(driver: AccessoryDriver) -> None:
     """Verify an encrypt request when we start with an empty block."""
-    loop = MagicMock()
+    loop = asyncio.get_running_loop()
     transport = MagicMock()
+    transport.is_closing = Mock(return_value=False)
     connections = {}
 
     driver.add_accessory(Accessory(driver, "TestAcc"))
@@ -493,6 +502,7 @@ def test_empty_encrypted_data(driver: AccessoryDriver) -> None:
             b"\r\n"
             b""
         )
+        await run_scheduled_jobs()
 
     hap_proto.close()
     assert b"accessories" in b"".join(writelines.call_args_list[0][0])
@@ -1021,7 +1031,7 @@ async def test_get_pipelined_behind_async_setter(driver: AccessoryDriver) -> Non
         writelines.assert_not_called()
         setter_done.set()
         await _await_response(hap_proto)
-        await asyncio.sleep(0)
+        await run_scheduled_jobs()
 
     hap_proto.close()
     assert writelines.call_count == 2
@@ -1332,9 +1342,9 @@ async def test_does_not_timeout(driver: AccessoryDriver) -> None:
         assert hap_proto_close.called is False
 
 
-def test_explicit_close(driver: AccessoryDriver) -> None:
+async def test_explicit_close(driver: AccessoryDriver) -> None:
     """Test an explicit connection close."""
-    loop = MagicMock()
+    loop = asyncio.get_running_loop()
 
     transport = MockTransport()
     connections = {}
@@ -1360,6 +1370,7 @@ def test_explicit_close(driver: AccessoryDriver) -> None:
             b"\r\n"
             b""
         )
+        await run_scheduled_jobs()
         hap_proto.data_received(
             b"GET /characteristics?id=1.5 HTTP/1.1\r\n"
             b"Connection: close\r\n"
@@ -1367,6 +1378,7 @@ def test_explicit_close(driver: AccessoryDriver) -> None:
             b"\r\n"
             b""
         )
+        await run_scheduled_jobs()
 
     join0 = b"".join(writelines.call_args_list[0][0])
     assert b"Content-Length:" in join0

@@ -22,7 +22,6 @@ from pyhap.accessory_driver import (
     MAX_PREPARED_WRITES_PER_CLIENT,
     PAIRING_LOCKOUT_SECONDS,
     AccessoryDriver,
-    AccessoryMDNSServiceInfo,
 )
 from pyhap.characteristic import (
     HAP_FORMAT_INT,
@@ -51,8 +50,10 @@ from pyhap.const import (
 from pyhap.errors import HapStatusError
 from pyhap.hap_crypto import hap_hkdf
 from pyhap.hap_protocol import HAPServerProtocol
+from pyhap.mdns import AccessoryMDNSServiceInfo
 from pyhap.service import Service
 from pyhap.state import State
+from tests.conftest import run_scheduled_jobs
 
 CHAR_PROPS = {
     PROP_FORMAT: HAP_FORMAT_INT,
@@ -102,7 +103,7 @@ class UnavailableAccessory(Accessory):
 
 @pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
 @pytest.mark.parametrize("available", [False, True], ids=["unavailable", "available"])
-def test_get_characteristics_honors_availability(
+async def test_get_characteristics_honors_availability(
     driver: AccessoryDriver, bridged: bool, available: bool
 ) -> None:
     """Respect accessory availability for standalone and bridged reads."""
@@ -122,7 +123,9 @@ def test_get_characteristics_honors_availability(
         driver.add_accessory(acc)
     iid = acc.iid_manager.get_iid(char)
 
-    result = driver.get_characteristics([f"{acc.aid}.{iid}"])
+    result = await driver._get_characteristics_for_controller(
+        [f"{acc.aid}.{iid}"], ("1.2.3.4", 5), ASYNC_TIMEOUT
+    )
 
     expected = {
         HAP_REPR_AID: acc.aid,
@@ -141,9 +144,9 @@ def test_get_characteristics_honors_availability(
         with patch.object(UnavailableAccessory, "available", True):
             expected[HAP_REPR_STATUS] = HAP_SERVER_STATUS.SUCCESS
             expected[HAP_REPR_VALUE] = 42
-            assert driver.get_characteristics([f"{acc.aid}.{iid}"]) == {
-                HAP_REPR_CHARS: [expected]
-            }
+            assert await driver._get_characteristics_for_controller(
+                [f"{acc.aid}.{iid}"], ("1.2.3.4", 5), ASYNC_TIMEOUT
+            ) == {HAP_REPR_CHARS: [expected]}
         getter.assert_called_once_with()
 
 
@@ -207,7 +210,7 @@ READ_PERMISSION_CASES = [
 
 @pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
 @pytest.mark.parametrize(("permissions", "expected", "reads"), READ_PERMISSION_CASES)
-def test_get_characteristics_requires_read_permission(
+async def test_get_characteristics_requires_read_permission(
     driver: AccessoryDriver,
     bridged: bool,
     permissions: list[str],
@@ -218,7 +221,9 @@ def test_get_characteristics_requires_read_permission(
     acc, char, getter = _add_bridged_or_standalone(driver, permissions, bridged)
     iid = acc.iid_manager.get_iid(char)
 
-    result = driver.get_characteristics([f"{acc.aid}.{iid}"])
+    result = await driver._get_characteristics_for_controller(
+        [f"{acc.aid}.{iid}"], ("1.2.3.4", 5), ASYNC_TIMEOUT
+    )
 
     assert result == {
         HAP_REPR_CHARS: [{HAP_REPR_AID: acc.aid, HAP_REPR_IID: iid, **expected}]
@@ -230,7 +235,7 @@ def _raise_out_of_resource() -> NoReturn:
     raise HapStatusError(HAP_SERVER_STATUS.OUT_OF_RESOURCE)
 
 
-def test_get_characteristics_hap_status_answers_request(
+async def test_get_characteristics_hap_status_answers_request(
     driver: AccessoryDriver,
 ) -> None:
     """A getter's HapStatusError answers with its status, not -70402."""
@@ -238,7 +243,9 @@ def test_get_characteristics_hap_status_answers_request(
     char.getter_callback = _raise_out_of_resource
 
     iid = acc.iid_manager.get_iid(char)
-    result = driver.get_characteristics([f"{acc.aid}.{iid}"])
+    result = await driver._get_characteristics_for_controller(
+        [f"{acc.aid}.{iid}"], ("1.2.3.4", 5), ASYNC_TIMEOUT
+    )
 
     assert result == {
         HAP_REPR_CHARS: [
@@ -251,7 +258,7 @@ def test_get_characteristics_hap_status_answers_request(
     }
 
 
-def test_get_accessories_isolates_a_failing_getter(
+async def test_get_accessories_isolates_a_failing_getter(
     driver: AccessoryDriver,
 ) -> None:
     """A failing getter omits its value, and does not fail the whole list."""
@@ -265,7 +272,9 @@ def test_get_accessories_isolates_a_failing_getter(
     acc.add_service(service)
     driver.add_accessory(acc)
 
-    (acc_rep,) = driver.get_accessories()[HAP_REPR_ACCS]
+    (acc_rep,) = (
+        await driver._get_accessories_for_controller(("1.2.3.4", 5), ASYNC_TIMEOUT)
+    )[HAP_REPR_ACCS]
     reps = {
         rep[HAP_REPR_IID]: rep for rep in acc_rep[HAP_REPR_SERVICES][-1][HAP_REPR_CHARS]
     }
@@ -286,14 +295,17 @@ def test_get_accessories_isolates_a_failing_getter(
         (["pw", "tw"], set(), 0),
     ],
 )
-def test_get_accessories_value_requires_read_permission(
+async def test_get_accessories_value_requires_read_permission(
     driver: AccessoryDriver, permissions: list[str], values: set[str], reads: int
 ) -> None:
     """The accessory database only includes values the controller may read."""
+    driver.loop = asyncio.get_running_loop()
     acc, char, getter = _add_bridged_or_standalone(driver, permissions, False)
 
     (acc_rep,) = driver.get_accessories()[HAP_REPR_ACCS]
     (char_rep,) = acc_rep[HAP_REPR_SERVICES][-1][HAP_REPR_CHARS]
+    # A direct call answers at once and runs the reads as a job.
+    await run_scheduled_jobs()
 
     assert char_rep[HAP_REPR_IID] == acc.iid_manager.get_iid(char)
     assert char_rep.keys() & {HAP_REPR_VALUE} == values
@@ -445,36 +457,37 @@ def test_write_with_subscribe_without_notify_permission(
     assert driver.topics == {}
 
 
-def _write_value(
+async def _write_value(
     driver: AccessoryDriver, acc: Accessory, char: Characteristic, **query: Any
 ) -> tuple[dict[str, Any] | None, MagicMock, MagicMock]:
-    """Write 5 to ``char`` and return the result and both setter mocks."""
+    """Write 5 to ``char``, waiting for the setters, and return their mocks."""
     setter = MagicMock()
     char.setter_callback = setter
     service_setter = MagicMock()
     assert char.service is not None
     char.service.setter_callback = service_setter
     iid = acc.iid_manager.get_iid(char)
-    result = driver.set_characteristics(
+    result = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {HAP_REPR_AID: acc.aid, HAP_REPR_IID: iid, HAP_REPR_VALUE: 5, **query}
             ]
         },
         ("1.2.3.4", 5),
+        ASYNC_TIMEOUT,
     )
     return result, setter, service_setter
 
 
 @pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
 @pytest.mark.parametrize("permissions", [["pr"], ["pr", "ev"]])
-def test_write_without_write_permission(
+async def test_write_without_write_permission(
     driver: AccessoryDriver, bridged: bool, permissions: list[str]
 ) -> None:
     """A write to a characteristic without paired write is refused."""
     acc, char, _ = _add_bridged_or_standalone(driver, permissions, bridged)
 
-    result, setter, service_setter = _write_value(driver, acc, char)
+    result, setter, service_setter = await _write_value(driver, acc, char)
 
     assert result == {
         HAP_REPR_CHARS: [
@@ -492,13 +505,13 @@ def test_write_without_write_permission(
 
 @pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
 @pytest.mark.parametrize("permissions", [["pw"], ["pr", "pw"], ["pr", "pw", "ev"]])
-def test_write_with_write_permission(
+async def test_write_with_write_permission(
     driver: AccessoryDriver, bridged: bool, permissions: list[str]
 ) -> None:
     """A write to a characteristic with paired write is applied."""
     acc, char, _ = _add_bridged_or_standalone(driver, permissions, bridged)
 
-    result, setter, service_setter = _write_value(driver, acc, char)
+    result, setter, service_setter = await _write_value(driver, acc, char)
 
     assert result is None
     setter.assert_called_once_with(5)
@@ -506,7 +519,7 @@ def test_write_with_write_permission(
     assert char.value == 5
 
 
-def test_write_with_subscribe_without_write_permission(
+async def test_write_with_subscribe_without_write_permission(
     driver: AccessoryDriver,
 ) -> None:
     """A subscription is applied even when the write in the same entry is not."""
@@ -514,7 +527,9 @@ def test_write_with_subscribe_without_write_permission(
     client = ("1.2.3.4", 5)
     iid = acc.iid_manager.get_iid(char)
 
-    result, setter, _ = _write_value(driver, acc, char, **{HAP_PERMISSION_NOTIFY: True})
+    result, setter, _ = await _write_value(
+        driver, acc, char, **{HAP_PERMISSION_NOTIFY: True}
+    )
 
     assert result == {
         HAP_REPR_CHARS: [
@@ -529,7 +544,7 @@ def test_write_with_subscribe_without_write_permission(
     assert driver.topics == {f"{acc.aid}.{iid}": {driver._connection_of(client)}}
 
 
-def test_refused_write_does_not_block_others(driver: AccessoryDriver) -> None:
+async def test_refused_write_does_not_block_others(driver: AccessoryDriver) -> None:
     """A refused write leaves the other characteristics of the request alone."""
     acc = Accessory(driver, "Test Accessory", aid=STANDALONE_AID)
     service = Service(uuid1(), "Test Service")
@@ -545,7 +560,7 @@ def test_refused_write_does_not_block_others(driver: AccessoryDriver) -> None:
     read_only_iid = acc.iid_manager.get_iid(read_only)
     writable_iid = acc.iid_manager.get_iid(writable)
 
-    result = driver.set_characteristics(
+    result = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {HAP_REPR_AID: acc.aid, HAP_REPR_IID: read_only_iid, HAP_REPR_VALUE: 5},
@@ -553,6 +568,7 @@ def test_refused_write_does_not_block_others(driver: AccessoryDriver) -> None:
             ]
         },
         ("1.2.3.4", 5),
+        ASYNC_TIMEOUT,
     )
 
     assert result == {
@@ -666,11 +682,25 @@ WRITER = ("1.2.3.4", 5)
 OTHER_CONTROLLER = ("5.6.7.8", 9)
 
 
-def _write(
+def _query(acc: Accessory, char: Characteristic, **query: Any) -> dict[str, Any]:
+    """Return a write of 0 to ``char`` with extra query fields."""
+    return {
+        HAP_REPR_CHARS: [
+            {
+                HAP_REPR_AID: acc.aid,
+                HAP_REPR_IID: acc.iid_manager.get_iid(char),
+                HAP_REPR_VALUE: 0,
+                **query,
+            }
+        ]
+    }
+
+
+async def _write(
     driver: AccessoryDriver, acc: Accessory, char: Characteristic, **query: Any
 ) -> Any:
-    """Write 0 to ``char`` from a mock client with extra query fields."""
-    return driver.set_characteristics(
+    """Write 0 to ``char`` from a mock client, waiting for the setters."""
+    return await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -682,6 +712,7 @@ def _write(
             ]
         },
         WRITER,
+        ASYNC_TIMEOUT,
     )
 
 
@@ -695,7 +726,7 @@ def _write(
     ],
 )
 @pytest.mark.parametrize(("returned", "sent"), [(1, 1), (1.7, 1)])
-def test_write_response_returned_when_requested(
+async def test_write_response_returned_when_requested(
     driver: AccessoryDriver,
     bridged: bool,
     permissions: list[str],
@@ -711,7 +742,7 @@ def test_write_response_returned_when_requested(
     setter = MagicMock(return_value=returned)
     char.setter_callback = setter
 
-    response = _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
+    response = await _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
 
     assert response == {
         HAP_REPR_CHARS: [
@@ -741,7 +772,7 @@ def test_write_response_returned_when_requested(
         pytest.param(["pw"], {HAP_REPR_WRITE_RESPONSE: True}, id="write-only"),
     ],
 )
-def test_write_response_not_returned(
+async def test_write_response_not_returned(
     driver: AccessoryDriver, permissions: list[str], query: dict[str, Any]
 ) -> None:
     """Without a request or the wr permission the write has no response body."""
@@ -749,7 +780,7 @@ def test_write_response_not_returned(
     setter = MagicMock(return_value=1)
     char.setter_callback = setter
 
-    assert _write(driver, acc, char, **query) is None
+    assert await _write(driver, acc, char, **query) is None
     setter.assert_called_once_with(0)
     assert char.value == 0
 
@@ -761,14 +792,14 @@ def test_write_response_not_returned(
         pytest.param(["pw", "wr"], 5, id="write-only"),
     ],
 )
-def test_invalid_write_response_is_sent_but_not_kept(
+async def test_invalid_write_response_is_sent_but_not_kept(
     driver: AccessoryDriver, permissions: list[str], stored: int
 ) -> None:
     """A response the char can't hold is still sent, but not kept as its value."""
     acc, char, _ = _add_bridged_or_standalone(driver, permissions, False)
     char.setter_callback = MagicMock(return_value="not a number")
 
-    response = _write(
+    response = await _write(
         driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
     )
 
@@ -777,7 +808,7 @@ def test_invalid_write_response_is_sent_but_not_kept(
     assert char.value == stored
 
 
-def test_write_response_value_of_write_only_char_not_readable(
+async def test_write_response_value_of_write_only_char_not_readable(
     driver: AccessoryDriver,
 ) -> None:
     """Neither the written nor the response value of a wr char without pr leaks."""
@@ -785,7 +816,7 @@ def test_write_response_value_of_write_only_char_not_readable(
     char.setter_callback = MagicMock(return_value=1)
     iid = acc.iid_manager.get_iid(char)
 
-    _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
+    await _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
 
     assert driver.get_characteristics([f"{acc.aid}.{iid}"]) == {
         HAP_REPR_CHARS: [
@@ -930,7 +961,7 @@ async def test_sync_setter_hap_status_answers_request(
     acc, char, _ = _add_bridged_or_standalone(driver, ["pr", "pw"], bridged)
     char.setter_callback = _raise_resource_busy
 
-    result = driver.set_characteristics(
+    result = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -941,6 +972,7 @@ async def test_sync_setter_hap_status_answers_request(
             ]
         },
         "mock_addr",  # ty: ignore[invalid-argument-type]
+        ASYNC_TIMEOUT,
     )
 
     assert result == {
@@ -977,7 +1009,7 @@ async def test_async_setter_hap_status_answers_request(
     }
 
 
-def test_service_setter_hap_status_answers_all_its_chars(
+async def test_service_setter_hap_status_answers_all_its_chars(
     driver: AccessoryDriver,
 ) -> None:
     """A service setter's HapStatusError answers its chars, not the others."""
@@ -992,7 +1024,7 @@ def test_service_setter_hap_status_answers_all_its_chars(
     driver.add_accessory(acc)
     refused.setter_callback = _raise_resource_busy
 
-    response = driver.set_characteristics(
+    response = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -1008,6 +1040,7 @@ def test_service_setter_hap_status_answers_all_its_chars(
             ]
         },
         "mock_addr",  # ty: ignore[invalid-argument-type]
+        ASYNC_TIMEOUT,
     )
 
     assert response == {
@@ -1026,7 +1059,7 @@ def test_service_setter_hap_status_answers_all_its_chars(
     }
 
 
-def test_accessory_setter_hap_status_answers_all_its_chars(
+async def test_accessory_setter_hap_status_answers_all_its_chars(
     driver: AccessoryDriver,
 ) -> None:
     """An accessory setter's HapStatusError answers its chars, not the others."""
@@ -1046,7 +1079,7 @@ def test_accessory_setter_hap_status_answers_all_its_chars(
     driver.add_accessory(bridge)
     acc.setter_callback = _raise_resource_busy
 
-    response = driver.set_characteristics(
+    response = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -1062,6 +1095,7 @@ def test_accessory_setter_hap_status_answers_all_its_chars(
             ]
         },
         "mock_addr",  # ty: ignore[invalid-argument-type]
+        ASYNC_TIMEOUT,
     )
 
     assert response == {
@@ -1304,7 +1338,7 @@ async def test_async_accessory_or_service_setter_is_closed(
     driver.add_accessory(acc)
     attach(acc, service)
 
-    result = driver._set_characteristics_for_controller(
+    result = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -1361,9 +1395,11 @@ async def test_async_and_sync_setters_in_one_write(driver: AccessoryDriver) -> N
         ASYNC_TIMEOUT,
     )
 
-    service_setter.assert_called_once_with({"Async": 3, "Sync": 4})
     assert inspect.isawaitable(result)
-    assert await result == {
+    response = await result
+    # The service setter ran as the pre-check, before the char setters.
+    service_setter.assert_called_once_with({"Async": 3, "Sync": 4})
+    assert response == {
         HAP_REPR_CHARS: [
             {
                 HAP_REPR_AID: acc.aid,
@@ -1491,14 +1527,14 @@ class _CoroutineRecorder:
         return self.coro
 
 
-async def test_malformed_entry_closes_pending_setters(driver: AccessoryDriver) -> None:
-    """A write that fails on a later entry closes the coroutines it created."""
+async def test_malformed_entry_runs_no_setter(driver: AccessoryDriver) -> None:
+    """A write that fails on a later entry runs no setter of the request."""
     acc, char, _ = _add_bridged_or_standalone(driver, ["pw"], False)
     setter = _CoroutineRecorder()
     char.setter_callback = setter
 
     with pytest.raises(KeyError):
-        driver._set_characteristics_for_controller(
+        await driver._set_characteristics_for_controller(
             {
                 HAP_REPR_CHARS: [
                     {
@@ -1513,7 +1549,7 @@ async def test_malformed_entry_closes_pending_setters(driver: AccessoryDriver) -
             ASYNC_TIMEOUT,
         )
 
-    assert inspect.getcoroutinestate(setter.coro) == inspect.CORO_CLOSED
+    assert setter.coro is None
 
 
 async def test_public_set_characteristics_schedules_async_setters(
@@ -1524,8 +1560,25 @@ async def test_public_set_characteristics_schedules_async_setters(
     acc, char, _ = _add_bridged_or_standalone(driver, ["pw", "wr"], False)
     setter = _RecordingSetter()
     char.setter_callback = setter
+    iid = acc.iid_manager.get_iid(char)
 
-    assert _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True}) is None
+    # Answered at once, optimistically: the setter runs in the job.
+    assert (
+        driver.set_characteristics(
+            {
+                HAP_REPR_CHARS: [
+                    {
+                        HAP_REPR_AID: acc.aid,
+                        HAP_REPR_IID: iid,
+                        HAP_REPR_VALUE: 0,
+                        HAP_REPR_WRITE_RESPONSE: True,
+                    }
+                ]
+            },
+            WRITER,
+        )
+        is None
+    )
     await asyncio.wait_for(setter.ran.wait(), ASYNC_TIMEOUT)
 
 
@@ -1631,7 +1684,7 @@ async def test_public_write_notifies_once_the_async_setter_ran(
         notified.set()
 
     with patch.object(Characteristic, "notify", side_effect=_record) as notify:
-        assert _write(driver, acc, char) is None
+        assert await _write(driver, acc, char) is None
         await asyncio.wait_for(notified.wait(), ASYNC_TIMEOUT)
 
     assert ran_when_notified == [True]
@@ -1652,15 +1705,18 @@ async def test_public_write_logs_a_failing_async_setter(
         patch.object(Characteristic, "notify") as notify,
         patch.object(
             accessory_driver.logger,
-            "exception",
-            side_effect=lambda *_: logged.set(),
-        ) as log_exception,
+            "error",
+            side_effect=lambda *_args, **_kwargs: logged.set(),
+        ) as log_error,
     ):
-        assert _write(driver, acc, char) is None
+        assert driver.set_characteristics(_query(acc, char), WRITER) is None
         await asyncio.wait_for(logged.wait(), ASYNC_TIMEOUT)
 
-    log_exception.assert_called_once_with(
-        "%s: Error while setting characteristic %s", WRITER, char.display_name
+    log_error.assert_called_once_with(
+        "%s: Error while setting characteristic %s",
+        WRITER,
+        char.display_name,
+        exc_info=ANY,
     )
     notify.assert_not_called()
 
@@ -1772,7 +1828,7 @@ async def test_public_private_write_with_own_value_does_not_notify(
     char.setter_callback = setter
 
     with patch.object(Characteristic, "notify") as notify:
-        _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
+        await _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: True})
         await asyncio.wait_for(setter.done.wait(), ASYNC_TIMEOUT)
         await asyncio.sleep(0)
 
@@ -1846,12 +1902,14 @@ async def test_setter_failing_after_its_cancellation_is_retrieved(
 
 
 @pytest.mark.parametrize("flag", [True, 1], ids=["true", "one"])
-def test_write_response_flag_is_truthy(driver: AccessoryDriver, flag: Any) -> None:
+async def test_write_response_flag_is_truthy(
+    driver: AccessoryDriver, flag: Any
+) -> None:
     """Any truthy "r" asks for a write response, as before."""
     acc, char, _ = _add_bridged_or_standalone(driver, ["pw", "wr"], False)
     char.setter_callback = MagicMock(return_value=1)
 
-    response = _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: flag})
+    response = await _write(driver, acc, char, **{HAP_REPR_WRITE_RESPONSE: flag})
 
     assert response[HAP_REPR_CHARS][0][HAP_REPR_VALUE] == 1
 
@@ -1864,16 +1922,8 @@ async def test_setter_returning_a_task_is_not_awaited(
     task = asyncio.ensure_future(asyncio.sleep(10))
     char.setter_callback = MagicMock(return_value=task)
 
-    result = driver._set_characteristics_for_controller(
-        {
-            HAP_REPR_CHARS: [
-                {
-                    HAP_REPR_AID: acc.aid,
-                    HAP_REPR_IID: acc.iid_manager.get_iid(char),
-                    HAP_REPR_VALUE: 0,
-                }
-            ]
-        },
+    result = await driver._set_characteristics_for_controller(
+        _query(acc, char),
         ("1.2.3.4", 5),
         ASYNC_TIMEOUT,
     )
@@ -1909,19 +1959,22 @@ def _read(driver: AccessoryDriver, char_id: str, client_addr: Any) -> Any:
         pytest.param(None, 0, id="no-client"),
     ],
 )
-def test_write_response_readable_only_by_writer(
+async def test_write_response_readable_only_by_writer(
     driver: AccessoryDriver, bridged: bool, reader: Any, expected: int
 ) -> None:
     """Only the controller that wrote reads its write response back."""
     acc, char, char_id = _add_write_response_char(driver, bridged)
 
-    _write(driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True})
+    await _write(
+        driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+    )
 
     assert _read(driver, char_id, reader) == expected
 
 
-def test_write_responses_kept_per_controller(driver: AccessoryDriver) -> None:
+async def test_write_responses_kept_per_controller(driver: AccessoryDriver) -> None:
     """Each controller reads its own last write response."""
+    driver.loop = asyncio.get_running_loop()
     acc, char, char_id = _add_write_response_char(driver, False)
     char.setter_callback = MagicMock(side_effect=[7, 8])
     request = {
@@ -1936,20 +1989,24 @@ def test_write_responses_kept_per_controller(driver: AccessoryDriver) -> None:
     }
 
     driver.set_characteristics(request, WRITER)
+    await run_scheduled_jobs()
     driver.set_characteristics(request, OTHER_CONTROLLER)
+    await run_scheduled_jobs()
 
     assert _read(driver, char_id, WRITER) == 7
     assert _read(driver, char_id, OTHER_CONTROLLER) == 8
 
 
 @pytest.mark.parametrize("bridged", [False, True], ids=["standalone", "bridged"])
-def test_write_response_not_in_accessories(
+async def test_write_response_not_in_accessories(
     driver: AccessoryDriver, bridged: bool
 ) -> None:
     """The accessory database has the default value, not the write response."""
     acc, char, _ = _add_write_response_char(driver, bridged)
 
-    _write(driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True})
+    await _write(
+        driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+    )
 
     acc_rep = driver.get_accessories()[HAP_REPR_ACCS][-1]
     assert acc_rep[HAP_REPR_SERVICES][-1][HAP_REPR_CHARS][0][HAP_REPR_VALUE] == 0
@@ -1959,18 +2016,22 @@ async def test_write_response_dropped_on_disconnect(driver: AccessoryDriver) -> 
     """A write response is not read back after the connection closed."""
     driver.loop = asyncio.get_running_loop()
     acc, char, char_id = _add_write_response_char(driver, False)
-    _write(driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True})
+    await _write(
+        driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+    )
 
     driver.connection_lost(WRITER)
     assert _read(driver, char_id, WRITER) == 0
 
 
-def test_plain_write_replaces_write_response(driver: AccessoryDriver) -> None:
+async def test_plain_write_replaces_write_response(driver: AccessoryDriver) -> None:
     """A write without ``r`` drops the writer's former response."""
     acc, char, char_id = _add_write_response_char(driver, False)
-    _write(driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True})
+    await _write(
+        driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+    )
 
-    _write(driver, acc, char, **{HAP_REPR_VALUE: 9})
+    await _write(driver, acc, char, **{HAP_REPR_VALUE: 9})
 
     assert _read(driver, char_id, WRITER) == 9
     assert _read(driver, char_id, OTHER_CONTROLLER) == 9
@@ -1983,7 +2044,7 @@ def test_plain_write_replaces_write_response(driver: AccessoryDriver) -> None:
         pytest.param({"side_effect": RuntimeError}, 3, id="raises"),
     ],
 )
-def test_write_response_keeps_accessory_value(
+async def test_write_response_keeps_accessory_value(
     driver: AccessoryDriver, setter_kwargs: dict[str, Any], writer_reads: int
 ) -> None:
     """Other connections keep reading the value the accessory set."""
@@ -1991,13 +2052,17 @@ def test_write_response_keeps_accessory_value(
     char.setter_callback = MagicMock(**setter_kwargs)
     char.set_value(3)
 
-    _write(driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True})
+    await _write(
+        driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+    )
 
     assert _read(driver, char_id, WRITER) == writer_reads
     assert _read(driver, char_id, OTHER_CONTROLLER) == 3
 
 
-def test_write_response_keeps_value_set_by_setter(driver: AccessoryDriver) -> None:
+async def test_write_response_keeps_value_set_by_setter(
+    driver: AccessoryDriver,
+) -> None:
     """A value the setter sets on its own characteristic is kept."""
     acc, char, char_id = _add_write_response_char(driver, False)
 
@@ -2007,7 +2072,9 @@ def test_write_response_keeps_value_set_by_setter(driver: AccessoryDriver) -> No
 
     char.setter_callback = _setter
 
-    _write(driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True})
+    await _write(
+        driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+    )
 
     assert _read(driver, char_id, WRITER) == 7
     assert _read(driver, char_id, OTHER_CONTROLLER) == 42
@@ -2020,7 +2087,7 @@ def test_write_response_keeps_value_set_by_setter(driver: AccessoryDriver) -> No
         pytest.param(False, [5], id="plain"),
     ],
 )
-def test_private_write_not_notified(
+async def test_private_write_not_notified(
     driver: AccessoryDriver, write_response: bool, notified: list[int]
 ) -> None:
     """Subscribers are not told the request of a write with ``r``."""
@@ -2031,7 +2098,7 @@ def test_private_write_not_notified(
     with patch.object(
         acc, "publish", side_effect=lambda value, *_: published.append(value)
     ):
-        _write(
+        await _write(
             driver,
             acc,
             char,
@@ -2050,14 +2117,16 @@ def test_private_write_not_notified(
         pytest.param(lambda: None, id="no-setter"),
     ],
 )
-def test_write_response_request_not_shared_without_response(
+async def test_write_response_request_not_shared_without_response(
     driver: AccessoryDriver, reader: Any, make_setter: Any
 ) -> None:
     """The written request stays private when no response is kept."""
     acc, char, char_id = _add_write_response_char(driver, False)
     char.setter_callback = make_setter()
 
-    _write(driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True})
+    await _write(
+        driver, acc, char, **{HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
+    )
 
     assert _read(driver, char_id, reader) == 0
 
@@ -2070,20 +2139,25 @@ def test_write_response_request_not_shared_without_response(
         pytest.param(None, id="no-response"),
     ],
 )
-def test_stale_write_response_dropped(driver: AccessoryDriver, second: Any) -> None:
+async def test_stale_write_response_dropped(
+    driver: AccessoryDriver, second: Any
+) -> None:
     """A later write that keeps no response drops the former one."""
     acc, char, char_id = _add_write_response_char(driver, False)
     char.setter_callback = MagicMock(side_effect=[7, second])
     query = {HAP_REPR_VALUE: 5, HAP_REPR_WRITE_RESPONSE: True}
 
-    _write(driver, acc, char, **query)
-    _write(driver, acc, char, **query)
+    await _write(driver, acc, char, **query)
+    await _write(driver, acc, char, **query)
 
     assert _read(driver, char_id, WRITER) == 0
 
 
-def test_write_response_without_client_not_kept(driver: AccessoryDriver) -> None:
-    """A direct write without a client is sent and read back without one."""
+async def test_write_response_without_client_not_kept(
+    driver: AccessoryDriver,
+) -> None:
+    """A direct write without a client is read back without one."""
+    driver.loop = asyncio.get_running_loop()
     acc, char, _ = _add_write_response_char(driver, False)
     request = {
         HAP_REPR_CHARS: [
@@ -2097,10 +2171,9 @@ def test_write_response_without_client_not_kept(driver: AccessoryDriver) -> None
     }
 
     no_client: Any = None
-    response = driver.set_characteristics(request, no_client)
-
-    assert response is not None
-    assert response[HAP_REPR_CHARS][0][HAP_REPR_VALUE] == 7
+    # Answered at once, optimistically: the answer is read back instead.
+    assert driver.set_characteristics(request, no_client) is None
+    await run_scheduled_jobs()
     # The virtual connection of no client in particular pairs up the
     # direct write and a direct read, like any client address does.
     assert _read(driver, f"{acc.aid}.{acc.iid_manager.get_iid(char)}", None) == 7
@@ -2114,18 +2187,18 @@ def test_write_response_without_client_not_kept(driver: AccessoryDriver) -> None
         pytest.param({HAP_REPR_WRITE_RESPONSE: False}, id="declined"),
     ],
 )
-def test_written_value_readable_without_write_response(
+async def test_written_value_readable_without_write_response(
     driver: AccessoryDriver, reader: Any, query: dict[str, Any]
 ) -> None:
     """Without a write response the written value is read by every controller."""
     acc, char, char_id = _add_write_response_char(driver, False)
 
-    _write(driver, acc, char, **{HAP_REPR_VALUE: 5, **query})
+    await _write(driver, acc, char, **{HAP_REPR_VALUE: 5, **query})
 
     assert _read(driver, char_id, reader) == 5
 
 
-def test_service_callbacks(driver: AccessoryDriver) -> None:
+async def test_service_callbacks(driver: AccessoryDriver) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -2163,7 +2236,7 @@ def test_service_callbacks(driver: AccessoryDriver) -> None:
 
     driver.add_accessory(bridge)
 
-    response = driver.set_characteristics(
+    response = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -2189,14 +2262,17 @@ def test_service_callbacks(driver: AccessoryDriver) -> None:
             ]
         },
         "mock_addr",  # ty: ignore[invalid-argument-type]
+        ASYNC_TIMEOUT,
     )
     assert response is None
 
     mock_callback2.assert_called_with({"On": True, "Brightness": 12})
     mock_callback.assert_called_with({"On": True, "Brightness": 88})
 
-    get_chars = driver.get_characteristics(
-        [f"{acc.aid}.{char_on_iid}", f"{acc2.aid}.{char_on2_iid}"]
+    get_chars = await driver._get_characteristics_for_controller(
+        [f"{acc.aid}.{char_on_iid}", f"{acc2.aid}.{char_on2_iid}"],
+        "mock_addr",  # ty: ignore[invalid-argument-type]
+        ASYNC_TIMEOUT,
     )
     assert get_chars == {
         "characteristics": [
@@ -2209,13 +2285,15 @@ def test_service_callbacks(driver: AccessoryDriver) -> None:
         raise ValueError
 
     char_brightness.getter_callback = _fail_func
-    get_chars = driver.get_characteristics(
+    get_chars = await driver._get_characteristics_for_controller(
         [
             f"{acc.aid}.{char_on_iid}",
             f"{acc2.aid}.{char_on2_iid}",
             f"{acc2.aid}.{char_brightness_iid}",
             f"{acc.aid}.{char_brightness2_iid}",
-        ]
+        ],
+        "mock_addr",  # ty: ignore[invalid-argument-type]
+        ASYNC_TIMEOUT,
     )
     assert get_chars == {
         "characteristics": [
@@ -2227,7 +2305,7 @@ def test_service_callbacks(driver: AccessoryDriver) -> None:
     }
 
 
-def test_service_callbacks_partial_failure(driver: AccessoryDriver) -> None:
+async def test_service_callbacks_partial_failure(driver: AccessoryDriver) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -2267,7 +2345,7 @@ def test_service_callbacks_partial_failure(driver: AccessoryDriver) -> None:
 
     driver.add_accessory(bridge)
 
-    response = driver.set_characteristics(
+    response = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -2293,6 +2371,7 @@ def test_service_callbacks_partial_failure(driver: AccessoryDriver) -> None:
             ]
         },
         "mock_addr",  # ty: ignore[invalid-argument-type]
+        ASYNC_TIMEOUT,
     )
 
     mock_callback2.assert_called_with({"On": True, "Brightness": 12})
@@ -2322,7 +2401,9 @@ def test_service_callbacks_partial_failure(driver: AccessoryDriver) -> None:
     }
 
 
-def test_mixing_service_char_callbacks_partial_failure(driver: AccessoryDriver) -> None:
+async def test_mixing_service_char_callbacks_partial_failure(
+    driver: AccessoryDriver,
+) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -2361,7 +2442,7 @@ def test_mixing_service_char_callbacks_partial_failure(driver: AccessoryDriver) 
 
     driver.add_accessory(bridge)
 
-    response = driver.set_characteristics(
+    response = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -2387,6 +2468,7 @@ def test_mixing_service_char_callbacks_partial_failure(driver: AccessoryDriver) 
             ]
         },
         "mock_addr",  # ty: ignore[invalid-argument-type]
+        ASYNC_TIMEOUT,
     )
 
     assert response == {
@@ -2443,7 +2525,7 @@ def test_start_from_sync(async_zeroconf: Any) -> None:
     assert driver.loop.is_closed()
 
 
-def test_accessory_level_callbacks(driver: AccessoryDriver) -> None:
+async def test_accessory_level_callbacks(driver: AccessoryDriver) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -2487,7 +2569,7 @@ def test_accessory_level_callbacks(driver: AccessoryDriver) -> None:
 
     driver.add_accessory(bridge)
 
-    response = driver.set_characteristics(
+    response = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -2518,6 +2600,7 @@ def test_accessory_level_callbacks(driver: AccessoryDriver) -> None:
             ]
         },
         "mock_addr",  # ty: ignore[invalid-argument-type]
+        ASYNC_TIMEOUT,
     )
     assert response is None
 
@@ -2532,7 +2615,9 @@ def test_accessory_level_callbacks(driver: AccessoryDriver) -> None:
     )
 
 
-def test_accessory_level_callbacks_with_a_failure(driver: AccessoryDriver) -> None:
+async def test_accessory_level_callbacks_with_a_failure(
+    driver: AccessoryDriver,
+) -> None:
     bridge = Bridge(driver, "mybridge")
     acc = Accessory(driver, "TestAcc", aid=2)
     acc2 = UnavailableAccessory(driver, "TestAcc2", aid=3)
@@ -2576,7 +2661,7 @@ def test_accessory_level_callbacks_with_a_failure(driver: AccessoryDriver) -> No
 
     driver.add_accessory(bridge)
 
-    response = driver.set_characteristics(
+    response = await driver._set_characteristics_for_controller(
         {
             HAP_REPR_CHARS: [
                 {
@@ -2607,6 +2692,7 @@ def test_accessory_level_callbacks_with_a_failure(driver: AccessoryDriver) -> No
             ]
         },
         "mock_addr",  # ty: ignore[invalid-argument-type]
+        ASYNC_TIMEOUT,
     )
 
     mock_callback.assert_called_with(
@@ -3271,13 +3357,13 @@ def _add_read_back_char(driver: AccessoryDriver) -> tuple[Accessory, Characteris
         pytest.param(OTHER_CONTROLLER, 0, id="other-controller"),
     ],
 )
-def test_read_back_response_only_for_writer(
+async def test_read_back_response_only_for_writer(
     driver: AccessoryDriver, reader: Any, expected: int
 ) -> None:
     """Only the writing controller reads back what the setter answered."""
     acc, char = _add_read_back_char(driver)
 
-    assert _write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
+    assert await _write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
 
     assert _read(driver, f"{acc.aid}.{acc.iid_manager.get_iid(char)}", reader) == (
         expected
@@ -3286,7 +3372,7 @@ def test_read_back_response_only_for_writer(
     assert acc_rep[HAP_REPR_SERVICES][-1][HAP_REPR_CHARS][0][HAP_REPR_VALUE] == 0
 
 
-def test_read_back_prefers_the_returned_answer(driver: AccessoryDriver) -> None:
+async def test_read_back_prefers_the_returned_answer(driver: AccessoryDriver) -> None:
     """The answer a setter returns wins over a value it sets itself."""
     acc, char = _add_read_back_char(driver)
 
@@ -3296,7 +3382,7 @@ def test_read_back_prefers_the_returned_answer(driver: AccessoryDriver) -> None:
 
     char.setter_callback = _setter
 
-    assert _write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
+    assert await _write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
 
     char_id = f"{acc.aid}.{acc.iid_manager.get_iid(char)}"
     assert _read(driver, char_id, WRITER) == 7
@@ -3310,7 +3396,7 @@ def test_read_back_prefers_the_returned_answer(driver: AccessoryDriver) -> None:
         pytest.param(OTHER_CONTROLLER, 0, id="other-controller"),
     ],
 )
-def test_read_back_value_set_by_setter_only_for_writer(
+async def test_read_back_value_set_by_setter_only_for_writer(
     driver: AccessoryDriver, reader: Any, expected: int
 ) -> None:
     """A value the setter sets itself on a read back char stays with the writer."""
@@ -3321,7 +3407,7 @@ def test_read_back_value_set_by_setter_only_for_writer(
 
     char.setter_callback = _setter
 
-    assert _write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
+    assert await _write(driver, acc, char, **{HAP_REPR_VALUE: 5}) is None
 
     assert _read(driver, f"{acc.aid}.{acc.iid_manager.get_iid(char)}", reader) == (
         expected
@@ -3349,14 +3435,14 @@ async def test_async_read_back_response(driver: AccessoryDriver) -> None:
         pytest.param(5, MagicMock(return_value=None), id="setter-does-nothing"),
     ],
 )
-def test_read_back_without_answer_keeps_nothing_for_writer(
+async def test_read_back_without_answer_keeps_nothing_for_writer(
     driver: AccessoryDriver, value: Any, setter: MagicMock
 ) -> None:
     """Neither the former value nor the request is kept as the writer's answer."""
     acc, char = _add_read_back_char(driver)
     char.setter_callback = setter
 
-    _write(driver, acc, char, **{HAP_REPR_VALUE: value})
+    await _write(driver, acc, char, **{HAP_REPR_VALUE: value})
     char.set_value(3)
 
     assert _read(driver, f"{acc.aid}.{acc.iid_manager.get_iid(char)}", WRITER) == 3

@@ -56,6 +56,22 @@ class CharReadContext(Context):
 
     characteristic: Characteristic
 
+    @classmethod
+    def of(cls, base: Context, *, characteristic: Characteristic) -> CharReadContext:
+        """The read context of ``characteristic``, sharing a request's ``base``.
+
+        :param base: The base :class:`Context` of the request the read
+            belongs to; its connection, client and deadline carry over.
+        :param characteristic: The characteristic being read.
+        """
+        return cls(
+            client_addr=base.client_addr,
+            client_uuid=base.client_uuid,
+            connection=base.connection,
+            deadline=base.deadline,
+            characteristic=characteristic,
+        )
+
 
 @dataclass(frozen=True)
 class CharWriteContext(Context):
@@ -68,6 +84,26 @@ class CharWriteContext(Context):
     characteristic: Characteristic
     is_admin: bool
 
+    @classmethod
+    def of(
+        cls, base: Context, *, characteristic: Characteristic, is_admin: bool
+    ) -> CharWriteContext:
+        """The write context of ``characteristic``, sharing a request's ``base``.
+
+        :param base: The base :class:`Context` of the request the write
+            belongs to; its connection, client and deadline carry over.
+        :param characteristic: The characteristic being written.
+        :param is_admin: Whether the writing controller has admin privileges.
+        """
+        return cls(
+            client_addr=base.client_addr,
+            client_uuid=base.client_uuid,
+            connection=base.connection,
+            deadline=base.deadline,
+            characteristic=characteristic,
+            is_admin=is_admin,
+        )
+
 
 @dataclass(frozen=True)
 class ServiceWriteContext(Context):
@@ -79,3 +115,23 @@ class ServiceWriteContext(Context):
 
     service: Service
     is_admin: bool
+
+    @classmethod
+    def of(
+        cls, base: Context, *, service: Service, is_admin: bool
+    ) -> ServiceWriteContext:
+        """The grouped-write context of ``service``, sharing a request's ``base``.
+
+        :param base: The base :class:`Context` of the request the write
+            belongs to; its connection, client and deadline carry over.
+        :param service: The service whose characteristics are written.
+        :param is_admin: Whether the writing controller has admin privileges.
+        """
+        return cls(
+            client_addr=base.client_addr,
+            client_uuid=base.client_uuid,
+            connection=base.connection,
+            deadline=base.deadline,
+            service=service,
+            is_admin=is_admin,
+        )

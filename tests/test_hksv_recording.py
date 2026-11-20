@@ -7,6 +7,7 @@ test_hds_recording.py.
 """
 
 import inspect
+import math
 import os
 import time
 from typing import Any
@@ -486,7 +487,7 @@ async def test_sensor_follows_camera_active_set_without_write(
         client_addr=None,
         client_uuid=None,
         connection=HAPConnectionHandle(None, 1),
-        deadline=float("inf"),
+        deadline=math.inf,
         characteristic=status_active,
     )
     assert status_active.delegate is not None

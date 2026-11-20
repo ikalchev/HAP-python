@@ -17,6 +17,7 @@ import pytest
 
 from pyhap import camera, tlv
 from pyhap.camera_talkback import TalkbackReceiverProtocol
+from pyhap.characteristic import _LegacyCallbackDelegateWrapper
 from tests.conftest import client_write
 
 # A Setup Endpoints request of a controller at 192.168.1.114.
@@ -72,7 +73,9 @@ def test_camera_wiring_is_delegate_based(mock_driver: Any) -> None:
     streaming_status = _char_of(acc, "CameraRTPStreamManagement", "StreamingStatus")
     status_active = _char_of(acc, "MotionSensor", "StatusActive")
     for char in (streaming_status, status_active):
-        assert char.getter_callback is None
+        # Not the legacy callback wrapper: the camera wires delegates only,
+        # so it never trips its own deprecation warning.
+        assert not isinstance(char.delegate, _LegacyCallbackDelegateWrapper)
         assert char.delegate is not None
 
 

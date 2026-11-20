@@ -275,9 +275,11 @@ class StreamController(Generic[_S]):
     ) -> _T:
         """Run a delegate hook as a task of ``session`` until ``deadline``.
 
-        A hook that is still running then is cancelled and its session ends.
-        ``first`` marks the hook that introduces the session to the delegate,
-        which then releases it when it ends.
+        A hook gets at most ``hook_timeout`` seconds, or as long as the
+        request has left: whichever ends first, the answer still fits in
+        the request. A hook that is still running then is cancelled and
+        its session ends. ``first`` marks the hook that introduces the
+        session to the delegate, which then releases it when it ends.
 
         :raises HookFailed: If the hook failed or took too long, or the
             session ended meanwhile.
@@ -287,6 +289,10 @@ class StreamController(Generic[_S]):
             raise HookFailed
         if first:
             session._delegated = True
+        # A hook gets ``hook_timeout`` seconds, or as long as the request
+        # has left: whichever ends first, the answer fits in the request,
+        # see ``MAX_HOOK_TIMEOUT``.
+        deadline = min(deadline, self._loop.time() + self.hook_timeout)
         task = self._loop.create_task(hook)
         session._tasks.add(task)
         task.add_done_callback(session._tasks.discard)

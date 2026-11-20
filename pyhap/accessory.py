@@ -1,6 +1,7 @@
 """Module for the Accessory classes."""
 
 from collections.abc import Callable, Iterable
+import inspect
 import itertools
 import logging
 from typing import TYPE_CHECKING, Any
@@ -35,6 +36,18 @@ if TYPE_CHECKING:
 HAP_PROTOCOL_INFORMATION_SERVICE_UUID = UUID("000000A2-0000-1000-8000-0026BB765291")
 
 logger = logging.getLogger(__name__)
+
+
+def _close_unsupported_coroutine(result: Any, name: str | None) -> None:
+    """Close a coroutine a legacy grouped setter returned.
+
+    Only characteristic setters may be coroutine functions.
+    """
+    if inspect.iscoroutine(result):
+        result.close()
+        logger.warning(
+            "%s: only characteristic setters may be coroutine functions", name
+        )
 
 
 class Accessory:
@@ -83,10 +96,11 @@ class Accessory:
     def setter_callback(self) -> Callable[[Any], None] | None:
         """The legacy grouped setter, called with the request's values by name.
 
-        Called with a ``{display_name: value}`` dict of every write of every
-        service after the per-characteristic setters. Deprecated: a
-        :class:`~pyhap.delegates.ServiceDelegate` gates the grouped writes of
-        its service instead, and can refuse them.
+        Called with the values of every written service of the accessory,
+        before its characteristics apply the writes - a pre-check that may
+        refuse them. Deprecated: a
+        :class:`~pyhap.delegates.ServiceDelegate` checks the grouped writes of
+        its service instead.
         """
         return self._setter_callback
 
@@ -101,6 +115,23 @@ class Accessory:
                 stacklevel=2,
             )
         self._setter_callback = callback
+
+    async def _dispatch_legacy_setter(
+        self, updates_by_service: dict[Service, dict[Characteristic, Any]]
+    ) -> None:
+        """Run the legacy grouped setter of this accessory, see ``setter_callback``.
+
+        Called by the driver's write path as the accessory's pre-check, with
+        the written values of every written service of the accessory. The
+        call is unchanged: a coroutine the setter returns is closed with a
+        warning, like before. Its exceptions surface to the pre-check, which
+        refuses the writes of the accessory with the status it answers.
+        """
+        callback = self._setter_callback
+        assert callback is not None  # noqa: S101 - only sent accessories with one
+        display_name = self.display_name
+        assert display_name is not None  # noqa: S101 - an accessory has a name
+        _close_unsupported_coroutine(callback(updates_by_service), display_name)
 
     @property
     def available(self) -> bool:

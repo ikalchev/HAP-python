@@ -1,5 +1,6 @@
 """Tests for characteristics restricted to admin controllers."""
 
+import asyncio
 from collections.abc import Callable, Iterator
 import io
 import json
@@ -34,6 +35,7 @@ from pyhap.const import (
 )
 from pyhap.encoder import AccessoryEncoder
 from pyhap.service import Service
+from tests.conftest import run_scheduled_jobs
 
 CLIENT = ("1.2.3.4", 5000)
 ADMIN = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
@@ -153,7 +155,7 @@ def chars(driver: AccessoryDriver) -> Iterator[dict[str, SensorChar]]:
         "unrestricted_unknown_controller",
     ],
 )
-def test_admin_only_write(
+async def test_admin_only_write(
     driver: AccessoryDriver,
     chars: dict[str, SensorChar],
     name: str,
@@ -162,12 +164,16 @@ def test_admin_only_write(
     calls: int,
 ) -> None:
     """Test only admins may write a characteristic restricted to them."""
+    driver.loop = asyncio.get_running_loop()
     char = chars[name]
 
     response = driver.set_characteristics(_write(char), CLIENT, client_uuid=client_uuid)
+    await run_scheduled_jobs()
 
     assert response == _response(char, status)
     assert char.setter.call_count == calls
+    if calls:
+        char.setter.assert_called_with(True)
 
 
 def _demote(driver: AccessoryDriver) -> None:
@@ -179,12 +185,13 @@ def _remove(driver: AccessoryDriver) -> None:
 
 
 @pytest.mark.parametrize("change", [_demote, _remove], ids=["demoted", "removed"])
-def test_admin_change_applies_to_open_session(
+async def test_admin_change_applies_to_open_session(
     driver: AccessoryDriver,
     chars: dict[str, SensorChar],
     change: Callable[[AccessoryDriver], None],
 ) -> None:
     """Test a controller that loses admin is refused on its next write."""
+    driver.loop = asyncio.get_running_loop()
     driver.pair(str(OTHER_ADMIN).encode(), b"other-key", HAP_PERMISSIONS.ADMIN)
     char = chars["MotionEnabled"]
     assert driver.set_characteristics(_write(char), CLIENT, client_uuid=ADMIN) is None
@@ -194,13 +201,15 @@ def test_admin_change_applies_to_open_session(
     assert driver.set_characteristics(
         _write(char), CLIENT, client_uuid=ADMIN
     ) == _response(char, REFUSED)
+    await run_scheduled_jobs()
     char.setter.assert_called_once_with(True)
 
 
-def test_legacy_state_pairs_everyone_as_admin(
+async def test_legacy_state_pairs_everyone_as_admin(
     driver: AccessoryDriver, chars: dict[str, SensorChar]
 ) -> None:
     """Test controllers from a state file without permissions are admins."""
+    driver.loop = asyncio.get_running_loop()
     stored = io.StringIO()
     AccessoryEncoder.persist(stored, driver.state)
     legacy = json.loads(stored.getvalue())
@@ -209,18 +218,20 @@ def test_legacy_state_pairs_everyone_as_admin(
     char = chars["MotionEnabled"]
 
     assert driver.set_characteristics(_write(char), CLIENT, client_uuid=USER) is None
+    await run_scheduled_jobs()
     char.setter.assert_called_once_with(True)
 
 
 @pytest.mark.parametrize("name", ["Secret", "MotionEnabled"])
 @pytest.mark.parametrize("client_uuid", [ADMIN, USER], ids=["admin", "user"])
-def test_admin_only_read_not_refused(
+async def test_admin_only_read_not_refused(
     driver: AccessoryDriver,
     chars: dict[str, SensorChar],
     name: str,
     client_uuid: UUID,
 ) -> None:
     """Test reads are not restricted, also not when the restriction lists read."""
+    driver.loop = asyncio.get_running_loop()
     char = chars[name]
     handler = hap_handler.HAPServerHandler(driver, CLIENT)
     handler.is_encrypted = True
@@ -229,6 +240,8 @@ def test_admin_only_read_not_refused(
     handler.parsed_url = urlparse(f"/characteristics?id={char.aid}.{char.iid}")
 
     handler.handle_get_characteristics()
+    assert handler.response.task is not None
+    await handler.response.task
 
     assert handler.response.status_code == 200
     assert json.loads(handler.response.body) == {
@@ -315,7 +328,7 @@ def test_admin_only_null_write_reaches_no_setter(
     acc_setter.assert_not_called()
 
 
-def _write_through_handler(
+async def _write_through_handler(
     driver: AccessoryDriver, char: SensorChar, client_uuid: UUID
 ) -> hap_handler.HAPResponse:
     """Write True to ``char`` through a HAP handler of ``client_uuid``."""
@@ -325,29 +338,31 @@ def _write_through_handler(
     handler.response = hap_handler.HAPResponse()
     handler.request_body = json.dumps(_write(char)).encode()
     handler.handle_set_characteristics()
+    assert handler.response.task is not None
+    await handler.response.task
     return handler.response
 
 
-def test_handler_writes_as_admin(
+async def test_handler_writes_as_admin(
     driver: AccessoryDriver, chars: dict[str, SensorChar]
 ) -> None:
     """Test the HAP handler writes as the admin controller of its session."""
     char = chars["MotionEnabled"]
 
-    response = _write_through_handler(driver, char, ADMIN)
+    response = await _write_through_handler(driver, char, ADMIN)
 
     assert response.status_code == 204
     assert response.body == b""
     char.setter.assert_called_once_with(True)
 
 
-def test_handler_writes_as_user(
+async def test_handler_writes_as_user(
     driver: AccessoryDriver, chars: dict[str, SensorChar]
 ) -> None:
     """Test the HAP handler writes as the regular controller of its session."""
     char = chars["MotionEnabled"]
 
-    response = _write_through_handler(driver, char, USER)
+    response = await _write_through_handler(driver, char, USER)
 
     assert response.status_code == 207
     assert json.loads(response.body) == _response(char, REFUSED)

@@ -4,7 +4,7 @@ A Characteristic is the smallest unit of the smart home, e.g.
 a temperature measuring or a device status.
 """
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 import inspect
 import logging
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -23,7 +23,8 @@ from .const import (
     HAP_REPR_VALID_VALUES,
     HAP_REPR_VALUE,
 )
-from .delegates import CharacteristicDelegate
+from .context import Context
+from .delegates import CharacteristicDelegate, CharReadContext, CharWriteContext
 from .util import hap_type_to_uuid, uuid_to_hap_type
 
 if TYPE_CHECKING:
@@ -149,6 +150,47 @@ def _validate_properties(properties: dict[str, Any]) -> None:
         raise ValueError(f"{HAP_REPR_MAX_LEN} may not exceed {ABSOLUTE_MAX_LENGTH}")
 
 
+class _LegacyCallbackDelegateWrapper(CharacteristicDelegate):
+    """Adapt the legacy callbacks of a characteristic to the delegate interface.
+
+    One wrapper is the delegate of a characteristic with legacy callbacks:
+    ``on_get`` answers what its ``getter_callback`` answers, ``on_set``
+    applies its ``setter_callback``. A coroutine the setter returns is
+    awaited, like the legacy write path awaits a coroutine-function
+    setter. It is also the default delegate of a characteristic without
+    callbacks: both ``None``, it answers the reads with the stored value
+    and applies nothing on writes.
+    """
+
+    __slots__ = ("characteristic", "getter_callback", "setter_callback")
+
+    def __init__(
+        self,
+        *,
+        characteristic: "Characteristic",
+        getter_callback: Callable[[], Any] | None = None,
+        setter_callback: Callable[..., Any] | None = None,
+    ) -> None:
+        self.characteristic = characteristic
+        self.getter_callback = getter_callback
+        self.setter_callback = setter_callback
+
+    async def on_get(self, context: CharReadContext) -> Any:
+        if self.getter_callback is not None:
+            return self.getter_callback()
+        return self.characteristic.value
+
+    async def on_set(self, value: Any, context: CharWriteContext) -> Any:
+        if self.setter_callback is None:
+            # Without a setter there is nothing to apply and answer - the
+            # unoverridden base method does the same.
+            return None
+        result = self.setter_callback(value)
+        if inspect.iscoroutine(result):
+            result = await result
+        return result
+
+
 class Characteristic:
     """Represents a HAP characteristic, the smallest unit of the smart home.
 
@@ -171,8 +213,6 @@ class Characteristic:
         "_properties",
         "type_id",
         "_value",
-        "_getter_callback",
-        "_setter_callback",
         "_delegate",
         "service",
         "_uuid_str",
@@ -222,17 +262,14 @@ class Characteristic:
         self._properties: dict[str, Any] = properties
         self.type_id = type_id
         self._value = self._get_default_value()
-        self._getter_callback: Callable[[], Any] | None = None
-        # The legacy setter is called with the written value. The return
-        # value is sent back as the write response when the characteristic
-        # has the "wr" permission and the controller asked for one. A setter
-        # may also be a coroutine function; a controller's write is answered
-        # once it is done.
-        self._setter_callback: Callable[..., Any] | None = None
         # The delegate of the reads, writes and subscriptions of this
-        # characteristic, see ``CharacteristicDelegate``. Either a delegate
-        # or the legacy callbacks, never both.
-        self.delegate: CharacteristicDelegate | None = None
+        # characteristic, see ``CharacteristicDelegate``. Never ``None``:
+        # without an assigned delegate this is the default one, the legacy
+        # callback wrapper without callbacks, see
+        # ``_LegacyCallbackDelegateWrapper``.
+        self._delegate: CharacteristicDelegate = _LegacyCallbackDelegateWrapper(
+            characteristic=self
+        )
         self.service: Service | None = None
         self.unique_id = unique_id
         self._uuid_str = uuid_to_hap_type(type_id)
@@ -256,33 +293,45 @@ class Characteristic:
         self._clear_cache()
 
     @property
-    def delegate(self) -> CharacteristicDelegate | None:
-        """The characteristic's delegate, or ``None`` without one.
+    def delegate(self) -> CharacteristicDelegate:
+        """The characteristic's delegate, never ``None``.
 
-        A characteristic has either a delegate or the legacy callbacks,
-        never both: assigning a delegate to a characteristic that has one
-        raises ``ValueError``, and the reverse. A delegate takes over the
-        reads of the characteristic, see
+        Without an assigned delegate this is the default one: the legacy
+        callback wrapper without callbacks, which answers the reads with
+        the stored value and applies nothing on writes. A real delegate
+        takes over the reads of the characteristic, see
         :class:`~pyhap.delegates.CharacteristicDelegate`.
         """
         return self._delegate
 
     @delegate.setter
     def delegate(self, delegate: CharacteristicDelegate | None) -> None:
-        """Assign the delegate; ``None`` removes it."""
-        if delegate is not None and (
-            self._setter_callback is not None or self._getter_callback is not None
+        """Assign the delegate; ``None`` resets to the default one."""
+        legacy = self._legacy
+        if legacy is not None and (
+            legacy.getter_callback is not None or legacy.setter_callback is not None
         ):
             raise ValueError(
                 f"{self._display_name} has a legacy callback, remove it before"
                 " assigning a delegate"
             )
-        self._delegate = delegate
+        self._delegate = (
+            _LegacyCallbackDelegateWrapper(characteristic=self)
+            if delegate is None
+            else delegate
+        )
 
-    @delegate.deleter
-    def delegate(self) -> None:
-        """Remove the delegate."""
-        self._delegate = None
+    @property
+    def _legacy(self) -> _LegacyCallbackDelegateWrapper | None:
+        """The legacy callback wrapper, or ``None`` when a delegate is assigned.
+
+        The one place that tells the two interfaces apart: the wrapper is
+        the delegate of a characteristic without an assigned one.
+        """
+        delegate = self._delegate
+        if isinstance(delegate, _LegacyCallbackDelegateWrapper):
+            return delegate
+        return None
 
     @property
     def getter_callback(self) -> Callable[[], Any] | None:
@@ -291,17 +340,22 @@ class Characteristic:
         Deprecated: a delegate's :meth:`~pyhap.delegates.CharacteristicDelegate.on_get`
         answers the reads instead.
         """
-        return self._getter_callback
+        legacy = self._legacy
+        if legacy is not None:
+            return legacy.getter_callback
+        raise ValueError(
+            f"{self._display_name} has a CharacteristicDelegate instead of a"
+            " legacy getter_callback"
+        )
 
     @getter_callback.setter
     def getter_callback(self, callback: Callable[[], Any] | None) -> None:
-        """Assign the legacy getter; ``None`` removes it."""
-        self._assign_legacy_callback("getter_callback", callback, warn_stacklevel=3)
+        """Assign the legacy getter. ``None`` removes it.
 
-    @getter_callback.deleter
-    def getter_callback(self) -> None:
-        """Remove the legacy getter."""
-        self._getter_callback = None
+        Deprecated: a delegate's :meth:`~pyhap.delegates.CharacteristicDelegate.on_get`
+        answers the reads instead.
+        """
+        self._assign_legacy_callback("getter_callback", callback)
 
     @property
     def setter_callback(self) -> Callable[..., Any] | None:
@@ -314,44 +368,57 @@ class Characteristic:
         request comes through a delegate instead, see
         :class:`~pyhap.delegates.CharacteristicDelegate`.
         """
-        return self._setter_callback
+        legacy = self._legacy
+        if legacy is not None:
+            return legacy.setter_callback
+        raise ValueError(
+            f"{self._display_name} has a CharacteristicDelegate instead of a"
+            " legacy setter_callback"
+        )
 
     @setter_callback.setter
     def setter_callback(self, callback: Callable[..., Any] | None) -> None:
-        """Assign the legacy setter; ``None`` removes it."""
-        self._assign_legacy_callback("setter_callback", callback, warn_stacklevel=3)
+        """Assign the legacy setter; ``None`` removes it.
 
-    @setter_callback.deleter
-    def setter_callback(self) -> None:
-        """Remove the legacy setter."""
-        self._setter_callback = None
+        Deprecated: what a callback needs to know about the request comes
+        through a delegate instead, see
+        :class:`~pyhap.delegates.CharacteristicDelegate`.
+        """
+        self._assign_legacy_callback("setter_callback", callback)
 
     def _assign_legacy_callback(
-        self, name: str, callback: Callable[..., Any] | None, *, warn_stacklevel: int
+        self,
+        name: str,
+        callback: Callable[..., Any] | None,
+        *,
+        warn_stacklevel: int = 3,
     ) -> None:
-        """Store a legacy callback, announcing its deprecation.
+        """Store a legacy callback, wrapping it into the delegate interface.
 
-        The delegate conflict is checked first. Both the property setters
-        above and :meth:`~pyhap.service.Service.configure_char` call this
-        with ``warn_stacklevel=3``, so the warning names the user code
-        that assigns the callback.
+        A characteristic without an assigned delegate has the default noop
+        one; assigning a legacy callback wraps it. A characteristic with
+        an assigned delegate takes no legacy callback - the driver would
+        never run one - so assigning one raises ``ValueError``.
+
+        Both the property setters and
+        :meth:`~pyhap.service.Service.configure_char` call this one frame
+        below themselves, so ``warn_stacklevel`` names the assigning user
+        code.
         """
-        if callback is not None and self._delegate is not None:
+        if callback is not None:
+            warnings.warn(
+                f"The legacy {name} is deprecated, use a CharacteristicDelegate"
+                " instead.",
+                DeprecationWarning,
+                stacklevel=warn_stacklevel,
+            )
+        legacy = self._legacy
+        if legacy is None:
             raise ValueError(
                 f"{self._display_name} has a delegate, remove it before"
                 " assigning a legacy callback"
             )
-        if callback is not None:
-            warnings.warn(
-                f"The legacy {name} is deprecated, use a CharacteristicDelegate"
-                " instead",
-                DeprecationWarning,
-                stacklevel=warn_stacklevel,
-            )
-        if name == "getter_callback":
-            self._getter_callback = callback
-        else:
-            self._setter_callback = callback
+        setattr(legacy, name, callback)
 
     @property
     def value(self) -> Any:
@@ -402,8 +469,9 @@ class Characteristic:
 
         :return: Current Characteristic Value
         """
-        if self.getter_callback:
-            self.value = self.to_valid_value(value=self.getter_callback())
+        legacy = self._legacy
+        if legacy is not None and (getter := legacy.getter_callback) is not None:
+            self.value = self.to_valid_value(value=getter())
         return self._value
 
     def valid_value_or_raise(self, value: Any) -> None:
@@ -535,7 +603,11 @@ class Characteristic:
         """Called from broker for value change in Home app.
 
         Change self.value to value and call callback. Returns what the callback
-        returned. ``connection`` is the identity of the connection the write
+        returned. This is the one-call form of a client update - a
+        controller's write recorded on the characteristic: the driver's
+        delegate write path splits it into storing the value, running the
+        delegate's ``on_set`` and finishing with :meth:`client_update_finished`.
+        ``connection`` is the identity of the connection the write
         came over, see :class:`~pyhap.connection.HAPConnectionHandle`; that
         connection is not told its own write back. With ``notify`` False,
         subscribers are not told about the written value, e.g. for a request
@@ -559,20 +631,27 @@ class Characteristic:
         previous_value = self._value
         self.value = value
         response = None
-        if self.setter_callback:
-            response = self.setter_callback(value)
+        # The legacy setter, wrapped into the delegate interface. Reading
+        # ``setter_callback`` would raise for a characteristic without one.
+        legacy = self._legacy
+        if legacy is not None and (setter := legacy.setter_callback) is not None:
+            response = setter(value)
         if not (defer_notify and inspect.iscoroutine(response)):
             self.client_update_finished(previous_value, connection, notify=notify)
         return response
 
-    def _store_client_value(self, value: Any) -> Any:
-        """Store a controller's write without running any callback.
+    def _store_client_update(self, value: Any) -> Any:
+        """Store a client update without running any callback.
 
-        The new-style write path of the driver: validate and store the
-        value like :meth:`client_update_value` does, tell no subscriber
-        and call no callback - the driver runs the characteristic's
-        ``on_set`` and notifies once it succeeded, or restores this value
-        if the write is refused. Returns the value's previous state.
+        The store step of a client update - a controller's write recorded
+        on the characteristic, see :meth:`client_update_value` and
+        :meth:`client_update_finished`: validate and store the value like
+        :meth:`client_update_value` does, tell no subscriber and call no
+        callback. The driver's delegate write path runs the
+        characteristic's ``on_set`` after this and notifies through
+        :meth:`client_update_finished` once it succeeded, or restores
+        this value if the write is refused. Returns the value's previous
+        state.
         """
         if not self._always_null or value is not None:
             value = self.to_valid_value(value)
@@ -589,16 +668,73 @@ class Characteristic:
         *,
         notify: bool = True,
     ) -> None:
-        """Finish a client's write, e.g. after awaiting its coroutine setter.
+        """Finish a client update, e.g. after awaiting its coroutine setter.
 
-        Tells subscribers about the new value if it differs from
-        ``previous_value``, see :meth:`client_update_value`. The connection
+        The notify step of a client update: tells subscribers about the
+        new value if it differs from ``previous_value``, the value stored
+        before the update, see :meth:`client_update_value`. The connection
         ``connection`` the write came over is not told its own write back.
         """
         if notify and self._value != previous_value:
             self.notify(connection)
         if self._always_null:
             self.value = None
+
+    async def dispatch_get(self, context: Context) -> Any:
+        """Answer a read of this characteristic through its delegate.
+
+        Called by the driver's read path with the request's base
+        :class:`~pyhap.context.Context`: builds this characteristic's
+        :class:`~pyhap.context.CharReadContext` and awaits the delegate's
+        ``on_get``. Assign a :class:`~pyhap.delegates.CharacteristicDelegate`
+        instead of overriding this method - an override would silently
+        take the delegate's place.
+        """
+        return await self.delegate.on_get(
+            CharReadContext.of(context, characteristic=self)
+        )
+
+    async def dispatch_set(
+        self, value: Any, context: Context, *, is_admin: bool
+    ) -> Any:
+        """Apply a controller's write of ``value`` through its delegate.
+
+        Called by the driver's write path with the request's base
+        :class:`~pyhap.context.Context`: builds this characteristic's
+        :class:`~pyhap.context.CharWriteContext` and awaits the delegate's
+        ``on_set``. Assign a :class:`~pyhap.delegates.CharacteristicDelegate`
+        instead of overriding this method - an override would silently
+        take the delegate's place.
+
+        :param value: The validated value the write stored.
+        :param context: The base context of the write request.
+        :param is_admin: Whether the writing controller has admin privileges.
+        """
+        return await self.delegate.on_set(
+            value,
+            CharWriteContext.of(context, characteristic=self, is_admin=is_admin),
+        )
+
+    def subscription_hook(
+        self, subscribe: bool, context: Context
+    ) -> tuple[Callable[[CharReadContext], Awaitable[None]], tuple[CharReadContext]]:
+        """The delegate's (un)subscribe hook of this characteristic, with its context.
+
+        Called by the driver when a controller (un)subscribes. Returns the
+        hook and its args rather than a started coroutine, so a hook whose
+        job never runs does not warn about a never-awaited coroutine.
+        Assign a :class:`~pyhap.delegates.CharacteristicDelegate` instead of
+        overriding this method.
+
+        :param subscribe: Whether the controller subscribed or unsubscribed.
+        :param context: The base context of the request or connection close
+            that caused the transition; the hook itself runs without a
+            deadline.
+        """
+        char_context = CharReadContext.of(context, characteristic=self)
+        if subscribe:
+            return self.delegate.on_subscribe, (char_context,)
+        return self.delegate.on_unsubscribe, (char_context,)
 
     def notify(self, connection: HAPConnectionHandle | None = None) -> None:
         """Notify clients about a value change. Sends the value.
@@ -625,11 +761,7 @@ class Characteristic:
         :rtype: dict
         """
         if include_value:
-            if (
-                self._to_hap_cache_with_value is not None
-                and self.getter_callback is None
-                and self.delegate is None
-            ):
+            if self._to_hap_cache_with_value is not None and self._reads_stored():
                 return self._to_hap_cache_with_value
         elif self._to_hap_cache is not None:
             return self._to_hap_cache
@@ -667,24 +799,29 @@ class Characteristic:
                 hap_rep[HAP_REPR_MAX_LEN] = max_length
 
         if include_value and HAP_PERMISSION_READ in permissions:
-            try:
-                hap_rep[HAP_REPR_VALUE] = self.get_value()
-            except Exception:
-                # One failing getter must not fail the whole accessories
-                # response: the characteristic is listed without a value.
-                logger.exception(
-                    "%s: Error getting the value; answering without it",
-                    self._display_name,
-                )
+            # The stored value: a fresh answer comes from the read path,
+            # the delegate's ``on_get`` - which also isolates a failing
+            # read to its own characteristic, see the driver.
+            hap_rep[HAP_REPR_VALUE] = self.value
 
         if not include_value:
             self._to_hap_cache = hap_rep
-        elif self.getter_callback is None and self.delegate is None:
-            # Only cache if nothing answers reads dynamically: a getter
-            # callback or a delegate's on_get may answer something else
+        elif self._reads_stored():
+            # Only cache if nothing answers reads dynamically: an
+            # ``on_get`` or a legacy getter may answer something else
             # than the stored value.
             self._to_hap_cache_with_value = hap_rep
         return hap_rep
+
+    def _reads_stored(self) -> bool:
+        """Whether reads answer the stored value, so it can be cached.
+
+        A delegate's ``on_get`` or a legacy getter may answer something
+        else; the default delegate - the callback wrapper without a
+        getter - answers the stored value.
+        """
+        legacy = self._legacy
+        return legacy is not None and legacy.getter_callback is None
 
     @classmethod
     def from_dict(

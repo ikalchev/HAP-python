@@ -12,9 +12,10 @@ from pyhap.characteristic import (
     PROP_FORMAT,
     PROP_PERMISSIONS,
     Characteristic,
+    _LegacyCallbackDelegateWrapper,
 )
 from pyhap.delegates import CharacteristicDelegate, ServiceDelegate
-from pyhap.service import Service
+from pyhap.service import Service, _LegacySetterDelegateWrapper
 
 CHAR_PROPS = {
     PROP_FORMAT: HAP_FORMAT_INT,
@@ -87,7 +88,13 @@ def test_configure_char() -> None:
         service.configure_char("Char 1")
         mock_override_prop.assert_not_called()
         mock_set_value.assert_not_called()
-        assert service.get_characteristic("Char 1").setter_callback is None
+        assert isinstance(
+            service.get_characteristic("Char 1").delegate,
+            _LegacyCallbackDelegateWrapper,
+        )
+        delegate = service.get_characteristic("Char 1").delegate
+        assert isinstance(delegate, _LegacyCallbackDelegateWrapper)
+        assert delegate.setter_callback is None
 
     with patch(pyhap_char + ".override_properties") as mock_override_prop:
         new_properties = {"Format": "string"}
@@ -269,7 +276,8 @@ def test_service_delegate_assignment() -> None:
 
     service.delegate = None
 
-    assert service.delegate is None
+    assert isinstance(service.delegate, _LegacySetterDelegateWrapper)
+    assert service.delegate.setter is None
 
 
 def test_configure_char_wires_delegate() -> None:
@@ -347,5 +355,7 @@ def test_configure_char_without_delegate() -> None:
 
     configured = service.configure_char("Char 1", value=5)
 
-    assert configured.delegate is None
+    assert isinstance(configured.delegate, _LegacyCallbackDelegateWrapper)
+    assert configured.delegate.getter_callback is None
+    assert configured.delegate.setter_callback is None
     assert configured.value == 5

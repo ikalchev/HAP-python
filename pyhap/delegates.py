@@ -63,7 +63,7 @@ class CharacteristicDelegate:
     async def on_set(self, value: Any, context: CharWriteContext) -> Any:
         """Apply a controller's write of ``value``.
 
-        Runs after the write passed its gate hooks, under the context's
+        Runs after the write passed its service-level pre-checks, under
         deadline. The value is already stored and subscribers are told
         once this call is done. A return value is the write response for
         a characteristic with the ``wr`` permission, else it is dropped;
@@ -98,7 +98,8 @@ class CharacteristicDelegate:
 class ServiceDelegate:
     """Delegate of a whole service.
 
-    The service's ``on_set`` is the gate of its grouped writes: a request
+    The service's ``on_set`` is the pre-check of its grouped writes: a
+    request
     that writes several characteristics of the service runs it before
     any per-characteristic ``on_set``, with every value of the request -
     so a thermostat sees target mode and target temperature together.

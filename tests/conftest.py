@@ -44,15 +44,12 @@ async def client_write(
 ) -> Any:
     """Write a characteristic like a controller's request.
 
-    A delegate-wired characteristic goes through its delegate: the value
-    is stored, ``on_set`` runs under the write deadline and the
-    subscribers are told once it succeeded - what the driver's write
-    stage does. A handler that raises restores the previous value, like
-    the driver does. A characteristic without a delegate runs its legacy
-    ``setter_callback``, like ``client_update_value``.
+    The write goes through the delegate, like the driver's write path
+    does: the value is stored, ``on_set`` runs under the write deadline -
+    a legacy setter is wrapped into the delegate - and the subscribers
+    are told once it succeeded. A handler that raises restores the
+    previous value, like the driver does.
     """
-    if char.delegate is None:
-        return char.client_update_value(value, client_addr)
     context = CharWriteContext(
         client_addr=client_addr,
         client_uuid=None,
@@ -61,7 +58,7 @@ async def client_write(
         characteristic=char,
         is_admin=True,
     )
-    previous = char._store_client_value(value)
+    previous = char._store_client_update(value)
     try:
         response = await char.delegate.on_set(value, context)
     except Exception:
@@ -69,6 +66,12 @@ async def client_write(
         raise
     char.client_update_finished(previous, client_addr)
     return response
+
+
+async def run_scheduled_jobs(rounds: int = 8) -> None:
+    """Let jobs scheduled by the driver and their tasks run."""
+    for _ in range(rounds):
+        await asyncio.sleep(0)
 
 
 @pytest.fixture(scope="session")
