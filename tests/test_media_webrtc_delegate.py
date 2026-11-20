@@ -138,6 +138,69 @@ async def test_keys_differ_per_session(
     assert first.sframe != second.sframe
 
 
+MDNS_CANDIDATE = "candidate:1 1 udp 1 0a1b2c3d-4e5f.local 9 typ host"
+ANSWER = (
+    "v=0\r\n"
+    "o=- 1 2 IN IP4 127.0.0.1\r\n"
+    "s=-\r\n"
+    "t=0 0\r\n"
+    "a=ice-ufrag:abcd\r\n"
+    "a=ice-pwd:0123456789abcdef012345\r\n"
+    f"a=fingerprint:sha-256 {':'.join(['AB'] * 32)}\r\n"
+    "m=video 9 UDP/TLS/RTP/SAVPF 99\r\n"
+    "a=mid:0\r\n"
+    f"a={MDNS_CANDIDATE.replace(' 9 ', ' 10 ')}\r\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("advertiser", "hook_timeout", "asked", "host"),
+    [
+        (object(), 8.0, [2.0], "192.168.1.20"),
+        (object(), 2.0, [0.5], "192.168.1.20"),
+        (None, 8.0, [], "0a1b2c3d-4e5f.local"),
+    ],
+    ids=["driver-instance", "short-hook", "no-instance"],
+)
+async def test_answer_resolves_mdns_candidates_with_the_drivers_zeroconf(
+    monkeypatch: pytest.MonkeyPatch,
+    media_delegate: WebRTCMediaDelegate,
+    webrtc_session: Callable[..., WebRTCSession],
+    advertiser: object,
+    hook_timeout: float,
+    asked: list[float],
+    host: str,
+) -> None:
+    """Verify names are resolved on the driver's instance, in part of the hook."""
+    timeouts: list[float] = []
+
+    async def lookup(instance: object, names: list[str], timeout: float) -> Any:
+        assert instance is advertiser
+        timeouts.append(timeout)
+        return dict.fromkeys(names, "192.168.1.20")
+
+    monkeypatch.setattr("pyhap.media._mdns._lookup", lookup)
+    session = webrtc_session()
+    session._controller = cast(Any, MagicMock())
+    session._controller.camera.driver.advertiser = advertiser
+    session._controller.camera.webrtc_controllers = {
+        session.sensor_uuid: MagicMock(hook_timeout=hook_timeout)
+    }
+
+    await offer(media_delegate, session)
+    await media_delegate.handle_answer(
+        session, ANSWER, [hksv3.IceCandidate(MDNS_CANDIDATE, "0", 0)]
+    )
+
+    name = "0a1b2c3d-4e5f.local"
+    assert timeouts == asked
+    assert sender_of(media_delegate, session).calls[1] == (
+        "answer",
+        ANSWER.replace(name, host),
+        [hksv3.IceCandidate(MDNS_CANDIDATE.replace(name, host), "0", 0)],
+    )
+
+
 async def test_answer_starts_the_pull(
     media_delegate: WebRTCMediaDelegate,
     webrtc_session: Callable[..., WebRTCSession],

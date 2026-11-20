@@ -410,6 +410,18 @@ async def test_session_end(
     session_release.assert_awaited_once_with(session)
 
 
+async def test_session_names_its_camera(
+    session_controller: StreamController[StreamSession],
+    add_session: Callable[..., StreamSession],
+    stream_sensor: hksv3.SensorConfiguration,
+) -> None:
+    """Test a session of a stream service knows its camera, another does not."""
+    lone = StreamSession(id=uuid4(), sensor=stream_sensor, client_addr=CLIENT)
+
+    assert add_session(CLIENT).camera is session_controller.camera
+    assert lone.camera is None
+
+
 def test_session_end_without_controller(
     stream_sensor: hksv3.SensorConfiguration,
 ) -> None:

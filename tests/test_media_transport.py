@@ -198,43 +198,11 @@ async def test_unusable_fingerprints_are_refused(
     await answerer.close()
 
 
-async def test_mdns_candidates_are_bounded_and_checked(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify few mDNS names are resolved at once and bad answers are dropped."""
-    asked: list[list[str]] = []
-    answers = {
-        "a.local": "192.168.1.20",
-        "b.local": "127.0.0.1",
-        "c.local": "224.0.0.251",
-        "d.local": None,
-        "e.local": "192.168.1.21",
-    }
-
-    async def resolve(names: list[str], _timeout: float) -> dict[str, str | None]:
-        asked.append(list(names))
-        return {name: answers[name] for name in names}
-
-    monkeypatch.setattr(transport, "resolve_mdns", resolve)
-    candidates = transport._remote_candidates(
-        [
-            f"candidate:{i} 1 udp {100 - i} {name} 5000 typ host"
-            for i, name in enumerate(answers)
-        ]
-        + ["candidate:9 1 udp 1 192.168.1.30 5000 typ host"]
-    )
-
-    resolved = await transport._resolve_candidates(candidates)
-
-    assert asked == [["a.local", "b.local", "c.local", "d.local"]]
-    assert [c.host for c in resolved] == ["192.168.1.20", "192.168.1.30"]
-
-
 async def test_connect_timeout() -> None:
     """Verify ICE without a reachable peer times out."""
     lone = make_transport(True)
     await lone.gather()
-    with pytest.raises(TransportError, match="timed out"):
+    with pytest.raises(TransportError, match=r"^WebRTC connection timed out$"):
         await lone.connect(
             remote_username="user",
             remote_password="password0123456789abcd",
@@ -363,7 +331,7 @@ def test_remote_candidates_capped_and_deduplicated() -> None:
         "garbage",
         *numbered_candidates(40),
     ]
-    parsed = transport._remote_candidates(values)
+    parsed, _ = transport._remote_candidates(values)
     assert len(parsed) == transport.MAX_REMOTE_CANDIDATES
     assert parsed[0].port == 1000
     assert parsed[1].port == 2000
@@ -376,8 +344,7 @@ def test_remote_candidates_capped_and_deduplicated() -> None:
         "candidate:1 1 udp 1 10.0.0.1 65536 typ host",
         "candidate:1 1 udp 1 example.com 1000 typ host",
         "candidate:1 1 udp 1 10.0.0.1x 1000 typ host",
-        f"candidate:1 1 udp 1 {'a' * 250}.local 1000 typ host",
-        "candidate:1 1 udp 1 .local 1000 typ host",
+        "candidate:1 1 udp 1 0a1b2c3d-4e5f.local 1000 typ host",
         "candidate:1 1 udp 1 0.0.0.0 1000 typ host",
         "candidate:1 1 udp 1 :: 1000 typ host",
         "candidate:1 1 udp 1 224.0.0.251 1000 typ host",
@@ -391,8 +358,7 @@ def test_remote_candidates_capped_and_deduplicated() -> None:
         "port-high",
         "dns-name",
         "bad-ip",
-        "long-mdns",
-        "empty-mdns",
+        "mdns",
         "unspecified-v4",
         "unspecified-v6",
         "multicast-v4",
@@ -403,8 +369,8 @@ def test_remote_candidates_capped_and_deduplicated() -> None:
     ],
 )
 def test_remote_candidates_drop_unusable_addresses(value: str) -> None:
-    """Verify bad ports, non-unicast IPs and hosts other than IP or mDNS drop."""
-    assert transport._remote_candidates([value]) == []
+    """Verify bad ports, non-unicast IPs and hosts other than an IP drop."""
+    assert transport._remote_candidates([value])[0] == []
 
 
 @pytest.mark.parametrize(
@@ -412,13 +378,157 @@ def test_remote_candidates_drop_unusable_addresses(value: str) -> None:
     [
         "candidate:1 1 udp 1 10.0.0.1 65535 typ host",
         "candidate:1 1 udp 1 fe80::1%en0 1000 typ host",
-        "candidate:1 1 udp 1 0a1b2c3d-4e5f.local 1000 typ host",
     ],
-    ids=["ipv4", "ipv6-zone", "mdns"],
+    ids=["ipv4", "ipv6-zone"],
 )
 def test_remote_candidates_keep_usable_addresses(value: str) -> None:
-    """Verify IP addresses and mDNS names with a valid port are kept."""
-    assert len(transport._remote_candidates([value])) == 1
+    """Verify IP addresses with a valid port are kept."""
+    assert len(transport._remote_candidates([value])[0]) == 1
+
+
+def test_remote_candidates_drop_mdns_names(caplog: pytest.LogCaptureFixture) -> None:
+    """Verify mDNS names are dropped and counted, other candidates stay."""
+    caplog.set_level("DEBUG", logger=transport.__name__)
+    parsed, mdns = transport._remote_candidates(
+        [
+            "candidate:1 1 udp 3 0a1b2c3d-4e5f.local 1000 typ host",
+            "candidate:2 1 udp 2 10.0.0.1 1000 typ host",
+            "candidate:3 1 UDP 1 6f7a8b9c-0d1e.LOCAL 1000 typ host",
+            "candidate:4 2 udp 1 7a8b9c0d-1e2f.local 1000 typ host",
+            "candidate:5 1 tcp 1 8b9c0d1e-2f3a.local 1000 typ host",
+        ]
+    )
+    assert [c.host for c in parsed] == ["10.0.0.1"]
+    assert mdns == 2
+    assert caplog.messages == ["mDNS candidates ignored, they are not resolved: 2"]
+
+
+async def test_failed_connect_names_the_ignored_mdns_candidates() -> None:
+    """Verify a peer that never checks fails with a hint to its mDNS names."""
+    lone = make_transport(True)
+    await lone.gather()
+    try:
+        with pytest.raises(
+            TransportError,
+            match=r"^WebRTC connection timed out \(mDNS candidates ignored: 1\)$",
+        ):
+            await lone.connect(
+                remote_username="u",
+                remote_password="p",
+                remote_candidates=[
+                    "candidate:1 1 udp 1 0a1b2c3d-4e5f.local 9 typ host"
+                ],
+                remote_fingerprints=[],
+                role=DtlsRole.CLIENT,
+                timeout=0.2,
+            )
+    finally:
+        await lone.close()
+
+
+async def test_failed_checks_name_the_ignored_mdns_candidates() -> None:
+    """Verify failed ICE checks come with the hint to the peer's mDNS names."""
+
+    async def fail(_candidates: object) -> None:
+        raise ConnectionError("ICE checks failed")
+
+    lone = make_transport(True)
+    setattr(lone._ice, "connect", fail)  # noqa: B010 - replaces a method
+    try:
+        with pytest.raises(
+            TransportError,
+            match=r"failed: ICE checks failed \(mDNS candidates ignored: 1\)$",
+        ):
+            await lone.connect(
+                remote_username="u",
+                remote_password="p",
+                remote_candidates=[
+                    "candidate:1 1 udp 1 0a1b2c3d-4e5f.local 9 typ host"
+                ],
+                remote_fingerprints=[],
+                role=DtlsRole.CLIENT,
+            )
+    finally:
+        await lone.close()
+
+
+async def test_failure_after_ice_does_not_name_mdns_candidates() -> None:
+    """Verify a stalled DTLS handshake is not blamed on ignored mDNS names."""
+    offerer, answerer = make_transport(True), make_transport(False)
+    try:
+        offer_candidates = await offerer.gather()
+        answer_candidates = await answerer.gather()
+        # Both wait for the other's first handshake message.
+        results = await asyncio.gather(
+            offerer.connect(
+                remote_username=answerer.local_username,
+                remote_password=answerer.local_password,
+                remote_candidates=[
+                    *answer_candidates,
+                    "candidate:9 1 udp 1 0a1b2c3d-4e5f.local 9 typ host",
+                ],
+                remote_fingerprints=[("sha-256", answerer.certificate.fingerprint)],
+                role=DtlsRole.SERVER,
+                timeout=1,
+            ),
+            answerer.connect(
+                remote_username=offerer.local_username,
+                remote_password=offerer.local_password,
+                remote_candidates=offer_candidates,
+                remote_fingerprints=[("sha-256", offerer.certificate.fingerprint)],
+                role=DtlsRole.SERVER,
+                timeout=1,
+            ),
+            return_exceptions=True,
+        )
+        assert offerer._ice.selected_pair is not None
+        assert str(results[0]) == "WebRTC connection timed out"
+    finally:
+        await offerer.close()
+        await answerer.close()
+
+
+async def test_peer_with_only_an_mdns_candidate_connects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify a peer known by an mDNS name alone is found by its own checks."""
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("The transport must not create a Zeroconf instance")
+
+    # Patched on the classes: zeroconf.asyncio holds its own name for Zeroconf.
+    monkeypatch.setattr("zeroconf.Zeroconf.__init__", refuse)
+    monkeypatch.setattr("zeroconf.asyncio.AsyncZeroconf.__init__", refuse)
+    offerer, answerer = make_transport(True), make_transport(False)
+    try:
+        offer_candidates = await offerer.gather()
+        await answerer.gather()
+        await asyncio.gather(
+            offerer.connect(
+                remote_username=answerer.local_username,
+                remote_password=answerer.local_password,
+                remote_candidates=[
+                    "candidate:1 1 udp 1 0a1b2c3d-4e5f.local 9 typ host"
+                ],
+                remote_fingerprints=[("sha-256", answerer.certificate.fingerprint)],
+                role=DtlsRole.CLIENT,
+                timeout=5,
+            ),
+            answerer.connect(
+                remote_username=offerer.local_username,
+                remote_password=offerer.local_password,
+                remote_candidates=offer_candidates,
+                remote_fingerprints=[("sha-256", offerer.certificate.fingerprint)],
+                role=DtlsRole.SERVER,
+                timeout=5,
+            ),
+        )
+        answer_rtp, _ = collect(answerer)
+        await offerer.send_rtp(RTP)
+        assert await asyncio.wait_for(answer_rtp.get(), 2) == RTP
+    finally:
+        await offerer.close()
+        await answerer.close()
 
 
 def numbered_candidates(count: int) -> list[str]:
@@ -484,7 +594,7 @@ async def test_unexpected_connect_error_is_a_transport_error() -> None:
     """Verify any failure while connecting comes out as TransportError."""
     lone = make_transport(True)
     setattr(lone, "_connect", fail_connect)  # noqa: B010 - replaces a method
-    with pytest.raises(TransportError, match="mdns"):
+    with pytest.raises(TransportError, match="socket"):
         await lone.connect(
             remote_username="u",
             remote_password="p",
@@ -496,8 +606,8 @@ async def test_unexpected_connect_error_is_a_transport_error() -> None:
 
 
 async def fail_connect(*_args: object) -> None:
-    """Fail like an mDNS socket that cannot bind."""
-    raise OSError("mdns port in use")
+    """Fail like a socket that cannot be used."""
+    raise OSError("socket failed")
 
 
 async def test_close_waits_for_a_close_under_way(
