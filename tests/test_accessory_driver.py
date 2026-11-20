@@ -454,6 +454,29 @@ def test_write_with_write_permission(
     assert char.value == 5
 
 
+def test_write_configured_name(driver: AccessoryDriver) -> None:
+    """A controller's write to the configured name of an input is applied."""
+    acc = Accessory(driver, "Television")
+    char = acc.add_preload_service("InputSource").get_characteristic("ConfiguredName")
+    driver.add_accessory(acc)
+
+    result = driver.set_characteristics(
+        {
+            HAP_REPR_CHARS: [
+                {
+                    HAP_REPR_AID: acc.aid,
+                    HAP_REPR_IID: acc.iid_manager.get_iid(char),
+                    HAP_REPR_VALUE: "HDMI 2",
+                }
+            ]
+        },
+        ("1.2.3.4", 5),
+    )
+
+    assert result is None
+    assert char.value == "HDMI 2"
+
+
 def test_write_with_subscribe_without_write_permission(
     driver: AccessoryDriver,
 ) -> None:

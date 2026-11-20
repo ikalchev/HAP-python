@@ -25,8 +25,10 @@
       " - CurrentTemperature minValue -270 (spec minimum; the metadata says 0,",
       "   which makes HAP-python clamp negative readings to 0);",
       " - LockLastKnownAction values 9/10 from the newer HAP spec.",
-      "Deliberately NOT mirrored from HAP-NodeJS: write perm on",
-      "ConfiguredName/IsConfigured/DisplayOrder (HAP-python never had it),",
+      " - write permission on ConfiguredName/IsConfigured/DisplayOrder (the",
+      "   metadata has them read-only; HAP-NodeJS and the HAP-python releases",
+      "   up to 5.2.0 have them writable, and write permissions are enforced).",
+      "Deliberately NOT mirrored from HAP-NodeJS:",
       "read-only PairingFeatures (kept writable for compatibility), and",
       "SiriInputType maxValue 0 (kept at the metadata value 1)."
    ],
@@ -317,6 +319,15 @@
          ],
          "UUID": "0000021D-0000-1000-8000-0026BB765291"
       },
+      "ConfiguredName": {
+         "Format": "string",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev"
+         ],
+         "UUID": "000000E3-0000-1000-8000-0026BB765291"
+      },
       "CurrentTemperature": {
          "Format": "float",
          "Permissions": [
@@ -337,6 +348,15 @@
             "wr"
          ],
          "UUID": "00000138-0000-1000-8000-0026BB765291"
+      },
+      "DisplayOrder": {
+         "Format": "tlv8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev"
+         ],
+         "UUID": "00000136-0000-1000-8000-0026BB765291"
       },
       "EventSnapshotsActive": {
          "Format": "uint8",
@@ -364,6 +384,19 @@
          "ValidValues": {
             "Disable": 0,
             "Enable": 1
+         }
+      },
+      "IsConfigured": {
+         "Format": "uint8",
+         "Permissions": [
+            "pr",
+            "pw",
+            "ev"
+         ],
+         "UUID": "000000D6-0000-1000-8000-0026BB765291",
+         "ValidValues": {
+            "Configured": 1,
+            "NotConfigured": 0
          }
       },
       "LockLastKnownAction": {
