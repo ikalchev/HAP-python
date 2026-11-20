@@ -254,3 +254,58 @@ def test_loader_camera_operating_mode_permissions(
     """Test the operating mode settings shared with the HKSV 17.99 services."""
     char = Loader().get_char(name)
     assert set(char.properties[PROP_PERMISSIONS]) == permissions
+
+
+# Required characteristics of existing services as shipped up to 5.2.0. A
+# service instantiates them in this order and the default IIDManager numbers
+# them in that order, so it must not change for existing pairings.
+STABLE_REQUIRED = {
+    "BatteryService": ["BatteryLevel", "ChargingState", "StatusLowBattery"],
+    "CameraRTPStreamManagement": [
+        "SupportedVideoStreamConfiguration",
+        "SupportedAudioStreamConfiguration",
+        "SupportedRTPConfiguration",
+        "SelectedRTPStreamConfiguration",
+        "StreamingStatus",
+        "SetupEndpoints",
+    ],
+    "HumidifierDehumidifier": [
+        "CurrentRelativeHumidity",
+        "CurrentHumidifierDehumidifierState",
+        "TargetHumidifierDehumidifierState",
+        "Active",
+    ],
+    "InputSource": [
+        "ConfiguredName",
+        "InputSourceType",
+        "IsConfigured",
+        "CurrentVisibilityState",
+    ],
+    "Microphone": ["Volume", "Mute"],
+    "Slat": ["SlatType", "CurrentSlatState"],
+    "Television": [
+        "Active",
+        "ActiveIdentifier",
+        "ConfiguredName",
+        "SleepDiscoveryMode",
+    ],
+    "Window": ["CurrentPosition", "TargetPosition", "PositionState"],
+    "WindowCovering": ["CurrentPosition", "TargetPosition", "PositionState"],
+}
+
+
+@pytest.mark.parametrize("name", STABLE_REQUIRED)
+def test_loader_service_required_stable(name: str) -> None:
+    """Test existing services keep their required chars and order."""
+    service = Loader().get_service(name)
+    chars = [char.display_name for char in service.characteristics]
+    assert chars == STABLE_REQUIRED[name]
+
+
+@pytest.mark.parametrize(
+    ("name", "char_name"), [("InputSource", "Name"), ("Television", "RemoteKey")]
+)
+def test_loader_service_newly_required_optional(name: str, char_name: str) -> None:
+    """Test chars only the metadata lists as required stay optional."""
+    optional = Loader().serv_types[name]["OptionalCharacteristics"]
+    assert char_name in optional
