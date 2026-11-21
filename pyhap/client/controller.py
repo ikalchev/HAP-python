@@ -97,12 +97,15 @@ class HAPClient:
         accessory's state file); afterwards the client reconnects as the same
         controller after restarts.
 
-        The accessory LTPK is resolved from, in order: ``accessory_ltpk``,
+        The accessory LTPK is resolved from ``accessory_ltpk``,
         ``accessory_state`` (an ``accessory.state`` file, e.g. copied from
-        the accessory machine), or the key pinned in ``filepath``. A resolved
-        LTPK is pinned into ``filepath`` (trust on first use), so later calls
-        verify the accessory against it. Without any LTPK the session is
-        encrypted but the accessory is not authenticated.
+        the accessory machine), or the pin in ``filepath``. The first time a
+        LTPK is resolved it is pinned into ``filepath`` (trust on first use),
+        so later calls verify the accessory against it. If the file already
+        pins a *different* LTPK, :exc:`ValueError` is raised: migrating the
+        client to another accessory is out of scope here — update (or delete)
+        the file yourself. Without any LTPK the session is encrypted but the
+        accessory is not authenticated.
         """
         path = os.path.expanduser(os.fspath(filepath))
         if os.path.exists(path):
@@ -115,7 +118,13 @@ class HAPClient:
             ltpk = load_accessory_ltpk(accessory_state)
         if ltpk is None:
             ltpk = identity.accessory_ltpk
-        if ltpk is not None and identity.accessory_ltpk != ltpk:
+        pinned = identity.accessory_ltpk
+        if pinned is not None and ltpk is not None and pinned != ltpk:
+            raise ValueError(
+                f"{path} pins a different accessory LTPK; to point the client "
+                "at another accessory, update (or delete) the file yourself"
+            )
+        if pinned is None and ltpk is not None:
             identity = replace(identity, accessory_ltpk=ltpk)
             identity.save(path)
         return cls(identity, ltpk)

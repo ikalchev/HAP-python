@@ -31,7 +31,9 @@ Sections
   identity from a file or creates and backs it up there. The accessory LTPK
   is optional: pass it once (raw bytes via `accessory_ltpk=`, or read from
   the accessory's state file via `accessory_state=` /
-  `load_accessory_ltpk`) to pin it in the file (trust on first use), or
+  `load_accessory_ltpk`) to pin it in the file (trust on first use; a
+  conflicting pinned LTPK raises `ValueError` — migrating to another
+  accessory means editing the client file), or
   omit it for an encrypted but unauthenticated session. The API docs spell
   out the pairing assumptions (pair-verify only; pair the identity with
   `AccessoryDriver.pair` first) and the cross-machine steps. Covered by the

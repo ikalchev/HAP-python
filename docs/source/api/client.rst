@@ -42,8 +42,11 @@ QR code. Two things must therefore already exist when you connect:
    controller learns it from pair-setup's M6 response). Pass it once — as
    raw bytes (``accessory_ltpk=...``) or read from the accessory's state
    file (``accessory_state="accessory.state"``) — and it is pinned in the
-   client file and verified on every later run. Without any LTPK the session
-   is still encrypted, but the accessory is not authenticated.
+   client file and verified on every later run. If the client file already
+   pins a *different* LTPK, ``new_persistent`` raises ``ValueError``:
+   migrating the client to another accessory is done by updating (or
+   deleting) the client file yourself, not via the method. Without any LTPK
+   the session is still encrypted, but the accessory is not authenticated.
 
 Running the client on a different machine than the accessory
 -------------------------------------------------------------

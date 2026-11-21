@@ -108,3 +108,12 @@ def test_new_persistent_pins_ltpk_from_accessory_state(
     again = HAPClient.new_persistent(filepath=key_file)
     assert again.accessory_ltpk == expected
     assert again.identity.uuid == client.identity.uuid
+
+
+def test_new_persistent_rejects_conflicting_ltpk(tmp_path: pathlib.Path) -> None:
+    """A pinned LTPK is authoritative; a different one raises, file untouched."""
+    path = tmp_path / "controller.key"
+    first = HAPClient.new_persistent(filepath=path, accessory_ltpk=_ltpk())
+    with pytest.raises(ValueError, match="different accessory LTPK"):
+        HAPClient.new_persistent(filepath=path, accessory_ltpk=_ltpk())
+    assert ClientIdentity.load(path).accessory_ltpk == first.accessory_ltpk
