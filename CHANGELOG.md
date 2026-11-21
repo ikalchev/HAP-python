@@ -26,8 +26,10 @@ Sections
   `benchmarks/client.py` (now `pyhap.client.HAPClient`) and extended with
   batch reads/writes, unsubscribe, raw event access and
   `ClientIdentity.save`/`load` for persisting the controller identity (UUID
-  + private key, written atomically with 0600 permissions). Covered by the
-  new integration tests in `tests/integration/`.
+  + private key, written atomically with 0600 permissions), plus the
+  `HAPClient.new_persistent(filepath=...)` convenience that loads the
+  identity from a file or creates and backs it up there. Covered by the new
+  integration tests in `tests/integration/`.
 
 ### Fixed
 

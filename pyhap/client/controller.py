@@ -12,6 +12,7 @@ import asyncio
 from collections.abc import Iterable
 import json
 import logging
+import os
 from typing import Any
 
 from chacha20poly1305_reuseable import ChaCha20Poly1305Reusable as ChaCha20Poly1305
@@ -61,6 +62,32 @@ class HAPClient:
         self._request_lock = asyncio.Lock()
         self._events: asyncio.Queue[tuple[int, int, Any, int]] = asyncio.Queue()
         self._closed = False
+
+    @classmethod
+    def new_persistent(
+        cls, *, filepath: str | os.PathLike[str], accessory_ltpk: bytes
+    ) -> HAPClient:
+        """Create a client whose identity is persisted at ``filepath``.
+
+        If ``filepath`` exists, the identity is loaded from it; otherwise a
+        new one is generated and saved there. Pair the identity with the
+        accessory once (e.g. :meth:`pyhap.accessory_driver.AccessoryDriver.pair`
+        with ``client.identity`` - the pairing itself is persisted in the
+        accessory's state file); afterwards the client reconnects as the same
+        controller after restarts.
+        """
+        path = os.path.expanduser(os.fspath(filepath))
+        if os.path.exists(path):
+            identity = ClientIdentity.load(path)
+        else:
+            identity = ClientIdentity.generate()
+            identity.save(path)
+        return cls(identity, accessory_ltpk)
+
+    @property
+    def identity(self) -> ClientIdentity:
+        """The long-term identity this client pair-verifies with."""
+        return self._identity
 
     @property
     def name(self) -> str:

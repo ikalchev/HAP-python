@@ -14,18 +14,19 @@ It is used by the benchmark suite (``benchmarks/run.py``) and by the
 integration tests in ``tests/integration/`` to exercise a running
 :class:`pyhap.accessory_driver.AccessoryDriver` end to end::
 
-    identity = ClientIdentity.generate(0)
-    driver.pair(identity.uuid_bytes, identity.public_key_bytes, HAP_PERMISSIONS.ADMIN)
+    # A controller whose identity is persisted at controller.key: loaded
+    # back on later runs, created and saved on the first.
+    client = HAPClient.new_persistent(
+        filepath="controller.key", accessory_ltpk=accessory_ltpk_raw_bytes
+    )
+    driver.pair(
+        client.identity.uuid_bytes,
+        client.identity.public_key_bytes,
+        HAP_PERMISSIONS.ADMIN,
+    )
     # ... start the driver, then:
-    client = HAPClient(identity, accessory_ltpk_raw_bytes)
     await client.connect("127.0.0.1", port)
     frame = await client.get_accessories()
-
-To reconnect as the same controller after a restart, persist the identity
-yourself (UUID + private key, written 0600) and load it back::
-
-    identity.save("controller.key")
-    identity = ClientIdentity.load("controller.key")
 """
 
 from ..const import RESPONSE_TIMEOUT

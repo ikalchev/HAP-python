@@ -91,7 +91,10 @@ class HAPServerHarness:
 
     async def connect_identity(self, identity: ClientIdentity) -> HAPClient:
         """Connect an arbitrary identity, e.g. one loaded from disk."""
-        client = HAPClient(identity, self.accessory_ltpk)
+        return await self.connect_client(HAPClient(identity, self.accessory_ltpk))
+
+    async def connect_client(self, client: HAPClient) -> HAPClient:
+        """Connect an already-built client, e.g. from ``HAPClient.new_persistent``."""
         self.clients.append(client)
         await client.connect("127.0.0.1", self.port)
         return client

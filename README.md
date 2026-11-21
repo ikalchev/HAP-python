@@ -12,6 +12,7 @@ Main features:
 * **asyncio support** — run various tasks or accessories in the event loop.
 * **Out of the box support for Apple-defined services** — see them in [the resources folder](pyhap/resources).
 * **Secure pairing** — just scan a QR code, no manual codes to type in.
+* **HAP client included** — [pyhap/client](pyhap/client) is a controller that speaks the real protocol (pair-verify, encrypted transport, events) against a running accessory, handy for tests and benchmarks.
 * **Proven in production** — HAP-python powers the HomeKit integration of the home automation framework [Home Assistant](https://github.com/home-assistant/home-assistant).
 
 Full API documentation is available on [readthedocs](http://hap-python.readthedocs.io/).
