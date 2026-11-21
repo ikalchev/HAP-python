@@ -49,6 +49,7 @@ class HAPServerHarness:
         self.identities = identities
         self.accessory_ltpk = accessory_ltpk
         self.clients: list[HAPClient] = []
+        self._stopped = False
 
     @classmethod
     async def start(
@@ -86,13 +87,20 @@ class HAPServerHarness:
 
     async def connect(self, index: int = 0) -> HAPClient:
         """Connect pre-paired client ``index`` (pair-verify included)."""
-        client = HAPClient(self.identities[index], self.accessory_ltpk)
+        return await self.connect_identity(self.identities[index])
+
+    async def connect_identity(self, identity: ClientIdentity) -> HAPClient:
+        """Connect an arbitrary identity, e.g. one loaded from disk."""
+        client = HAPClient(identity, self.accessory_ltpk)
         self.clients.append(client)
         await client.connect("127.0.0.1", self.port)
         return client
 
     async def stop(self) -> None:
-        """Close all clients and stop the driver."""
+        """Close all clients and stop the driver. Idempotent."""
+        if self._stopped:
+            return
+        self._stopped = True
         for client in self.clients:
             await client.close()
         self.clients.clear()
@@ -106,15 +114,19 @@ async def make_hap_server(
     """Start a driver for the accessory built by the given factory.
 
     Usage: ``server = await make_hap_server(lambda driver: MyAccessory(driver))``.
-    Pass ``client_count=N`` to pre-pair N clients. Every started server is
-    stopped when the test ends.
+    Pass ``client_count=N`` to pre-pair N clients, and ``state_file`` to run
+    on a specific driver state file (e.g. to restart on the same one). Every
+    started server is stopped when the test ends.
     """
     harnesses: list[HAPServerHarness] = []
 
     async def _make(
-        accessory_factory: AccessoryFactory, client_count: int = 1
+        accessory_factory: AccessoryFactory,
+        client_count: int = 1,
+        state_file: pathlib.Path | None = None,
     ) -> HAPServerHarness:
-        state_file = tmp_path / f"accessory-{len(harnesses)}.state"
+        if state_file is None:
+            state_file = tmp_path / f"accessory-{len(harnesses)}.state"
         harness = await HAPServerHarness.start(
             accessory_factory, state_file, client_count
         )

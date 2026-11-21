@@ -24,8 +24,10 @@ Sections
   protocol - pair-verify, encrypted transport, characteristic reads/writes,
   event subscriptions and `EVENT` push frames. Moved out of
   `benchmarks/client.py` (now `pyhap.client.HAPClient`) and extended with
-  batch reads/writes, unsubscribe and raw event access. Covered by the new
-  integration tests in `tests/integration/`.
+  batch reads/writes, unsubscribe, raw event access and
+  `ClientIdentity.save`/`load` for persisting the controller identity (UUID
+  + private key, written atomically with 0600 permissions). Covered by the
+  new integration tests in `tests/integration/`.
 
 ### Fixed
 
