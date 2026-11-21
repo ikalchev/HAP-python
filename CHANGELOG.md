@@ -28,7 +28,9 @@ Sections
   `ClientIdentity.save`/`load` for persisting the controller identity (UUID
   + private key, written atomically with 0600 permissions), plus the
   `HAPClient.new_persistent(filepath=...)` convenience that loads the
-  identity from a file or creates and backs it up there. Covered by the new
+  identity from a file or creates and backs it up there. The accessory LTPK
+  is optional: pass it once to pin it in the file (trust on first use), or
+  omit it for an encrypted but unauthenticated session. Covered by the new
   integration tests in `tests/integration/`.
 
 ### Fixed

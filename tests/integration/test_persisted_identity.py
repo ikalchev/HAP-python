@@ -51,14 +51,14 @@ async def test_persisted_identity_reconnects_after_server_restart(
     await server.stop()
 
     # Restart: a new driver on the same state file, no new pairing. The same
-    # key file now yields the existing identity, which pair-verifies.
+    # key file now yields the existing identity (and the pinned accessory
+    # LTPK from the first run), which pair-verifies.
     restarted = await make_hap_server(
         build_switch, client_count=0, state_file=state_file
     )
-    client2 = HAPClient.new_persistent(
-        filepath=key_file, accessory_ltpk=restarted.accessory_ltpk
-    )
+    client2 = HAPClient.new_persistent(filepath=key_file)
     assert client2.identity.uuid == client.identity.uuid
+    assert client2.accessory_ltpk == server.accessory_ltpk
     assert ClientIdentity.load(key_file).public_key_bytes == (
         client.identity.public_key_bytes
     )

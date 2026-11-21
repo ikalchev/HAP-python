@@ -23,10 +23,10 @@ controller is recognized again after a restart:
     from pyhap.const import HAP_PERMISSIONS
 
     # Loads controller.key if it exists, otherwise creates a new identity
-    # and saves it there.
-    client = HAPClient.new_persistent(
-        filepath="controller.key", accessory_ltpk=accessory_ltpk_raw_bytes
-    )
+    # and saves it there. Pass accessory_ltpk=... once to pin the
+    # accessory's long-term key; without it the session is still encrypted,
+    # but the accessory is not authenticated.
+    client = HAPClient.new_persistent(filepath="controller.key")
     # Pair the identity once (bypasses the slow SRP pair-setup); the pairing
     # is stored in the accessory's own state file.
     driver.pair(

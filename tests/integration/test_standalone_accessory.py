@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import pathlib
 from typing import Any, cast
 
 import pytest
 
 from pyhap.client import ClientIdentity, HAPClient
-from pyhap.const import HAP_SERVER_STATUS, STANDALONE_AID
+from pyhap.const import HAP_PERMISSIONS, HAP_SERVER_STATUS, STANDALONE_AID
 
 from .helpers import (
     ACCESSORY_INFORMATION_TYPE,
@@ -82,3 +83,26 @@ async def test_unpaired_client_is_rejected_at_pair_verify(make_hap_server: Any) 
     server.clients.append(stranger)  # closed by the harness
     with pytest.raises(RuntimeError, match="pair-verify rejected"):
         await stranger.connect("127.0.0.1", server.port)
+
+
+async def test_client_connects_without_pinned_ltpk(
+    make_hap_server: Any, tmp_path: pathlib.Path
+) -> None:
+    """No LTPK needed: the session is encrypted, the accessory unverified."""
+    server = await make_hap_server(build_switch, client_count=0)
+    accessory = cast("SwitchAccessory", server.driver.accessory)
+    on_iid = iid_of(accessory, accessory.char_on)
+
+    client = HAPClient.new_persistent(filepath=tmp_path / "controller.key")
+    assert client.accessory_ltpk is None
+    server.driver.pair(
+        client.identity.uuid_bytes,
+        client.identity.public_key_bytes,
+        HAP_PERMISSIONS.ADMIN,
+    )
+    await server.connect_client(client)
+
+    frame = await client.write_characteristic(STANDALONE_AID, on_iid, True)
+    assert frame.status == 204
+    frame = await client.read_characteristic(STANDALONE_AID, on_iid)
+    assert characteristic_value(frame, STANDALONE_AID, on_iid) is True

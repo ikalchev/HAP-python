@@ -15,10 +15,9 @@ integration tests in ``tests/integration/`` to exercise a running
 :class:`pyhap.accessory_driver.AccessoryDriver` end to end::
 
     # A controller whose identity is persisted at controller.key: loaded
-    # back on later runs, created and saved on the first.
-    client = HAPClient.new_persistent(
-        filepath="controller.key", accessory_ltpk=accessory_ltpk_raw_bytes
-    )
+    # back on later runs, created and saved on the first. Pass
+    # accessory_ltpk=... once to pin the accessory's key for verification.
+    client = HAPClient.new_persistent(filepath="controller.key")
     driver.pair(
         client.identity.uuid_bytes,
         client.identity.public_key_bytes,

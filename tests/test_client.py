@@ -38,3 +38,24 @@ def test_new_persistent_loads_existing_identity(tmp_path: pathlib.Path) -> None:
     client = HAPClient.new_persistent(filepath=path, accessory_ltpk=_ltpk())
     assert client.identity.uuid == identity.uuid
     assert client.identity.public_key_bytes == identity.public_key_bytes
+
+
+def test_new_persistent_works_without_ltpk(tmp_path: pathlib.Path) -> None:
+    """No LTPK needed: the client is created and the session key still set up."""
+    path = tmp_path / "controller.key"
+    client = HAPClient.new_persistent(filepath=path)
+    assert client.accessory_ltpk is None
+    assert ClientIdentity.load(path).accessory_ltpk is None
+
+
+def test_new_persistent_pins_and_reuses_ltpk(tmp_path: pathlib.Path) -> None:
+    """A passed LTPK is pinned in the file; later calls pick it up from there."""
+    path = tmp_path / "controller.key"
+    ltpk = _ltpk()
+    first = HAPClient.new_persistent(filepath=path, accessory_ltpk=ltpk)
+    assert first.accessory_ltpk == ltpk
+    assert ClientIdentity.load(path).accessory_ltpk == ltpk
+
+    second = HAPClient.new_persistent(filepath=path)
+    assert second.accessory_ltpk == ltpk
+    assert second.identity.uuid == first.identity.uuid

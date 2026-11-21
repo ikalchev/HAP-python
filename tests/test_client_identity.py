@@ -1,11 +1,13 @@
 """Unit tests for ClientIdentity generation and persistence."""
 
+import dataclasses
 import json
 import os
 import pathlib
 import stat
 from typing import Any
 
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 import pytest
 
@@ -88,3 +90,28 @@ def test_from_dict_rejects_non_mapping() -> None:
     not_a_mapping: Any = ["not", "a", "mapping"]
     with pytest.raises(ValueError):
         ClientIdentity.from_dict(not_a_mapping)
+
+
+def test_accessory_ltpk_round_trip() -> None:
+    """A pinned accessory LTPK survives to_dict/from_dict and save/load."""
+    ltpk = (
+        ed25519.Ed25519PrivateKey.generate()
+        .public_key()
+        .public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    )
+    identity = ClientIdentity.generate(0)
+    pinned = dataclasses.replace(identity, accessory_ltpk=ltpk)
+    assert ClientIdentity.from_dict(pinned.to_dict()).accessory_ltpk == ltpk
+    assert "accessory_ltpk" in pinned.to_dict()
+    assert "accessory_ltpk" not in identity.to_dict()
+
+
+def test_from_dict_rejects_invalid_ltpk() -> None:
+    """A malformed pinned accessory LTPK raises ValueError."""
+    data = ClientIdentity.generate(0).to_dict()
+    data["accessory_ltpk"] = "zz"
+    with pytest.raises(ValueError):
+        ClientIdentity.from_dict(data)
+    data["accessory_ltpk"] = "00"  # valid hex, not a 32 byte key
+    with pytest.raises(ValueError):
+        ClientIdentity.from_dict(data)

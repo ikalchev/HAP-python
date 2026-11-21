@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import dataclasses
 from dataclasses import dataclass
 import json
 import os
@@ -29,10 +30,15 @@ class ClientIdentity:
     long-term key in a keychain. The accessory persists the pairing (the
     public key) in its own state file, so a saved identity reconnects as the
     same controller after a restart.
+
+    ``accessory_ltpk`` optionally pins the accessory's raw long-term public
+    key (trust on first use): a client with a pinned LTPK verifies the
+    accessory during pair-verify, one without does not.
     """
 
     uuid: str
     private_key: ed25519.Ed25519PrivateKey
+    accessory_ltpk: bytes | None = None
 
     @classmethod
     def generate(cls, index: int = 0) -> ClientIdentity:
@@ -65,17 +71,21 @@ class ClientIdentity:
 
         Holds the UUID and the raw private key (hex), plus the raw public
         key (hex), which :meth:`from_dict` checks against the private key.
+        The pinned accessory LTPK (hex) is included when set.
         """
         private_key_bytes = self.private_key.private_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PrivateFormat.Raw,
             encryption_algorithm=serialization.NoEncryption(),
         )
-        return {
+        data = {
             "uuid": self.uuid,
             "private_key": private_key_bytes.hex(),
             "public_key": self.public_key_bytes.hex(),
         }
+        if self.accessory_ltpk is not None:
+            data["accessory_ltpk"] = self.accessory_ltpk.hex()
+        return data
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ClientIdentity:
@@ -113,6 +123,14 @@ class ClientIdentity:
         identity = cls(uuid_str, private_key)
         if identity.public_key_bytes != public_key_bytes:
             raise ValueError("Client public key does not match the private key")
+        ltpk_hex = data.get("accessory_ltpk")
+        if ltpk_hex is not None:
+            try:
+                ltpk_bytes = bytes.fromhex(ltpk_hex)
+                ed25519.Ed25519PublicKey.from_public_bytes(ltpk_bytes)
+            except (TypeError, ValueError) as error:
+                raise ValueError("Invalid pinned accessory_ltpk") from error
+            identity = dataclasses.replace(identity, accessory_ltpk=ltpk_bytes)
         return identity
 
     def save(self, path: str | os.PathLike[str]) -> None:
