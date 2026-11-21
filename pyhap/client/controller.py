@@ -27,6 +27,7 @@ from ..hap_crypto import HAPCrypto, hap_hkdf, pad_tls_nonce
 from ..hap_handler import HAP_TLV_STATES, HAP_TLV_TAGS
 from .identity import ClientIdentity
 from .protocol import HAP_CONTENT_TYPE, PAIRING_CONTENT_TYPE, Frame, parse_frame
+from .state import load_accessory_ltpk
 
 logger = logging.getLogger(__name__)
 
@@ -44,20 +45,31 @@ class HAPClient:
     """
 
     def __init__(
-        self, identity: ClientIdentity, accessory_ltpk: bytes | None = None
+        self,
+        identity: ClientIdentity,
+        accessory_ltpk: bytes | None = None,
+        *,
+        accessory_state: str | os.PathLike[str] | None = None,
     ) -> None:
         """Initialize the controller for a given pairing identity.
 
         :param identity: The long-term identity the server is paired with.
         :param accessory_ltpk: Raw long-term public key of the accessory,
-            used to verify the server during pair-verify. Defaults to the
-            LTPK pinned in ``identity.accessory_ltpk``. When neither is
-            given, the accessory's signature is not verified: the session is
-            still encrypted, but the accessory is unauthenticated.
+            used to verify the server during pair-verify.
+        :param accessory_state: Path to the accessory's ``accessory.state``
+            file (e.g. copied from the accessory machine); its LTPK is read
+            from there. Used when ``accessory_ltpk`` is not given. If neither
+            is given, the LTPK pinned in ``identity.accessory_ltpk`` is used;
+            when none is available at all, the accessory's signature is not
+            verified: the session is still encrypted, but the accessory is
+            unauthenticated.
         """
         self._identity = identity
-        ltpk = accessory_ltpk if accessory_ltpk is not None else identity.accessory_ltpk
-        self._accessory_ltpk = ltpk
+        if accessory_ltpk is None and accessory_state is not None:
+            accessory_ltpk = load_accessory_ltpk(accessory_state)
+        if accessory_ltpk is None:
+            accessory_ltpk = identity.accessory_ltpk
+        self._accessory_ltpk = accessory_ltpk
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._read_task: asyncio.Task[None] | None = None
@@ -70,7 +82,11 @@ class HAPClient:
 
     @classmethod
     def new_persistent(
-        cls, *, filepath: str | os.PathLike[str], accessory_ltpk: bytes | None = None
+        cls,
+        *,
+        filepath: str | os.PathLike[str],
+        accessory_ltpk: bytes | None = None,
+        accessory_state: str | os.PathLike[str] | None = None,
     ) -> HAPClient:
         """Create a client whose identity is persisted at ``filepath``.
 
@@ -81,23 +97,28 @@ class HAPClient:
         accessory's state file); afterwards the client reconnects as the same
         controller after restarts.
 
-        An ``accessory_ltpk`` passed here is pinned in the file (trust on
-        first use): later calls without it verify the accessory against the
-        pinned key. Without any LTPK the session is encrypted but the
-        accessory is not authenticated.
+        The accessory LTPK is resolved from, in order: ``accessory_ltpk``,
+        ``accessory_state`` (an ``accessory.state`` file, e.g. copied from
+        the accessory machine), or the key pinned in ``filepath``. A resolved
+        LTPK is pinned into ``filepath`` (trust on first use), so later calls
+        verify the accessory against it. Without any LTPK the session is
+        encrypted but the accessory is not authenticated.
         """
         path = os.path.expanduser(os.fspath(filepath))
         if os.path.exists(path):
             identity = ClientIdentity.load(path)
-            if accessory_ltpk is not None and identity.accessory_ltpk != accessory_ltpk:
-                identity = replace(identity, accessory_ltpk=accessory_ltpk)
-                identity.save(path)
         else:
             identity = ClientIdentity.generate()
-            if accessory_ltpk is not None:
-                identity = replace(identity, accessory_ltpk=accessory_ltpk)
             identity.save(path)
-        return cls(identity, accessory_ltpk)
+        ltpk = accessory_ltpk
+        if ltpk is None and accessory_state is not None:
+            ltpk = load_accessory_ltpk(accessory_state)
+        if ltpk is None:
+            ltpk = identity.accessory_ltpk
+        if ltpk is not None and identity.accessory_ltpk != ltpk:
+            identity = replace(identity, accessory_ltpk=ltpk)
+            identity.save(path)
+        return cls(identity, ltpk)
 
     @property
     def identity(self) -> ClientIdentity:

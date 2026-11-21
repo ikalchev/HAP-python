@@ -106,3 +106,25 @@ async def test_client_connects_without_pinned_ltpk(
     assert frame.status == 204
     frame = await client.read_characteristic(STANDALONE_AID, on_iid)
     assert characteristic_value(frame, STANDALONE_AID, on_iid) is True
+
+
+async def test_client_pins_ltpk_from_accessory_state_file(
+    make_hap_server: Any, tmp_path: pathlib.Path
+) -> None:
+    """accessory_state= reads the LTPK from the driver's state file and pins it."""
+    state_file = tmp_path / "accessory.state"
+    server = await make_hap_server(build_switch, client_count=0, state_file=state_file)
+
+    client = HAPClient.new_persistent(
+        filepath=tmp_path / "controller.key", accessory_state=state_file
+    )
+    assert client.accessory_ltpk == server.accessory_ltpk
+    server.driver.pair(
+        client.identity.uuid_bytes,
+        client.identity.public_key_bytes,
+        HAP_PERMISSIONS.ADMIN,
+    )
+    await server.connect_client(client)
+
+    frame = await client.get_accessories()
+    assert frame.status == 200

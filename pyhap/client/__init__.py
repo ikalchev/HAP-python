@@ -16,7 +16,9 @@ integration tests in ``tests/integration/`` to exercise a running
 
     # A controller whose identity is persisted at controller.key: loaded
     # back on later runs, created and saved on the first. Pass
-    # accessory_ltpk=... once to pin the accessory's key for verification.
+    # accessory_ltpk=... or accessory_state="accessory.state" once to pin
+    # the accessory's key for verification (on another machine, point
+    # accessory_state at a copy of the accessory's state file).
     client = HAPClient.new_persistent(filepath="controller.key")
     driver.pair(
         client.identity.uuid_bytes,
@@ -32,11 +34,13 @@ from ..const import RESPONSE_TIMEOUT
 from .controller import HAPClient
 from .identity import ClientIdentity
 from .protocol import Frame, parse_frame
+from .state import load_accessory_ltpk
 
 __all__ = [
     "RESPONSE_TIMEOUT",
     "ClientIdentity",
     "Frame",
     "HAPClient",
+    "load_accessory_ltpk",
     "parse_frame",
 ]
