@@ -14,6 +14,7 @@ import pylibsrtp
 import pytest
 
 from pyhap import camera, tlv
+from pyhap.camera_talkback import TalkbackReceiverProtocol
 
 # A Setup Endpoints request of a controller at 192.168.1.114.
 _SETUP_ENDPOINTS_REQUEST = (
@@ -330,6 +331,50 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver: Any) -> No
     finally:
         sock.close()
         receiver.stop()
+
+
+def test_custom_talkback_receiver(mock_driver: Any) -> None:
+    local_port_mock = Mock()
+    start_mock = Mock()
+    stop_mock = Mock()
+
+    class CustomReceiver:
+        @property
+        def local_port(self) -> int:
+            local_port_mock()
+            return 12345
+
+        def start(self) -> None:
+            start_mock()
+
+        def stop(self) -> None:
+            stop_mock()
+
+    class CustomCamera(camera.Camera):
+        def create_talkback_receiver(
+            self,
+            session_id: UUID,
+            srtp_key_and_salt: bytes,
+            is_ipv6: bool,
+            controller_address: str | None,
+        ) -> TalkbackReceiverProtocol:
+            return CustomReceiver()
+
+    options = dict(_OPTIONS, talkback=True)
+    acc = CustomCamera(options, mock_driver, "Camera")
+    management = acc.get_service("CameraRTPStreamManagement")
+    assert management is not None
+    setup_endpoints = management.get_characteristic("SetupEndpoints")
+    setup_endpoints.client_update_value(_SETUP_ENDPOINTS_REQUEST)
+
+    session_id = list(acc.sessions)[0]
+    receiver = acc.sessions[session_id]["audio_backchannel"]
+    assert isinstance(receiver, CustomReceiver)
+    acc._close_talkback(acc.sessions[session_id])
+
+    local_port_mock.assert_called()
+    start_mock.assert_called_once()
+    stop_mock.assert_called_once()
 
 
 @pytest.mark.asyncio
