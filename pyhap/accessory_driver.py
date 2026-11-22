@@ -811,10 +811,6 @@ class AccessoryDriver:
         """Updates the mDNS service info for the accessory."""
         self.loop.call_soon_threadsafe(self.async_update_advertisement)
 
-    async def _async_update_service(self) -> None:
-        """Update the mDNS service and wait for the broadcast to finish."""
-        await (await self.advertiser.async_update_service(self.mdns_service_info))
-
     @callback
     def async_update_advertisement(self) -> None:
         """Updates the mDNS service info for the accessory from the event loop."""
@@ -826,7 +822,15 @@ class AccessoryDriver:
         self.mdns_service_info = AccessoryMDNSServiceInfo(
             self.accessory, self.state, self.zeroconf_server
         )
-        util.async_create_background_task(self._async_update_service())
+        util.async_create_background_task(
+            self._async_update_service(self.advertiser, self.mdns_service_info)
+        )
+
+    async def _async_update_service(
+        self, advertiser: AsyncZeroconf, info: ServiceInfo
+    ) -> None:
+        """Update the mDNS service and wait for the broadcast to finish."""
+        await (await advertiser.async_update_service(info))
 
     def accessory_state(self, aid: int) -> dict[str, Any]:
         """Return the persisted state dict of accessory ``aid``.
