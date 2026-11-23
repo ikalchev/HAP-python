@@ -34,7 +34,11 @@ Sections
   `load_accessory_ltpk`) to pin it in the file (trust on first use; a
   conflicting pinned LTPK raises `ValueError` — migrating to another
   accessory means editing the client file), or
-  omit it for an encrypted but unauthenticated session. The API docs spell
+  omit it for an encrypted but unauthenticated session. Also
+  `add_client_pairing(state_file, identity)` registers a client identity in
+  the accessory's `accessory.state` offline (atomic write, no driver
+  needed), for running the client on a different machine than the
+  accessory. The API docs spell
   out the pairing assumptions (pair-verify only; pair the identity with
   `AccessoryDriver.pair` first) and the cross-machine steps. Covered by the
   new integration tests in `tests/integration/`.

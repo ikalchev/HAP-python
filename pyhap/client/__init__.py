@@ -34,13 +34,14 @@ from ..const import RESPONSE_TIMEOUT
 from .controller import HAPClient
 from .identity import ClientIdentity
 from .protocol import Frame, parse_frame
-from .state import load_accessory_ltpk
+from .state import add_client_pairing, load_accessory_ltpk
 
 __all__ = [
     "RESPONSE_TIMEOUT",
     "ClientIdentity",
     "Frame",
     "HAPClient",
+    "add_client_pairing",
     "load_accessory_ltpk",
     "parse_frame",
 ]

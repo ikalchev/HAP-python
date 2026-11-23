@@ -1,12 +1,20 @@
-"""Unit tests for HAPClient construction helpers."""
+"""Unit tests for HAPClient construction helpers and state-file tooling."""
 
+import os
 import pathlib
+import stat
+import uuid
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 import pytest
 
-from pyhap.client import ClientIdentity, HAPClient, load_accessory_ltpk
+from pyhap.client import (
+    ClientIdentity,
+    HAPClient,
+    add_client_pairing,
+    load_accessory_ltpk,
+)
 from pyhap.encoder import AccessoryEncoder
 from pyhap.state import State
 
@@ -108,6 +116,39 @@ def test_new_persistent_pins_ltpk_from_accessory_state(
     again = HAPClient.new_persistent(filepath=key_file)
     assert again.accessory_ltpk == expected
     assert again.identity.uuid == client.identity.uuid
+
+
+def test_add_client_pairing(tmp_path: pathlib.Path) -> None:
+    """A client identity can be registered in accessory.state offline."""
+    state_file = tmp_path / "accessory.state"
+    _write_state_file(state_file)
+    identity = ClientIdentity.generate(9)
+
+    add_client_pairing(state_file, identity)
+    add_client_pairing(state_file, identity)  # idempotent
+
+    state = State(address="127.0.0.1")
+    with open(state_file, encoding="utf-8") as file_handle:
+        AccessoryEncoder().load_into(file_handle, state)
+    client_uuid = uuid.UUID(identity.uuid)
+    assert len(state.paired_clients) == 1
+    assert state.paired_clients[client_uuid] == identity.public_key_bytes
+    assert state.is_admin(client_uuid)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file permissions")
+def test_add_client_pairing_keeps_file_private(tmp_path: pathlib.Path) -> None:
+    """The rewritten state file stays 0600 (atomic tempfile write)."""
+    state_file = tmp_path / "accessory.state"
+    _write_state_file(state_file)
+    add_client_pairing(state_file, ClientIdentity.generate(9))
+    assert stat.S_IMODE(os.stat(state_file).st_mode) == 0o600
+
+
+def test_add_client_pairing_missing_file(tmp_path: pathlib.Path) -> None:
+    """A missing state file raises OSError."""
+    with pytest.raises(OSError):
+        add_client_pairing(tmp_path / "nope.state", ClientIdentity.generate(9))
 
 
 def test_new_persistent_rejects_conflicting_ltpk(tmp_path: pathlib.Path) -> None:

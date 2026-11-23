@@ -61,20 +61,38 @@ Two things must therefore already exist when you connect:
 Running the client on a different machine than the accessory
 -------------------------------------------------------------
 
-1. On the accessory machine, pair the client identity once (``driver.pair``
-   as above, or add it in the Home app).
-2. Move only the accessory's *public* key to the client machine — do not
-   copy the whole ``accessory.state``, it contains the accessory's private
-   key. Read the public key out with :func:`pyhap.client.load_accessory_ltpk`
-   (or take the ``"public_key"`` hex field of the file), and pass the state
-   file's path once; the key is then pinned in the client file, so only
-   ``controller.key`` is needed afterwards::
+1. On the client machine, create the persistent identity once and copy
+   ``controller.key`` to the accessory machine (it holds the client's
+   private key — only copy it to machines you trust)::
+
+       client = HAPClient.new_persistent(filepath="controller.key")
+
+2. On the accessory machine, with the accessory **stopped** (a running
+   driver keeps its state in memory and would overwrite the edit on its
+   next persist), register the identity in the state file offline — no
+   driver needed::
+
+       from pyhap.client import ClientIdentity, add_client_pairing
+
+       add_client_pairing("accessory.state", ClientIdentity.load("controller.key"))
+
+   Then start the accessory again; it loads the updated ``accessory.state``.
+   While the driver is running, ``driver.pair(...)`` (above) does the same
+   in-process; an already-paired admin can also add pairings remotely via
+   the ``/pairings`` endpoint, which this client does not implement.
+3. On the client machine, move only the accessory's *public* key back — do
+   not copy the whole ``accessory.state``, it contains the accessory's
+   private key (read just the public key out with
+   :func:`pyhap.client.load_accessory_ltpk`, or copy the file and pass it
+   once). The key is then pinned in the client file, so only
+   ``controller.key`` is needed afterwards. The state file does not store
+   the port, so pass host:port explicitly::
 
        client = HAPClient.new_persistent(
            filepath="controller.key",
-           accessory_state="/path/to/accessory.state",  # copied from the accessory machine
+           accessory_state="accessory.state",  # copied from the accessory machine
        )
-       await client.connect("192.168.1.50", 51826)
+       await client.connect("192.168.1.50", 51827)
 
 Example
 =======

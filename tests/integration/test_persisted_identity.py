@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import pytest
 
-from pyhap.client import ClientIdentity, HAPClient
+from pyhap.client import ClientIdentity, HAPClient, add_client_pairing
 from pyhap.const import HAP_PERMISSIONS, STANDALONE_AID
 
 from .helpers import SwitchAccessory, build_switch, iid_of
@@ -70,3 +70,31 @@ async def test_persisted_identity_reconnects_after_server_restart(
     assert frame.status == 200
     frame = await client2.write_characteristic(STANDALONE_AID, on_iid2, True)
     assert frame.status == 204
+
+
+async def test_pairing_added_offline_via_state_file(
+    make_hap_server: Any, tmp_path: pathlib.Path
+) -> None:
+    """Two-machine flow: pairing added to accessory.state, no driver running."""
+    state_file = tmp_path / "accessory.state"
+    key_file = tmp_path / "controller.key"
+
+    # The accessory runs once, creating its state file, then stops.
+    server = await make_hap_server(build_switch, client_count=0, state_file=state_file)
+    await server.stop()
+
+    # "Client machine": create the persistent identity.
+    client = HAPClient.new_persistent(filepath=key_file)
+    # "Accessory machine", offline: register the identity in accessory.state.
+    add_client_pairing(state_file, client.identity)
+    # Back on the "client machine": pin the accessory LTPK from the state file.
+    client = HAPClient.new_persistent(filepath=key_file, accessory_state=state_file)
+    assert client.accessory_ltpk is not None
+
+    # The accessory restarts with the updated state file; the client pair-verifies.
+    restarted = await make_hap_server(
+        build_switch, client_count=0, state_file=state_file
+    )
+    await restarted.connect_client(client)
+    frame = await client.get_accessories()
+    assert frame.status == 200
