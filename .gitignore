@@ -34,3 +34,4 @@ pip-selfcheck.json
 # HAP-python-generated files
 accessory.pickle
 /*.state
+examples/*.state
