@@ -44,7 +44,10 @@ Two things must therefore already exist when you connect:
    Against a remote accessory you do not control, a pairing can only be
    added by pair-setup (not implemented in the client) or by an
    already-paired admin through the ``/pairings`` endpoint (also not
-   implemented) — otherwise pair-verify is rejected.
+   implemented) — otherwise pair-verify is rejected. To pair a client with
+   an accessory on another machine without a running driver, use the
+   command line interface (``python -m pyhap.client``, see the first
+   example below) or :func:`pyhap.client.add_client_pairing`.
 
 2. **The accessory LTPK is optional, but recommended.** The LTPK is the
    accessory's long-term public key, used to verify the accessory during
@@ -61,41 +64,54 @@ Two things must therefore already exist when you connect:
 Running the client on a different machine than the accessory
 -------------------------------------------------------------
 
-1. On the client machine, create the persistent identity once and copy
-   ``controller.key`` to the accessory machine (it holds the client's
-   private key — only copy it to machines you trust)::
-
-       client = HAPClient.new_persistent(filepath="controller.key")
-
-2. On the accessory machine, with the accessory **stopped** (a running
-   driver keeps its state in memory and would overwrite the edit on its
-   next persist), register the identity in the state file offline — no
-   driver needed::
-
-       from pyhap.client import ClientIdentity, add_client_pairing
-
-       add_client_pairing("accessory.state", ClientIdentity.load("controller.key"))
-
-   Then start the accessory again; it loads the updated ``accessory.state``.
-   While the driver is running, ``driver.pair(...)`` (above) does the same
-   in-process; an already-paired admin can also add pairings remotely via
-   the ``/pairings`` endpoint, which this client does not implement.
-3. On the client machine, move only the accessory's *public* key back — do
-   not copy the whole ``accessory.state``, it contains the accessory's
-   private key (read just the public key out with
-   :func:`pyhap.client.load_accessory_ltpk`, or copy the file and pass it
-   once). The key is then pinned in the client file, so only
-   ``controller.key`` is needed afterwards. The state file does not store
-   the port, so pass host:port explicitly::
-
-       client = HAPClient.new_persistent(
-           filepath="controller.key",
-           accessory_state="accessory.state",  # copied from the accessory machine
-       )
-       await client.connect("192.168.1.50", 51827)
+Use the command line interface (see the first example below): on the client
+machine ``python -m pyhap.client new -f client.state`` creates the identity
+and prints a small JSON file (uuid + public key only — copy *that* to the
+accessory machine, never ``client.state`` itself, it holds the private key);
+on the accessory machine, with the accessory **stopped** (a running driver
+would overwrite the edit on its next persist), run ``python -m pyhap.client
+register -f client.json -a accessory.state``. Then start the accessory again
+and connect from the client machine. The programmatic equivalent of
+``register`` is :func:`pyhap.client.add_client_pairing`.
 
 Example
 =======
+
+Command line (recommended when the client runs on another machine)
+------------------------------------------------------------------
+
+Create a persistent controller identity on the client machine — the command
+prints the JSON to hand to the accessory machine:
+
+.. code-block:: console
+
+    $ python -m pyhap.client new -f client.state
+    Creating new HAP controller in file "client.state"...
+    Done!
+
+    On the machine where your accessory is running create a file with the
+    following contents:
+
+    {
+        "uuid": "...",
+        "public_key": "..."
+    }
+
+    and run `python -m pyhap.client register -f <the above file> -a <accessory state file>`.
+    ...
+
+On the accessory machine (accessory stopped), register the controller, and
+list or remove paired controllers:
+
+.. code-block:: console
+
+    $ python -m pyhap.client register -f client.json -a accessory.state
+    $ python -m pyhap.client list -a accessory.state
+    123e4567-e89b-12d3-a456-426614174000: admin
+    $ python -m pyhap.client deregister -a accessory.state 123e4567-e89b-12d3-a456-426614174000 --yes
+
+Programmatic (same machine, or full control)
+--------------------------------------------
 
 Host an accessory and drive it with a client in the same process.
 ``advertise=False`` runs the HAP server *without* the mDNS advertisement
@@ -133,7 +149,9 @@ local setups can skip it):
 Against an already-running accessory (e.g. on another machine) there is no
 driver to instantiate: pass the accessory's state file once to pin its LTPK
 (see the section above), and connect to its host:port explicitly — the state
-file stores the keys and pairings but not the port::
+file stores the keys and pairings but not the port:
+
+.. code-block:: python
 
     client = HAPClient.new_persistent(
         filepath="controller.key",

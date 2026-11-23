@@ -42,6 +42,15 @@ Sections
   out the pairing assumptions (pair-verify only; pair the identity with
   `AccessoryDriver.pair` first) and the cross-machine steps. Covered by the
   new integration tests in `tests/integration/`.
+- `python -m pyhap.client` CLI for offline controller management:
+  `new -f client.state` creates a persistent controller identity and prints
+  the public (uuid + public key) JSON to register elsewhere; `register -f
+  client.json -a accessory.state` adds the pairing to the accessory's state
+  file without a running driver; `list -a accessory.state` prints
+  `<uuid>: <permissions>`; `deregister -a accessory.state <uuid> [--yes]`
+  removes a pairing (guarded, since removing the last admin wipes all
+  pairings). Also `load_accessory_state`/`save_accessory_state`/
+  `remove_client_pairing` in `pyhap.client` for the programmatic equivalent.
 
 ### Fixed
 

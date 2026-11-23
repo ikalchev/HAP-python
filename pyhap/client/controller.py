@@ -194,6 +194,12 @@ class HAPClient:
         answer = tlv.decode(response.body)
         if answer.get(HAP_TLV_TAGS.SEQUENCE_NUM) != HAP_TLV_STATES.M2:
             raise RuntimeError(f"Unexpected pair-verify response: {answer!r}")
+        if HAP_TLV_TAGS.ERROR_CODE in answer:
+            # A completely unpaired accessory rejects already at M2.
+            raise RuntimeError(
+                f"{self.name}: pair-verify rejected by the accessory: "
+                f"{answer[HAP_TLV_TAGS.ERROR_CODE]!r}"
+            )
 
         server_ephemeral_public = answer[HAP_TLV_TAGS.PUBLIC_KEY]
         shared_key = ephemeral_private.exchange(

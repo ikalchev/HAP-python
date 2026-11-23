@@ -34,7 +34,13 @@ from ..const import RESPONSE_TIMEOUT
 from .controller import HAPClient
 from .identity import ClientIdentity
 from .protocol import Frame, parse_frame
-from .state import add_client_pairing, load_accessory_ltpk
+from .state import (
+    add_client_pairing,
+    load_accessory_ltpk,
+    load_accessory_state,
+    remove_client_pairing,
+    save_accessory_state,
+)
 
 __all__ = [
     "RESPONSE_TIMEOUT",
@@ -43,5 +49,8 @@ __all__ = [
     "HAPClient",
     "add_client_pairing",
     "load_accessory_ltpk",
+    "load_accessory_state",
     "parse_frame",
+    "remove_client_pairing",
+    "save_accessory_state",
 ]
