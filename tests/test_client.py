@@ -16,7 +16,10 @@ from pyhap.client import (
     add_client_pairing,
     cli,
     load_accessory_ltpk,
+    remove_client_pairing,
+    save_accessory_state,
 )
+from pyhap.const import HAP_PERMISSIONS
 from pyhap.encoder import AccessoryEncoder
 from pyhap.state import State
 
@@ -153,6 +156,75 @@ def test_add_client_pairing_missing_file(tmp_path: pathlib.Path) -> None:
         add_client_pairing(tmp_path / "nope.state", ClientIdentity.generate(9))
 
 
+def test_add_client_pairing_uuid_requires_public_key(tmp_path: pathlib.Path) -> None:
+    """A bare UUID without a public key is rejected before touching the file."""
+    state_file = tmp_path / "accessory.state"
+    _write_state_file(state_file)
+    with pytest.raises(ValueError, match="client_public_key is required"):
+        add_client_pairing(state_file, str(uuid.uuid4()))
+
+
+def test_add_client_pairing_rejects_invalid_uuid(tmp_path: pathlib.Path) -> None:
+    """A client string that is not a UUID raises ValueError."""
+    state_file = tmp_path / "accessory.state"
+    _write_state_file(state_file)
+    with pytest.raises(ValueError):
+        add_client_pairing(state_file, "not-a-uuid", b"\x00" * 32)
+
+
+def test_add_client_pairing_rejects_invalid_public_key(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Public key bytes that are not a valid Ed25519 key raise ValueError."""
+    state_file = tmp_path / "accessory.state"
+    _write_state_file(state_file)
+    with pytest.raises(ValueError):
+        add_client_pairing(state_file, str(uuid.uuid4()), b"not-a-key")
+
+
+def test_remove_client_pairing(tmp_path: pathlib.Path) -> None:
+    """A registered client can be removed again; removing twice raises."""
+    state_file = tmp_path / "accessory.state"
+    _write_state_file(state_file)
+    identity = ClientIdentity.generate(9)
+    add_client_pairing(state_file, identity)
+
+    remove_client_pairing(state_file, identity.uuid)
+
+    state = State(address="127.0.0.1")
+    with open(state_file, encoding="utf-8") as file_handle:
+        AccessoryEncoder().load_into(file_handle, state)
+    assert not state.paired_clients
+    with pytest.raises(ValueError, match="not a paired client"):
+        remove_client_pairing(state_file, identity.uuid)
+
+
+def test_remove_client_pairing_unknown_uuid(tmp_path: pathlib.Path) -> None:
+    """Removing a client that is not paired raises ValueError."""
+    state_file = tmp_path / "accessory.state"
+    _write_state_file(state_file)
+    with pytest.raises(ValueError, match="not a paired client"):
+        remove_client_pairing(state_file, uuid.uuid4())
+
+
+def test_save_accessory_state_cleans_up_tempfile_on_failure(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the atomic rename fails, the tempfile is removed and the file kept."""
+    state_file = tmp_path / "accessory.state"
+    _write_state_file(state_file)
+    original = state_file.read_bytes()
+
+    def fail_replace(src: str, dst: str) -> None:
+        raise OSError("simulated rename failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated rename failure"):
+        save_accessory_state(state_file, State(address="127.0.0.1"))
+    assert [path.name for path in tmp_path.iterdir()] == ["accessory.state"]
+    assert state_file.read_bytes() == original
+
+
 def test_cli_new_register_list_deregister(
     tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -215,3 +287,61 @@ def test_new_persistent_rejects_conflicting_ltpk(tmp_path: pathlib.Path) -> None
     with pytest.raises(ValueError, match="different accessory LTPK"):
         HAPClient.new_persistent(filepath=path, accessory_ltpk=_ltpk())
     assert ClientIdentity.load(path).accessory_ltpk == first.accessory_ltpk
+
+
+def test_permissions_bytes_names() -> None:
+    """The permission names map to their wire bytes; anything else raises."""
+    assert cli._permissions_bytes("admin") == HAP_PERMISSIONS.ADMIN
+    assert cli._permissions_bytes("user") == HAP_PERMISSIONS.USER
+    with pytest.raises(ValueError, match="unknown permissions"):
+        cli._permissions_bytes("bogus")
+
+
+def _write_register_file(
+    tmp_path: pathlib.Path, identity: ClientIdentity
+) -> pathlib.Path:
+    """Write the JSON file ``new`` prints, for ``register -f``."""
+    register_file = tmp_path / "client.json"
+    register_file.write_text(
+        json.dumps(
+            {"uuid": identity.uuid, "public_key": identity.public_key_bytes.hex()}
+        ),
+        encoding="utf-8",
+    )
+    return register_file
+
+
+def test_cli_register_with_user_permissions(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``register -p user`` stores a non-admin pairing, shown by ``list``."""
+    state_file = tmp_path / "accessory.state"
+    _write_state_file(state_file)
+    identity = ClientIdentity.generate(4)
+    register_file = _write_register_file(tmp_path, identity)
+
+    assert (
+        cli.main(
+            ["register", "-f", str(register_file), "-a", str(state_file), "-p", "user"]
+        )
+        == 0
+    )
+    assert "(user)" in capsys.readouterr().out
+    assert cli.main(["list", "-a", str(state_file)]) == 0
+    assert f"{identity.uuid}: user" in capsys.readouterr().out
+
+
+def test_cli_register_rejects_unknown_permissions_in_file(
+    tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ``permissions`` field in the register file that is not admin/user exits 1."""
+    state_file = tmp_path / "accessory.state"
+    _write_state_file(state_file)
+    identity = ClientIdentity.generate(4)
+    register_file = _write_register_file(tmp_path, identity)
+    data = json.loads(register_file.read_text(encoding="utf-8"))
+    data["permissions"] = "bogus"
+    register_file.write_text(json.dumps(data), encoding="utf-8")
+
+    assert cli.main(["register", "-f", str(register_file), "-a", str(state_file)]) == 1
+    assert "unknown permissions" in capsys.readouterr().err

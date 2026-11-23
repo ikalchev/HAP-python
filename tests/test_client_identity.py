@@ -62,6 +62,23 @@ def test_save_overwrites_existing_file(tmp_path: pathlib.Path) -> None:
     assert ClientIdentity.load(path).to_dict() == identity.to_dict()
 
 
+def test_save_cleans_up_tempfile_on_failure(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If the atomic rename fails, the tempfile is removed and the file kept."""
+    path = tmp_path / "controller.key"
+    path.write_text("old contents", encoding="utf-8")
+
+    def fail_replace(src: str, dst: str) -> None:
+        raise OSError("simulated rename failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(OSError, match="simulated rename failure"):
+        ClientIdentity.generate(0).save(path)
+    assert [entry.name for entry in tmp_path.iterdir()] == ["controller.key"]
+    assert path.read_text(encoding="utf-8") == "old contents"
+
+
 def test_load_rejects_malformed_files(tmp_path: pathlib.Path) -> None:
     """Corrupt or incomplete identity files raise ValueError."""
     path = tmp_path / "bad.key"
@@ -73,6 +90,7 @@ def test_load_rejects_malformed_files(tmp_path: pathlib.Path) -> None:
     mutations = [
         lambda data: data.pop("private_key"),
         lambda data: data.update(uuid="not-a-uuid"),
+        lambda data: data.update(uuid=123),
         lambda data: data.update(private_key="zz"),
         lambda data: data.update(private_key="00"),
         lambda data: data.update(public_key="00" * 32),
