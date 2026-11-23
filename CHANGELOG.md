@@ -18,6 +18,40 @@ Sections
 
 ## [Unreleased]
 
+### Added
+
+- `pyhap.client`: a HAP client (controller) package speaking the real
+  protocol - pair-verify, encrypted transport, characteristic reads/writes,
+  event subscriptions and `EVENT` push frames. Moved out of
+  `benchmarks/client.py` (now `pyhap.client.HAPClient`) and extended with
+  batch reads/writes, unsubscribe, raw event access and
+  `ClientIdentity.save`/`load` for persisting the controller identity (UUID
+  + private key, written atomically with 0600 permissions), plus the
+  `HAPClient.new_persistent(filepath=...)` convenience that loads the
+  identity from a file or creates and backs it up there. The accessory LTPK
+  is optional: pass it once (raw bytes via `accessory_ltpk=`, or read from
+  the accessory's state file via `accessory_state=` /
+  `load_accessory_ltpk`) to pin it in the file (trust on first use; a
+  conflicting pinned LTPK raises `ValueError` — migrating to another
+  accessory means editing the client file), or
+  omit it for an encrypted but unauthenticated session. Also
+  `add_client_pairing(state_file, identity)` registers a client identity in
+  the accessory's `accessory.state` offline (atomic write, no driver
+  needed), for running the client on a different machine than the
+  accessory. The API docs spell
+  out the pairing assumptions (pair-verify only; pair the identity with
+  `AccessoryDriver.pair` first) and the cross-machine steps. Covered by the
+  new integration tests in `tests/integration/`.
+- `python -m pyhap.client` CLI for offline controller management:
+  `new -f client.state` creates a persistent controller identity and prints
+  the public (uuid + public key) JSON to register elsewhere; `register -f
+  client.json -a accessory.state` adds the pairing to the accessory's state
+  file without a running driver; `list -a accessory.state` prints
+  `<uuid>: <permissions>`; `deregister -a accessory.state <uuid> [--yes]`
+  removes a pairing (guarded, since removing the last admin wipes all
+  pairings). Also `load_accessory_state`/`save_accessory_state`/
+  `remove_client_pairing` in `pyhap.client` for the programmatic equivalent.
+
 ### Fixed
 
 - Drop the write response of a coroutine setter that answers only after its

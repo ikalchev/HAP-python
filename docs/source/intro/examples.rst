@@ -52,3 +52,15 @@ of the tutorial's sensor.
 For cameras, start from ``accessories/camera_main.py``: the options dict
 describes what the camera supports, and HAP-python negotiates the sessions
 (see :doc:`/media/camera`).
+
+Driving an accessory from Python
+--------------------------------
+
+The ``examples/client`` directory of the repository shows the other
+direction: a :doc:`HAP client </api/client>` (``pyhap.client.HAPClient``)
+connecting to an accessory over the real HAP protocol.
+``examples/client/lightbulb_accessory.py`` runs a small Lightbulb accessory
+and ``examples/client/control_lightbulb.py`` toggles its ``On``
+characteristic from a controller with a persistent identity — see
+``examples/client/README.md`` for the same-machine and two-machine
+workflows.
