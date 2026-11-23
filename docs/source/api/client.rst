@@ -79,33 +79,49 @@ Running the client on a different machine than the accessory
 Example
 =======
 
-Drive a running accessory as a controller, with the identity persisted so the
-controller is recognized again after a restart:
+Host an accessory and drive it with a client in the same process.
+``advertise=False`` runs the HAP server *without* the mDNS advertisement
+(a real deployment advertises, so the Home app can discover it; tests and
+local setups can skip it):
 
 .. code-block:: python
 
+    from pyhap.accessory_driver import AccessoryDriver
     from pyhap.client import HAPClient
     from pyhap.const import HAP_PERMISSIONS
 
+    driver = AccessoryDriver(port=51827, advertise=False)  # HAP server only, no mDNS
+    driver.add_accessory(MyAccessory(driver, "My Accessory"))  # your Accessory subclass
+
     # Loads controller.key if it exists, otherwise creates a new identity
-    # and saves it there. Pass accessory_ltpk=... or accessory_state=... once
-    # to pin the accessory's long-term key for verification; without it the
-    # session is still encrypted, but the accessory is not authenticated.
+    # and saves it there. Pair the identity once (bypasses the slow SRP
+    # pair-setup); the pairing is stored in the accessory's own state file.
     client = HAPClient.new_persistent(filepath="controller.key")
-    # Pair the identity once (bypasses the slow SRP pair-setup); the pairing
-    # is stored in the accessory's own state file.
     driver.pair(
         client.identity.uuid_bytes,
         client.identity.public_key_bytes,
         HAP_PERMISSIONS.ADMIN,
     )
 
-    await client.connect("127.0.0.1", port)       # pair-verify + encryption
+    await driver.async_start()                    # start the HAP server
+    await client.connect("127.0.0.1", 51827)      # pair-verify + encryption
     await client.get_accessories()                # GET /accessories
     await client.subscribe(1, on_iid)             # EVENT notifications on
     await client.write_characteristic(1, on_iid, True)
     await client.wait_event(1, on_iid, True)      # an update arrives as EVENT
     await client.close()
+    await driver.async_stop()
+
+Against an already-running accessory (e.g. on another machine) there is no
+driver to instantiate: pass the accessory's state file once to pin its LTPK
+(see the section above), and connect to its host:port explicitly — the state
+file stores the keys and pairings but not the port::
+
+    client = HAPClient.new_persistent(
+        filepath="controller.key",
+        accessory_state="accessory.state",  # copied from the accessory machine
+    )
+    await client.connect("192.168.1.50", 51827)
 
 .. automodule:: pyhap.client
    :members:
