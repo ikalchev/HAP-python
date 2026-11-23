@@ -4,26 +4,36 @@
 Client
 ======
 
-A HAP controller (client) that speaks the real protocol against a running
-accessory: pair-verify, the encrypted transport, characteristic
-reads/writes, event subscriptions and ``EVENT`` push frames. The benchmark
-suite and the integration tests use it to drive an
-:class:`pyhap.accessory_driver.AccessoryDriver` end to end; it is also handy
-for testing your own accessory.
+`pyhap` also ships a HAP controller (client) under `pyhap.client.HAPClient`.
+The client uses the HAP protocol to control an accessory similarly to how you
+can control it through the Home app on iOS. Event subscribtion is also supported.
+
+The client can be persistent, i.e. after it is started it can persist its
+identity (what the accesory remembers and later verifies) into a file for
+subsequent reuse.
+
+The main limitation of the client currently is that it does not support pairing up
+from scratch (see below).
+
+The client is used in the integration tests and in the benchmark suite, in case
+you are looking for examples.
 
 Pairing and trust assumptions
 =============================
 
-The client speaks **pair-verify only**. It never runs pair-setup — the SRP
-handshake with the pincode that the Home app performs once when scanning the
-QR code. Two things must therefore already exist when you connect:
+The client assumes a pyhap accessory has already completed `pair-setup`. That is,
+the client does not support pairing from scratch right now - this is mainly because of
+a missing part of the server-side crypto protocol.
+
+Two things must therefore already exist when you connect:
 
 1. **The client identity must be paired with the accessory.** Pairings are
    per controller identity: an existing iPhone pairing does not cover the
    client. When you run the accessory yourself (the usual case for this
-   library), pair the identity in-process once, before connecting::
+   library), pair the identity before connecting::
 
        client = HAPClient.new_persistent(filepath="controller.key")
+       # Safe to do multiple times, it's idempotent.
        driver.pair(
            client.identity.uuid_bytes,
            client.identity.public_key_bytes,
@@ -38,7 +48,7 @@ QR code. Two things must therefore already exist when you connect:
 
 2. **The accessory LTPK is optional, but recommended.** The LTPK is the
    accessory's long-term public key, used to verify the accessory during
-   pair-verify; it cannot be learned from pair-verify itself (a real
+   pair-verify. This is not available from pair-verify itself (a real
    controller learns it from pair-setup's M6 response). Pass it once — as
    raw bytes (``accessory_ltpk=...``) or read from the accessory's state
    file (``accessory_state="accessory.state"``) — and it is pinned in the

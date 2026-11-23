@@ -67,6 +67,14 @@ carries a pre-existing baseline of diagnostics (mostly in `tests/`): capture
 it before your changes and ensure your edits add no new findings. Otherwise
 report the findings.
 
+## sphinx (docs)
+
+Check the documentation compiles fine by running:
+
+```sh
+python -m sphinx -W -b html source build/html
+```
+
 ## Reporting
 
 When asked to "test everything", run **pytest, ruff check/format, and ty** in that
