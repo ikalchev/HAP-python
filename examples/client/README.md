@@ -1,19 +1,21 @@
-# Examples
+# Client examples
 
 ## Driving an accessory with a HAP client (`pyhap.client`)
 
 `lightbulb_accessory.py` runs a small Lightbulb accessory;
 `control_lightbulb.py` toggles its `On` characteristic over the real HAP
 protocol (pair-verify, encrypted transport) using a persistent controller
-identity. See the [pyhap.client API docs](../docs/source/api/client.rst) for
-the pairing and trust details.
+identity. See the [pyhap.client API docs](../../docs/source/api/client.rst)
+for the pairing and trust details.
 
-Same machine:
+Same machine (paths below are relative to this directory; the state files
+always land next to the scripts):
 
 ```sh
-python -m pyhap.client new -f examples/client.state   # once; prints client.json
-python examples/lightbulb_accessory.py                 # pairs client.state automatically
-python examples/control_lightbulb.py                   # toggles the light
+cd examples/client
+python -m pyhap.client new -f client.state   # once; prints client.json
+python lightbulb_accessory.py                # pairs client.state automatically
+python control_lightbulb.py                  # toggles the light
 ```
 
 Client on a different machine than the accessory: on the client machine run
@@ -22,7 +24,7 @@ Client on a different machine than the accessory: on the client machine run
 accessory stopped, run there:
 
 ```sh
-python -m pyhap.client register -f client.json -a examples/accessory.state
+python -m pyhap.client register -f client.json -a accessory.state
 ```
 
 then start the accessory again and run `control_lightbulb.py` on the client

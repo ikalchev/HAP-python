@@ -56,10 +56,11 @@ describes what the camera supports, and HAP-python negotiates the sessions
 Driving an accessory from Python
 --------------------------------
 
-The ``examples`` directory of the repository shows the other direction: a
-:doc:`HAP client </api/client>` (``pyhap.client.HAPClient``) connecting to an
-accessory over the real HAP protocol. ``examples/lightbulb_accessory.py``
-runs a small Lightbulb accessory and ``examples/control_lightbulb.py``
-toggles its ``On`` characteristic from a controller with a persistent
-identity — see ``examples/README.md`` for the same-machine and two-machine
+The ``examples/client`` directory of the repository shows the other
+direction: a :doc:`HAP client </api/client>` (``pyhap.client.HAPClient``)
+connecting to an accessory over the real HAP protocol.
+``examples/client/lightbulb_accessory.py`` runs a small Lightbulb accessory
+and ``examples/client/control_lightbulb.py`` toggles its ``On``
+characteristic from a controller with a persistent identity — see
+``examples/client/README.md`` for the same-machine and two-machine
 workflows.
