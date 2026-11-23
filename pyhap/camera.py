@@ -40,7 +40,7 @@ from pyhap import (
 )
 from pyhap.accessory import Accessory
 from pyhap.camera_multi_tier import MultiTierConfig, MultiTierController
-from pyhap.camera_talkback import TalkbackReceiver
+from pyhap.camera_talkback import TalkbackReceiver, TalkbackReceiverProtocol
 from pyhap.camera_webrtc import WebRTCConfig, WebRTCController
 from pyhap.characteristic import Characteristic
 from pyhap.const import CATEGORY_CAMERA
@@ -1920,6 +1920,34 @@ class Camera(Accessory):
         self._streaming_status[stream_idx] = STREAMING_STATUS["AVAILABLE"]
         self._management[stream_idx].get_characteristic("StreamingStatus").notify()
 
+    def create_talkback_receiver(
+        self,
+        session_id: UUID,
+        srtp_key_and_salt: bytes,
+        is_ipv6: bool,
+        controller_address: str,
+    ) -> TalkbackReceiverProtocol:
+        """Create the talkback audio receiver.
+
+        Override this method to provide a custom talkback receiver.
+
+        :param session_id: The session ID this audio belongs to.
+        :param srtp_key_and_salt: The audio SRTP master key concatenated with the
+            master salt, exactly as already negotiated in
+            :meth:`set_endpoints` (``audio_master_key + audio_master_salt``).
+            Reused here, not renegotiated.
+        :param is_ipv6: Whether to bind an IPv6 socket instead of IPv4.
+        :param controller_address: The controller address negotiated during
+            SetupEndpoints.
+        :return: A talkback receiver.
+        """
+        return TalkbackReceiver(
+            srtp_key_and_salt=srtp_key_and_salt,
+            on_payload=functools.partial(self._talkback_payload_received, session_id),
+            is_ipv6=is_ipv6,
+            controller_address=controller_address,
+        )
+
     def set_endpoints(self, value: str, stream_idx: int | None = None) -> str:
         """Configure streaming endpoints.
 
@@ -2007,11 +2035,9 @@ class Camera(Accessory):
         audio_backchannel = None
         audio_rtp_port = target_audio_port
         if self.support_talkback:
-            audio_backchannel = TalkbackReceiver(
+            audio_backchannel = self.create_talkback_receiver(
+                session_id=session_id,
                 srtp_key_and_salt=audio_master_key + audio_master_salt,
-                on_payload=functools.partial(
-                    self._talkback_payload_received, session_id
-                ),
                 is_ipv6=bool(is_ipv6),
                 controller_address=address,
             )

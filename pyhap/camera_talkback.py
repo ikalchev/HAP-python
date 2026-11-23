@@ -29,7 +29,7 @@ import logging
 import socket
 import struct
 import threading
-from typing import cast
+from typing import Protocol, cast
 
 import pylibsrtp
 
@@ -124,6 +124,25 @@ def is_allowed_sender(addr: tuple[str, int], controller_address: str | None) -> 
     except ValueError:
         # Not an IP literal (e.g. a hostname); fall back to string comparison.
         return source == controller_address
+
+
+class TalkbackReceiverProtocol(Protocol):
+    """Listens for the HomeKit camera talkback (two-way) audio of one session."""
+
+    @property
+    def local_port(self) -> int:
+        """The local port this receiver is bound to.
+
+        This is the value that must be reported in the ``AUDIO_RTP_PORT`` field
+        of the ``Accessory Address`` TLV in the ``SetupEndpoints`` response, so
+        that the controller knows where to send the talkback audio.
+        """
+
+    def start(self) -> None:
+        """Start listening for incoming audio."""
+
+    def stop(self) -> None:
+        """Stop listening and release the socket."""
 
 
 class TalkbackReceiver:
