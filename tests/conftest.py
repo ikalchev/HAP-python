@@ -2,6 +2,8 @@
 
 import asyncio
 from collections.abc import AsyncIterator, Callable, Iterator
+import gc
+import logging
 import pathlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -57,6 +59,47 @@ def driver(async_zeroconf: Any) -> Iterator[AccessoryDriver]:
 def mock_local_address() -> Iterator[None]:
     with patch("pyhap.util.get_local_address", return_value="127.0.0.1"):
         yield
+
+
+@pytest.fixture(autouse=True)
+def fail_on_dangling_asyncio_objects() -> Iterator[None]:
+    """Fail a test when asyncio reports an awaitable that was never awaited.
+
+    An un-awaited coroutine raises ``RuntimeWarning("coroutine ... was never
+    awaited")`` when finalized, which ``filterwarnings`` in pyproject.toml
+    promotes to an error. A pending task that is garbage collected only logs
+    "Task was destroyed but it is pending!" on the asyncio logger, so capture
+    those records here and fail the test that was running when it happened.
+    """
+    records: list[logging.LogRecord] = []
+
+    class _Handler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _Handler(level=logging.ERROR)
+    asyncio_logger = logging.getLogger("asyncio")
+    asyncio_logger.addHandler(handler)
+    try:
+        yield
+    finally:
+        gc.collect()
+        asyncio_logger.removeHandler(handler)
+        dangling = [
+            record.getMessage()
+            for record in records
+            if record.levelno >= logging.ERROR
+            and (
+                "was destroyed but it is pending" in record.getMessage()
+                or "was never awaited" in record.getMessage()
+            )
+        ]
+        if dangling:
+            pytest.fail(
+                "asyncio reported un-awaited or dangling awaitables:\n"
+                + "\n".join(dangling),
+                pytrace=False,
+            )
 
 
 class MockDriver:

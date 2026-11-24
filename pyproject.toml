@@ -85,6 +85,7 @@ select = [
     "UP", # pyupgrade
     "ANN", # flake8-annotations
     "E721", # type-comparison: use isinstance(x, T) instead of type(x) == T
+    "RUF006", # asyncio-dangling-task: keep a reference to create_task/ensure_future results
 ]
 ignore = [
     "ANN401", # Any is sometimes the honest type; prefer precise types
@@ -161,3 +162,17 @@ norecursedirs = [
     "testing_config",
 ]
 asyncio_mode = "auto"
+# Catch awaitables that are never awaited: an un-awaited coroutine raises
+# RuntimeWarning("coroutine ... was never awaited") when it is finalized;
+# the error filter turns that into an exception inside the coroutine's
+# __del__, which surfaces as an unraisable "Exception ignored while
+# finalizing coroutine ..." (pytest.PytestUnraisableExceptionWarning) and is
+# promoted to a test failure by the second entry.
+#
+# Pending tasks destroyed at
+# loop shutdown ("Task was destroyed but it is pending!") only log on the
+# asyncio logger and are caught by the guard fixture in tests/conftest.py.
+filterwarnings = [
+    "error::RuntimeWarning",
+    "error:Exception ignored.*coroutine:pytest.PytestUnraisableExceptionWarning",
+]

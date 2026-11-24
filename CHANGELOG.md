@@ -51,6 +51,18 @@ Sections
   removes a pairing (guarded, since removing the last admin wipes all
   pairings). Also `load_accessory_state`/`save_accessory_state`/
   `remove_client_pairing` in `pyhap.client` for the programmatic equivalent.
+- Test tooling that fails on awaitables that are never awaited: pytest now
+  promotes `RuntimeWarning` ("coroutine ... was never awaited", surfacing as
+  `PytestUnraisableExceptionWarning` under the error filter) to test
+  failures via `filterwarnings` in `pyproject.toml`, a guard fixture in
+  `tests/conftest.py` fails any test during which asyncio logs "Task was
+  destroyed but it is pending!", and ruff's `RUF006` flags
+  `create_task`/`ensure_future` results that are not kept. Together with the
+  `_noop()` side effect of the `async_zeroconf` mock, this makes the existing
+  start/stop tests fail if the driver ever stops awaiting the broadcast
+  awaitables zeroconf returns (the
+  [#580](https://github.com/ikalchev/HAP-python/pull/580) bug class).
+  `tests/test_asyncio_guards.py` guards the `filterwarnings` config itself.
 
 ### Fixed
 
@@ -58,6 +70,9 @@ Sections
   connection closed. The per-connection response was kept under the closed
   connection's address forever, where a later connection reusing the address
   could read it, e.g. a Setup Endpoints answer with its session's SRTP keys.
+- Cancel tasks still pending on the loop before `AccessoryDriver.start`
+  closes it, so e.g. a `run_at_interval` wrapper is not destroyed pending at
+  shutdown ("Task was destroyed but it is pending!").
 
 ### Changed
 
