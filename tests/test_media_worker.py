@@ -9,6 +9,8 @@ import logging
 import os
 import pathlib
 import signal
+import subprocess
+import sys
 import time
 from typing import Any
 
@@ -515,6 +517,11 @@ async def test_process_follows_level_changes(
 
 async def test_process_crash_output_lands_in_its_file(tmp_path: pathlib.Path) -> None:
     """Verify what the worker process writes to stderr ends up in its log file."""
+    if sys.platform == "darwin":
+        # A deliberate SIGSEGV makes macOS write a Python-*.ips crash report
+        # for the worker (issue #558); the redirect is checked without a
+        # crash by test_process_stderr_is_its_log_file instead.
+        pytest.skip("deliberate SIGSEGV makes macOS write a crash report")
     worker = MediaWorker(separate_process=True, log_dir=tmp_path)
     try:
         await worker.start()
@@ -522,6 +529,36 @@ async def test_process_crash_output_lands_in_its_file(tmp_path: pathlib.Path) ->
         path = pathlib.Path(log_file(str(tmp_path), worker.pid))
         os.kill(worker.pid, signal.SIGSEGV)
         await wait_for_line(path, "Fatal Python error")
+    finally:
+        await worker.close()
+
+
+async def test_process_stderr_is_its_log_file(tmp_path: pathlib.Path) -> None:
+    """Verify the worker process's stdout and stderr are its log file.
+
+    The macOS counterpart of ``test_process_crash_output_lands_in_its_file``:
+    crash output (faulthandler dumps, tracebacks) is written to stderr, so a
+    crash leaves its traceback in the log — checked here without crashing
+    the worker, which would make macOS write a crash report (issue #558).
+    """
+    if sys.platform != "darwin":
+        pytest.skip("uses lsof")
+    worker = MediaWorker(separate_process=True, log_dir=tmp_path)
+    try:
+        await worker.start()
+        pid = worker.pid
+        assert pid is not None
+        path = log_file(str(tmp_path), pid)
+        listing = subprocess.run(
+            ["lsof", "-p", str(pid), "-w"], capture_output=True, text=True, check=True
+        ).stdout
+        open_fds: dict[str, str] = {}
+        for line in listing.splitlines()[1:]:
+            columns = line.split()
+            if len(columns) > 8:
+                open_fds[columns[3]] = columns[-1]  # FD -> NAME
+        assert open_fds["1w"] == path
+        assert open_fds["2w"] == path
     finally:
         await worker.close()
 

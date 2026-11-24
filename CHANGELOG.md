@@ -73,6 +73,8 @@ Sections
 - Cancel tasks still pending on the loop before `AccessoryDriver.start`
   closes it, so e.g. a `run_at_interval` wrapper is not destroyed pending at
   shutdown ("Task was destroyed but it is pending!").
+- Stop full test-suite runs on macOS from producing `Python-*.ips` crash
+  reports ([#558](https://github.com/ikalchev/HAP-python/issues/558)).
 
 ### Changed
 
