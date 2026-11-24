@@ -21,6 +21,7 @@ from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequenc
 import contextlib
 import functools
 import hashlib
+import inspect
 import ipaddress
 import logging
 import os
@@ -43,7 +44,10 @@ from pyhap.camera_multi_tier import MultiTierConfig, MultiTierController
 from pyhap.camera_talkback import TalkbackReceiver, TalkbackReceiverProtocol
 from pyhap.camera_webrtc import WebRTCConfig, WebRTCController
 from pyhap.characteristic import Characteristic
+from pyhap.connection import HAPConnectionHandle
 from pyhap.const import CATEGORY_CAMERA
+from pyhap.context import CharReadContext, CharWriteContext
+from pyhap.delegates import CharacteristicDelegate
 from pyhap.service import Service
 from pyhap.util import (
     base64_to_bytes,
@@ -277,6 +281,61 @@ PERSISTED_GLOBAL_OPERATING_MODE_CHARS = (
     "CameraOperatingModeIndicator",
     "NightVision",
 )
+
+
+class _CameraDelegate(CharacteristicDelegate):
+    """Serves the camera's own characteristics through their handlers.
+
+    One instance serves every characteristic the camera itself answers -
+    the context identifies the one being read or written, and each has its
+    handler in ``handlers`` and, for a read of a derived value, in
+    ``get_handlers``. A write handler runs as part of ``on_set`` and returns
+    the write response of a write-response characteristic; the driver restores
+    the previous value and tells nobody when it raises.
+    """
+
+    def __init__(self) -> None:
+        self.handlers: dict[Characteristic, Callable[[Any, CharWriteContext], Any]] = {}
+        self.get_handlers: dict[Characteristic, Callable[[CharReadContext], Any]] = {}
+
+    def wire(
+        self, char: Characteristic, handler: Callable[[Any, CharWriteContext], Any]
+    ) -> None:
+        """Serve ``char``'s writes with ``handler(value, context)``.
+
+        Wiring again replaces the handler, e.g. to wrap one that first
+        checks the written value.
+        """
+        self.handlers[char] = handler
+        char.delegate = self
+
+    def wire_get(
+        self, char: Characteristic, handler: Callable[[CharReadContext], Any]
+    ) -> None:
+        """Serve ``char``'s reads with ``handler(context)``.
+
+        Wiring again replaces the handler. A characteristic without a read
+        handler answers its stored value.
+        """
+        self.get_handlers[char] = handler
+        char.delegate = self
+
+    async def on_get(self, context: CharReadContext) -> Any:
+        handler = self.get_handlers.get(context.characteristic)
+        if handler is None:
+            # Reads answer the stored value, like the camera always has.
+            return context.characteristic.value
+        result = handler(context)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
+
+    async def on_set(self, value: Any, context: CharWriteContext) -> Any:
+        handler = self.handlers[context.characteristic]
+        response = handler(value, context)
+        if inspect.isawaitable(response):
+            response = await response
+        return response
 
 
 def _decode_setup_endpoints(
@@ -647,6 +706,7 @@ class Camera(Accessory):
         self.has_srtp = options.get("srtp", False)
         self.support_talkback = options.get("talkback", False)
         self.start_stream_cmd = options.get("start_stream_cmd", FFMPEG_CMD)
+        self._camera_delegate = _CameraDelegate()
 
         self.stream_address = options["address"]
         try:
@@ -771,9 +831,9 @@ class Camera(Accessory):
         # management service (value 1 = active); iOS' camera validation expects
         # it, and it is required for Secure Video eligibility.
         management.configure_char("Active", value=1)
-        management.configure_char(
-            "StreamingStatus",
-            getter_callback=lambda: self._get_streaming_status(stream_idx),
+        self._wire_get(
+            management.configure_char("StreamingStatus"),
+            lambda context: self._get_streaming_status(stream_idx),
         )
         management.configure_char(
             "SupportedRTPConfiguration",
@@ -787,15 +847,14 @@ class Camera(Accessory):
             "SupportedAudioStreamConfiguration",
             value=self.get_supported_audio_stream_config(options["audio"]),
         )
-        management.configure_char(
-            "SelectedRTPStreamConfiguration",
-            setter_callback=self.set_selected_stream_configuration,
+        self._wire(
+            management.configure_char("SelectedRTPStreamConfiguration"),
+            lambda value, context: self.set_selected_stream_configuration(value),
         )
-        setup_endpoints = management.configure_char(
-            "SetupEndpoints",
-            setter_callback=lambda value: self.set_endpoints(
-                value, stream_idx=stream_idx
-            ),
+        setup_endpoints = management.configure_char("SetupEndpoints")
+        self._wire(
+            setup_endpoints,
+            lambda value, context: self.set_endpoints(value, stream_idx=stream_idx),
         )
         # The answer has the session's SRTP keys, only its controller reads it.
         setup_endpoints.read_back_response = True
@@ -887,14 +946,14 @@ class Camera(Accessory):
             controller.update_status()
 
     def _stream_address_for(
-        self, client_addr: tuple[str, int] | None, is_ipv6: bool
+        self, connection: HAPConnectionHandle | None, is_ipv6: bool
     ) -> str | None:
         """The address to stream from to a controller, in the given IP version.
 
         The accessory's address on the controller's connection, else the
         ``address`` option if it has that version.
         """
-        address = self.driver._local_address(client_addr, is_ipv6)
+        address = self.driver._local_address(connection, is_ipv6)
         if address is not None:
             return address
         if (self.stream_address_isv6 == b"\x01") == is_ipv6:
@@ -965,7 +1024,10 @@ class Camera(Accessory):
         homekit_camera_active = operating_mode.configure_char(
             "HomeKitCameraActive", value=1
         )
-        homekit_camera_active.setter_callback = self._handle_homekit_camera_active
+        self._wire(
+            homekit_camera_active,
+            lambda value, context: self._handle_homekit_camera_active(value),
+        )
         self._homekit_camera_active_char = homekit_camera_active
         self._classic_camera_active_char = homekit_camera_active
         operating_mode.configure_char("PeriodicSnapshotsActive", value=1)
@@ -982,7 +1044,11 @@ class Camera(Accessory):
         # HAP-NodeJS marks the HKSV event-trigger sensor as active; iOS expects it.
         # A restored HomeKitCameraActive bypasses the setter, so reads derive it.
         self._motion_status_active_char = motion.configure_char(
-            "StatusActive", value=True, getter_callback=self._homekit_camera_on
+            "StatusActive", value=True
+        )
+        self._wire_get(
+            self._motion_status_active_char,
+            lambda context: self._homekit_camera_on(),
         )
 
         general, video, audio = self._default_recording_configs(options)
@@ -1006,9 +1072,9 @@ class Camera(Accessory):
             "SupportedAudioRecordingConfiguration",
             value=to_base64_str(hksv_recording.encode_supported_audio(audio)),
         )
-        service.configure_char(
-            "SelectedCameraRecordingConfiguration",
-            setter_callback=self.set_selected_recording_configuration,
+        self._wire(
+            service.configure_char("SelectedCameraRecordingConfiguration"),
+            lambda value, context: self.set_selected_recording_configuration(value),
         )
         self._recording_service = service
         for service_name, char_name in PERSISTED_RECORDING_CHARS:
@@ -1063,7 +1129,10 @@ class Camera(Accessory):
         ):
             self._persist_hksv3_char(char, key, handler)
         # Check the zones before they count as written.
-        zones.get_characteristic("CameraZones").setter_callback = self._set_camera_zones
+        self._wire(
+            zones.get_characteristic("CameraZones"),
+            lambda value, context: self._set_camera_zones(value),
+        )
 
     @property
     def camera_zones(self) -> hksv3.CameraZones | None:
@@ -1100,8 +1169,8 @@ class Camera(Accessory):
             if value:
                 hksv3.CameraZones.decode(base64_to_bytes(value))
         except ValueError:
-            # Fail the write and keep the zones the camera had.
-            char.value = self._hksv3_seen[char]
+            # Fail the write: the driver puts back the previous value and
+            # keeps the zones the camera had.
             raise
         self._hksv3_written(char, value)
 
@@ -1139,9 +1208,9 @@ class Camera(Accessory):
             "SupportedDataStreamTransportConfiguration",
             value=to_base64_str(self._supported_data_stream_transport()),
         )
-        transport.configure_char(
-            "SetupDataStreamTransport",
-            setter_callback=self.set_data_stream_transport,
+        self._wire(
+            transport.configure_char("SetupDataStreamTransport"),
+            self.set_data_stream_transport,
         )
         # HKSV requires the recording management service to link the data stream
         # transport it records over; without the link the controller rejects
@@ -1176,25 +1245,27 @@ class Camera(Accessory):
             connection, self._recording_delegate, open_gate=self._recording_open_gate
         )
 
-    def set_data_stream_transport(
-        self, value: str, sender_client_addr: Any = None
-    ) -> str:
+    def set_data_stream_transport(self, value: str, context: CharWriteContext) -> str:
         """Handle a write to SetupDataStreamTransport (HDS session setup).
 
         SetupDataStreamTransport is a write-response ('wr') characteristic: the
         controller writes with ``r: true`` and reads the encoded setup response
         (TCP listening port + accessory key salt) straight back from the write
-        response. That means the value MUST be RETURNED from the setter so the
+        response. That means the value MUST be RETURNED from the handler so the
         HAP layer includes it in the write response — setting it on the
         characteristic is not delivered to the controller and leaves it without
         the port, so it can never open the HDS connection.
+
+        :param context: The write's context; the HDS session keys are derived
+            from the writing connection, see
+            :meth:`pyhap.accessory_driver.AccessoryDriver.derive_session_key`.
         """
         request = hds.SetupRequest.decode(base64_to_bytes(value))
         listener = self._hds_listener
         accessory_salt = None
         if listener is not None:
             accessory_salt = listener.register_session_transport(
-                functools.partial(self.driver.derive_session_key, sender_client_addr),
+                functools.partial(self.driver.derive_session_key, context.connection),
                 request.controller_key_salt,
             )
         if listener is None or accessory_salt is None:
@@ -1282,8 +1353,12 @@ class Camera(Accessory):
                 handler = self._handle_global_camera_active
                 # The last write to either HomeKit Camera Active decides.
                 if self._classic_camera_active_char is not None:
-                    self._classic_camera_active_char.setter_callback = (
-                        self._handle_classic_camera_active
+                    classic = self._classic_camera_active_char
+                    self._wire(
+                        classic,
+                        lambda value, context: self._handle_classic_camera_active(
+                            value
+                        ),
                     )
                 self._homekit_camera_active_char = char
             else:
@@ -1396,11 +1471,11 @@ class Camera(Accessory):
         self,
         value: Any,
         sender: Service | Characteristic,
-        sender_client_addr: Any = None,
+        connection: HAPConnectionHandle | None = None,
         immediate: bool = False,
     ) -> None:
         """Forward the update and store recording and HKSV 17.99 state changes."""
-        super().publish(value, sender, sender_client_addr, immediate)
+        super().publish(value, sender, connection, immediate)
         if sender in self._hksv3_defaults:
             # Local changes too, so a later write of the same value is no change.
             self._hksv3_seen[sender] = value
@@ -1458,6 +1533,26 @@ class Camera(Accessory):
             self._arm_recording_media()
             self.recording_state_changed()
 
+    def _wire(
+        self, char: Characteristic, handler: Callable[[Any, CharWriteContext], Any]
+    ) -> None:
+        """Serve ``char``'s writes with ``handler(value, context)``.
+
+        All of the camera's own characteristics go through one
+        :class:`_CameraDelegate`; wiring again replaces the handler.
+        """
+        self._camera_delegate.wire(char, handler)
+
+    def _wire_get(
+        self, char: Characteristic, handler: Callable[[CharReadContext], Any]
+    ) -> None:
+        """Serve ``char``'s reads with ``handler(context)``.
+
+        All of the camera's own characteristics go through one
+        :class:`_CameraDelegate`; wiring again replaces the handler.
+        """
+        self._camera_delegate.wire_get(char, handler)
+
     def _persist_hksv3_char(
         self, char: Characteristic, key: str, handler: Callable[[Any], None]
     ) -> None:
@@ -1468,7 +1563,10 @@ class Camera(Accessory):
         the stored values afterwards.
         """
         self._hksv3_defaults[char] = (key, char.value, handler)
-        char.setter_callback = functools.partial(self._hksv3_written, char)
+        self._wire(
+            char,
+            lambda value, context, char=char: self._hksv3_written(char, value),
+        )
 
     def _hksv3_written(self, char: Characteristic, value: Any) -> None:
         """Call the handler of ``char`` if the write changed its value."""

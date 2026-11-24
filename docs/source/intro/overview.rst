@@ -127,6 +127,25 @@ done. Other subscribers then learn the new value as an event.
        D->>H: EVENT for the other subscribers of aid.iid
        H-->>C: EVENT aid.iid = value
 
+A write runs through the delegates (see :ref:`api-delegates`): the
+values are stored without notifying anyone, the written services'
+pre-checks run first and may refuse their writes as a group — the
+legacy grouped setter of a service or an accessory runs there too —
+then each written characteristic's ``on_set`` applies its write, and a
+refused or failed write restores the previous value and answers its
+status. The full contract lives in :doc:`/advanced/async`.
+
+A controller's read
+-------------------
+
+Reads are served by the same interface: the ``on_get`` of every
+readable characteristic is awaited — concurrently with the rest of the
+request, under a deadline, a legacy getter wrapped into the delegate —
+so a getter may do IO without blocking the loop. Its answer is
+validated, stored on the characteristic and sent to the reading
+controller; a read that fails answers its status, and one bad
+characteristic never fails the whole request.
+
 A value change to subscribers
 -----------------------------
 

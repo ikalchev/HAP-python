@@ -87,7 +87,9 @@ async def write(camera: Camera, name: str, value: Any) -> bytes:
             }
         ]
     }
-    pending = camera.driver._set_characteristics_for_controller(query, CLIENT, 9.0)
+    pending = camera.driver._set_characteristics_for_controller(
+        query, CLIENT, 9.0, connection=camera.driver._connection_of(CLIENT)
+    )
     assert inspect.isawaitable(pending)
     result = await pending
     assert result is not None

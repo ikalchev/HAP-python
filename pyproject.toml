@@ -175,4 +175,8 @@ asyncio_mode = "auto"
 filterwarnings = [
     "error::RuntimeWarning",
     "error:Exception ignored.*coroutine:pytest.PytestUnraisableExceptionWarning",
+    # The legacy-semantics tests are the compatibility contract; they
+    # intentionally use the deprecated callbacks. Dedicated tests assert the
+    # warnings with pytest.warns, which sees through this filter.
+    "ignore:The legacy (setter|getter)_callback is deprecated:DeprecationWarning",
 ]

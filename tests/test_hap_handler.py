@@ -27,6 +27,8 @@ from pyhap.characteristic import (
     CharacteristicError,
 )
 from pyhap.const import HAP_PERMISSIONS, HAP_SERVER_STATUS
+from pyhap.context import CharReadContext
+from pyhap.delegates import CharacteristicDelegate
 from pyhap.service import Service
 
 CLIENT_UUID = UUID("7d0d1ee9-46fe-4a56-a115-69df3f6860c1")
@@ -697,7 +699,7 @@ def test_handle_set_handle_set_characteristics_unencrypted(
     assert response.status_code == 401
 
 
-def test_handle_set_handle_set_characteristics_encrypted(
+async def test_handle_set_handle_set_characteristics_encrypted(
     driver: AccessoryDriver,
 ) -> None:
     """Verify an encrypted set_characteristics."""
@@ -714,12 +716,14 @@ def test_handle_set_handle_set_characteristics_encrypted(
     handler.response = response
     handler.request_body = b'{"characteristics":[{"aid":1,"iid":10,"ev":true}]}'
     handler.handle_set_characteristics()
+    assert response.task is not None
+    await response.task
 
     assert response.status_code == 204
     assert response.body == b""
 
 
-def test_handle_set_handle_set_characteristics_encrypted_pid_missing_prepare(
+async def test_handle_set_handle_set_characteristics_encrypted_pid_missing_prepare(
     driver: AccessoryDriver,
 ) -> None:
     """Verify an encrypted set_characteristics with a missing prepare."""
@@ -738,12 +742,14 @@ def test_handle_set_handle_set_characteristics_encrypted_pid_missing_prepare(
         b'{"pid":123,"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
     )
     handler.handle_set_characteristics()
+    assert response.task is not None
+    await response.task
 
     assert response.status_code == 207
     assert b"-70410" in response.body
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_prepare(
+async def test_handle_set_handle_set_characteristics_encrypted_with_prepare(
     driver: AccessoryDriver,
 ) -> None:
     """Verify an encrypted set_characteristics with a prepare."""
@@ -770,12 +776,14 @@ def test_handle_set_handle_set_characteristics_encrypted_with_prepare(
         b'{"pid":123,"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
     )
     handler.handle_set_characteristics()
+    assert response.task is not None
+    await response.task
 
     assert response.status_code == 204
     assert response.body == b""
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_multiple_prepare(
+async def test_handle_set_handle_set_characteristics_encrypted_with_multiple_prepare(
     driver: AccessoryDriver,
 ) -> None:
     """Verify an encrypted set_characteristics with multiple prepares."""
@@ -808,6 +816,8 @@ def test_handle_set_handle_set_characteristics_encrypted_with_multiple_prepare(
         b'{"pid":123,"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
     )
     handler.handle_set_characteristics()
+    assert response.task is not None
+    await response.task
 
     assert response.status_code == 204
     assert response.body == b""
@@ -835,7 +845,7 @@ def test_handle_set_handle_encrypted_with_invalid_prepare(
     assert response.body == b'{"status":-70410}'
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_expired_ttl(
+async def test_handle_set_handle_set_characteristics_encrypted_with_expired_ttl(
     driver: AccessoryDriver,
 ) -> None:
     """Verify an encrypted set_characteristics with a prepare expired."""
@@ -862,12 +872,14 @@ def test_handle_set_handle_set_characteristics_encrypted_with_expired_ttl(
         b'{"pid":123,"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
     )
     handler.handle_set_characteristics()
+    assert response.task is not None
+    await response.task
 
     assert response.status_code == 207
     assert b"-70410" in response.body
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_wrong_pid(
+async def test_handle_set_handle_set_characteristics_encrypted_with_wrong_pid(
     driver: AccessoryDriver,
 ) -> None:
     """Verify an encrypted set_characteristics with wrong pid."""
@@ -894,6 +906,8 @@ def test_handle_set_handle_set_characteristics_encrypted_with_wrong_pid(
         b'{"pid":456,"characteristics":[{"aid":1,"iid":11,"ev":true}]}'
     )
     handler.handle_set_characteristics()
+    assert response.task is not None
+    await response.task
 
     assert response.status_code == 207
     assert b"-70410" in response.body
@@ -918,7 +932,7 @@ def test_handle_set_handle_prepare_not_encrypted(driver: AccessoryDriver) -> Non
     assert response.status_code == 401
 
 
-def test_handle_set_handle_set_characteristics_encrypted_with_exception(
+async def test_handle_set_handle_set_characteristics_encrypted_with_exception(
     driver: AccessoryDriver,
 ) -> None:
     """Verify an encrypted set_characteristics."""
@@ -940,6 +954,8 @@ def test_handle_set_handle_set_characteristics_encrypted_with_exception(
     handler.response = response
     handler.request_body = b'{"characteristics":[{"aid":1,"iid":12,"value":1}]}'
     handler.handle_set_characteristics()
+    assert response.task is not None
+    await response.task
 
     assert response.status_code == 207
     assert b"-70402" in response.body
@@ -989,7 +1005,7 @@ async def test_attempt_to_pair_when_already_paired(driver: AccessoryDriver) -> N
     }
 
 
-def test_handle_get_characteristics_encrypted(driver: AccessoryDriver) -> None:
+async def test_handle_get_characteristics_encrypted(driver: AccessoryDriver) -> None:
     """Verify an encrypted get_characteristics."""
     acc = Accessory(driver, "TestAcc", aid=1)
     assert acc.aid == 1
@@ -1006,6 +1022,8 @@ def test_handle_get_characteristics_encrypted(driver: AccessoryDriver) -> None:
     handler.parsed_url = urlparse(handler.path)
 
     handler.handle_get_characteristics()
+    assert response.task is not None
+    await response.task
 
     assert response.status_code == 200
     decoded_response = json.loads(response.body.decode())
@@ -1018,6 +1036,8 @@ def test_handle_get_characteristics_encrypted(driver: AccessoryDriver) -> None:
         handler.response = response
         handler.path = "/characteristics?id=1.10"
         handler.handle_get_characteristics()
+    assert response.task is not None
+    await response.task
 
     assert response.status_code == 207
     decoded_response = json.loads(response.body.decode())
@@ -1033,7 +1053,7 @@ def test_handle_get_characteristics_encrypted(driver: AccessoryDriver) -> None:
         pytest.param(("5.6.7.8", 9), b'"value":0', id="other-controller"),
     ],
 )
-def test_handle_get_characteristics_write_response_per_client(
+async def test_handle_get_characteristics_write_response_per_client(
     driver: AccessoryDriver, reader: tuple[str, int], expected: bytes
 ) -> None:
     """Only the client that wrote reads the write response back."""
@@ -1057,6 +1077,8 @@ def test_handle_get_characteristics_write_response_per_client(
         b'{"characteristics":[{"aid":1,"iid":%d,"value":5,"r":true}]}' % iid
     )
     writer.handle_set_characteristics()
+    assert writer.response.task is not None
+    await writer.response.task
     assert b'"value":7' in writer.response.body
 
     handler = hap_handler.HAPServerHandler(driver, reader)
@@ -1066,6 +1088,8 @@ def test_handle_get_characteristics_write_response_per_client(
     handler.path = f"/characteristics?id=1.{iid}"
     handler.parsed_url = urlparse(handler.path)
     handler.handle_get_characteristics()
+    assert response.task is not None
+    await response.task
 
     assert response.status_code == 200
     assert expected in response.body
@@ -1329,3 +1353,84 @@ async def test_handle_set_characteristics_async_setter_timeout(
             b'{"characteristics":[{"status":-70408,"aid":1,"iid":9}]}'
         )
     assert response.status_code == 207
+
+
+class _GetOneDelegate(CharacteristicDelegate):
+    """Answers reads with 1."""
+
+    async def on_get(self, context: CharReadContext) -> int:
+        return 1
+
+
+class _SlowGetDelegate(CharacteristicDelegate):
+    """Never answers a read in time."""
+
+    async def on_get(self, context: CharReadContext) -> None:
+        await asyncio.sleep(10)
+
+
+def _dispatch_read_to_delegate(
+    driver: AccessoryDriver, delegate: CharacteristicDelegate, target: str
+) -> hap_handler.HAPResponse:
+    """Dispatch a GET to a readable characteristic with ``delegate``."""
+    acc = Accessory(driver, "TestAcc")
+    service = Service(uuid1(), "Test Service")
+    char = Characteristic(
+        "Value", uuid1(), {"Format": "int", "Permissions": ["pr", "pw"]}
+    )
+    char.delegate = delegate
+    service.add_characteristic(char)
+    acc.add_service(service)
+    driver.add_accessory(acc)
+    assert acc.iid_manager.get_iid(char) == 9
+
+    handler = hap_handler.HAPServerHandler(driver, "peername")
+    handler.is_encrypted = True
+    request = h11.Request(method="GET", target=target, headers=[(b"host", b"t")])
+    return handler.dispatch(request, None)
+
+
+async def test_handle_get_characteristics_waits_for_delegate(
+    driver: AccessoryDriver,
+) -> None:
+    """A read of a delegate char is answered once on_get is done."""
+    response = _dispatch_read_to_delegate(
+        driver, _GetOneDelegate(), "/characteristics?id=1.9"
+    )
+
+    assert response.task is not None
+    assert await response.task == b'{"characteristics":[{"aid":1,"iid":9,"value":1}]}'
+    assert response.status_code == 200
+    assert response.headers == [("Content-Type", "application/hap+json")]
+
+
+async def test_handle_get_characteristics_delegate_timeout(
+    driver: AccessoryDriver,
+) -> None:
+    """A slow on_get answers -70408 for its characteristic."""
+    with patch.object(hap_handler, "RESPONSE_TIMEOUT", 0.01):
+        response = _dispatch_read_to_delegate(
+            driver, _SlowGetDelegate(), "/characteristics?id=1.9"
+        )
+        assert response.task is not None
+        assert await response.task == (
+            b'{"characteristics":[{"aid":1,"iid":9,"status":-70408}]}'
+        )
+    assert response.status_code == 207
+
+
+async def test_handle_accessories_waits_for_delegate(driver: AccessoryDriver) -> None:
+    """An accessories request is answered once its delegate reads are done."""
+    response = _dispatch_read_to_delegate(driver, _GetOneDelegate(), "/accessories")
+
+    assert response.task is not None
+    body = json.loads(await response.task)
+    (rep,) = [
+        rep
+        for acc_rep in body["accessories"]
+        for service_rep in acc_rep["services"]
+        for rep in service_rep["characteristics"]
+        if rep["iid"] == 9
+    ]
+    assert rep["value"] == 1
+    assert response.status_code == 200

@@ -12,6 +12,7 @@ from pyhap import hds, hds_recording, hds_server
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 from pyhap.hds_protocol import EVENT, REQUEST, RESPONSE, HDSStatus, Message
+from tests.conftest import client_write
 
 Reason = hds_recording.RecordingReason
 
@@ -184,9 +185,12 @@ async def test_camera_off_closes_running_recording(camera: Any) -> None:
     assert hub.open(1).status == HDSStatus.SUCCESS
     await camera.recording.wait()
 
-    camera.get_service("CameraOperatingMode").get_characteristic(
-        "HomeKitCameraActive"
-    ).client_update_value(0)
+    await client_write(
+        camera.get_service("CameraOperatingMode").get_characteristic(
+            "HomeKitCameraActive"
+        ),
+        0,
+    )
     await asyncio.wait_for(camera.cleaning.wait(), 1)
     camera.release.set()
     await asyncio.wait([camera._recording_stream._task])
@@ -205,9 +209,12 @@ async def test_camera_turned_on_keeps_running_recording(
     assert hub.open(1).status == HDSStatus.SUCCESS
     await camera.recording.wait()
 
-    camera.get_service("CameraOperatingMode").get_characteristic(
-        "HomeKitCameraActive"
-    ).client_update_value(1)
+    await client_write(
+        camera.get_service("CameraOperatingMode").get_characteristic(
+            "HomeKitCameraActive"
+        ),
+        1,
+    )
     assert camera._recording_stream.streaming
     assert not [m for m in hub.messages() if m.kind == EVENT and m.topic == "close"]
 

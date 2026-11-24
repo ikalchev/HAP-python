@@ -1,13 +1,16 @@
 """Module for the Accessory classes."""
 
 from collections.abc import Callable, Iterable
+import inspect
 import itertools
 import logging
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
+import warnings
 
 from . import SUPPORT_QR_CODE, util
 from .characteristic import Characteristic
+from .connection import HAPConnectionHandle
 from .const import (
     CATEGORY_BRIDGE,
     CATEGORY_OTHER,
@@ -33,6 +36,18 @@ if TYPE_CHECKING:
 HAP_PROTOCOL_INFORMATION_SERVICE_UUID = UUID("000000A2-0000-1000-8000-0026BB765291")
 
 logger = logging.getLogger(__name__)
+
+
+def _close_unsupported_coroutine(result: Any, name: str | None) -> None:
+    """Close a coroutine a legacy grouped setter returned.
+
+    Only characteristic setters may be coroutine functions.
+    """
+    if inspect.iscoroutine(result):
+        result.close()
+        logger.warning(
+            "%s: only characteristic setters may be coroutine functions", name
+        )
 
 
 class Accessory:
@@ -66,7 +81,7 @@ class Accessory:
         self.driver = driver
         self.services: list[Service] = []
         self.iid_manager = iid_manager or IIDManager()
-        self.setter_callback: Callable[[Any], None] | None = None
+        self._setter_callback: Callable[[Any], None] | None = None
 
         self.add_info_service()
         if aid == STANDALONE_AID:
@@ -76,6 +91,47 @@ class Accessory:
         """Return the representation of the accessory."""
         services = [s.display_name for s in self.services]
         return f"<accessory display_name='{self.display_name}' services={services}>"
+
+    @property
+    def setter_callback(self) -> Callable[[Any], None] | None:
+        """The legacy grouped setter, called with the request's values by name.
+
+        Called with the values of every written service of the accessory,
+        before its characteristics apply the writes - a pre-check that may
+        refuse them. Deprecated: a
+        :class:`~pyhap.delegates.ServiceDelegate` checks the grouped writes of
+        its service instead.
+        """
+        return self._setter_callback
+
+    @setter_callback.setter
+    def setter_callback(self, callback: Callable[[Any], None] | None) -> None:
+        """Assign the legacy grouped setter; ``None`` removes it."""
+        if callback is not None:
+            warnings.warn(
+                "The legacy setter_callback is deprecated, use a ServiceDelegate"
+                " instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        self._setter_callback = callback
+
+    async def _dispatch_legacy_setter(
+        self, updates_by_service: dict[Service, dict[Characteristic, Any]]
+    ) -> None:
+        """Run the legacy grouped setter of this accessory, see ``setter_callback``.
+
+        Called by the driver's write path as the accessory's pre-check, with
+        the written values of every written service of the accessory. The
+        call is unchanged: a coroutine the setter returns is closed with a
+        warning, like before. Its exceptions surface to the pre-check, which
+        refuses the writes of the accessory with the status it answers.
+        """
+        callback = self._setter_callback
+        assert callback is not None  # noqa: S101 - only sent accessories with one
+        display_name = self.display_name
+        assert display_name is not None  # noqa: S101 - an accessory has a name
+        _close_unsupported_coroutine(callback(updates_by_service), display_name)
 
     @property
     def available(self) -> bool:
@@ -337,7 +393,43 @@ class Accessory:
         """Called in the event loop when a controller's connection closed.
 
         Override to end what the controller started, e.g. its streams. Does
-        nothing by default.
+        nothing by default. Exceptions are logged by the driver, so an
+        accessory cannot fail a connection by handling its close.
+
+        .. seealso:: :meth:`client_connected` and :meth:`client_verified`,
+            the other connection hooks.
+        """
+
+    async def client_connected(self, client_addr: tuple[str, int] | None) -> None:
+        """Called in the event loop when a controller's connection is accepted.
+
+        Runs as an isolated task when the TCP connection is made, before the
+        controller has proven anything about itself: it may never pair.
+        Override it to prepare for a controller's requests, e.g. to count
+        connections. Does nothing by default.
+
+        Exceptions are logged by the driver and never affect the connection,
+        and the hook never delays it: the driver does not wait for it.
+
+        .. seealso:: :meth:`client_verified` follows once the controller
+            proves its identity, and :meth:`client_disconnected` when the
+            connection closes.
+        """
+
+    async def client_verified(
+        self, client_addr: tuple[str, int] | None, client_uuid: UUID
+    ) -> None:
+        """Called in the event loop when a controller finishes pair verify.
+
+        The controller proved its identity: its requests on the connection
+        are encrypted from now on and ``client_uuid`` says who it is - one
+        identity per pairing, the same one for every connection of that
+        controller. Override it to keep per-controller state, e.g. to answer
+        requests differently for known controllers. Does nothing by default.
+
+        Exceptions are logged by the driver and never affect the connection,
+        and the hook never delays the pair verify response: the driver does
+        not wait for it.
         """
 
     def reset_accessory_state(self) -> None:
@@ -353,15 +445,17 @@ class Accessory:
         self,
         value: Any,
         sender: Service | Characteristic,
-        sender_client_addr: Any = None,
+        connection: HAPConnectionHandle | None = None,
         immediate: bool = False,
     ) -> None:
         """Append AID and IID of the sender and forward it to the driver.
 
-        Characteristics call this method to send updates.
+        Characteristics call this method to send updates. The connection
+        ``connection`` the change came over, if any, is not told its own
+        write back.
 
-        :param data: Data to publish, usually from a Characteristic.
-        :type data: dict
+        :param value: Data to publish, usually from a Characteristic.
+        :type value: dict
 
         :param sender: The Service or Characteristic from which the call originated.
         :type: Service or Characteristic
@@ -371,7 +465,7 @@ class Accessory:
             HAP_REPR_IID: self.iid_manager.get_iid(sender),
             HAP_REPR_VALUE: value,
         }
-        self.driver.publish(acc_data, sender_client_addr, immediate)
+        self.driver.publish(acc_data, connection, immediate)
 
 
 class Bridge(Accessory):
@@ -471,6 +565,28 @@ class Bridge(Accessory):
             except Exception:
                 logger.exception(
                     "%s failed to handle a closed connection", acc.display_name
+                )
+
+    async def client_connected(self, client_addr: tuple[str, int] | None) -> None:
+        """Tell each bridged accessory about the new connection."""
+        for acc in self.accessories.values():
+            try:
+                await acc.client_connected(client_addr)
+            except Exception:
+                logger.exception(
+                    "%s failed to handle a new connection", acc.display_name
+                )
+
+    async def client_verified(
+        self, client_addr: tuple[str, int] | None, client_uuid: UUID
+    ) -> None:
+        """Tell each bridged accessory about the verified controller."""
+        for acc in self.accessories.values():
+            try:
+                await acc.client_verified(client_addr, client_uuid)
+            except Exception:
+                logger.exception(
+                    "%s failed to handle a verified connection", acc.display_name
                 )
 
     def reset_accessory_state(self) -> None:

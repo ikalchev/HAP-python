@@ -13,7 +13,8 @@ import pytest
 from pyhap import camera as camera_module, hds_recording, tlv
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import SETUP_STATUS, SETUP_TYPES, STREAMING_STATUS, Camera
-from pyhap.characteristic import PROP_PERMISSIONS
+from pyhap.characteristic import PROP_PERMISSIONS, _LegacyCallbackDelegateWrapper
+from tests.conftest import client_write
 
 CAMERA_AID = 2
 GLOBAL = "CameraGlobalOperatingMode"
@@ -121,7 +122,10 @@ async def test_third_party_camera_active(driver: Any) -> None:
     camera.global_operating_mode_changed = MagicMock()
     char = _char(camera, GLOBAL, "ThirdPartyCameraActive")
     assert char.properties[PROP_PERMISSIONS] == ["pr", "ev"]
-    assert char.setter_callback is None
+    # Nothing is wired: the camera wires no legacy callback on the char.
+    assert isinstance(char.delegate, _LegacyCallbackDelegateWrapper)
+    assert char.delegate.getter_callback is None
+    assert char.delegate.setter_callback is None
     camera.set_third_party_camera_active(False)
     assert char.value is False
     assert camera.streaming_allowed is True
@@ -143,7 +147,7 @@ async def test_writes_call_hook(
     camera = _camera(driver, global_operating_mode=OPTIONAL)
     camera.global_operating_mode_changed = MagicMock()
     camera.homekit_camera_active_changed = MagicMock()
-    _char(camera, GLOBAL, name).client_update_value(value)
+    await client_write(_char(camera, GLOBAL, name), value)
     camera.global_operating_mode_changed.assert_called_once_with(name, value)
     camera.homekit_camera_active_changed.assert_not_called()
     assert camera.streaming_allowed is streaming_allowed
@@ -169,7 +173,7 @@ async def test_stream_start_needs_streaming_allowed(
     camera = _camera(driver, video=VIDEO, audio=AUDIO, global_operating_mode=[])
     camera.start_stream = AsyncMock(return_value=True)
     camera.sessions[SESSION_ID] = {"id": SESSION_ID, "stream_idx": 0}
-    _char(camera, GLOBAL, "StreamingEnabled").client_update_value(enabled)
+    await client_write(_char(camera, GLOBAL, "StreamingEnabled"), enabled)
 
     await camera._start_stream(
         tlv.decode(START_REQUEST, from_base64=True), reconfigure=False
@@ -215,9 +219,9 @@ async def test_setup_endpoints_needs_streaming_allowed(
     refuse streams, as before.
     """
     camera = _camera(driver, video=VIDEO, audio=AUDIO, **options)
-    _char(camera, service, "HomeKitCameraActive").client_update_value(enabled)
+    await client_write(_char(camera, service, "HomeKitCameraActive"), enabled)
     setup = _char(camera, "CameraRTPStreamManagement", "SetupEndpoints")
-    answer = setup.client_update_value(SETUP_REQUEST)
+    answer = await client_write(setup, SETUP_REQUEST)
 
     response = tlv.decode(answer, from_base64=True)
     assert response[SETUP_TYPES["SESSION_ID"]] == SESSION_ID.bytes
@@ -229,7 +233,7 @@ async def test_homekit_camera_active(driver: Any) -> None:
     """Test turning the camera off without recording."""
     camera = _camera(driver, global_operating_mode=[])
     camera.homekit_camera_active_changed = MagicMock()
-    _char(camera, GLOBAL, "HomeKitCameraActive").client_update_value(0)
+    await client_write(_char(camera, GLOBAL, "HomeKitCameraActive"), 0)
     camera.homekit_camera_active_changed.assert_called_once_with(False)
     assert camera.homekit_camera_active is False
     assert camera.streaming_allowed is False
@@ -243,7 +247,7 @@ async def test_global_operating_mode_decides(driver: Any) -> None:
     camera._recording_stream = stream
     status_active = _char(camera, "MotionSensor", "StatusActive")
 
-    _char(camera, GLOBAL, "HomeKitCameraActive").client_update_value(0)
+    await client_write(_char(camera, GLOBAL, "HomeKitCameraActive"), 0)
     camera.homekit_camera_active_changed.assert_called_once_with(False)
     assert camera.homekit_camera_active is False
     assert status_active.get_value() is False
@@ -264,14 +268,14 @@ async def test_last_camera_active_write_decides(driver: Any) -> None:
     active = _char(camera, GLOBAL, "HomeKitCameraActive")
     legacy = _char(camera, "CameraOperatingMode", "HomeKitCameraActive")
 
-    legacy.client_update_value(0)
+    await client_write(legacy, 0)
     assert camera.homekit_camera_active is False
     assert camera.streaming_allowed is False
     assert active.get_value() == 0
     assert status_active.get_value() is False
     stream.close.assert_called_once_with(hds_recording.RecordingReason.NOT_ALLOWED)
 
-    active.client_update_value(1)
+    await client_write(active, 1)
     assert camera.homekit_camera_active is True
     assert camera.streaming_allowed is True
     assert legacy.get_value() == 1
@@ -302,7 +306,7 @@ async def test_turning_streaming_off_ends_streams(
     camera.sessions[SESSION_ID] = session_info
     camera._streaming_status[0] = STREAMING_STATUS["STREAMING"]
 
-    _char(camera, service, name).client_update_value(value)
+    await client_write(_char(camera, service, name), value)
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
@@ -335,8 +339,8 @@ async def test_streams_kept_while_allowed(driver: Any) -> None:
     camera.stop_stream = AsyncMock()
     camera.sessions[SESSION_ID] = {"id": SESSION_ID, "stream_idx": 0}
 
-    _char(camera, GLOBAL, "NightVision").client_update_value(1)
-    _char(camera, GLOBAL, "HomeKitCameraActive").client_update_value(1)
+    await client_write(_char(camera, GLOBAL, "NightVision"), 1)
+    await client_write(_char(camera, GLOBAL, "HomeKitCameraActive"), 1)
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
@@ -347,10 +351,10 @@ async def test_streams_kept_while_allowed(driver: Any) -> None:
 async def test_settings_survive_restart(driver: Any) -> None:
     """Test controller writes are restored, the device state is not."""
     camera = _camera(driver, global_operating_mode=OPTIONAL)
-    _char(camera, GLOBAL, "HomeKitCameraActive").client_update_value(0)
-    _char(camera, GLOBAL, "StreamingEnabled").client_update_value(False)
-    _char(camera, GLOBAL, "CameraOperatingModeIndicator").client_update_value(False)
-    _char(camera, GLOBAL, "NightVision").client_update_value(True)
+    await client_write(_char(camera, GLOBAL, "HomeKitCameraActive"), 0)
+    await client_write(_char(camera, GLOBAL, "StreamingEnabled"), False)
+    await client_write(_char(camera, GLOBAL, "CameraOperatingModeIndicator"), False)
+    await client_write(_char(camera, GLOBAL, "NightVision"), True)
     camera.set_manually_disabled(True)
     camera.set_third_party_camera_active(False)
 
@@ -426,9 +430,9 @@ async def test_repeated_write_calls_hook_once(
     setattr(camera, hook, mock)
     char = _char(camera, GLOBAL, name)
 
-    char.client_update_value(value)
-    char.client_update_value(value)
-    char.client_update_value(value)
+    await client_write(char, value)
+    await client_write(char, value)
+    await client_write(char, value)
     mock.assert_called_once_with(*args)
 
 
@@ -438,8 +442,8 @@ async def test_classic_writes_call_hook_every_time(driver: Any) -> None:
     camera.homekit_camera_active_changed = MagicMock()
     char = _char(camera, "CameraOperatingMode", "HomeKitCameraActive")
 
-    char.client_update_value(0)
-    char.client_update_value(0)
+    await client_write(char, 0)
+    await client_write(char, 0)
     assert camera.homekit_camera_active_changed.call_args_list == [call(False)] * 2
 
 

@@ -21,11 +21,13 @@ from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 from pyhap.camera_multi_tier import MultiTierController
 from pyhap.camera_stream import StreamError
+from pyhap.context import CharWriteContext
 from pyhap.media.multi_tier_delegate import MultiTierMediaDelegate
 from pyhap.media.pool import SourcePool
 from pyhap.media.webrtc_delegate import WebRTCMediaDelegate
 from pyhap.media.worker import MediaWorker
 from pyhap.util import base64_to_bytes, to_base64_str
+from tests.conftest import connection_of
 
 from .media_hap import (
     SyntheticPull,
@@ -119,6 +121,23 @@ def _controller(camera: Camera) -> MultiTierController:
     return camera.multi_tier_controllers[SENSOR]
 
 
+async def _write(camera: Camera, name: str, payload: bytes) -> str:
+    """Write a control characteristic like the connection at CLIENT."""
+    controller = _controller(camera)
+    char = controller.service.get_characteristic(name)
+    context = CharWriteContext(
+        client_addr=CLIENT,
+        client_uuid=None,
+        connection=connection_of(CLIENT),
+        deadline=asyncio.get_running_loop().time() + controller.hook_timeout,
+        characteristic=char,
+        is_admin=True,
+    )
+    delegate = char.delegate
+    assert delegate is not None
+    return await delegate.on_set(to_base64_str(payload), context)  # ty: ignore[unsound-return]
+
+
 async def setup(camera: Camera, peer: SrtpController) -> hksv3.SetupEndpointsResponse:
     """Write Setup Endpoints towards the loopback controller."""
     suite = hksv3.SRTPCryptoSuite.AES_CM_128_HMAC_SHA1_80
@@ -128,9 +147,7 @@ async def setup(camera: Camera, peer: SrtpController) -> hksv3.SetupEndpointsRes
         hksv3.SRTPParameters(suite, VIDEO_KEY[:16], VIDEO_KEY[16:]),
         hksv3.SRTPParameters(suite, AUDIO_KEY[:16], AUDIO_KEY[16:]),
     )
-    answer_value = await _controller(camera)._set_setup_endpoints(
-        to_base64_str(request.encode()), CLIENT
-    )
+    answer_value = await _write(camera, "SetupEndpoints", request.encode())
     return hksv3.SetupEndpointsResponse.decode(base64_to_bytes(answer_value))
 
 
@@ -142,9 +159,7 @@ async def control(camera: Camera, command: int, tier: int | None = None) -> int:
         data += hksv3.encode_item(4, CONTROLLER_VIDEO_SSRC.to_bytes(4, "little"))
         data += hksv3.encode_item(5, (1).to_bytes(4, "little"))
         data += hksv3.encode_item(6, (0x5678).to_bytes(4, "little"))
-    answer_value = await _controller(camera)._set_streaming_control(
-        to_base64_str(data), CLIENT
-    )
+    answer_value = await _write(camera, "RTPStreamingControl", data)
     fields = dict(hksv3.decode_items(base64_to_bytes(answer_value)))
     return fields[2][0]
 

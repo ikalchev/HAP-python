@@ -13,6 +13,7 @@ from pyhap.camera import Camera
 from pyhap.camera_stream import SessionState, StreamError
 from pyhap.camera_webrtc import WebRTCController, WebRTCSession, _remote_tier
 from pyhap.util import base64_to_bytes, to_base64_str
+from tests.conftest import connection_of
 
 WEBRTC = "CameraWebRTCStreamManagement"
 SENSOR = UUID("00112233-4455-6677-8899-aabbccddeeff")
@@ -34,12 +35,18 @@ def _count(camera: Camera) -> int:
     return int(service.get_characteristic("WebRTCNumberOfActiveSessions").value)
 
 
+def _deadline(controller: WebRTCController) -> float:
+    """The deadline of a write, like the request's context carries it."""
+    return asyncio.get_running_loop().time() + controller.hook_timeout
+
+
 async def _solicit(
     camera: Camera, sframe: bool | None = True, client: Any = CLIENT
 ) -> hksv3.WebRTCSolicitOfferResponse:
+    controller = _controller(camera)
     request = hksv3.WebRTCSolicitOffer(hksv3.WebRTCOfferOptions(sframe))
-    response = await _controller(camera)._set_solicit_offer(
-        to_base64_str(request.encode()), client
+    response = await controller._set_solicit_offer(
+        to_base64_str(request.encode()), connection_of(client), _deadline(controller)
     )
     return hksv3.WebRTCSolicitOfferResponse.decode(base64_to_bytes(response))
 
@@ -63,9 +70,12 @@ async def _answer(
         ANSWER,
         [hksv3.IceCandidate("candidate:1 1 udp 1 1.2.3.4 5 typ host")],
     )
+    controller = _controller(camera)
     return _status(
-        await _controller(camera)._set_provide_answer(
-            to_base64_str(request.encode()), client
+        await controller._set_provide_answer(
+            to_base64_str(request.encode()),
+            connection_of(client),
+            _deadline(controller),
         )
     )
 
@@ -73,10 +83,13 @@ async def _answer(
 async def _end(
     camera: Camera, session_id: UUID, client: Any = CLIENT, command: int = 1
 ) -> hksv3.WebRTCSessionStatus:
+    controller = _controller(camera)
     request = hksv3.WebRTCStreamingControl(session_id, command)
     return _status(
-        await _controller(camera)._set_streaming_control(
-            to_base64_str(request.encode()), client
+        await controller._set_streaming_control(
+            to_base64_str(request.encode()),
+            connection_of(client),
+            _deadline(controller),
         )
     )
 
@@ -573,9 +586,11 @@ async def test_malformed_writes(stream_camera: Callable[..., Camera]) -> None:
     """Test writes that do not decode answer an error without a session."""
     controller = _controller(stream_camera())
     value = "AQ=="
-    solicit = await controller._set_solicit_offer(value, CLIENT)
-    answer = await controller._set_provide_answer(value, CLIENT)
-    end = await controller._set_streaming_control(value, CLIENT)
+    deadline = _deadline(controller)
+    connection = connection_of(CLIENT)
+    solicit = await controller._set_solicit_offer(value, connection, deadline)
+    answer = await controller._set_provide_answer(value, connection, deadline)
+    end = await controller._set_streaming_control(value, connection, deadline)
     assert base64_to_bytes(solicit) == bytes.fromhex("040102")
     assert _status(answer) == hksv3.WebRTCSessionStatus(None, 3)
     assert _status(end) == hksv3.WebRTCSessionStatus(None, 3)
@@ -600,8 +615,9 @@ async def test_oversized_answer(
     session = await _session(camera)
     request = hksv3.WebRTCProvideAnswer(session.id, sdp, candidates)
 
-    answer = await _controller(camera)._set_provide_answer(
-        to_base64_str(request.encode()), CLIENT
+    controller = _controller(camera)
+    answer = await controller._set_provide_answer(
+        to_base64_str(request.encode()), connection_of(CLIENT), _deadline(controller)
     )
 
     assert _status(answer) == hksv3.WebRTCSessionStatus(None, 3)
@@ -618,8 +634,9 @@ async def _reoffer(
     request = hksv3.WebRTCReoffer(
         session_id, "v=0\r\na=offer\r\n", hksv3.WebRTCOfferOptions(True)
     )
-    response = await _controller(camera)._set_reoffer(
-        to_base64_str(request.encode()), client
+    controller = _controller(camera)
+    response = await controller._set_reoffer(
+        to_base64_str(request.encode()), connection_of(client), _deadline(controller)
     )
     return hksv3.WebRTCReofferResponse.decode(base64_to_bytes(response))
 
@@ -628,9 +645,12 @@ async def _update(
     camera: Camera, session_id: UUID, client: Any = CLIENT
 ) -> hksv3.WebRTCSessionStatus:
     request = hksv3.WebRTCUpdateSession(session_id, [KEY], [5])
+    controller = _controller(camera)
     return _status(
-        await _controller(camera)._set_update_session(
-            to_base64_str(request.encode()), client
+        await controller._set_update_session(
+            to_base64_str(request.encode()),
+            connection_of(client),
+            _deadline(controller),
         )
     )
 
@@ -715,8 +735,9 @@ async def test_oversized_update_session(
     session = await _active(camera)
     request = hksv3.WebRTCUpdateSession(session.id, add_keys, remove_kids)
 
-    response = await _controller(camera)._set_update_session(
-        to_base64_str(request.encode()), CLIENT
+    controller = _controller(camera)
+    response = await controller._set_update_session(
+        to_base64_str(request.encode()), connection_of(CLIENT), _deadline(controller)
     )
 
     assert _status(response) == hksv3.WebRTCSessionStatus(None, 3)
@@ -803,8 +824,9 @@ async def test_oversized_reoffer(
     session = await _active(camera)
     request = hksv3.WebRTCReoffer(session.id, "a" * (hksv3.MAX_SDP_SIZE + 1))
 
-    response = await _controller(camera)._set_reoffer(
-        to_base64_str(request.encode()), CLIENT
+    controller = _controller(camera)
+    response = await controller._set_reoffer(
+        to_base64_str(request.encode()), connection_of(CLIENT), _deadline(controller)
     )
 
     assert hksv3.WebRTCReofferResponse.decode(base64_to_bytes(response)) == (

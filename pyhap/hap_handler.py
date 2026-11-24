@@ -6,7 +6,6 @@ The HAPServerHandler manages the state of the connection and handles incoming re
 import asyncio
 from collections.abc import Awaitable
 from http import HTTPStatus
-import inspect
 import logging
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import ParseResult, parse_qs, urlparse
@@ -20,6 +19,7 @@ import h11
 
 from pyhap import tlv
 from pyhap.accessory import Bridge
+from pyhap.connection import HAPConnectionHandle
 from pyhap.const import (
     HAP_PERMISSIONS,
     HAP_REPR_CHARS,
@@ -145,14 +145,23 @@ class HAPServerHandler:
         self,
         accessory_handler: "AccessoryDriver",
         client_address: tuple[str, int] | str,
+        connection: HAPConnectionHandle | None = None,
     ) -> None:
         """@param accessory_handler: An object that controls an accessory's state.
         @type accessory_handler: AccessoryDriver
+
+        :param connection: The connection the requests of this handler come
+            over, see :class:`~pyhap.connection.HAPConnectionHandle`.
         """
         self.accessory_handler: AccessoryDriver = accessory_handler
         self.state: State = self.accessory_handler.state
         self.enc_context: dict[str, Any] | None = None
         self.client_address = client_address
+        # Without the connection of its protocol, a handler acts as the
+        # virtual connection of its address, like a direct call does.
+        self.connection = connection or self.accessory_handler._connection_of(
+            cast("tuple[str, int] | None", client_address)
+        )
         self.is_encrypted = False
         self.client_uuid: uuid.UUID | None = None
 
@@ -651,16 +660,32 @@ class HAPServerHandler:
         self.is_encrypted = True
         self.client_uuid = client_uuid
         del self.enc_context
+        self.accessory_handler.client_verified(
+            cast("tuple[str, int] | None", self.client_address), client_uuid
+        )
 
     def handle_accessories(self) -> None:
         """Handles a client request to get the accessories."""
         if not self.is_encrypted:
             raise UnprivilegedRequestException
 
-        hap_rep = self.accessory_handler.get_accessories()
+        result = self.accessory_handler._get_accessories_for_controller(
+            cast("tuple[str, int]", self.client_address),
+            RESPONSE_TIMEOUT,
+            client_uuid=self.client_uuid,
+            connection=self.connection,
+        )
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(to_hap_json(hap_rep))
+        # The reads run under the request deadline; answer once they are
+        # done. The driver times out slow getters itself.
+        assert self.response is not None  # noqa: S101
+        self.response.task = asyncio.ensure_future(self._accessories_body(result))
+
+    async def _accessories_body(self, result: Awaitable[dict[str, Any]]) -> bytes:
+        """Wait for the pending reads, then answer the accessories."""
+        body: bytes = to_hap_json(await result)
+        return body
 
     def handle_get_characteristics(self) -> None:
         """Handles a client request to get certain characteristics."""
@@ -670,23 +695,47 @@ class HAPServerHandler:
         # Check that char exists and ...
         assert self.parsed_url is not None  # noqa: S101
         params = parse_qs(self.parsed_url.query)
-        response = self.accessory_handler.get_characteristics(
-            params["id"][0].split(","), cast("tuple[str, int]", self.client_address)
+        result = self.accessory_handler._get_characteristics_for_controller(
+            params["id"][0].split(","),
+            cast("tuple[str, int]", self.client_address),
+            RESPONSE_TIMEOUT,
+            client_uuid=self.client_uuid,
+            connection=self.connection,
         )
-        chars = response[HAP_REPR_CHARS]
+        assert self.response is not None  # noqa: S101
+        # The reads run under the request deadline; answer once they are
+        # done. The driver times out slow getters itself.
+        self.response.task = asyncio.ensure_future(
+            self._get_characteristics_body(self.response, result)
+        )
+
+    def _fill_get_characteristics_response(
+        self, response: HAPResponse, result: dict[str, Any]
+    ) -> None:
+        """Fill in the response to a characteristics read."""
+        chars = result[HAP_REPR_CHARS]
 
         had_failure = any(
-            result[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS for result in chars
+            entry[HAP_REPR_STATUS] != HAP_SERVER_STATUS.SUCCESS for entry in chars
         )
         if had_failure:
-            self.send_response(HTTPStatus.MULTI_STATUS)
+            response.status_code = HTTPStatus.MULTI_STATUS.value
+            response.reason = HTTPStatus.MULTI_STATUS.phrase
         else:
-            self.send_response(HTTPStatus.OK)
-            for result in chars:
-                del result[HAP_REPR_STATUS]
+            response.status_code = HTTPStatus.OK.value
+            response.reason = HTTPStatus.OK.phrase
+            for entry in chars:
+                del entry[HAP_REPR_STATUS]
 
-        self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)
-        self.end_response(to_hap_json(response))
+        response.headers.append(("Content-Type", self.JSON_RESPONSE_TYPE))
+        response.body = to_hap_json(result)
+
+    async def _get_characteristics_body(
+        self, response: HAPResponse, result: Awaitable[dict[str, Any]]
+    ) -> bytes:
+        """Wait for the pending delegate reads, then fill in the read response."""
+        self._fill_get_characteristics_response(response, await result)
+        return response.body
 
     def handle_set_characteristics(self) -> None:
         """Handles a client request to update certain characteristics."""
@@ -708,16 +757,15 @@ class HAPServerHandler:
             cast("tuple[str, int]", self.client_address),
             RESPONSE_TIMEOUT,
             client_uuid=self.client_uuid,
+            connection=self.connection,
         )
         assert self.response is not None  # noqa: S101
-        if inspect.isawaitable(result):
-            # A setter is still running, answer once it is done. The driver
-            # times out slow setters itself.
-            self.response.task = asyncio.ensure_future(
-                self._async_set_characteristics_body(self.response, result)
-            )
-            return
-        self._fill_set_characteristics_response(self.response, result)
+        # The writes run under the request deadline - their pre-checks,
+        # then their setters; answer once they are done. The driver times
+        # out slow setters itself.
+        self.response.task = asyncio.ensure_future(
+            self._set_characteristics_body(self.response, result)
+        )
 
     def _fill_set_characteristics_response(
         self, response: HAPResponse, result: dict[str, Any] | None
@@ -732,7 +780,7 @@ class HAPServerHandler:
         response.headers.append(("Content-Type", self.JSON_RESPONSE_TYPE))
         response.body = to_hap_json(result)
 
-    async def _async_set_characteristics_body(
+    async def _set_characteristics_body(
         self, response: HAPResponse, result: Awaitable[dict[str, Any] | None]
     ) -> bytes:
         """Wait for the pending setters, then fill in the write response."""
@@ -753,7 +801,9 @@ class HAPServerHandler:
         logger.debug("%s: prepare content: %s", self.client_address, request)
 
         response = self.accessory_handler.prepare(
-            request, cast("tuple[str, int]", self.client_address)
+            request,
+            cast("tuple[str, int]", self.client_address),
+            connection=self.connection,
         )
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", self.JSON_RESPONSE_TYPE)

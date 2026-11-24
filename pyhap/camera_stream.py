@@ -15,8 +15,9 @@ state machine::
         -> ENDED, from any state
 
 A delegate hook runs as a task the session owns. A HAP request waits for it
-until one deadline, ``hook_timeout`` after the write, which leaves time to
-answer within the HAP response timeout. A hook that takes longer is
+until one deadline, the request's write deadline (see
+:attr:`pyhap.context.Context.deadline`), which leaves time to answer within
+the HAP response timeout. A hook that takes longer is
 cancelled and its session ends. Once a session ended, the delegate releases
 it exactly once, in the background, if it saw the session at all. Until its
 release finished or timed out, the session still counts towards the session
@@ -41,6 +42,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 from uuid import UUID
 
 from pyhap import hksv3
+from pyhap.connection import HAPConnectionHandle
 from pyhap.const import RESPONSE_TIMEOUT
 
 if TYPE_CHECKING:
@@ -101,13 +103,16 @@ class SessionState(Enum):
 class StreamSession:
     """A stream session of one controller connection and one sensor.
 
-    Only ``client_addr``, the connection that set the session up, may control
-    it. ``data`` is free for the delegate.
+    Only the connection that set the session up, identified by its
+    :class:`~pyhap.connection.HAPConnectionHandle`, may control it. Two
+    connections never share a handle, not even two that reuse the same
+    address, so a session cannot leak to a later connection. ``data`` is free
+    for the delegate.
     """
 
     id: UUID
     sensor: hksv3.SensorConfiguration
-    client_addr: tuple[str, int] | None
+    connection: HAPConnectionHandle
     state: SessionState = SessionState.NEW
     data: dict[str, Any] = field(default_factory=dict)
     _tasks: set[asyncio.Task[Any]] = field(default_factory=set, init=False, repr=False)
@@ -121,6 +126,11 @@ class StreamSession:
     @property
     def sensor_uuid(self) -> UUID:
         return self.sensor.sensor_uuid
+
+    @property
+    def client_addr(self) -> tuple[str, int] | None:
+        """The address of the connection that owns the session."""
+        return self.connection.client_addr
 
     @property
     def ended(self) -> bool:
@@ -220,10 +230,6 @@ class StreamController(Generic[_S]):
     def _loop(self) -> asyncio.AbstractEventLoop:
         return cast(asyncio.AbstractEventLoop, self.camera.driver.loop)
 
-    def _deadline(self) -> float:
-        """The deadline of the hooks of a request that arrives now."""
-        return self._loop.time() + self.hook_timeout
-
     def _add(self, session: _S) -> None:
         """Register a new session, it may end itself from now on.
 
@@ -234,27 +240,26 @@ class StreamController(Generic[_S]):
         session._controller = self
         self._sessions[session.id] = session
 
-    def _no_room(self, client_addr: tuple[str, int] | None) -> str | None:
-        """Why a new session of ``client_addr`` does not fit, None if it does."""
+    def _no_room(self, connection: HAPConnectionHandle) -> str | None:
+        """Why a new session of ``connection`` does not fit, None if it does."""
         if self._closed:
             return f"The {self.kind} service is closed"
         sessions = [*self._sessions.values(), *self._releasing]
         if len(sessions) >= self.max_sessions:
             return f"Too many {self.kind} sessions"
-        owned = sum(session.client_addr == client_addr for session in sessions)
+        owned = sum(session.connection == connection for session in sessions)
         if owned >= self.max_sessions_per_connection:
             return f"Too many {self.kind} sessions of the connection"
         return None
 
-    def _owned(
-        self, session_id: UUID, client_addr: tuple[str, int] | None
-    ) -> _S | None:
-        """Return the session if ``client_addr`` owns it.
+    def _owned(self, session_id: UUID, connection: HAPConnectionHandle) -> _S | None:
+        """Return the session if ``connection`` owns it.
 
-        A session of another connection is unknown to it.
+        A session of another connection is unknown to it, also one of a former
+        connection that reused its address.
         """
         session = self._sessions.get(session_id)
-        if session is not None and session.client_addr != client_addr:
+        if session is not None and session.connection != connection:
             logger.debug("[%s] Not the controller of the session", session_id)
             return None
         return session
@@ -270,9 +275,11 @@ class StreamController(Generic[_S]):
     ) -> _T:
         """Run a delegate hook as a task of ``session`` until ``deadline``.
 
-        A hook that is still running then is cancelled and its session ends.
-        ``first`` marks the hook that introduces the session to the delegate,
-        which then releases it when it ends.
+        A hook gets at most ``hook_timeout`` seconds, or as long as the
+        request has left: whichever ends first, the answer still fits in
+        the request. A hook that is still running then is cancelled and
+        its session ends. ``first`` marks the hook that introduces the
+        session to the delegate, which then releases it when it ends.
 
         :raises HookFailed: If the hook failed or took too long, or the
             session ended meanwhile.
@@ -282,6 +289,10 @@ class StreamController(Generic[_S]):
             raise HookFailed
         if first:
             session._delegated = True
+        # A hook gets ``hook_timeout`` seconds, or as long as the request
+        # has left: whichever ends first, the answer fits in the request,
+        # see ``MAX_HOOK_TIMEOUT``.
+        deadline = min(deadline, self._loop.time() + self.hook_timeout)
         task = self._loop.create_task(hook)
         session._tasks.add(task)
         task.add_done_callback(session._tasks.discard)
@@ -460,7 +471,15 @@ class StreamController(Generic[_S]):
             self._end(session, reason)
 
     def client_disconnected(self, client_addr: tuple[str, int]) -> None:
-        """End the sessions of a connection that closed."""
+        """End the sessions of a connection that closed.
+
+        The address still names the sessions here: the accessory's
+        ``client_disconnected`` lifecycle reports a closed connection by
+        address, and ending by it is the conservative choice - a live
+        connection has its own sessions under its own handle, so an end
+        by address can only end too much, never a session of another
+        connection.
+        """
         for session in list(self._sessions.values()):
             if session.client_addr == client_addr:
                 self._end(session, "the controller disconnected")

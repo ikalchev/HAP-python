@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator
 import io
 import json
+import math
 import pathlib
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -18,6 +19,7 @@ from pyhap.camera import Camera
 from pyhap.encoder import AccessoryEncoder
 from pyhap.state import State
 from pyhap.util import base64_to_bytes, to_base64_str
+from tests.conftest import client_write
 
 CAMERA_AID = 2
 SELECTED_CHAR = ("CameraRecordingManagement", "SelectedCameraRecordingConfiguration")
@@ -95,7 +97,7 @@ def _char(camera: Any, service: str, name: str) -> Any:
 async def _write_recording_state(camera: Any) -> None:
     """Simulate the hub enabling recording through HAP writes."""
     for (service, name), value in WRITES.items():
-        _char(camera, service, name).client_update_value(value)
+        await client_write(_char(camera, service, name), value)
     await _drain()
 
 
@@ -119,7 +121,7 @@ async def test_hub_burst_is_saved_once(driver: Any) -> None:
     _char(camera, "CameraRecordingManagement", "Active").setter_callback = app_setter
 
     for (service, name), value in WRITES.items():
-        _char(camera, service, name).client_update_value(value)
+        await client_write(_char(camera, service, name), value)
     assert driver.async_persist.call_count == 0
     await _drain()
 
@@ -132,10 +134,10 @@ async def test_hub_burst_is_saved_once(driver: Any) -> None:
     }
 
     # An unchanged write saves nothing, a later change is saved again.
-    _char(camera, "CameraRecordingManagement", "Active").client_update_value(1)
+    await client_write(_char(camera, "CameraRecordingManagement", "Active"), 1)
     await _drain()
     assert driver.async_persist.call_count == 1
-    _char(camera, "CameraRecordingManagement", "Active").client_update_value(0)
+    await client_write(_char(camera, "CameraRecordingManagement", "Active"), 0)
     await _drain()
     assert driver.async_persist.call_count == 2
     assert driver.state.accessory_states[CAMERA_AID]["recording"]["Active"] == 0
@@ -147,7 +149,7 @@ async def test_other_characteristics_are_not_stored(
     camera = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
     camera.set_motion_detected(True)
     # Same name as the recording Active, on the streaming service.
-    _char(camera, "CameraRTPStreamManagement", "Active").client_update_value(0)
+    await client_write(_char(camera, "CameraRTPStreamManagement", "Active"), 0)
     await _drain()
     assert driver.async_persist.call_count == 0
     assert not any(driver.state.accessory_states.values())
@@ -158,7 +160,7 @@ async def test_camera_rebuilt_before_save_restores_change(
 ) -> None:
     camera = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
     for (service, name), value in WRITES.items():
-        _char(camera, service, name).client_update_value(value)
+        await client_write(_char(camera, service, name), value)
 
     rebuilt = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
     _assert_state(rebuilt, WRITES, selected=True)
@@ -187,7 +189,7 @@ async def test_stale_selected_configuration_dropped(driver: Any) -> None:
     _assert_state(camera, {**WRITES, SELECTED_CHAR: ""}, selected=False)
 
 
-@pytest.mark.parametrize("value", [None, 7, "1", float("inf"), float("nan")])
+@pytest.mark.parametrize("value", [None, 7, "1", math.inf, float("nan")])
 async def test_invalid_stored_value_keeps_its_default(
     driver: Any, caplog: pytest.LogCaptureFixture, value: Any
 ) -> None:
@@ -234,7 +236,7 @@ async def test_no_selection_restores_without_warning(
     driver: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     camera = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
-    _char(camera, "CameraRecordingManagement", "Active").client_update_value(1)
+    await client_write(_char(camera, "CameraRecordingManagement", "Active"), 1)
 
     Camera(_options(), driver, "Cam", aid=CAMERA_AID)
     assert "Ignoring" not in caplog.text
@@ -245,7 +247,7 @@ async def test_restored_selection_survives_a_later_write(
 ) -> None:
     await _write_recording_state(Camera(_options(), driver, "Cam", aid=CAMERA_AID))
     restored = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
-    _char(restored, "CameraOperatingMode", "HomeKitCameraActive").client_update_value(1)
+    await client_write(_char(restored, "CameraOperatingMode", "HomeKitCameraActive"), 1)
 
     rebuilt = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
     hk_active = ("CameraOperatingMode", "HomeKitCameraActive")
@@ -275,8 +277,8 @@ async def test_rejected_selection_write_is_not_stored(
     await _write_recording_state(camera)
     # pyhap sets the value before the setter rejects it.
     with pytest.raises(KeyError):
-        _char(camera, *SELECTED_CHAR).client_update_value(to_base64_str(b"\xff\x00"))
-    _char(camera, "CameraOperatingMode", "HomeKitCameraActive").client_update_value(1)
+        await client_write(_char(camera, *SELECTED_CHAR), to_base64_str(b"\xff\x00"))
+    await client_write(_char(camera, "CameraOperatingMode", "HomeKitCameraActive"), 1)
 
     rebuilt = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
     hk_active = ("CameraOperatingMode", "HomeKitCameraActive")
@@ -290,13 +292,13 @@ async def test_closed_loop_does_not_fail_the_write(
     loop = driver.loop
     driver.loop = MagicMock()
     driver.loop.call_soon_threadsafe.side_effect = RuntimeError("Event loop is closed")
-    _char(camera, "CameraRecordingManagement", "Active").client_update_value(1)
+    await client_write(_char(camera, "CameraRecordingManagement", "Active"), 1)
     assert driver.state.accessory_states[CAMERA_AID]["recording"]["Active"] == 1
     assert "Could not schedule saving the recording state" in caplog.text
 
     # The next change schedules the save again.
     driver.loop = loop
-    _char(camera, "CameraRecordingManagement", "Active").client_update_value(0)
+    await client_write(_char(camera, "CameraRecordingManagement", "Active"), 0)
     await _drain()
     assert driver.async_persist.call_count == 1
 
@@ -446,7 +448,7 @@ async def test_last_unpair_resets_recording_state(driver: Any, bridged: bool) ->
     restored = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
     _assert_state(restored, DEFAULTS, selected=False)
     # The new home's first write does not bring the old selection back.
-    _char(camera, "CameraRecordingManagement", "Active").client_update_value(1)
+    await client_write(_char(camera, "CameraRecordingManagement", "Active"), 1)
     stored = driver.state.accessory_states[CAMERA_AID]["recording"]
     assert stored["SelectedCameraRecordingConfiguration"] is None
 

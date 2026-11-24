@@ -55,7 +55,11 @@ async def _write(
     aid, iid = _char_id(camera, name, service_name)
     char = {"aid": aid, "iid": iid, "value": value, "r": response}
     query = {"characteristics": [char]}
-    result = driver._set_characteristics_for_controller(query, CLIENT, timeout)
+    # The write carries the driver's virtual handle of CLIENT, so the read
+    # back below pairs up with it through the driver's state.
+    result = driver._set_characteristics_for_controller(
+        query, CLIENT, timeout, connection=driver._connection_of(CLIENT)
+    )
     assert inspect.isawaitable(result)
     body = await result
     # Without r a write that succeeds has no body.

@@ -1,5 +1,6 @@
 """Tests for timed writes (prepare, then write with the pid)."""
 
+import asyncio
 from collections.abc import Iterator
 import logging
 from typing import Any, NamedTuple
@@ -21,6 +22,7 @@ from pyhap.const import (
     HAP_SERVER_STATUS,
 )
 from pyhap.service import Service
+from tests.conftest import run_scheduled_jobs
 
 CLIENT = ("1.2.3.4", 5000)
 NOW = 1000.0
@@ -85,18 +87,20 @@ def _write(aid: int, iid: int, pid: int) -> dict[str, Any]:
     }
 
 
-def test_prepared_write_is_applied(
+async def test_prepared_write_is_applied(
     driver: AccessoryDriver,
     door: WritableChar,
 ) -> None:
     """Test a write with a prepared pid inside its TTL is applied."""
+    driver.loop = asyncio.get_running_loop()
     with patch("pyhap.accessory_driver.time.monotonic", return_value=NOW) as now:
         driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 7}, CLIENT)
         now.return_value = NOW + 2.5
         assert driver.set_characteristics(_write(door.aid, door.iid, 7), CLIENT) is None
+        await run_scheduled_jobs()
 
     door.setter.assert_called_once_with(1)
-    assert CLIENT in driver.topics[get_topic(door.aid, door.iid)]
+    assert driver._connection_of(CLIENT) in driver.topics[get_topic(door.aid, door.iid)]
 
 
 @pytest.mark.parametrize(
@@ -131,16 +135,18 @@ def test_unprepared_write_is_ignored(
     assert get_topic(door.aid, door.iid) not in driver.topics
 
 
-def test_prepared_write_is_kept_until_its_ttl_ends(
+async def test_prepared_write_is_kept_until_its_ttl_ends(
     driver: AccessoryDriver,
     door: WritableChar,
 ) -> None:
     """Test a later prepare at the last moment of a TTL keeps that write."""
+    driver.loop = asyncio.get_running_loop()
     with patch("pyhap.accessory_driver.time.monotonic", return_value=NOW) as now:
         driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 7}, CLIENT)
         now.return_value = NOW + 2.5
         driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 8}, CLIENT)
         assert driver.set_characteristics(_write(door.aid, door.iid, 7), CLIENT) is None
+        await run_scheduled_jobs()
 
     door.setter.assert_called_once_with(1)
 
@@ -201,13 +207,15 @@ def test_prepare_refuses_non_integers(
     assert driver.prepared_writes.get(CLIENT, {}) == {}
 
 
-def test_prepared_pid_is_used_once(
+async def test_prepared_pid_is_used_once(
     driver: AccessoryDriver,
     door: WritableChar,
 ) -> None:
     """Test a prepared pid cannot be replayed."""
+    driver.loop = asyncio.get_running_loop()
     driver.prepare({HAP_REPR_TTL: 2500, HAP_REPR_PID: 7}, CLIENT)
     assert driver.set_characteristics(_write(door.aid, door.iid, 7), CLIENT) is None
+    await run_scheduled_jobs()
 
     response = driver.set_characteristics(_write(door.aid, door.iid, 7), CLIENT)
 
@@ -215,6 +223,7 @@ def test_prepared_pid_is_used_once(
     assert response[HAP_REPR_CHARS][0][HAP_REPR_STATUS] == (
         HAP_SERVER_STATUS.INVALID_VALUE_IN_REQUEST
     )
+    await run_scheduled_jobs()
     door.setter.assert_called_once_with(1)
 
 
@@ -269,7 +278,7 @@ def _highest_level(records: list[logging.LogRecord]) -> int:
         "lenient_plain_write_without_tw",
     ],
 )
-def test_timed_write_permission(
+async def test_timed_write_permission(
     driver: AccessoryDriver,
     chars: dict[str, WritableChar],
     caplog: pytest.LogCaptureFixture,
@@ -282,6 +291,7 @@ def test_timed_write_permission(
     logged: int,
 ) -> None:
     """Test a plain write to a timed write characteristic is refused or logged."""
+    driver.loop = asyncio.get_running_loop()
     caplog.set_level(logging.DEBUG, logger="pyhap.accessory_driver")
     char = chars[name]
     driver.enforce_timed_writes = enforce
@@ -294,6 +304,7 @@ def test_timed_write_permission(
     }
 
     response = driver.set_characteristics(query, CLIENT)
+    await run_scheduled_jobs()
 
     assert _statuses(response) == statuses
     assert char.setter.call_count == calls

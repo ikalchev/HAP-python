@@ -4,6 +4,7 @@ import asyncio
 from io import StringIO
 from typing import Any
 from unittest.mock import AsyncMock, patch
+import warnings
 
 import pytest
 
@@ -46,6 +47,28 @@ class TestAccessory(Accessory):
 
 def test_acc_init(mock_driver: Any) -> None:
     Accessory(mock_driver, "Test Accessory")
+
+
+def test_legacy_setter_warns_deprecated(mock_driver: Any) -> None:
+    """Assigning a legacy grouped setter announces its deprecation."""
+    acc = Accessory(mock_driver, "Test Accessory")
+    assert acc.setter_callback is None
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        acc.setter_callback = lambda values: None  # noqa: E731
+    (warning,) = caught
+    assert warning.category is DeprecationWarning
+    assert "legacy setter_callback is deprecated" in str(warning.message)
+    # The warning names the assigning code, not the library.
+    assert warning.filename == __file__
+
+    assert acc.setter_callback is not None
+
+    # Removing stays silent.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        acc.setter_callback = None
 
 
 def test_acc_with_custom_iid_manager(mock_driver: Any) -> None:

@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 
 from pyhap import hksv3
 from pyhap.camera_webrtc import WebRTCSession
+from pyhap.connection import HAPConnectionHandle
 from pyhap.media import MediaError
 from pyhap.media.pool import ChannelLease, SourcePool
 
@@ -39,7 +40,7 @@ def make_session(sframe: bool = True) -> WebRTCSession:
     return WebRTCSession(
         id=uuid4(),
         sensor=SENSOR,
-        client_addr=None,
+        connection=HAPConnectionHandle(None, 0),
         sframe=sframe,
         video_tier=MEDIUM,
         audio_tier=AUDIO,
