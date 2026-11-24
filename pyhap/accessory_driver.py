@@ -492,8 +492,25 @@ class AccessoryDriver:
             self.loop.call_soon_threadsafe(self.loop.create_task, self.async_stop())
             self.loop.run_forever()
         finally:
+            self._cancel_pending_tasks()
             self.loop.close()
             logger.info("Closed the event loop")
+
+    def _cancel_pending_tasks(self) -> None:
+        """Cancel tasks still pending on the loop before it is closed.
+
+        Without this, a task that is still running when the loop stops (e.g.
+        a ``run_at_interval`` wrapper awaiting its ``run`` task) is destroyed
+        pending at loop close, which asyncio logs as "Task was destroyed but
+        it is pending!".
+        """
+        pending = [task for task in asyncio.all_tasks(self.loop) if not task.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            self.loop.run_until_complete(
+                asyncio.gather(*pending, return_exceptions=True)
+            )
 
     def start_service(self) -> None:
         """Start the service."""

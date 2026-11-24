@@ -166,7 +166,15 @@ Caveats
   never back to the connection that caused it.
 * **Un-awaited tasks are not free.** A bare ``asyncio.create_task`` result
   can be garbage-collected before it runs, and its exception is only a
-  warning; prefer :func:`pyhap.util.async_create_background_task`.
+  warning; prefer :func:`pyhap.util.async_create_background_task`. The same
+  applies to awaitables returned *by* awaited calls — e.g. zeroconf's
+  ``async_unregister_service`` returns the goodbye-broadcast task, which must
+  be awaited too, or it is still pending when the loop closes. The test
+  suite enforces this: ``RuntimeWarning`` ("coroutine ... was never
+  awaited") is promoted to a test error via ``filterwarnings``, a guard
+  fixture in ``tests/conftest.py`` fails any test during which asyncio logs
+  "Task was destroyed but it is pending!", and ruff's ``RUF006`` flags
+  ``create_task``/``ensure_future`` results that are not kept.
 * **Subprocesses on the loop's executor.** If your accessory runs ffmpeg or
   other subprocesses (cameras do), be aware the loop reaps them; the driver
   sets a child watcher when it owns the loop. Starting subprocesses from a
