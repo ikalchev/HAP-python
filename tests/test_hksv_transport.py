@@ -7,7 +7,7 @@ import logging
 import os
 import socket
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -57,7 +57,7 @@ class _SlowCleanupCamera(Camera):
             self.cleaned.set()
 
 
-def _make_camera(camera_class: Any = Camera) -> Any:
+def _make_camera(camera_class: Any = Camera, recording: Any = True) -> Any:
     with (
         patch("pyhap.accessory_driver.AccessoryDriver.persist"),
         patch("pyhap.accessory_driver.AccessoryDriver.load"),
@@ -76,7 +76,7 @@ def _make_camera(camera_class: Any = Camera) -> Any:
             "audio": {"codecs": [{"type": "OPUS", "samplerate": 24}]},
             "srtp": True,
             "address": "127.0.0.1",
-            "recording": True,
+            "recording": recording,
         }
         return camera_class(options, driver, "Cam")
 
@@ -371,8 +371,17 @@ async def test_run_and_stop_drive_recording_transport(camera: Any) -> None:
     assert camera._hds_listener is None
 
 
+@pytest.mark.parametrize(
+    ("start", "stop"),
+    [("start_recording_transport", "stop_recording_transport"), ("run", "stop")],
+)
 @pytest.mark.asyncio
-async def test_stop_during_start_does_not_publish_listener(camera: Any) -> None:
+async def test_stop_during_start_leaves_nothing_running(start: str, stop: str) -> None:
+    """A start that a stop overtakes publishes no listener and arms no delegate."""
+    delegate = AsyncMock(spec=hds_recording.RecordingProducer, prebuffer_ms=0)
+    camera = _make_camera(recording={"delegate": delegate})
+    # Recording is on, as restored after a restart.
+    camera._recording_service.get_characteristic("Active").set_value(1)
     release = asyncio.Event()
     original_start = hds_server.HDSListener.start
     binding = []
@@ -383,13 +392,19 @@ async def test_stop_during_start_does_not_publish_listener(camera: Any) -> None:
         return await original_start(self, host)
 
     with patch.object(hds_server.HDSListener, "start", slow_start):
-        start = asyncio.ensure_future(camera.start_recording_transport())
+        starting = asyncio.ensure_future(getattr(camera, start)())
         await asyncio.sleep(0)
-        await camera.stop_recording_transport()
+        await getattr(camera, stop)()
         release.set()
-        await start
+        await starting
+    # A task of the start to arm the delegate would run now.
+    await asyncio.sleep(0)
     assert camera._hds_listener is None
     assert not binding[0]._servers
+    # Running would let a later hub write arm the closed delegate.
+    assert camera._recording_media_running is False
+    delegate.set_armed.assert_not_awaited()
+    delegate.close.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
