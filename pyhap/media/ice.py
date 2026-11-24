@@ -10,7 +10,9 @@ resolved with the tie-breaker and 487 (RFC 8445 section 7.3.1.1).
 No STUN or TURN server is used: HomeKit controllers reach the accessory
 through a relay of their own (remote) or on the LAN, and the accessory's
 outgoing check opens its NAT towards the relay. A request from an unknown
-address with a valid MESSAGE-INTEGRITY becomes a peer-reflexive pair.
+address with a valid MESSAGE-INTEGRITY becomes a peer-reflexive pair; that is
+also how a peer is found whose candidates are mDNS names, which the transport
+does not resolve.
 
 After selection, consent freshness (RFC 7675) sends a check on the selected
 pair every few seconds; without an authenticated response for
@@ -647,34 +649,3 @@ class IceAgent:
         sockets, self._sockets = self._sockets, []
         for sock in sockets:
             sock.close()
-
-
-async def resolve_mdns(names: Iterable[str], timeout: float) -> dict[str, str | None]:
-    """Resolve mDNS ``.local`` host names to IP addresses, all at once.
-
-    One zeroconf instance asks for every name in parallel; a name that does
-    not resolve within ``timeout`` seconds maps to None.
-    """
-    from zeroconf import AddressResolver  # noqa: PLC0415 - rarely needed
-    from zeroconf.asyncio import AsyncZeroconf  # noqa: PLC0415
-
-    zeroconf = AsyncZeroconf()
-
-    async def resolve(name: str) -> str | None:
-        resolver = AddressResolver(name if name.endswith(".") else f"{name}.")
-        if not await resolver.async_request(zeroconf.zeroconf, int(timeout * 1000)):
-            return None
-        addresses = resolver.parsed_scoped_addresses()
-        return addresses[0] if addresses else None
-
-    try:
-        unique = list(dict.fromkeys(names))
-        results = await asyncio.gather(
-            *(resolve(name) for name in unique), return_exceptions=True
-        )
-    finally:
-        await zeroconf.async_close()
-    return {
-        name: result if isinstance(result, str) else None
-        for name, result in zip(unique, results, strict=True)
-    }

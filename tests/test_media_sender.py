@@ -50,7 +50,7 @@ from .media_peer import (  # noqa: E402
     video_count,
     wait_until,
 )
-from .webrtc_helpers import SFrameKey  # noqa: E402
+from .webrtc_helpers import IceCandidate, SFrameKey  # noqa: E402
 
 pytestmark = pytest.mark.timeout(5)
 
@@ -441,9 +441,25 @@ async def test_negotiation_timeout_counts_from_answer() -> None:
     answer, candidates = await controller.answer(offer)
     started = time.monotonic()
     await sender.apply_answer(answer, candidates)
-    assert "timed out" in await asyncio.wait_for(closed.get(), 3)
+    assert await asyncio.wait_for(closed.get(), 3) == "negotiation timed out"
     assert time.monotonic() - started >= 0.25
     await controller.close()
+
+
+async def test_negotiation_timeout_names_ignored_mdns_candidates() -> None:
+    """Verify the end reason says a peer was known by mDNS names alone."""
+    sender = make_sender(negotiation_timeout=0.3)
+    closed: asyncio.Queue[str] = asyncio.Queue()
+    sender.on_closed = closed.put_nowait
+    controller = Controller()
+    try:
+        answer, _ = await controller.answer(await sender.create_offer())
+        mdns = "candidate:1 1 udp 1 0a1b2c3d-4e5f.local 9 typ host"
+        await sender.apply_answer(answer, [IceCandidate(mdns, "0", 0)])
+        reason = await asyncio.wait_for(closed.get(), 3)
+        assert reason == "negotiation timed out (mDNS candidates ignored: 1)"
+    finally:
+        await controller.close()
 
 
 async def test_close_during_create_offer() -> None:

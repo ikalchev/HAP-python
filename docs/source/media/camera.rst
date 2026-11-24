@@ -301,6 +301,16 @@ controller answers. It needs the ``WebRTC`` extra
 
 Pass ``on_audio`` to receive the controller's talkback as Opus packets.
 
+A controller may name itself by an mDNS ``.local`` name in its answer. The
+delegate resolves such names with the Zeroconf instance of the camera's
+driver: the one it advertises with, or the ``async_zeroconf_instance`` the
+application gave it, which has to run on the driver's loop. It asks for at
+most four names and waits up to two seconds for them, at most a quarter of
+the ``hook_timeout`` the answer has: with a short one, an answer that takes
+more than a second is missed. Without an instance, and for a name that does
+not resolve, the controller is only reached when its own connectivity checks
+get to the camera.
+
 Talkback
 ========
 

@@ -43,6 +43,7 @@ from pyhap import hksv3
 from pyhap.camera_stream import StreamError
 
 from . import MediaError
+from ._mdns import MDNS_TIMEOUT, resolve_answer
 from .pool import SourceLease, WebRTCMediaSender
 from .sdp import AudioParams, VideoParams
 
@@ -171,8 +172,25 @@ class WebRTCMediaDelegate:
         sdp: str,
         candidates: list[hksv3.IceCandidate],
     ) -> None:
-        """Apply the answer and pull the channel while ICE and DTLS connect."""
+        """Apply the answer and pull the channel while ICE and DTLS connect.
+
+        mDNS names of the answer's candidates are resolved first, with the
+        Zeroconf instance of the camera's driver, which has to run on this
+        loop. A name that does not resolve costs up to two seconds of the
+        hook's time, at most a quarter of its ``hook_timeout``; the pull
+        starts after that. Without an instance, and for names that do not
+        resolve, the peer is only found by its own checks.
+        """
         sender, lease, media = self._get(session)
+        camera = session.camera
+        if camera is not None:
+            hook_timeout = camera.webrtc_controllers[session.sensor_uuid].hook_timeout
+            sdp, candidates = await resolve_answer(
+                camera.driver.advertiser,
+                sdp,
+                candidates,
+                min(MDNS_TIMEOUT, hook_timeout / 4),
+            )
         try:
             await sender.apply_answer(sdp, candidates)
         except MediaError as err:

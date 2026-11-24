@@ -388,6 +388,9 @@ class WebRTCSender:
         """Accept the controller's answer and connect in the background.
 
         ``candidates`` are answer candidates HAP carried next to the SDP.
+        mDNS ``.local`` names among them and in the SDP are not resolved
+        here but ignored; :class:`~pyhap.media.webrtc_delegate.WebRTCMediaDelegate`
+        resolves them before it applies an answer.
         """
         if self._state != "offered":
             raise MediaError("No offer is waiting for an answer")
@@ -413,9 +416,7 @@ class WebRTCSender:
         self._remote_ice = (media.ice_ufrag, media.ice_pwd)
         self._remote_fingerprints = list(media.fingerprints)
         self._dtls_role = DtlsRole.from_remote_setup(media.setup)
-        self._start(
-            self._expire("answered", self._negotiation_timeout, "negotiation timed out")
-        )
+        self._start(self._expire_negotiation())
         self._start(
             self._connect(
                 media.ice_ufrag,
@@ -604,6 +605,13 @@ class WebRTCSender:
         await asyncio.sleep(timeout)
         if self._state == state:
             await self._close(reason)
+
+    async def _expire_negotiation(self) -> None:
+        await asyncio.sleep(self._negotiation_timeout)
+        if self._state == "answered":
+            # Ends the connect too, so its own error never gets to say it.
+            hint = self._transport.ice_failure_hint
+            await self._close(f"negotiation timed out{hint}")
 
     async def _writer(self) -> None:
         try:
