@@ -987,6 +987,7 @@ class AccessoryDriver:
             except Exception:
                 # The removed pairing must be saved regardless.
                 logger.warning("Failed to reset the accessory state", exc_info=True)
+            self.accessory.setup_message()
         self.async_persist()
 
     def finish_pair(self) -> None:
