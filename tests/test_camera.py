@@ -23,6 +23,14 @@ _SETUP_ENDPOINTS_REQUEST = (
     "qGeNmESTIojxNiAw78WkjTLtGv0waWnLo9gQEBAA=="
 )
 
+_SELECTED_STREAM_START_REQUEST = (
+    "ARUCAQEBEKzMbMEFY0UVjal0tFCQBpECNAEBAAIJAQEAAgEAAwEAAwsBAoAC"
+    "AgJoAQMBHgQXAQFjAgQr66FSAwKEAAQEAAAAPwUCYgUDLAEBAgIMAQEBAgEA"
+    "AwEBBAEeAxYBAW4CBMUInmQDAhgABAQAAKBABgENBAEA"
+)
+
+_SELECTED_STREAM_STOP_REQUEST = "ARUCAQABEKzMbMEFY0UVjal0tFCQBpE="
+
 _OPTIONS = {
     "stream_count": 4,
     "video": {
@@ -140,12 +148,6 @@ def test_set_selected_stream_start_stop(mock_driver: Any) -> None:
         process_mock.wait = wait
         return process_mock
 
-    selected_config_req = (
-        "ARUCAQEBEKzMbMEFY0UVjal0tFCQBpECNAEBAAIJAQEAAgEAAwEAAwsBAoAC"
-        "AgJoAQMBHgQXAQFjAgQr66FSAwKEAAQEAAAAPwUCYgUDLAEBAgIMAQEBAgEA"
-        "AwEBBAEeAxYBAW4CBMUInmQDAhgABAQAAKBABgENBAEA"
-    )
-
     session_id = UUID("accc6cc1-0563-4515-8da9-74b450900691")
 
     session_info = {
@@ -166,12 +168,11 @@ def test_set_selected_stream_start_stop(mock_driver: Any) -> None:
     patcher = patch("asyncio.create_subprocess_exec", new=subprocess_exec)
     patcher.start()
 
-    acc.set_selected_stream_configuration(selected_config_req)
+    acc.set_selected_stream_configuration(_SELECTED_STREAM_START_REQUEST)
 
     assert acc.streaming_status == camera.STREAMING_STATUS["STREAMING"]
 
-    selected_config_stop_req = "ARUCAQABEKzMbMEFY0UVjal0tFCQBpE="
-    acc.set_selected_stream_configuration(selected_config_stop_req)
+    acc.set_selected_stream_configuration(_SELECTED_STREAM_STOP_REQUEST)
 
     patcher.stop()
 
@@ -298,6 +299,7 @@ async def test_talkback_audio_is_received_and_dispatched(mock_driver: Any) -> No
     # The test vector advertises 192.168.1.114 as the controller; pretend the
     # controller is local so the loopback send passes the source filter.
     receiver._controller_address = "127.0.0.1"
+    receiver.start({})
 
     key_and_salt = _audio_srtp_key_and_salt(_SETUP_ENDPOINTS_REQUEST)
     rtp_payload = b"opus-frame-payload"
@@ -344,7 +346,7 @@ def test_custom_talkback_receiver(mock_driver: Any) -> None:
             local_port_mock()
             return 12345
 
-        def start(self) -> None:
+        def start(self, audio_config: dict[str, Any]) -> None:
             start_mock()
 
         def stop(self) -> None:
@@ -360,6 +362,14 @@ def test_custom_talkback_receiver(mock_driver: Any) -> None:
         ) -> TalkbackReceiverProtocol:
             return CustomReceiver()
 
+        async def start_stream(
+            self, session_info: dict[str, Any], stream_config: dict[str, Any]
+        ) -> bool:
+            return True
+
+        async def stop_stream(self, session_info: dict[str, Any]) -> None:
+            pass
+
     options = dict(_OPTIONS, talkback=True)
     acc = CustomCamera(options, mock_driver, "Camera")
     management = acc.get_service("CameraRTPStreamManagement")
@@ -370,10 +380,13 @@ def test_custom_talkback_receiver(mock_driver: Any) -> None:
     session_id = list(acc.sessions)[0]
     receiver = acc.sessions[session_id]["audio_backchannel"]
     assert isinstance(receiver, CustomReceiver)
-    acc._close_talkback(acc.sessions[session_id])
-
     local_port_mock.assert_called()
+    start_mock.assert_not_called()
+
+    acc.set_selected_stream_configuration(_SELECTED_STREAM_START_REQUEST)
     start_mock.assert_called_once()
+
+    acc.set_selected_stream_configuration(_SELECTED_STREAM_STOP_REQUEST)
     stop_mock.assert_called_once()
 
 

@@ -29,7 +29,7 @@ import logging
 import socket
 import struct
 import threading
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import pylibsrtp
 
@@ -138,8 +138,12 @@ class TalkbackReceiverProtocol(Protocol):
         that the controller knows where to send the talkback audio.
         """
 
-    def start(self) -> None:
-        """Start listening for incoming audio."""
+    def start(self, audio_config: dict[str, Any]) -> None:
+        """Start listening for incoming audio.
+        :param audio_config: Audio configuration, as negotiated with the HAP client.
+            Implementations can only use part of these. Available key:
+            - a_codec - Audio codec
+        """
 
     def stop(self) -> None:
         """Stop listening and release the socket."""
@@ -198,14 +202,15 @@ class TalkbackReceiver:
         """
         return cast(int, self._sock.getsockname()[1])
 
-    def start(self) -> None:
+    def start(self, audio_config: dict[str, Any]) -> None:
         """Start listening for incoming audio in a background thread."""
         self._thread.start()
 
     def stop(self) -> None:
         """Stop listening and release the socket."""
         self._stop_event.set()
-        self._thread.join(timeout=2)
+        if self._thread.ident is not None:
+            self._thread.join(timeout=2)
         self._sock.close()
 
     def _run(self) -> None:
