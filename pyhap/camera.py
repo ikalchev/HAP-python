@@ -1742,6 +1742,10 @@ class Camera(Accessory):
             success = await self.reconfigure_stream(session_info, opts)
         else:
             success = await self.start_stream(session_info, opts)
+            if success and self.support_talkback:
+                session_info["audio_backchannel"].start(
+                    {key: opts[key] for key in ("a_codec",)}
+                )
 
         if success:
             self._streaming_status[stream_idx] = STREAMING_STATUS["STREAMING"]
@@ -2041,7 +2045,6 @@ class Camera(Accessory):
                 is_ipv6=bool(is_ipv6),
                 controller_address=address,
             )
-            audio_backchannel.start()
             audio_rtp_port = audio_backchannel.local_port
 
         res_address_tlv = tlv.encode(
