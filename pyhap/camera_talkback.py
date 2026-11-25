@@ -140,8 +140,10 @@ class TalkbackReceiverProtocol(Protocol):
 
     def start(self, audio_config: dict[str, Any]) -> None:
         """Start listening for incoming audio.
+
         :param audio_config: Audio configuration, as negotiated with the HAP client.
             Implementations can only use part of these. Available key:
+
             - a_codec - Audio codec
         """
 
