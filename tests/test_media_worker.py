@@ -5,14 +5,16 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 import contextlib
+import functools
 import logging
+import math
 import os
 import pathlib
 import signal
 import subprocess
 import sys
 import time
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -22,6 +24,7 @@ from pyhap.media.worker import (  # noqa: E402
     MAX_MESSAGE,
     MediaWorker,
     MediaWorkerError,
+    RemoteMediaSource,
     RemoteWebRTCSender,
     encode_message,
     log_file,
@@ -380,6 +383,83 @@ async def test_stuck_worker_is_stopped(
 
 def ignore_message(message: dict[str, Any], blob: bytes) -> None:
     """Drop a message from the worker, as if it never answered."""
+
+
+@pytest.mark.parametrize("separate_process", [False, True], ids=["thread", "process"])
+async def test_blocked_caller_keeps_the_worker(
+    separate_process: bool, tmp_path: pathlib.Path
+) -> None:
+    """Verify a request answered while the caller's loop was blocked succeeds."""
+    worker = MediaWorker(
+        separate_process=separate_process, log_dir=tmp_path, request_timeout=0.5
+    )
+    running = await worker.open_source()
+    source = await open_source_with_blocked_loop(worker)
+    assert not source.closed
+    assert not running.closed
+    assert worker.running
+    await worker.close()
+
+
+async def test_blocked_caller_waits_for_a_late_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify an answer that comes in just after the caller's loop ran again counts."""
+    worker = MediaWorker(request_timeout=0.5)
+    await worker.start()
+    # As from a worker thread that was held up together with the caller's loop.
+    late = functools.partial(
+        asyncio.get_running_loop().call_later, 0.01, worker._dispatch
+    )
+    monkeypatch.setattr(worker, "_dispatch", late)
+    source = await open_source_with_blocked_loop(worker)
+    assert not source.closed
+    await worker.close()
+
+
+@pytest.mark.parametrize("separate_process", [False, True], ids=["thread", "process"])
+async def test_stuck_worker_with_requests_in_their_tail_logs_no_error(
+    monkeypatch: pytest.MonkeyPatch, separate_process: bool, tmp_path: pathlib.Path
+) -> None:
+    """Verify requests waiting out their timeout end without a loop error."""
+    errors: list[dict[str, Any]] = []
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "call_exception_handler", errors.append)
+    worker = MediaWorker(
+        separate_process=separate_process, log_dir=tmp_path, request_timeout=0.5
+    )
+    await worker.start()
+    monkeypatch.setattr(worker, "_dispatch", ignore_message)
+    first = asyncio.ensure_future(worker.open_source())
+    # The second is still in its tail when the first stops the worker.
+    await asyncio.sleep(0.05)
+    second = asyncio.ensure_future(worker.open_source())
+    results = await asyncio.gather(first, second, return_exceptions=True)
+    assert all(isinstance(result, MediaWorkerError) for result in results)
+    await asyncio.sleep(0.1)
+    assert errors == []
+    monkeypatch.undo()
+    await worker.close()
+
+
+@pytest.mark.parametrize("timeout", [math.inf, None], ids=["inf", "none"])
+async def test_request_without_a_finite_timeout(timeout: float | None) -> None:
+    """Verify a worker whose requests may wait forever still answers them."""
+    worker = MediaWorker(request_timeout=cast(float, timeout))
+    source = await worker.open_source()
+    assert not source.closed
+    await worker.close()
+
+
+async def open_source_with_blocked_loop(worker: MediaWorker) -> RemoteMediaSource:
+    """Open a source and block the loop past the timeout once the request is sent."""
+    request = asyncio.ensure_future(worker.open_source())
+    while not worker._pending:
+        await asyncio.sleep(0)
+    # Python 3.11 writes a request one turn of the loop after it is pending.
+    await asyncio.sleep(0)
+    time.sleep(1)
+    return await request
 
 
 async def test_oversized_request_is_refused(
