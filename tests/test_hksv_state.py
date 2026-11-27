@@ -16,6 +16,7 @@ from pyhap.accessory import Bridge
 from pyhap.accessory_driver import AccessoryDriver
 from pyhap.camera import Camera
 from pyhap.encoder import AccessoryEncoder
+from pyhap.hds_recording import RecordingReason
 from pyhap.state import State
 from pyhap.util import base64_to_bytes, to_base64_str
 
@@ -178,13 +179,73 @@ async def test_restore_on_construction(driver: Any) -> None:
     _assert_state(other, DEFAULTS, selected=False)
 
 
-async def test_stale_selected_configuration_dropped(driver: Any) -> None:
+async def test_stale_selected_configuration_dropped(
+    driver: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify a changed configuration drops the selection with one warning."""
     await _write_recording_state(Camera(_options(), driver, "Cam", aid=CAMERA_AID))
 
     camera = Camera(
         _options(resolutions=((1280, 720, 30),)), driver, "Cam", aid=CAMERA_AID
     )
     _assert_state(camera, {**WRITES, SELECTED_CHAR: ""}, selected=False)
+    # A driver that loaded its state before restores the camera once more.
+    camera.restore_accessory_state()
+    # The refusal has the same cause, it is not logged again.
+    _char(camera, "CameraOperatingMode", "HomeKitCameraActive").set_value(1)
+    refused = camera._recording_open_gate(MagicMock())
+    assert refused == RecordingReason.INVALID_CONFIGURATION
+    assert [record.levelname for record in caplog.records] == ["WARNING"]
+    assert caplog.messages[0].startswith("Cam: the supported recording configuration")
+    assert "off and on in the Home app should make it select" in caplog.messages[0]
+
+
+@pytest.mark.parametrize(
+    "writes",
+    [
+        pytest.param(
+            {**WRITES, ("CameraRecordingManagement", "Active"): 0}, id="recording-off"
+        ),
+        pytest.param(
+            {key: value for key, value in WRITES.items() if key != SELECTED_CHAR},
+            id="nothing-selected",
+        ),
+    ],
+)
+async def test_changed_configuration_without_active_selection_is_quiet(
+    driver: Any, caplog: pytest.LogCaptureFixture, writes: dict[Any, Any]
+) -> None:
+    """Verify a changed configuration warns only for a selection in use."""
+    old = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
+    for (service, name), value in writes.items():
+        _char(old, service, name).client_update_value(value)
+    await _drain()
+
+    Camera(_options(resolutions=((1280, 720, 30),)), driver, "Cam", aid=CAMERA_AID)
+
+    assert not caplog.records
+
+
+async def test_recording_refused_without_selection_is_logged_once(
+    driver: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify a refusal for a missing selection warns once until the hub selects."""
+    camera = Camera(_options(), driver, "Cam", aid=CAMERA_AID)
+    active = _char(camera, "CameraRecordingManagement", "Active")
+    active.client_update_value(1)
+    refused = [camera._recording_open_gate(MagicMock()) for _ in range(2)]
+    assert refused == [RecordingReason.INVALID_CONFIGURATION] * 2
+    assert [record.levelname for record in caplog.records] == ["WARNING"]
+    assert caplog.messages[0].startswith("Cam: refused a recording")
+    assert "off and on in the Home app should make it select" in caplog.messages[0]
+
+    # The hub selects, later a new home turns recording on without selecting.
+    _char(camera, *SELECTED_CHAR).client_update_value(SELECTED)
+    camera.reset_accessory_state()
+    active.client_update_value(1)
+    refused = camera._recording_open_gate(MagicMock())
+    assert refused == RecordingReason.INVALID_CONFIGURATION
+    assert caplog.messages == [caplog.messages[0]] * 2
 
 
 @pytest.mark.parametrize("value", [None, 7, "1", float("inf"), float("nan")])
