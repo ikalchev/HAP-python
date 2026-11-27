@@ -1,7 +1,8 @@
 """Tests for HKSV dataSend/open gating and the delegate failure close."""
 
 import asyncio
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+import logging
 import os
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -214,6 +215,190 @@ async def test_camera_turned_on_keeps_running_recording(
     camera.release.set()
     hub.connection.connection_lost(None)
     await asyncio.wait([camera._recording_stream._task])
+
+
+class _OverrideCamera(Camera):
+    """Records until the stream is stopped."""
+
+    async def handle_recording_stream(
+        self, stream_id: int
+    ) -> AsyncGenerator[hds_recording.RecordingPacket, None]:
+        yield hds_recording.RecordingPacket(b"init")
+        await asyncio.Event().wait()
+
+
+class _ClosingCamera(_OverrideCamera):
+    """Closes the recording in its hook as well, like Home Assistant."""
+
+    hook_saw_streaming: bool | None = None
+
+    def recording_state_changed(self) -> None:
+        stream = self._recording_stream
+        if stream is not None:
+            self.hook_saw_streaming = stream.streaming
+            stream.close(Reason.NOT_ALLOWED)
+
+
+class _DisarmFails:
+    """A recording delegate that fails a running recording when it is disarmed."""
+
+    prebuffer_ms = 0
+
+    def __init__(self) -> None:
+        self.disarmed = asyncio.Event()
+
+    async def set_armed(self, armed: bool) -> None:
+        if not armed:
+            self.disarmed.set()
+
+    async def record(
+        self, _selected: Any, _audio: bool
+    ) -> AsyncGenerator[hds_recording.RecordingPacket, None]:
+        yield hds_recording.RecordingPacket(b"init")
+        await self.disarmed.wait()
+        raise RuntimeError("recording channel released")
+
+    async def close(self) -> None:
+        self.disarmed.set()
+
+
+class _DelegateCamera(Camera):
+    """Records with a delegate instead of an override."""
+
+    def __init__(self, options: dict[str, Any], *args: Any, **kwargs: Any) -> None:
+        delegate = {"delegate": _DisarmFails()}
+        super().__init__({**options, "recording": delegate}, *args, **kwargs)
+
+
+def _hub_writes(
+    camera: Camera, char: str, value: int, service: str = "CameraRecordingManagement"
+) -> None:
+    found = camera.get_service(service)
+    assert found is not None
+    found.get_characteristic(char).client_update_value(value)
+
+
+def _closes(hub: _Controller) -> list[Any]:
+    return [m.message for m in hub.messages() if m.kind == EVENT and m.topic == "close"]
+
+
+async def _saved(camera: Any) -> None:
+    """Let the camera save the hub's writes and arm or disarm its delegate."""
+    # add_job hops through call_soon_threadsafe, then call_soon.
+    for _ in range(2):
+        await asyncio.sleep(0)
+    while camera._recording_media_task is not None:
+        await asyncio.sleep(0)
+
+
+_Record = Callable[[type[Camera], int], Awaitable[tuple[Any, _Controller]]]
+
+
+@pytest.fixture(name="record")
+async def record_fixture(stream_driver: AccessoryDriver) -> AsyncIterator[_Record]:
+    """Start a recording on a camera that saves the writes of its hub."""
+    started: list[tuple[Any, _Controller]] = []
+
+    async def _record(
+        camera_class: type[Camera], audio: int
+    ) -> tuple[Any, _Controller]:
+        camera: Any = camera_class(
+            {"address": "127.0.0.1", "recording": True}, stream_driver, "Cam", aid=2
+        )
+        # A marker is enough, see the camera fixture.
+        camera._selected_recording_config = object()
+        await camera.start_recording_transport()
+        _hub_writes(camera, "RecordingAudioActive", audio)
+        _hub_writes(camera, "Active", 1)
+        await _saved(camera)
+        hub = _Controller(hds_server.HDSListener(), camera._on_hds_connection)
+        started.append((camera, hub))
+        assert hub.open(1).status == HDSStatus.SUCCESS
+        # The recording runs once its first packet is there.
+        async with asyncio.timeout(5):
+            while not hub.messages():
+                await asyncio.sleep(0)
+        return camera, hub
+
+    yield _record
+    for camera, hub in started:
+        hub.connection.connection_lost(None)
+        await asyncio.wait([camera._recording_stream._task])
+        await camera.stop()
+
+
+@pytest.mark.parametrize("camera_class", [_OverrideCamera, _DelegateCamera])
+@pytest.mark.parametrize(
+    ("audio", "char", "value"),
+    [(1, "Active", 0), (1, "RecordingAudioActive", 0), (0, "RecordingAudioActive", 1)],
+)
+@pytest.mark.asyncio
+async def test_recording_off_or_audio_changed_closes_running_recording(
+    record: _Record,
+    caplog: pytest.LogCaptureFixture,
+    camera_class: type[Camera],
+    audio: int,
+    char: str,
+    value: int,
+) -> None:
+    """The hub turning recording off or changing its audio ends the recording.
+
+    Like turning the camera off, and before a disarmed delegate fails it.
+    """
+    camera, hub = await record(camera_class, audio)
+    _hub_writes(camera, char, value)
+    await asyncio.wait([camera._recording_stream._task], timeout=5)
+
+    assert _closes(hub) == [{"streamId": 1, "reason": Reason.NOT_ALLOWED}]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+@pytest.mark.parametrize(
+    "writes",
+    [
+        pytest.param(
+            [("CameraRecordingManagement", "Active", 0)]
+            + [("CameraRecordingManagement", "Active", 1)],
+            id="recording-off-and-on",
+        ),
+        pytest.param(
+            [("CameraRecordingManagement", "RecordingAudioActive", 0)]
+            + [("CameraRecordingManagement", "RecordingAudioActive", 1)],
+            id="audio-off-and-on",
+        ),
+        pytest.param(
+            [("CameraOperatingMode", "EventSnapshotsActive", 0)], id="other-char"
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_other_write_keeps_running_recording(
+    record: _Record, writes: list[tuple[str, str, int]]
+) -> None:
+    """Writes that leave recording and its audio as they were do not end it."""
+    camera, hub = await record(_OverrideCamera, 1)
+    # One burst: the camera saves once, after the last write.
+    for service, char, value in writes:
+        _hub_writes(camera, char, value, service)
+    await _saved(camera)
+
+    assert camera._recording_stream.streaming
+    assert not _closes(hub)
+
+
+@pytest.mark.parametrize("char", ["Active", "RecordingAudioActive"])
+@pytest.mark.asyncio
+async def test_hook_closing_too_finds_recording_closed(
+    record: _Record, caplog: pytest.LogCaptureFixture, char: str
+) -> None:
+    """A subclass closing in its hook, like Home Assistant, closes nothing twice."""
+    camera, hub = await record(_ClosingCamera, 1)
+    _hub_writes(camera, char, 0)
+    await asyncio.wait([camera._recording_stream._task], timeout=5)
+
+    assert camera.hook_saw_streaming is False
+    assert _closes(hub) == [{"streamId": 1, "reason": Reason.NOT_ALLOWED}]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 @pytest.mark.parametrize("mode", ["complete", "fail"])

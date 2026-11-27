@@ -679,6 +679,8 @@ class Camera(Accessory):
         self._hds_listener = None
         self._hds_connections = set()
         self._recording_stream = None
+        # Whether the hub had recording audio on when it opened that stream.
+        self._recording_stream_audio = False
         recording = options.get("recording")
         self._recording_media: hds_recording.RecordingProducer | None = (
             recording.get("delegate") if isinstance(recording, dict) else None
@@ -1390,6 +1392,8 @@ class Camera(Accessory):
 
         Persistence does not use the characteristic setters, so subclasses may
         set their own and should override this hook rather than the setters.
+        A running recording is already closed when the hub turned recording
+        off or changed whether recordings include audio.
         """
 
     def publish(
@@ -1455,6 +1459,13 @@ class Camera(Accessory):
         recording_changed, self._recording_changed = self._recording_changed, False
         self.driver.async_persist()
         if recording_changed:
+            stream = self._recording_stream
+            if stream is not None and not (
+                self.recording_active
+                and self.recording_audio_active == self._recording_stream_audio
+            ):
+                # Before the disarm task runs, which would fail the recording.
+                stream.close(hds_recording.RecordingReason.NOT_ALLOWED)
             self._arm_recording_media()
             self.recording_state_changed()
 
@@ -1613,6 +1624,7 @@ class Camera(Accessory):
         if self._selected_recording_config is None:
             return reasons.INVALID_CONFIGURATION
         self._recording_stream = manager
+        self._recording_stream_audio = self.recording_audio_active
         return None
 
     async def _start_stream(self, objs: dict[bytes, Any], reconfigure: bool) -> None:
