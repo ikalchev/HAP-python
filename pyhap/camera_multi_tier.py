@@ -62,8 +62,9 @@ class MultiTierSession(StreamSession):
     ``address`` and the ports are where the controller receives, with the
     SRTP keys it sent. The accessory sends from ``accessory_address`` and the
     ``accessory_*_port`` values, by default its address on the controller's
-    connection and the controller's port numbers. ``handle_prepare`` may
-    change them. ``video_ssrc`` and ``audio_ssrc`` are the accessory's SSRCs
+    connection (see ``MultiTierConfig.accessory_address``) and the
+    controller's port numbers. ``handle_prepare`` may change them.
+    ``video_ssrc`` and ``audio_ssrc`` are the accessory's SSRCs
     from the Setup Endpoints answer, the controller filters by them. The
     ``controller_*_ssrc`` values are what the controller sent with the last
     start. ``video_tier`` and ``audio_tier`` are what streams once started.
@@ -171,6 +172,11 @@ class MultiTierConfig:
     A started session ends unless :meth:`MultiTierSession.keep_alive` is
     called at least every ``idle_timeout`` seconds, e.g. for each RTCP packet
     of the controller. None turns that off.
+    ``accessory_address`` is the address the Setup Endpoints answer announces
+    for sessions of its IP version, e.g. for an accessory with several
+    interfaces. Without it, and for sessions of the other version,
+    the answer has the accessory's address on the controller's connection.
+    ``handle_prepare`` may still change it.
     """
 
     delegate: MultiTierDelegate | None = None
@@ -180,6 +186,7 @@ class MultiTierConfig:
     hook_timeout: float = DEFAULT_HOOK_TIMEOUT
     setup_timeout: float = 30.0
     idle_timeout: float | None = DEFAULT_IDLE_TIMEOUT
+    accessory_address: str | None = None
 
     @classmethod
     def from_option(cls, value: MultiTierConfig | Mapping[str, Any]) -> MultiTierConfig:
@@ -206,6 +213,11 @@ class MultiTierConfig:
             self.idle_timeout is not None and self.idle_timeout <= 0
         ):
             raise ValueError("multi_tier timeouts must be positive")
+        address = self.accessory_address
+        if address is not None and not (
+            _valid_address(address, False) or _valid_address(address, True)
+        ):
+            raise ValueError("multi_tier accessory_address must be an IP address")
 
 
 def _supported_audio_tiers(audio: hksv3.AudioStreamTier) -> bytes:
@@ -360,9 +372,12 @@ class MultiTierController(StreamController[MultiTierSession]):
         if self.delegate is None:
             logger.warning("[%s] No multi-tier delegate, refusing", session_id)
             return error
-        accessory_address = self.camera._stream_address_for(
-            client_addr, endpoint.is_ipv6
-        )
+        accessory_address = self.config.accessory_address
+        if not _valid_address(accessory_address, endpoint.is_ipv6):
+            # Not set, or of the other IP version.
+            accessory_address = self.camera._stream_address_for(
+                client_addr, endpoint.is_ipv6
+            )
         if accessory_address is None:
             logger.warning(
                 "[%s] No local address of the controller's IP version", session_id

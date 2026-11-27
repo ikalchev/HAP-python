@@ -115,6 +115,9 @@ async def test_rtp_services_come_after(stream_camera: Callable[..., Camera]) -> 
         ({"multi_tier": {"hook_timeout": 9}}, "hook_timeout"),
         ({"webrtc": {"remote_quality": 5}}, "remote_quality"),
         ({"multi_tier": {"audio": None}}, "exactly one audio tier"),
+        ({"multi_tier": {"accessory_address": "cam.local"}}, "address must be"),
+        ({"multi_tier": {"accessory_address": "fe80::1%eth0"}}, "address must be"),
+        ({"multi_tier": {"accessory_address": "::ffff:1.2.3.4"}}, "address must be"),
     ],
 )
 async def test_invalid_options(
@@ -337,8 +340,45 @@ async def test_setup_answers_from_the_connection(
     assert address[SETUP_ADDR_INFO["ADDRESS"]] == b"fd00::10"
 
 
+IPV4 = (b"192.168.1.114", False, "192.168.1.10")
+IPV6 = (b"fd00::1", True, "fd00::10")
+
+
+@pytest.mark.parametrize(
+    ("configured", "family", "announced"),
+    [
+        (None, IPV4, b"192.168.1.10"),
+        (None, IPV6, b"fd00::10"),
+        ("192.0.2.10", IPV4, b"192.0.2.10"),
+        ("192.0.2.10", IPV6, b"fd00::10"),
+        ("fd00::20", IPV6, b"fd00::20"),
+        ("fd00::20", IPV4, b"192.168.1.10"),
+    ],
+    ids=["unset-v4", "unset-v6", "v4", "v4-on-v6", "v6", "v6-on-v4"],
+)
+async def test_setup_answers_from_the_configured_address(
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    configured: str | None,
+    family: tuple[bytes, bool, str],
+    announced: bytes,
+) -> None:
+    """Test ``accessory_address`` is announced to controllers of its IP version."""
+    controller, is_ipv6, local = family
+    camera = stream_camera(
+        multi_tier={"delegate": multi_tier_delegate, "accessory_address": configured}
+    )
+    with patch.object(camera.driver, "_local_address", return_value=local):
+        answer = await _setup(camera, _setup_request(controller, is_ipv6))
+    address = tlv.decode(answer[SETUP_TYPES["ADDRESS"]])
+    assert address[SETUP_ADDR_INFO["ADDRESS"]] == announced
+
+
+@pytest.mark.parametrize("configured", [None, "192.0.2.10"])
 async def test_prepare_may_change_the_answer(
-    stream_camera: Callable[..., Camera], multi_tier_delegate: AsyncMock
+    stream_camera: Callable[..., Camera],
+    multi_tier_delegate: AsyncMock,
+    configured: str | None,
 ) -> None:
     """Test the delegate may answer with other addresses and ports."""
 
@@ -347,7 +387,8 @@ async def test_prepare_may_change_the_answer(
         session.accessory_video_port = 40000
 
     multi_tier_delegate.handle_prepare.side_effect = _prepare
-    answer = await _setup(stream_camera())
+    options = {"delegate": multi_tier_delegate, "accessory_address": configured}
+    answer = await _setup(stream_camera(multi_tier=options))
     address = tlv.decode(answer[SETUP_TYPES["ADDRESS"]])
     assert address[SETUP_ADDR_INFO["ADDRESS"]] == b"192.168.1.20"
     assert address[SETUP_ADDR_INFO["VIDEO_RTP_PORT"]] == struct.pack("<H", 40000)
