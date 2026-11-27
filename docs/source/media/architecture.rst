@@ -39,7 +39,11 @@ Channels and sessions
 
 channel
     One media input of a camera, identified by any hashable key. Tiers that
-    resolve to the same input share a channel.
+    resolve to the same input share a channel. The ffmpeg provider resolves
+    the input for every lease and again for every restart of its process, so
+    an input whose URL changes, for example with a token that expires, names
+    its channel with the ``key`` of :class:`~pyhap.media.ffmpeg.FFmpegInput`
+    to stay shared.
 
 session
     One HomeKit stream session. It attaches to the channel's source as a

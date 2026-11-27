@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+import contextlib
 import logging
 import os
 from pathlib import Path
@@ -20,8 +21,10 @@ from pyhap.media.ffmpeg import (
     FFmpegInput,
     FFmpegPull,
     FFmpegSourceProvider,
+    InputResolver,
     redact_urls,
 )
+from pyhap.media.pool import ChannelLease
 from pyhap.media.webrtc_delegate import WebRTCMediaDelegate
 
 from .media_fakes import (
@@ -321,6 +324,330 @@ async def test_provider_diagnostics() -> None:
     await lease.release()
 
 
+class TokenResolver:
+    """An input resolver whose input holds the number of the call as a token.
+
+    ``failing`` maps the number of a call to the resolver answering it
+    instead; ``fields`` are further fields of the inputs.
+    """
+
+    def __init__(
+        self, failing: Mapping[int, InputResolver] | None = None, /, **fields: Any
+    ) -> None:
+        """Start without a call."""
+        self.failing = failing or {}
+        self.fields = fields
+        self.calls = 0
+
+    async def __call__(
+        self, tier: hksv3.VideoStreamTier
+    ) -> Sequence[str] | FFmpegInput | None:
+        """Count the call and answer it."""
+        self.calls += 1
+        answer: InputResolver = self.failing.get(self.calls, self._resolve)
+        return await answer(tier)
+
+    async def _resolve(self, _tier: hksv3.VideoStreamTier) -> FFmpegInput:
+        return FFmpegInput(("-i", f"cam?token={self.calls}"), **self.fields)
+
+
+async def raise_error(_tier: hksv3.VideoStreamTier) -> None:
+    """An input resolver failing with the camera URL in its error."""
+    raise RuntimeError("rtsp://user:pw@10.0.0.2/T0k3n: 401")
+
+
+async def time_out(_tier: hksv3.VideoStreamTier) -> None:
+    """An input resolver failing with an error without a text."""
+    raise TimeoutError
+
+
+async def find_nothing(_tier: hksv3.VideoStreamTier) -> None:
+    """An input resolver without an input for the tier."""
+
+
+async def cancel(_tier: hksv3.VideoStreamTier) -> None:
+    """An input resolver raising CancelledError while nothing cancels it."""
+    raise asyncio.CancelledError
+
+
+def after(gate: asyncio.Event) -> InputResolver:
+    """An input resolver answering once ``gate`` is set."""
+
+    async def resolve(_tier: hksv3.VideoStreamTier) -> FFmpegInput:
+        await gate.wait()
+        return FFmpegInput(("-i", "cam?token=late"))
+
+    return resolve
+
+
+def started(fake_ffmpeg: Path) -> list[str]:
+    """The arguments of each start of the fake ffmpeg."""
+    log = fake_ffmpeg.parent / "starts.log"
+    return log.read_text().splitlines() if log.exists() else []
+
+
+def tokens(fake_ffmpeg: Path) -> list[str]:
+    """The token in the input of each start of the fake ffmpeg."""
+    return [line.partition("token=")[2].split()[0] for line in started(fake_ffmpeg)]
+
+
+def exit_ffmpeg(pull: FFmpegPull, _lease: ChannelLease) -> None:
+    """End the running ffmpeg, as when the camera drops its connection."""
+    os.kill(cast(int, pull.pid), signal.SIGTERM)
+
+
+def request_keyframe(pull: FFmpegPull, lease: ChannelLease) -> None:
+    """Request an IRAP picture long after the last one."""
+    pull._started -= 100
+    lease.keyframe_requested(None, None)
+
+
+async def test_first_start_runs_on_the_input_of_the_lease(fake_ffmpeg: Path) -> None:
+    """Verify the first start does not ask the resolver again, which may hang."""
+    resolver = TokenResolver({2: after(asyncio.Event())})
+    worker = FakeWorker()
+    provider = FFmpegSourceProvider(
+        resolver, worker=cast(Any, worker), ffmpeg=str(fake_ffmpeg)
+    )
+    lease = await provider.lease_channel(MEDIUM, AUDIO)
+
+    # It holds the lock of the channel, which release() and close() need too.
+    await asyncio.wait_for(lease.activate(), 2)
+    await wait_until(lambda: len(started(fake_ffmpeg)) == 1)
+    await asyncio.wait_for(lease.release(), 2)
+    await asyncio.wait_for(provider.close(), 2)
+
+    assert tokens(fake_ffmpeg) == ["1"]
+    assert resolver.calls == 1
+    assert worker.sources[0].closed
+
+
+@pytest.mark.parametrize(
+    "restart", [exit_ffmpeg, request_keyframe], ids=["exit", "keyframe"]
+)
+async def test_ffmpeg_provider_resolves_for_each_restart(
+    fake_ffmpeg: Path, restart: Callable[[FFmpegPull, ChannelLease], None]
+) -> None:
+    """Verify a restarted ffmpeg runs on a newly resolved input."""
+    resolver = TokenResolver()
+    provider = FFmpegSourceProvider(
+        resolver,
+        worker=cast(Any, FakeWorker()),
+        ffmpeg=str(fake_ffmpeg),
+        restart_delay=0.01,
+    )
+    lease = await provider.lease_channel(MEDIUM, AUDIO)
+    await lease.activate()
+    await wait_until(lambda: len(started(fake_ffmpeg)) == 1)
+
+    restart(provider._pulls["medium"], lease)
+    await wait_until(lambda: len(started(fake_ffmpeg)) == 2)
+    await lease.release()
+    await provider.close()
+
+    assert tokens(fake_ffmpeg) == ["1", "2"]
+    assert resolver.calls == 2
+
+
+@pytest.mark.parametrize(
+    ("failing", "message"),
+    [
+        (raise_error, "could not start: rtsp://10.0.0.2/<redacted> 401"),
+        (time_out, "could not start: TimeoutError"),
+        (find_nothing, "could not start: No ffmpeg input for tier"),
+        (cancel, "could not start: CancelledError"),
+    ],
+    ids=["error", "error-without-text", "no-input", "cancelled"],
+)
+async def test_ffmpeg_provider_retries_a_failed_resolve(
+    fake_ffmpeg: Path,
+    caplog: pytest.LogCaptureFixture,
+    failing: InputResolver,
+    message: str,
+) -> None:
+    """Verify a resolver failing for a restart is reported and asked again."""
+    caplog.set_level(logging.DEBUG, "pyhap.media.ffmpeg")
+    errors: list[str] = []
+    worker = FakeWorker()
+    provider = FFmpegSourceProvider(
+        TokenResolver({2: failing, 3: failing}),
+        worker=cast(Any, worker),
+        ffmpeg=str(fake_ffmpeg),
+        restart_delay=0.01,
+        on_error=lambda _channel, text: errors.append(text),
+    )
+    lease = await provider.lease_channel(MEDIUM, AUDIO)
+    await lease.activate()
+    pull = provider._pulls["medium"]
+    await wait_until(lambda: len(started(fake_ffmpeg)) == 1)
+
+    exit_ffmpeg(pull, lease)
+    await wait_until(lambda: pull.restarts == 1)
+    await wait_until(lambda: len(started(fake_ffmpeg)) == 2)
+    await lease.release()
+    await provider.close()
+
+    assert errors[0].startswith("exited with")
+    assert [error.startswith(message) for error in errors[1:]] == [True, True]
+    assert tokens(fake_ffmpeg) == ["1", "4"]
+    assert worker.sources[0].closed
+    assert "T0k3n" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("restart", "failing", "calls", "message"),
+    [
+        (exit_ffmpeg, {}, 1, "exited with"),
+        (request_keyframe, {2: raise_error}, 2, "could not start"),
+    ],
+    ids=["exit", "failed-start"],
+)
+async def test_keyframe_requests_keep_the_backoff(
+    fake_ffmpeg: Path,
+    restart: Callable[[FFmpegPull, ChannelLease], None],
+    failing: dict[int, InputResolver],
+    calls: int,
+    message: str,
+) -> None:
+    """Verify keyframe requests while no ffmpeg runs do not restart it early."""
+    errors: list[str] = []
+    resolver = TokenResolver(failing)
+    provider = FFmpegSourceProvider(
+        resolver,
+        worker=cast(Any, FakeWorker()),
+        ffmpeg=str(fake_ffmpeg),
+        gop=0.05,
+        restart_delay=10.0,
+        on_error=lambda _channel, text: errors.append(text),
+    )
+    lease = await provider.lease_channel(MEDIUM, AUDIO)
+    await lease.activate()
+    pull = provider._pulls["medium"]
+    await wait_until(lambda: len(started(fake_ffmpeg)) == 1)
+    restart(pull, lease)
+    await wait_until(lambda: bool(errors))
+
+    # Each after twice the GOP, which a running ffmpeg would restart for.
+    for _ in range(5):
+        await asyncio.sleep(0.15)
+        lease.keyframe_requested(None, None)
+    await lease.release()
+    await provider.close()
+
+    assert resolver.calls == calls
+    assert len(started(fake_ffmpeg)) == 1
+    assert [error.startswith(message) for error in errors] == [True]
+
+
+async def release_lease(lease: ChannelLease, _provider: FFmpegSourceProvider) -> None:
+    """End the last session of the channel."""
+    await lease.release()
+
+
+async def close_provider(_lease: ChannelLease, provider: FFmpegSourceProvider) -> None:
+    """Shut the provider down."""
+    await provider.close()
+
+
+@pytest.mark.parametrize(
+    "stop", [release_lease, close_provider], ids=["release", "close"]
+)
+async def test_stop_does_not_wait_for_a_resolve(
+    fake_ffmpeg: Path,
+    stop: Callable[[ChannelLease, FFmpegSourceProvider], Awaitable[None]],
+) -> None:
+    """Verify ffmpeg stops at once while a restart is resolved, and for good."""
+    gate = asyncio.Event()
+    errors: list[str] = []
+    worker = FakeWorker()
+    resolver = TokenResolver({2: after(gate)})
+    provider = FFmpegSourceProvider(
+        resolver,
+        worker=cast(Any, worker),
+        ffmpeg=str(fake_ffmpeg),
+        restart_delay=0.01,
+        on_error=lambda _channel, text: errors.append(text),
+    )
+    lease = await provider.lease_channel(MEDIUM, AUDIO)
+    await lease.activate()
+    pull = provider._pulls["medium"]
+    await wait_until(lambda: len(started(fake_ffmpeg)) == 1)
+    exit_ffmpeg(pull, lease)
+    await wait_until(lambda: resolver.calls == 2)
+
+    await asyncio.wait_for(stop(lease, provider), 2)
+    gate.set()
+    await asyncio.sleep(0.1)
+    await lease.release()
+    await provider.close()
+
+    assert worker.sources[0].closed
+    assert (pull.pid, pull.restarts, len(started(fake_ffmpeg))) == (None, 0, 1)
+    # Only the exit: the cut resolve is no failed start.
+    assert [error.startswith("exited with") for error in errors] == [True]
+
+
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [({"key": "main-stream"}, ["1"]), ({}, ["1", "2"])],
+    ids=["key", "no-key"],
+)
+async def test_ffmpeg_provider_shares_a_channel_by_key(
+    fake_ffmpeg: Path, fields: dict[str, str], expected: list[str]
+) -> None:
+    """Verify inputs that differ share a source and an ffmpeg only by a key."""
+    worker = FakeWorker()
+    resolver = TokenResolver(**fields)
+    provider = FFmpegSourceProvider(
+        resolver, worker=cast(Any, worker), ffmpeg=str(fake_ffmpeg)
+    )
+    first = await provider.lease_channel(MEDIUM, AUDIO)
+    await first.activate()
+    second = await provider.lease_channel(MEDIUM, AUDIO)
+    await second.activate()
+    await wait_until(lambda: len(started(fake_ffmpeg)) == len(expected))
+    await first.release()
+    await second.release()
+    await provider.close()
+
+    assert len(worker.sources) == len(expected)
+    assert (first.source, second.source) == (worker.sources[0], worker.sources[-1])
+    # Each ffmpeg starts on the input of the lease that opened its channel.
+    assert sorted(tokens(fake_ffmpeg)) == expected
+    assert resolver.calls == 2
+
+
+@pytest.mark.parametrize(
+    ("fields", "shared"),
+    [
+        ({}, True),
+        ({"gop": 4.0}, True),
+        ({"audio": False}, False),
+        ({"video_map": "0:v:1"}, False),
+    ],
+    ids=["args", "gop", "audio", "video-map"],
+)
+async def test_ffmpeg_provider_key_stands_for_args_only(
+    fields: dict[str, Any], shared: bool
+) -> None:
+    """Verify a key shares a channel only between inputs differing in args."""
+    worker = FakeWorker()
+    provider = FFmpegSourceProvider(
+        {
+            "low": FFmpegInput(("-i", "cam?token=1"), key="main-stream", **fields),
+            "medium": FFmpegInput(("-i", "cam?token=2"), key="main-stream"),
+        },
+        worker=cast(Any, worker),
+    )
+    first = await provider.lease_channel(LOW, AUDIO)
+    second = await provider.lease_channel(MEDIUM, AUDIO)
+    await first.release()
+    await second.release()
+
+    assert (first.source is second.source) == shared
+    assert second.source.has_audio
+
+
 def pull_on(fake_ffmpeg: Path, gop: float = 10.0) -> FFmpegPull:
     """An ffmpeg pull running the fake ffmpeg."""
     return FFmpegPull(
@@ -395,7 +722,9 @@ async def test_ffmpeg_pull_backs_off_failed_starts(
     assert pull.restarts == 0
 
 
-async def test_failed_first_start_reaches_on_error(tmp_path: Path) -> None:
+async def test_failed_first_start_reaches_on_error(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """Verify a missing ffmpeg raises and is reported to on_error."""
     errors: list[tuple[str, str]] = []
     pull = FFmpegPull(
@@ -411,6 +740,7 @@ async def test_failed_first_start_reaches_on_error(tmp_path: Path) -> None:
     assert errors[0][1].startswith("could not start")
     assert pull.last_error == errors[0][1]
     assert pull.pid is None
+    assert f"ffmpeg for medium {errors[0][1]}" in caplog.messages
 
 
 @pytest.mark.parametrize(
@@ -458,3 +788,59 @@ async def test_ffmpeg_pull_restarts_for_a_keyframe(
 
     assert pull.pid != pid
     await pull.stop()
+
+
+async def test_command_resolved_as_the_pull_stops_is_not_run(
+    fake_ffmpeg: Path,
+) -> None:
+    """Verify a restart whose command comes as stop() begins runs no ffmpeg."""
+    stopping: list[asyncio.Future[None]] = []
+
+    async def stop_and_answer(_rtp_input: tuple[str, int, int]) -> list[str]:
+        stopping.append(asyncio.ensure_future(pull.stop()))
+        return [str(fake_ffmpeg)]
+
+    pull = FFmpegPull(
+        lambda _rtp_input: [str(fake_ffmpeg)],
+        "medium",
+        10.0,
+        restart_delay=0.01,
+        restart_command=stop_and_answer,
+    )
+    await pull.start(("127.0.0.1", 1, 2))
+    process = pull._process
+    os.kill(cast(int, pull.pid), signal.SIGTERM)
+    await wait_until(lambda: bool(stopping))
+    await stopping[0]
+
+    assert (pull._process, pull.restarts) == (process, 0)
+
+
+async def test_cancelled_watcher_ends_during_a_resolve(fake_ffmpeg: Path) -> None:
+    """Verify a watcher cancelled while a restart resolves ends, e.g. on shutdown."""
+    resolving = asyncio.Event()
+
+    async def hang(_rtp_input: tuple[str, int, int]) -> list[str]:
+        resolving.set()
+        await asyncio.Event().wait()
+        return [str(fake_ffmpeg)]
+
+    pull = FFmpegPull(
+        lambda _rtp_input: [str(fake_ffmpeg)],
+        "medium",
+        10.0,
+        restart_delay=0.01,
+        restart_command=hang,
+    )
+    await pull.start(("127.0.0.1", 1, 2))
+    os.kill(cast(int, pull.pid), signal.SIGTERM)
+    await resolving.wait()
+    watcher = cast(asyncio.Task[None], pull._watcher)
+
+    watcher.cancel()
+    await asyncio.wait({watcher}, timeout=2)
+    # Raises the watcher's cancellation; ends a watcher that went on instead.
+    with contextlib.suppress(asyncio.CancelledError):
+        await pull.stop()
+
+    assert watcher.cancelled()
