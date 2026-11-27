@@ -96,7 +96,9 @@ class FFmpegSourceProvider:
     (also by name, e.g. ``"medium"``), to ffmpeg input arguments or an
     :class:`FFmpegInput`; an identifier wins over a quality. It can instead
     be an async callable that resolves a tier to the same, or None when
-    nothing fits. Tiers with the same input share one ffmpeg.
+    nothing fits. Tiers with the same input share one ffmpeg. A restart of
+    ffmpeg, after an exit or for a keyframe request, calls it again: the
+    input may have expired meanwhile, e.g. a URL with a token.
 
     Video ``video_map`` is copied with ``dump_extra`` so every IRAP picture
     carries its parameter sets (an Annex B input such as RTSP; MP4 needs
@@ -113,7 +115,9 @@ class FFmpegSourceProvider:
     ``restart_delay``), and for a keyframe request only when no IRAP picture
     came for twice the GOP and ffmpeg runs at least that long: a copied
     stream gets its next IRAP picture with the next GOP anyway. The GOP is
-    the one the source measures, until then ``gop``.
+    the one the source measures, until then ``gop``. A restart whose input
+    cannot be resolved counts as a failed start and is tried again after the
+    backoff, which keyframe requests while no ffmpeg runs do not cut short.
     """
 
     def __init__(
@@ -255,15 +259,23 @@ class FFmpegSourceProvider:
         audio = audio_tier or hksv3.DEFAULT_AUDIO_TIER
         command = partial(
             self.command,
-            found,
             audio_bitrate=audio.target_bitrate,
             packet_time=audio.packet_time,
         )
         gop = found.gop or self.gop
 
+        async def restart_command(rtp_input: tuple[str, int, int]) -> list[str]:
+            # The input found above may have expired by now.
+            return command(await self.input_for(video_tier), rtp_input)
+
         def make_pull() -> FFmpegPull:
             pull = FFmpegPull(
-                command, name, gop, self.restart_delay, on_error=self._pull_error
+                partial(command, found),
+                name,
+                gop,
+                self.restart_delay,
+                on_error=self._pull_error,
+                restart_command=restart_command,
             )
             self._pulls[name] = pull
             return pull
@@ -319,11 +331,16 @@ class FFmpegPull:
         gop: float,
         restart_delay: float,
         on_error: Callable[[str, str], None] | None = None,
+        restart_command: Callable[[tuple[str, int, int]], Awaitable[list[str]]]
+        | None = None,
     ) -> None:
         """Configure the pull; :meth:`start` runs ffmpeg.
 
         ``gop`` is the expected IRAP interval until the source measured one.
         ``on_error(name, message)`` hears each unexpected exit or failed start.
+        ``restart_command(rtp_input)``, if given, makes the command of each
+        restart instead of ``command``, e.g. on an input resolved again;
+        :meth:`stop` cancels it.
         """
         self.name = name
         self.gop = gop
@@ -333,9 +350,12 @@ class FFmpegPull:
         self.last_error: str | None = None
         self._failures = 0
         self._command = command
+        self._restart_command = restart_command
+        self._rtp_input: tuple[str, int, int] = ("", 0, 0)
         self._argv: list[str] = []
         self._process: asyncio.subprocess.Process | None = None
         self._watcher: asyncio.Task[None] | None = None
+        self._resolving: asyncio.Future[list[str]] | None = None
         self._started = 0.0
         self._running = False
         self._restart_now = asyncio.Event()
@@ -348,6 +368,7 @@ class FFmpegPull:
 
     async def start(self, rtp_input: tuple[str, int, int]) -> None:
         """Run ffmpeg and keep it running until :meth:`stop`."""
+        self._rtp_input = rtp_input
         self._argv = self._command(rtp_input)
         self._running = True
         try:
@@ -355,14 +376,25 @@ class FFmpegPull:
         except BaseException as err:
             self._running = False
             if isinstance(err, OSError):
-                message = f"could not start: {err}"
+                message = _start_error(err)
                 logger.warning("ffmpeg for %s %s", self.name, message)
                 self._report(message)
             raise
         self._watcher = asyncio.ensure_future(self._watch())
 
-    async def _spawn(self) -> None:
+    async def _spawn(self, restart: bool = False) -> None:
         self._restart_now.clear()
+        if restart and self._restart_command is not None:
+            # In a task, so that stop() can cancel it.
+            self._resolving = asyncio.ensure_future(
+                self._restart_command(self._rtp_input)
+            )
+            try:
+                self._argv = await self._resolving
+            finally:
+                self._resolving = None
+            if not self._running:
+                return
         self._process = await asyncio.create_subprocess_exec(
             *self._argv,
             stdin=asyncio.subprocess.DEVNULL,
@@ -395,11 +427,20 @@ class FFmpegPull:
                 )
             while self._running:
                 try:
-                    await self._spawn()
-                except OSError as err:
+                    await self._spawn(restart=True)
+                except (Exception, asyncio.CancelledError) as err:
+                    # A CancelledError of the command's own is a failed start.
+                    task = asyncio.current_task()
+                    if task is not None and task.cancelling():
+                        raise
+                    if not self._running:
+                        # stop() cancelled the command.
+                        return
                     # No new process: back off further before the next try.
-                    await self._back_off(f"could not start: {err}")
+                    await self._back_off(_start_error(err))
                     continue
+                if not self._running:
+                    return
                 self.restarts += 1
                 break
 
@@ -431,7 +472,11 @@ class FFmpegPull:
         ``gop`` is the IRAP interval the source measured, if it did.
         """
         limit = 2 * (gop or self.gop)
+        process = self._process
         if not self._running or self._restart_now.is_set():
+            return
+        if process is None or process.returncode is not None:
+            # A restart is pending already; its backoff decides when.
             return
         if age is not None and age <= limit:
             return
@@ -445,13 +490,15 @@ class FFmpegPull:
             "-" if age is None else f"{age:.1f}",
         )
         self._restart_now.set()
-        if self._process is not None and self._process.returncode is None:
-            self._process.terminate()
+        process.terminate()
 
     async def stop(self) -> None:
         """Stop ffmpeg, killing it if it does not exit in time."""
         self._running = False
         self._restart_now.set()
+        if self._resolving is not None:
+            # The command of a restart may hang, e.g. on an unreachable camera.
+            self._resolving.cancel()
         await self._terminate()
         if self._watcher is not None:
             await self._watcher
@@ -479,6 +526,11 @@ class FFmpegPull:
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
             await process.wait()
+
+
+def _start_error(err: BaseException) -> str:
+    """Why ffmpeg was not started; the error of a resolver may hold a URL."""
+    return f"could not start: {redact_urls(str(err)) or type(err).__name__}"
 
 
 async def _log_output(name: str, process: asyncio.subprocess.Process) -> str | None:
