@@ -211,11 +211,9 @@ class FFmpegSourceProvider:
             *(self.ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "warning"),
             *stats,
             *ffmpeg_input.args,
-            *("-map", video_map, "-c:v", "copy", "-bsf:v", "dump_extra"),
-            *("-payload_type", str(hksv3.VIDEO_PAYLOAD_TYPE)),
-            # The source drops RTCP, and port + 1 may be the audio input.
-            *("-rtpflags", "skip_rtcp", "-f", "rtp", f"rtp://{host}:{video_port}"),
         ]
+        # The audio output comes first: after the video output, ffmpeg 6.1
+        # gives up on the video output with an I/O error and runs on.
         if audio_port:
             audio_map = ffmpeg_input.audio_map or self.audio_map
             command += [
@@ -225,7 +223,13 @@ class FFmpegSourceProvider:
                 *("-payload_type", str(hksv3.AUDIO_PAYLOAD_TYPE)),
                 *("-rtpflags", "skip_rtcp", "-f", "rtp", f"rtp://{host}:{audio_port}"),
             ]
-        return command
+        return [
+            *command,
+            *("-map", video_map, "-c:v", "copy", "-bsf:v", "dump_extra"),
+            *("-payload_type", str(hksv3.VIDEO_PAYLOAD_TYPE)),
+            # The source drops RTCP, and port + 1 may be the audio input.
+            *("-rtpflags", "skip_rtcp", "-f", "rtp", f"rtp://{host}:{video_port}"),
+        ]
 
     async def __call__(
         self,

@@ -116,13 +116,14 @@ def test_ffmpeg_command() -> None:
     assert command == [
         *("/bin/ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "warning"),
         *("-stats", "-stats_period", "10", "-i", "cam"),
-        *("-map", "0:v:1", "-c:v", "copy", "-bsf:v", "dump_extra"),
-        *("-payload_type", "99", "-rtpflags", "skip_rtcp"),
-        *("-f", "rtp", "rtp://127.0.0.1:6000"),
+        # ffmpeg 6.1 loses the video output when it comes before the audio one.
         *("-map", "0:a:2", "-c:a", "libopus", "-ac", "1", "-ar", "48000"),
         *("-b:a", "24000", "-application", "lowdelay", "-frame_duration", "20"),
         *("-payload_type", "110", "-rtpflags", "skip_rtcp"),
         *("-f", "rtp", "rtp://127.0.0.1:6002"),
+        *("-map", "0:v:1", "-c:v", "copy", "-bsf:v", "dump_extra"),
+        *("-payload_type", "99", "-rtpflags", "skip_rtcp"),
+        *("-f", "rtp", "rtp://127.0.0.1:6000"),
     ]
 
 
